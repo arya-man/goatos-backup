@@ -121,8 +121,8 @@ Use Cube when the question is asking for a leadership KPI, trend, comparison, or
 slice that has an approved metric:
 
 ```text
-User asks: "How many vaccinations are overdue by park?"
-Gemini plans: metric = vaccination_overdue, dimension = park
+User asks: "How many vaccinations are overdue by shed?"
+Gemini plans: metric = vaccination_overdue, dimension = shed
 Mesha assistant API calls Cube
 Cube runs the approved SQL against Postgres or BigQuery
 Mesha assistant API reviews, formats, and returns the answer
@@ -307,9 +307,9 @@ future leadership-relevant module.
 
 The `GET /ceo-ai/starters` default questions are backend-owned and truthful to
 the governed Cube metrics + `ceo_ai.*` read tools the assistant currently routes
-to. They include chart-oriented prompts ("Plot vaccination overdue by park",
-"Chart vaccinations due today by park") that resolve to an existing dimensioned
-metric (due/overdue counts by park) so the runtime can emit a grounded bar chart
+to. They include chart-oriented prompts ("Plot vaccination overdue by shed",
+"Chart vaccinations due today by park") that resolve to existing dimensioned
+metrics (due/overdue counts by shed or park) so the runtime can emit a grounded bar chart
 without inventing data. Adding a starter must not imply coverage the read APIs /
 MCP Toolbox / SQL fallback cannot answer.
 

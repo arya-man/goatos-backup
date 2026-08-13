@@ -33,3 +33,18 @@ val LocalDrawerOpener = staticCompositionLocalOf<(() -> Unit)?> { null }
  * show an Up/Back affordance just because the drawer is unavailable.
  */
 val LocalIsTopLevelRoot = staticCompositionLocalOf { false }
+
+/**
+ * True when the shell's module drawer is on screen AND therefore already lists this principal's
+ * modules (2+ granted modules on an exact L0 root).
+ *
+ * READ-ONLY LAYOUT SIGNAL — deliberately NOT the drawer itself. A screen may use it to avoid
+ * repeating the drawer's module list as in-body chips, exactly as `LocalIsTopLevelRoot` lets a
+ * screen decide an affordance without owning navigation. Drawer ACCESS stays shell-owned via
+ * [sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader]; a feature reading
+ * [LocalDrawerOpener] directly is blocked by `make android-navigation-stack-guard`.
+ *
+ * The shell (`GoatOsShellChrome`) is the ONLY producer. `false` by default keeps previews and
+ * Paparazzi safe: a screen rendered outside the shell assumes no drawer and keeps its own chips.
+ */
+val LocalDrawerCarriesModules = staticCompositionLocalOf { false }

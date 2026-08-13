@@ -1,0 +1,419 @@
+CPT Missing Sheds — Assumed RFID Mapping
+Counting DB date: 17/07/2026
+
+Tag, shed, breed, type, and kid/adult values come from the CPT Counting DB DB tab.
+
+SUMMARY
+Missing sheds: 21
+Synthetic RFID rows: 407
+Kid: 407 | Adult: 0
+Sheep: 298 | Goat: 109
+
+ASSUMED_RFID	TAG	SHED	TYPE	BREED	KID_ADULT
+ASSUMED-RFID-0001	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0002	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0003	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0004	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0005	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0006	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0007	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0008	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0009	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0010	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0011	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0012	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0013	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0014	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0015	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0016	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0017	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0018	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0019	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0020	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0021	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0022	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0023	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0024	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0025	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0026	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0027	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0028	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0029	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0030	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0031	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0032	F2-Male	Castro 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0033	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0034	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0035	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0036	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0037	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0038	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0039	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0040	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0041	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0042	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0043	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0044	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0045	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0046	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0047	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0048	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0049	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0050	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0051	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0052	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0053	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0054	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0055	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0056	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0057	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0058	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0059	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0060	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0061	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0062	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0063	F2-Male	Castro 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0064	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0065	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0066	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0067	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0068	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0069	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0070	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0071	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0072	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0073	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0074	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0075	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0076	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0077	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0078	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0079	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0080	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0081	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0082	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0083	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0084	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0085	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0086	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0087	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0088	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0089	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0090	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0091	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0092	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0093	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0094	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0095	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0096	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0097	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0098	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0099	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0100	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0101	F2-Male	Godel 2 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0102	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0103	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0104	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0105	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0106	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0107	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0108	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0109	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0110	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0111	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0112	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0113	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0114	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0115	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0116	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0117	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0118	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0119	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0120	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0121	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0122	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0123	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0124	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0125	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0126	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0127	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0128	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0129	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0130	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0131	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0132	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0133	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0134	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0135	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0136	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0137	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0138	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0139	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0140	F2-Male	Godel 2 - Part 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0141	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0142	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0143	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0144	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0145	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0146	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0147	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0148	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0149	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0150	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0151	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0152	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0153	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0154	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0155	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0156	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0157	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0158	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0159	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0160	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0161	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0162	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0163	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0164	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0165	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0166	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0167	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0168	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0169	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0170	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0171	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0172	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0173	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0174	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0175	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0176	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0177	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0178	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0179	F2-Female	Godel 2 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0180	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0181	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0182	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0183	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0184	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0185	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0186	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0187	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0188	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0189	F2-Male	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0190	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0191	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0192	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0193	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0194	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0195	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0196	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0197	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0198	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0199	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0200	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0201	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0202	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0203	F2-Female	Mandela 1 - Part 10	Goat	Beetal	Kid
+ASSUMED-RFID-0204	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0205	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0206	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0207	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0208	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0209	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0210	F2-Female	Mandela 1 - Part 2	Goat	Beetal	Kid
+ASSUMED-RFID-0211	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0212	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0213	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0214	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0215	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0216	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0217	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0218	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0219	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0220	F2-Male	Mandela 1 - Part 3	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0221	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0222	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0223	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0224	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0225	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0226	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0227	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0228	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0229	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0230	F2-Male	Mandela 1 - Part 4	Goat	Beetal	Kid
+ASSUMED-RFID-0231	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0232	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0233	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0234	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0235	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0236	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0237	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0238	F2-Female	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0239	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0240	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0241	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0242	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0243	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0244	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0245	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0246	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0247	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0248	F2-Female	Mandela 1 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0249	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0250	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0251	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0252	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0253	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0254	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0255	F2-Male	Mandela 1 - Part 7	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0256	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0257	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0258	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0259	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0260	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0261	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0262	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0263	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0264	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0265	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0266	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0267	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0268	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0269	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0270	F2-Female	Mandela 1 - Part 8	Goat	Beetal	Kid
+ASSUMED-RFID-0271	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0272	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0273	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0274	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0275	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0276	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0277	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0278	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0279	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0280	F2-Male	Mandela 1 - Part 9	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0281	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0282	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0283	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0284	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0285	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0286	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0287	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0288	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0289	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0290	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0291	F2-Female	Mandela 2 - Part 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0292	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0293	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0294	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0295	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0296	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0297	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0298	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0299	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0300	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0301	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0302	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0303	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0304	F2-Male	Mandela 2 - Part 5	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0305	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0306	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0307	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0308	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0309	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0310	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0311	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0312	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0313	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0314	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0315	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0316	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0317	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0318	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0319	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0320	F2-Female	Mandela 2 - Part 6	Goat	Beetal	Kid
+ASSUMED-RFID-0321	ICU-Kid	Yashoda 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0322	ICU-Kid	Yashoda 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0323	ICU-Kid	Yashoda 1	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0324	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0325	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0326	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0327	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0328	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0329	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0330	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0331	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0332	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0333	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0334	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0335	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0336	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0337	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0338	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0339	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0340	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0341	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0342	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0343	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0344	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0345	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0346	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0347	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0348	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0349	K3	Yashoda 2	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0350	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0351	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0352	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0353	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0354	K2	Yashoda 4	Goat	Sojat	Kid
+ASSUMED-RFID-0355	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0356	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0357	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0358	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0359	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0360	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0361	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0362	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0363	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0364	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0365	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0366	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0367	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0368	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0369	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0370	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0371	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0372	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0373	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0374	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0375	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0376	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0377	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0378	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0379	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0380	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0381	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0382	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0383	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0384	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0385	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0386	K2	Yashoda 4	Goat	Beetal	Kid
+ASSUMED-RFID-0387	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0388	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0389	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0390	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0391	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0392	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0393	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0394	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0395	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0396	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0397	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0398	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0399	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0400	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0401	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0402	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0403	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0404	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0405	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0406	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid
+ASSUMED-RFID-0407	K2	Yashoda 4	Sheep	Anantapur Sheep	Kid

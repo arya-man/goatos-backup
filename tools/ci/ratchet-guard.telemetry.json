@@ -1,0 +1,7 @@
+{
+  "name": "telemetry-guard-ratchet",
+  "command": ["python3", "tools/telemetry-guard/telemetry-guard.py", "--all", "--json", "--only-surfaces", "android,admin_web"],
+  "key_fields": ["file", "surface"],
+  "severity_filter": "FAIL",
+  "baseline_path": "tools/telemetry-guard/baseline.json"
+}

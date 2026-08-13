@@ -131,3 +131,9 @@ func TestUpdateOperatorAssignmentConfig_RejectsN1WithNullDefault(t *testing.T) {
 func (*operatorConfigFakeRepo) AuthorizedParkOptions(context.Context, string, []string) ([]domain.ParkOption, error) {
 	return nil, nil
 }
+
+func (r *operatorConfigFakeRepo) ListAlerts(
+	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
+) (domain.AlertPage, error) {
+	return domain.AlertPage{Items: []domain.Alert{}}, nil
+}

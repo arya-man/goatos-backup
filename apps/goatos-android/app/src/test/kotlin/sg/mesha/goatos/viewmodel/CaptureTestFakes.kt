@@ -9,6 +9,7 @@ import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
@@ -22,10 +23,13 @@ import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
+import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
 /** In-memory [ScanCaptureRepository] test double — real dedup semantics (unique per
- *  task+field+tag), no Room. Mirrors [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s
- *  observable contract closely enough to drive [SubmitViewModel] tests. */
+ *  task+field+tag+obligation), no Room. Mirrors
+ *  [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s observable contract closely
+ *  enough to drive [SubmitViewModel] tests: durable rows are obligation-grained, while submitted
+ *  tag answers are still distinct animal/RFID scans. */
 class FakeScanCaptureRepository : ScanCaptureRepository {
     private val rows = mutableListOf<ScannedGoatRow>()
     private val flow = MutableStateFlow<List<ScannedGoatRow>>(emptyList())
@@ -34,13 +38,18 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     var enqueuePendingScansCalls: Int = 0
         private set
 
-    override fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>> =
-        flow.map { list -> list.filter { it.fieldKey == fieldKey } }
+    override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
+        flow.map { list ->
+            list.filter { it.fieldKey == fieldKey && it.partitionKey == testPartitionKey(partitionLabel) }
+        }
 
-    override fun observeScannedCount(taskId: String, fieldKey: String): Flow<Int> =
-        flow.map { list -> list.count { it.fieldKey == fieldKey } }
+    override fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String?): Flow<Int> =
+        flow.map { list ->
+            list.count { it.fieldKey == fieldKey && it.partitionKey == testPartitionKey(partitionLabel) }
+        }
 
-    override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> = flow
+    override fun observeAllForTask(taskId: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
+        flow.map { list -> list.filter { it.partitionKey == testPartitionKey(partitionLabel) } }
 
     override suspend fun recordScan(
         taskId: String,
@@ -48,26 +57,59 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         tag: String,
         goatId: String?,
         obligationId: String?,
+        obligationRowVersion: Int,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ) {
         recordScanCalls++
-        if (rows.none { it.fieldKey == fieldKey && it.tag == tag }) {
+        val partitionKey = testPartitionKey(partitionLabel)
+        if (rows.none {
+            it.partitionKey == partitionKey &&
+                it.fieldKey == fieldKey &&
+                it.tag == tag &&
+                it.obligationId == obligationId
+        }) {
             rows += ScannedGoatRow(
                 fieldKey = fieldKey,
                 tag = tag,
                 goatId = goatId,
                 obligationId = obligationId,
                 capturedAtMs = capturedAtMs ?: rows.size.toLong(),
+                partitionKey = partitionKey,
             )
             flow.value = rows.toList()
         }
     }
 
-    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
+    override suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long?,
+        partitionLabel: String?,
+    ): Boolean {
+        val partitionKey = testPartitionKey(partitionLabel)
+        if (rows.any { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag && it.obligationId == null }) return false
+        recordScan(taskId, fieldKey, tag, capturedAtMs = capturedAtMs, partitionLabel = partitionLabel)
+        return true
+    }
+
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String, partitionLabel: String?) {
         enqueuePendingScansCalls++
     }
 
-    override suspend fun tagsForTask(taskId: String): List<String> = rows.map { it.tag }
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String, partitionLabel: String?) {
+        val partitionKey = testPartitionKey(partitionLabel)
+        val index = rows.indexOfFirst {
+            it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag
+        }
+        if (index < 0) return
+        rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.SYNCED)
+        flow.value = rows.toList()
+    }
+
+    override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> =
+        rows.filter { it.partitionKey == testPartitionKey(partitionLabel) }.map { it.tag }.distinct()
 
     fun rowsForTask(taskId: String): List<ScannedGoatRow> = rows.filter { it.fieldKey.isNotBlank() }
 
@@ -87,6 +129,7 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
         val outcome: RfidScanAttemptOutcome,
         val tagRole: RfidScanTagRole,
         val reason: String?,
+        val capturedAtMs: Long?,
     )
 
     val calls = mutableListOf<AttemptCall>()
@@ -105,8 +148,9 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
         outcome: RfidScanAttemptOutcome,
         tagRole: RfidScanTagRole,
         reason: String?,
+        capturedAtMs: Long?,
     ) {
-        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason)
+        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason, capturedAtMs)
         rows += RfidScanAttemptRow(
             id = "attempt-${rows.size}",
             taskId = taskId,
@@ -118,7 +162,7 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
             outcome = outcome,
             tagRole = tagRole,
             reason = reason,
-            capturedAtMs = rows.size.toLong(),
+            capturedAtMs = capturedAtMs ?: rows.size.toLong(),
         )
         flow.value = rows.toList()
     }
@@ -139,6 +183,11 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val fieldKey: String,
         val subject: ProofSubject,
         val subjectId: String?,
+        // Free-flow weighing does NOT resolve an RFID tag to an animal id, so its proof rows carry
+        // subjectId = null and identify the animal by CAPTION (the scanned tag). Attribution tests
+        // for that module need the caption, not just the subject id.
+        val caption: String?,
+        val rfidTag: String?,
         val localUri: String,
         val capturedStartMs: Long,
         val capturedEndMs: Long,
@@ -150,7 +199,13 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     val captureCalls = mutableListOf<CaptureCall>()
     private var nextId = 0
 
-    override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> = flow
+    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
+        flow.map { list -> list.filter { it.partitionKey == testPartitionKey(partitionLabel) } }
+
+    fun seedProofs(vararg proofRows: ProofCaptureRow) {
+        rows += proofRows
+        flow.value = rows.toList()
+    }
 
     override suspend fun capture(
         taskId: String,
@@ -160,14 +215,18 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         localUri: String,
         mimeType: String,
         caption: String?,
+        rfidTag: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
+        partitionLabel: String?,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> {
-        captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, rfidTag, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
         // because the whole shed is the proof subject.
@@ -176,7 +235,28 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         } else {
             proofPolicy.maximumCountPerSubject
         }
-        val activeRows = rows.count { it.subjectId == subjectId && it.syncStatus != CaptureSyncStatus.FAILED }
+        val partitionKey = testPartitionKey(partitionLabel)
+        // Mirror the production per-SLOT cap. Without this the fake pools every slot under the
+        // subject cap, which is exactly the behaviour the real repository stopped doing.
+        proofPolicy.maximumCountPerField?.let { perFieldCap ->
+            // Mirrors activeCountForField: a DELIVERED row (serverProofId set) is history, not an
+            // in-flight duplicate, so it does not hold the slot. Keeping it counted here would make
+            // this fake disagree with the DAO and hide the reopened-pen case.
+            val activeForField = rows.count {
+                it.partitionKey == partitionKey &&
+                    it.fieldKey == fieldKey &&
+                    it.syncStatus != CaptureSyncStatus.FAILED &&
+                    it.serverProofId == null
+            }
+            if (activeForField >= perFieldCap) {
+                return AppResult.Err("This proof is already recorded. Use re-capture to replace it.")
+            }
+        }
+        val activeRows = rows.count {
+            it.partitionKey == partitionKey &&
+                it.subjectId == subjectId &&
+                it.syncStatus != CaptureSyncStatus.FAILED
+        }
         if (activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
@@ -201,7 +281,9 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             capturedByPrincipalId = capturedByPrincipalId,
             syncStatus = CaptureSyncStatus.PENDING,
             serverProofId = null,
+            outboxItemId = if (awaitUploadEnqueue) "proof-outbox-${nextId}" else null,
             lastError = null,
+            partitionKey = partitionKey,
         )
         rows += row
         flow.value = rows.toList()
@@ -262,27 +344,73 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     }
 }
 
+private fun testPartitionKey(partitionLabel: String?): String {
+    val normalized = partitionLabel.orEmpty().trim().lowercase()
+        .replace(Regex("^part[\\s]+"), "")
+    return normalized.ifBlank { "whole" }
+}
+
 /** Defaults to an operator profile present (capture allowed) — pass `profile = null` to test
  *  the approver-only/leadership role-blocked path. */
 class FakeCaptureBootstrapRepository(
     private val profile: BootstrapOperatorProfileDto? = BootstrapOperatorProfileDto(operatorId = "operator-1", primaryRoleHint = "operator"),
+    // Execution capability is backend-compiled into the bootstrap feature flags, NOT inferred from
+    // the role hint above. Defaults to authorized so existing capture tests keep their behavior.
+    private val featureFlags: Map<String, Boolean> = mapOf("vaccination_execute" to true),
 ) : BootstrapRepository {
-    override suspend fun loadNavState(): NavState = NavState.Empty
+    override suspend fun loadNavState(): NavState = NavState.Empty.copy(featureFlags = featureFlags)
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
 }
 
-/** Minimal [TasksRepository] test double for [ScanViewModel]'s R50-027 proof-policy read — only
- *  [observeTaskDetail] is exercised (the roster scan screen never lists/refreshes tasks itself).
- *  Defaults to [ProofPolicy.Default] (no [detail] supplied) so existing scan tests that do not
- *  care about proof policy keep their historical hardcoded-constant behavior unchanged. */
+/** Minimal [TasksRepository] test double for [ScanViewModel]'s proof-policy read. Vaccination
+ *  execution is per-goat proof by default; scan-only tests must opt out explicitly so the fixture
+ *  cannot mask the production camera path. */
 class FakeTasksRepositoryForCapture(
-    private val detail: TaskDetail? = null,
+    private val detail: TaskDetail? = proofTaskDetail(),
+    initialSummary: ShedCompletionSummaryDto? = null,
+    private val summaryOnRefresh: ShedCompletionSummaryDto? = initialSummary,
 ) : TasksRepository {
+    private val summaries = mutableMapOf<Pair<String, String?>, MutableStateFlow<ShedCompletionSummaryDto?>>()
+    val refreshedShedIds = mutableListOf<String?>()
+
     override suspend fun taskDetail(taskId: String): TaskDetail = detail ?: error("unused")
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
         MutableStateFlow(Resource(data = detail))
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
-    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
-        MutableStateFlow(null)
-    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = Result.success(Unit)
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> =
+        summaryFlow(taskId, shedId)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> {
+        refreshedShedIds += shedId
+        summaryFlow(taskId, shedId).value = summaryOnRefresh
+        return Result.success(Unit)
+    }
+
+    private fun summaryFlow(taskId: String, shedId: String?): MutableStateFlow<ShedCompletionSummaryDto?> =
+        summaries.getOrPut(taskId to shedId) { MutableStateFlow(initialSummaryForKey(shedId)) }
+
+    private fun initialSummaryForKey(shedId: String?): ShedCompletionSummaryDto? =
+        if (shedId == null) null else summaryOnRefresh
 }
+
+fun noProofTaskDetail(): TaskDetail = TaskDetail(
+    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+    form = FormSpec.Empty,
+    proofPolicy = ProofPolicy(
+        types = emptyList(),
+        required = false,
+        proofMode = "none",
+        subjectScope = "",
+        expectedSubjects = emptyList(),
+        minimumCount = 0,
+        maximumCount = 0,
+        minimumCountPerSubject = 0,
+        maximumCountPerSubject = 0,
+        allowedCaptureSources = emptyList(),
+    ),
+)
+
+private fun proofTaskDetail(): TaskDetail = TaskDetail(
+    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+    form = FormSpec.Empty,
+    proofPolicy = ProofPolicy.Default,
+)

@@ -18,15 +18,16 @@
 //  1. Upserts the pending email grant (auth_pending_email_grants) — belt and
 //     suspenders: keeps the claim path working too, and gives a visible audit
 //     trail, exactly like seed-dev-email-grants already does.
-//  2. Directly inserts/confirms the ACTIVE tenant-scope user_scope_grants row,
+//  2. Directly inserts/confirms the ACTIVE user_scope_grants row: tenant scope
+//     for leadership, park scope for park staff/operators,
 //     keyed by platformauth.StableSubjectID(issuer, firebase_uid) — the same
 //     derivation the backend uses at request time (jwt.go) — so login works
 //     immediately, without waiting for a claim event.
 //  3. For operators/director only: binds the derived user_id onto their
 //     EXISTING named workforce_members roster row (seeded by seed-roster-real
 //     / seed-vaccination-cpt-operator-drive), and ensures
-//     department_module_grants gives their department the vaccination
-//     bottom bar. Leadership (ceo_internal) intentionally get no department:
+//     department_module_grants gives their department the vaccination + counts
+//     + feed_direction bottom bar. Leadership (ceo_internal) intentionally get no department:
 //     bootstrap_copy.go:214 already gives them every built module without one.
 //
 // Safe to re-run any number of times: every write is a guarded
@@ -52,9 +53,22 @@ import (
 )
 
 // defaultVaccinationModules matches the department_module_grants seeded
-// elsewhere for preventive_care (vaccination + counts) so operators/director
-// see the same bottom bar as any other preventive_care roster member.
-var defaultVaccinationModules = []string{"vaccination", "counts"}
+// elsewhere for preventive_care (vaccination + counts + feed_direction) so
+// operators/director see the same bottom bar as any other preventive_care
+// roster member. This MUST stay in sync with
+// seed-roster-real.defaultDepartmentModules["preventive_care"]: a PC operator
+// dispatches and packs what the feed direction says (maintainer decision
+// 2026-07-22), and RoleOperator already holds ProtocolRead/FeedPackingRead for
+// those two Feed tabs. Omitting feed_direction here is what left STG-seeded
+// operators without the Feed module while local (roster-seeded) operators had it.
+// NO "milk" and NO "aas_health" (maintainer decision 2026-08-05): a PC seat's bar is
+// Vaccination + Counts + Feed. This list previously carried "milk" and was left behind
+// when seed-roster-real and migration 000110 dropped it, which mattered because
+// grantDepartmentModules re-activates every key it is given
+// (ON CONFLICT DO UPDATE SET status='active') -- so the next run of this command on STG
+// would have silently REVERSED that migration. A seed command must never undo a landed
+// decision. The retired counts-implies-milk coupling is not a reason to add it back.
+var defaultVaccinationModules = []string{"vaccination", "counts", "feed_direction"}
 
 var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
@@ -126,8 +140,15 @@ func main() {
 			continue
 		}
 
-		if err := materializeTenantGrant(ctx, pool, tenantID, userID, acct.Role); err != nil {
-			res.err = fmt.Errorf("materialize tenant grant: %w", err)
+		scopeType, scopeID, err := resolveGrantScope(ctx, pool, tenantID, acct)
+		if err != nil {
+			res.err = fmt.Errorf("resolve grant scope: %w", err)
+			results = append(results, res)
+			continue
+		}
+
+		if err := materializeScopeGrant(ctx, pool, tenantID, userID, acct.Role, scopeType, scopeID); err != nil {
+			res.err = fmt.Errorf("materialize %s grant: %w", scopeType, err)
 			results = append(results, res)
 			continue
 		}
@@ -205,11 +226,19 @@ func main() {
 		fmt.Println("seed-stg-login-grants: dry-run complete, no writes performed")
 		return
 	}
+	// Per-person authority grants: Counts approval, and the extra roles named individuals hold
+	// alongside their job role (maintainer decisions 2026-08-05 and 2026-08-07). Runs AFTER the
+	// roster loop because it resolves user_ids from accounts and roster rows seeded above.
+	perPersonFailures := reportPerPersonGrants(seedPerPersonGrants(ctx, pool, tenantID, authIssuer, source))
+	failed += perPersonFailures
+
+	fmt.Println()
 	if failed > 0 {
-		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d/%d accounts FAILED — STG seed is INCOMPLETE\n", failed, len(results))
+		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d failure(s) across %d accounts and %d per-person grantee(s) — STG seed is INCOMPLETE\n",
+			failed, len(results), len(perPersonGrants))
 		os.Exit(1)
 	}
-	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE tenant grant and mobile profile\n", len(results))
+	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE scoped grant and mobile profile\n", len(results))
 }
 
 func envOrDefault(key, def string) string {
@@ -225,6 +254,18 @@ func envOrDefault(key, def string) string {
 // materialization route for anyone who signs in before this command re-runs.
 func upsertPendingEmailGrant(ctx context.Context, pool *pgxpool.Pool, tenantID string, acct Account, source string) error {
 	email := authallow.NormalizeEmail(acct.Email)
+	if acct.ParkCode != "" {
+		_, err := pool.Exec(ctx, `
+UPDATE auth_pending_email_grants
+SET status = 'revoked', valid_to = COALESCE(valid_to, now()), updated_at = now()
+WHERE tenant_id = $1
+  AND normalized_email = $2
+  AND role = $3
+  AND scope_type = 'tenant'
+  AND status = 'active'
+  AND valid_to IS NULL`, tenantID, email, acct.Role)
+		return err
+	}
 	var pendingGrantID string
 	return pool.QueryRow(ctx, `
 INSERT INTO auth_pending_email_grants (
@@ -241,11 +282,24 @@ DO UPDATE SET
 RETURNING pending_grant_id::text`, tenantID, email, acct.Role, source).Scan(&pendingGrantID)
 }
 
-// materializeTenantGrant is the fix: insert the ACTIVE user_scope_grants row
-// directly (mirrors seed-dev-grant's insert+idempotency shape) instead of
+// materializeScopeGrant inserts the ACTIVE user_scope_grants row directly
+// (mirrors seed-dev-grant's insert+idempotency shape) instead of
 // waiting for the claim event that admin-web/mobile logins do not reliably
 // trigger during a fresh STG seed.
-func materializeTenantGrant(ctx context.Context, pool *pgxpool.Pool, tenantID, userID, role string) error {
+func materializeScopeGrant(ctx context.Context, pool *pgxpool.Pool, tenantID, userID, role, scopeType, scopeID string) error {
+	if scopeType != "tenant" {
+		if _, err := pool.Exec(ctx, `
+UPDATE user_scope_grants
+SET status = 'revoked', valid_to = COALESCE(valid_to, now())
+WHERE tenant_id = $1
+  AND user_id = $2
+  AND role = $3
+  AND scope_type = 'tenant'
+  AND status = 'active'
+  AND valid_to IS NULL`, tenantID, userID, role); err != nil {
+			return fmt.Errorf("revoke stale tenant grant: %w", err)
+		}
+	}
 	var grantID string
 	err := pool.QueryRow(ctx, `
 SELECT grant_id::text
@@ -253,14 +307,14 @@ FROM user_scope_grants
 WHERE tenant_id = $1
   AND user_id = $2
   AND role = $3
-  AND scope_type = 'tenant'
-  AND scope_id = $1
+  AND scope_type = $4
+  AND scope_id = $5
   AND status = 'active'
   AND valid_from <= now()
   AND (valid_to IS NULL OR valid_to > now())
 ORDER BY valid_from DESC, grant_id DESC
 LIMIT 1
-`, tenantID, userID, role).Scan(&grantID)
+`, tenantID, userID, role, scopeType, scopeID).Scan(&grantID)
 	if err == nil {
 		return nil // already active — idempotent no-op
 	}
@@ -269,9 +323,30 @@ LIMIT 1
 	}
 	return pool.QueryRow(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
-VALUES ($1, $2, $3, 'tenant', $1, 'active', now())
+VALUES ($1, $2, $3, $4, $5, 'active', now())
 RETURNING grant_id::text
-`, tenantID, userID, role).Scan(&grantID)
+`, tenantID, userID, role, scopeType, scopeID).Scan(&grantID)
+}
+
+func resolveGrantScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, acct Account) (string, string, error) {
+	if strings.TrimSpace(acct.ParkCode) == "" {
+		return "tenant", tenantID, nil
+	}
+	var parkID string
+	err := pool.QueryRow(ctx, `
+SELECT location_id::text
+FROM locations
+WHERE tenant_id = $1
+  AND location_type = 'park'
+  AND location_code = $2
+  AND status = 'active'`, tenantID, acct.ParkCode).Scan(&parkID)
+	if isNoRows(err) {
+		return "", "", fmt.Errorf("park %q not found for %s", acct.ParkCode, acct.DisplayName)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return "park", parkID, nil
 }
 
 func lookupDepartmentID(ctx context.Context, pool *pgxpool.Pool, tenantID, code string) (string, error) {

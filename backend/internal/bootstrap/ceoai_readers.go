@@ -16,6 +16,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
@@ -24,6 +25,7 @@ import (
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	operationsauditdomain "github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -122,10 +124,25 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 	return "", false, nil
 }
 
+// buildCountsReader maps park_label/shed_id/stage/breed/sex onto
+// countsdomain.CountsBreakdownQuery's real fields, plus "partition_label" --
+// which the underlying grain (ceo_ai.animal_current_scope's counts-domain
+// twin) already carries per row (CountsBreakdownRow.PartitionLabel /
+// OperationalLocationDisplay) even though CountsBreakdownQuery itself has no
+// partition filter field. So "at Castro 1" is honored two ways: every row's
+// Scope renders through oploc.OperationalLocation.Display() -- which already
+// disambiguates "Castro 1" from "Castro 2" instead of collapsing both under
+// the bare "Castro" shed label -- and, when the caller names a specific
+// partition, rows for every OTHER partition of that shed are dropped before
+// the fact list is built (oploc.SamePartition, so "1" and "Part 1" match the
+// same partition). A shed with no partitions renders its bare shed name,
+// never the "whole" sentinel, per oploc.OperationalLocation.Display().
 func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
-		if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
+		if parkID, ok := params["park_id"].(string); ok && parkID != "" {
+			q.ParkID = &parkID
+		} else if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
 			parkID, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
 			if err != nil {
 				return nil, err
@@ -147,6 +164,11 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 		if sex, ok := params["sex"].(string); ok && sex != "" {
 			q.Sex = &sex
 		}
+		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
+		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
+		if hasPartitionFilter {
+			q.PartitionLabel = &partitionFilter
+		}
 
 		result, err := svc.GetBreakdown(ctx, q)
 		if err != nil {
@@ -157,6 +179,12 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			Label: "Active animals",
 			Value: fmt.Sprintf("%d", result.TotalCount),
 		}}
+		if wantsSpeciesSplit(params) {
+			goats, sheep := speciesCountsFromBreeds(result.Charts.Breed)
+			facts = append(facts, ceodomain.Fact{Label: "Goats", Value: fmt.Sprintf("%d", goats)})
+			facts = append(facts, ceodomain.Fact{Label: "Sheep", Value: fmt.Sprintf("%d", sheep)})
+			return facts, nil
+		}
 		if result.TotalKids > 0 || result.TotalAdults > 0 {
 			facts = append(facts, ceodomain.Fact{
 				Label: "Age bands",
@@ -164,9 +192,13 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			})
 		}
 		for _, row := range result.Items {
+			if hasPartitionFilter && !oploc.SamePartition(row.PartitionLabel, partitionFilter) {
+				continue
+			}
+			loc := oploc.OperationalLocation{ShedName: row.ShedLabel, PartitionLabel: row.PartitionLabel}
 			scope := row.ParkLabel
 			if row.ShedLabel != "" {
-				scope = fmt.Sprintf("%s / %s", row.ParkLabel, row.ShedLabel)
+				scope = fmt.Sprintf("%s / %s", row.ParkLabel, loc.Display())
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: "Counts breakdown",
@@ -176,6 +208,27 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 		}
 		return facts, nil
 	}
+}
+
+func wantsSpeciesSplit(params map[string]any) bool {
+	if groupBy, ok := params["group_by"].(string); ok && groupBy == "species" {
+		return true
+	}
+	if dims, ok := params["dimensions"].(string); ok && dims == "species" {
+		return true
+	}
+	return false
+}
+
+func speciesCountsFromBreeds(points []countsdomain.CountsBreakdownSeriesPoint) (goats int64, sheep int64) {
+	for _, point := range points {
+		if strings.Contains(strings.ToLower(point.Label), "sheep") {
+			sheep += point.Count
+		} else {
+			goats += point.Count
+		}
+	}
+	return goats, sheep
 }
 
 // buildProcurementReader maps ONLY "status" -- the sole advertised param
@@ -281,7 +334,7 @@ func buildVerificationReader(svc verificationQueueLister) func(ctx context.Conte
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: "Verification Item",
-				Value: fmt.Sprintf("Status: %s, Evidence Available: %v", item.Item.Status, item.EvidenceAvailable),
+				Value: fmt.Sprintf("Status: %s, Evidence Available: %v", item.Item.Status, item.EvidenceLinkResolved),
 				Scope: scope,
 			})
 		}
@@ -321,6 +374,8 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 		}
 		facts := make([]ceodomain.Fact, 0, len(result.Rows)+1)
 		totalAnimals, totalDue, totalDone, totalSessions := 0, 0, 0, 0
+		metricLabel := vaccinationMetricLabel(params)
+		aggregateTotal := stringParam(params, "aggregate_total") == "true"
 		for _, row := range result.Rows {
 			totalAnimals += row.Animals
 			totalDue += row.Due
@@ -329,6 +384,22 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 			scope := row.ParkName
 			if row.ShedName != "" {
 				scope = scope + " / " + row.ShedName
+			}
+			if metricLabel != "" {
+				facts = append(facts, ceodomain.Fact{
+					Label: metricLabel,
+					Value: fmt.Sprintf("%d", row.Due),
+					Scope: scope,
+				})
+				continue
+			}
+			if metricLabel != "" {
+				facts = append(facts, ceodomain.Fact{
+					Label: metricLabel,
+					Value: fmt.Sprintf("%d", row.Due),
+					Scope: scope,
+				})
+				continue
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: "Vaccination shed",
@@ -342,8 +413,43 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 			Value: fmt.Sprintf("Sheds: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
 				len(result.Rows), totalAnimals, totalDue, totalDone, totalSessions),
 		}}, facts...)
+		if metricLabel != "" && aggregateTotal {
+			return []ceodomain.Fact{{
+				Label: metricLabel,
+				Value: fmt.Sprintf("%d", totalDue),
+				Scope: "all parks",
+			}}, nil
+		}
 		return facts, nil
 	}
+}
+
+func vaccinationMetricLabel(params map[string]any) string {
+	switch stringParam(params, "vaccination_intent") {
+	case "missed":
+		return "Vaccinations missed"
+	case "overdue":
+		return "Vaccinations overdue"
+	}
+	tool, _ := params["_fallback_from_tool"].(string)
+	switch tool {
+	case "vaccination_overdue":
+		return "Vaccinations overdue"
+	case "vaccination_due", "vaccination_due_today":
+		return "Vaccinations due"
+	case "vaccination_compliance":
+		return "Vaccination completion"
+	default:
+		return ""
+	}
+}
+
+func stringParam(params map[string]any, key string) string {
+	if params == nil {
+		return ""
+	}
+	v, _ := params[key].(string)
+	return v
 }
 
 // buildActionCenterReader maps work_state, park_label (resolved to ParkID via
@@ -382,8 +488,12 @@ func buildActionCenterReader(svc actionCenterLister, resolver parkResolver) func
 			if item.ParkName != "" {
 				scope = item.ParkName + " / " + scope
 			}
-			if item.ShedName != "" {
-				scope = scope + " / " + item.ShedName
+			location := item.OperationalLocationDisplay
+			if location == "" {
+				location = item.ShedName
+			}
+			if location != "" {
+				scope = scope + " / " + location
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: item.Category,
@@ -425,8 +535,12 @@ func buildOpsKernelHealthReader(svc opsKernelHealthLister) func(ctx context.Cont
 		})
 		for _, alert := range result.Alerts {
 			scope := alert.ParkName
-			if alert.ShedName != "" {
-				scope = scope + " / " + alert.ShedName
+			location := alert.OperationalLocationDisplay
+			if location == "" {
+				location = alert.ShedName
+			}
+			if location != "" {
+				scope = scope + " / " + location
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: alert.Title,

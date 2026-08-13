@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
 
 // ---------------------------------------------------------------------------
 // Shed / drive record destination — READ-ONLY.
@@ -112,6 +113,9 @@ data class RecordUiState(
 
 sealed interface RecordEvent {
     data object Close : RecordEvent
+
+    /** Background stale-while-revalidate pull. No user input on this surface, so it is safe on resume. */
+    data object Refresh : RecordEvent
 }
 
 @Composable
@@ -120,6 +124,13 @@ fun RecordScreen(
     onEvent: (RecordEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Refresh-on-open. This surface is READ-ONLY (no scan capture, no form, no draft): the
+    // record is rendered entirely from the Room cache, so a resume-triggered background refresh
+    // cannot destroy in-progress user input — it only replaces stale content. Without it, a
+    // retained RecordViewModel kept showing whatever was fetched once at creation, so an
+    // operator returning from the scan/submit flow saw a pre-write record.
+    RefreshOnResume { onEvent(RecordEvent.Refresh) }
+
     Column(
         modifier = modifier
             .fillMaxSize()

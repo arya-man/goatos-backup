@@ -15,6 +15,9 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 // SopReviewFanoutRetryStage durably retries accepted/reworked SOP review
@@ -65,6 +68,60 @@ func (s *SopReviewFanoutRetryStage) Run(ctx context.Context) error {
 	}
 	if s.logger != nil {
 		s.logger.Info("sop_review_fanout_retry_stage_complete", "tenant_id", s.tenantID, "applied", applied)
+	}
+	return nil
+}
+
+// SopSubmissionFanoutRetryStage durably retries submitted SOP task fanouts
+// that committed before vaccination completions / verification items were
+// materialized. Without this scheduled retry, a transient submit-time failure
+// leaves uploaded proof invisible to the verifier queue until manual repair.
+type SopSubmissionFanoutRetryStage struct {
+	service  *sopapp.Service
+	tenantID string
+	limit    int
+	logger   *slog.Logger
+}
+
+func NewSopSubmissionFanoutRetryStage(deps Deps, tenantID string) *SopSubmissionFanoutRetryStage {
+	limit := intEnv("GOATOS_SOP_SUBMISSION_FANOUT_RETRY_LIMIT", 100)
+	if limit < 1 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	sopRepo := soppg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
+	vaccinationRepo := vaccinationpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
+	verificationService := verificationapp.NewService(
+		verificationpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout),
+		nil,
+	)
+	_ = verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      "preventive_care",
+		Module:        "vaccination",
+		Category:      sopbridge.VaccinationVerificationCategory,
+		ExpectedMedia: []string{"video"},
+	})
+	service := sopapp.NewService(sopRepo).WithSubmissionHook(
+		sopbridge.NewVaccinationSubmissionBridge(vaccinationapp.NewService(vaccinationRepo)).
+			WithVerificationProducer(verificationService),
+	)
+	return &SopSubmissionFanoutRetryStage{service: service, tenantID: tenantID, limit: limit, logger: deps.Logger}
+}
+
+func (s *SopSubmissionFanoutRetryStage) Name() string { return "sop-submission-fanout-retry" }
+
+func (s *SopSubmissionFanoutRetryStage) Run(ctx context.Context) error {
+	if s.tenantID == "" {
+		return errors.New("sop submission fanout retry: tenant id is required")
+	}
+	applied, err := s.service.RetrySubmissionFanouts(ctx, s.tenantID, s.limit)
+	if err != nil {
+		return fmt.Errorf("sop submission fanout retry: %w", err)
+	}
+	if s.logger != nil {
+		s.logger.Info("sop_submission_fanout_retry_stage_complete", "tenant_id", s.tenantID, "applied", applied)
 	}
 	return nil
 }

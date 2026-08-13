@@ -7,6 +7,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CompletableDeferred
 
 /** One captured proof video, as the capture port sees it — a local, already-durable file the
  *  caller hands to Room (docs/mobile/proof-capture-sync-and-e2e.md §2/§3: "Room first").
@@ -20,6 +21,32 @@ data class CapturedVideo(
     val captureSource: String = "in_app_camera",
 )
 
+/** Operator-facing copy for the shared recorder. The prompt belongs to each capture request,
+ * not to the host route: one Death workflow contains both death and post-mortem recordings. */
+enum class ProofCapturePrompt {
+    VACCINATION,
+    BIRTH,
+    DEATH,
+    POST_MORTEM,
+    SHIFTING,
+    SHIFTING_FEED_GIVEN,
+    FEED_DISTRIBUTION,
+    WATER_DISTRIBUTION,
+    FEED_PACKING,
+    FEED_TRANSPORT,
+    MILK_PREPARATION,
+    MILK_FEEDING,
+}
+
+data class ProofCaptureContext(
+    val title: String,
+    val primaryTag: String,
+    val secondaryTag: String? = null,
+    val workLabel: String = "",
+    val prompt: ProofCapturePrompt? = null,
+    val headerTitle: String? = null,
+)
+
 /**
  * Port for the Submit recording-form's `video_proof` capture. Production camera capture uses
  * LIVE in-app CameraX (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, see
@@ -30,7 +57,20 @@ data class CapturedVideo(
 interface ProofCaptureSource {
     /** Suspends until a video has been captured (production: launches the camera intent and
      *  awaits its result), or returns null if the operator cancelled. */
-    suspend fun captureVideo(): CapturedVideo?
+    suspend fun captureVideo(captureContext: ProofCaptureContext? = null): CapturedVideo?
+
+    /** Captures with workflow-specific guidance. [taskTitle] is backend-owned workflow copy and
+     * replaces the generic module recorder heading when supplied. Existing callers deliberately
+     * omit it so their current copy and behavior remain unchanged. */
+    suspend fun captureVideo(prompt: ProofCapturePrompt, taskTitle: String? = null): CapturedVideo? =
+        captureVideo(
+            ProofCaptureContext(
+                title = "",
+                primaryTag = "",
+                prompt = prompt,
+                headerTitle = taskTitle,
+            ),
+        )
 
     /** Suspends until a video is selected from gallery and copied into app-private storage, or
      *  returns null if the operator cancelled. Only call when the backend SOP allows it. */
@@ -48,14 +88,14 @@ interface ProofCaptureSource {
  */
 class DelegatingProofCaptureSource : ProofCaptureSource {
     @Volatile
-    private var delegate: (suspend () -> CapturedVideo?)? = null
+    private var delegate: (suspend (ProofCaptureContext?) -> CapturedVideo?)? = null
     @Volatile
     private var pickerDelegate: (suspend () -> CapturedVideo?)? = null
     @Volatile
     private var generation: Int = 0
 
     @Synchronized
-    fun bind(launch: suspend () -> CapturedVideo?, pick: suspend () -> CapturedVideo?): Int {
+    fun bind(launch: suspend (ProofCaptureContext?) -> CapturedVideo?, pick: suspend () -> CapturedVideo?): Int {
         generation += 1
         val token = generation
         delegate = launch
@@ -72,9 +112,9 @@ class DelegatingProofCaptureSource : ProofCaptureSource {
         pickerDelegate = null
     }
 
-    override suspend fun captureVideo(): CapturedVideo? {
+    override suspend fun captureVideo(captureContext: ProofCaptureContext?): CapturedVideo? {
         val launch = delegate
-        return launch?.invoke()
+        return launch?.invoke(captureContext)
     }
 
     override suspend fun pickVideo(): CapturedVideo? {
@@ -89,13 +129,24 @@ class FakeProofCaptureSource(
 ) : ProofCaptureSource {
     var captureCount: Int = 0
         private set
+    private val gates: ArrayDeque<CompletableDeferred<CapturedVideo?>> = ArrayDeque()
 
     fun queue(video: CapturedVideo?) {
         results.add(video)
     }
 
-    override suspend fun captureVideo(): CapturedVideo? {
+    /** Queues a suspending gate: the NEXT [captureVideo] call suspends (camera stays "open") until
+     *  the test completes the returned [CompletableDeferred]. Lets a test hold one goat's capture
+     *  in flight while driving a second scan/request concurrently. */
+    fun queueGate(): CompletableDeferred<CapturedVideo?> {
+        val gate = CompletableDeferred<CapturedVideo?>()
+        gates.addLast(gate)
+        return gate
+    }
+
+    override suspend fun captureVideo(captureContext: ProofCaptureContext?): CapturedVideo? {
         captureCount++
+        if (gates.isNotEmpty()) return gates.removeFirst().await()
         return if (results.isNotEmpty()) results.removeAt(0) else null
     }
 

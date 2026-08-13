@@ -30,6 +30,12 @@ tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
 
+Do not hand-write long `RELEASE_ID` values. Cloud Deploy generates rollout ids
+from the release id, target, and attempt suffix, and the final rollout id must
+fit Google Cloud's 63-character resource-id limit. Use the release helper's
+short default (`r-<12-char-sha>-<HHMMSS>`) unless there is a specific reason to
+override it.
+
 Before running any deploy command, verify:
 
 ```bash
@@ -48,6 +54,62 @@ Expected:
 - project / environment: `goatos-stg` (STG)
 - source SHA: latest approved `origin/main`
 - working tree: clean
+
+Authorized STG release-builder accounts:
+
+```text
+ravi@mesha.sg
+manohark@mesha.sg
+```
+
+Runtime DB URLs, API/admin secrets, service-account bindings, and Cloud Run env
+are injected by the existing `goatos-stg` Cloud Run/Secret Manager configuration.
+Normal DB schema changes are applied by the Cloud Deploy migration job; do not
+run manual SQL for a normal release.
+
+## GitHub Release Tag
+
+Every successful STG release must create an annotated GitHub tag with Backend,
+Frontend/Admin Web, Mobile Android, Infra/Deploy, Docs/Seed/Data, and Other
+sections. The normal STG release helper does this automatically after rollout
+success and image parity verification:
+
+```bash
+tools/deploy/stg-clouddeploy-release.sh
+```
+
+Manual repair command:
+
+```bash
+make release-tag ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="<release-id>"
+```
+
+Do not call a STG release closed until the tag exists on GitHub.
+
+## Migration Drift Guardrail
+
+Never edit a migration file that STG may already have applied, including the
+clean-slate baseline. If STG is missing a schema field or data repair, ship a
+new numbered forward migration and deploy from `origin/main`.
+
+Before declaring a migration-backed STG fix complete:
+
+```bash
+SELECT version, checksum
+FROM public.goatos_schema_migrations
+ORDER BY version DESC
+LIMIT 5;
+```
+
+Then verify the exact table/column/data contract that broke the screen or API.
+A successful frontend deploy is not proof that the DB migrated. If Cloud Deploy
+reports a failed migrate job, read the migrate execution logs first; do not
+refresh the UI repeatedly and do not call it a cache issue.
+
+Break-glass manual SQL is allowed only to recover STG availability after the
+same migration has landed on `main`. Record the applied migration row with the
+file checksum, verify `/readyz`, and follow up with a normal Cloud Deploy
+release from the same or newer commit so Cloud Run job definitions converge.
 
 ## Chatbot / CEO AI Verification
 

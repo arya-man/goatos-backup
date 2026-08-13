@@ -36,6 +36,12 @@ object AnalyticsFunnels {
         const val SUBMIT_ATTEMPTED: String = "funnel_submit_attempted"
         const val SUBMIT_SUCCEEDED: String = "funnel_submit_succeeded"
         const val SUBMIT_FAILED: String = "funnel_submit_failed"
+        const val SUBMIT_STATUS: String = "submit_status"
+
+        /** The operator tapped a disabled/blocked Submit — the client-side readiness gate refused
+         *  BEFORE anything reached the outbox, so [SUBMIT_ATTEMPTED] never fires. Previously this
+         *  was a dead button with nothing recorded. */
+        const val SUBMIT_BLOCKED: String = AnalyticsEvents.SUBMIT_BLOCKED
 
         // Standalone Verifier section funnel (context/architecture/verifier-app-and-flow.md):
         // login → bootstrap → verify-queue-opened → verify-item-opened → verify-verdict-submitted.
@@ -46,6 +52,8 @@ object AnalyticsFunnels {
         const val VERIFY_VERDICT_FAILED: String = "funnel_verify_verdict_failed"
         const val VERIFY_VIDEO_PLAY_STARTED: String = AnalyticsEvents.VERIFY_VIDEO_PLAY_STARTED
         const val VERIFY_VIDEO_WATCH_SUMMARY: String = AnalyticsEvents.VERIFY_VIDEO_WATCH_SUMMARY
+        const val VERIFY_VIDEO_PLAY_INTENT: String = AnalyticsEvents.VERIFY_VIDEO_PLAY_INTENT
+        const val VERIFY_VIDEO_PLAY_DEAD: String = AnalyticsEvents.VERIFY_VIDEO_PLAY_DEAD
     }
 
     /** Event parameter keys used by the helpers below. */
@@ -70,6 +78,17 @@ object AnalyticsFunnels {
         const val SEEK_COUNT: String = "seek_count"
         const val REPLAY_COUNT: String = "replay_count"
         const val BUFFERING_TIME_MS: String = "buffering_time_ms"
+        const val DIMENSION: String = AnalyticsEvents.Params.DIMENSION
+        const val ACTION: String = AnalyticsEvents.Params.ACTION
+        const val MAX_SCROLL_INDEX: String = AnalyticsEvents.Params.MAX_SCROLL_INDEX
+        const val ROW_COUNT: String = AnalyticsEvents.Params.ROW_COUNT
+        const val BATCH_ID: String = AnalyticsEvents.Params.BATCH_ID
+        const val PLAYER_STATE: String = "player_state"
+        const val ARMED: String = "armed"
+        const val TARGET_ACTION: String = "target_action"
+        const val SUBMIT_STATUS: String = "submit_status"
+        const val ATTEMPT_COUNT: String = "attempt_count"
+        const val MAX_ATTEMPTS: String = "max_attempts"
     }
 
     private fun safeTrack(analytics: AnalyticsPort, event: String, props: Map<String, String> = emptyMap()) {
@@ -133,6 +152,34 @@ object AnalyticsFunnels {
         safeTrack(analytics, Events.SUBMIT_FAILED, mapOf(Params.TASK_ID to taskId, Params.REASON to reason))
     }
 
+    fun trackSubmitStatus(
+        analytics: AnalyticsPort,
+        taskId: String,
+        status: String,
+        reason: String? = null,
+        attemptCount: Int = 0,
+        maxAttempts: Int = 0,
+    ) {
+        safeTrack(
+            analytics,
+            Events.SUBMIT_STATUS,
+            buildMap {
+                put(Params.TASK_ID, taskId)
+                put(Params.SUBMIT_STATUS, status)
+                if (!reason.isNullOrBlank()) put(Params.REASON, reason.take(80))
+                if (attemptCount > 0) put(Params.ATTEMPT_COUNT, attemptCount.toString())
+                if (maxAttempts > 0) put(Params.MAX_ATTEMPTS, maxAttempts.toString())
+            },
+        )
+    }
+
+    /** Call from [submit]'s early-return gates when the client-side readiness check refuses a
+     *  tap — [reason] is the coarse blocking cause (e.g. a `blockedReason` field name or
+     *  `shed_not_ready`), never a full form-field label. */
+    fun trackSubmitBlocked(analytics: AnalyticsPort, taskId: String, reason: String) {
+        safeTrack(analytics, Events.SUBMIT_BLOCKED, mapOf(Params.TASK_ID to taskId, Params.REASON to reason))
+    }
+
     // --- Standalone Verifier section (VerifyQueueViewModel / VerifyDetailViewModel, :app) ----
 
     /** Call when the Verifier queue screen first loads/refreshes for a category scope. */
@@ -182,6 +229,30 @@ object AnalyticsFunnels {
             mapOf(Params.ITEM_ID to itemId, Params.DECISION to decision, Params.REASON to reason),
         )
     }
+
+    /**
+     * Intent/outcome watchdog for the verify proof-video play/pause control (inline AND
+     * fullscreen). 1500ms: media3 with an already-buffered short proof clip (these are seconds
+     * long, not minutes — see `VideoTimeReadout`) starts within a couple hundred ms on a
+     * reasonable connection; 1500ms comfortably absorbs a cold decoder spin-up
+     * (`player.prepare()` on first tap) or a brief network stall without false-positiving, while
+     * still being short enough that the report is useful — a verifier will already have
+     * re-tapped or complained well before a longer window would fire. Call [DeadControlWatchdog.armIntent]
+     * from the click handler and [DeadControlWatchdog.disarm] from `onIsPlayingChanged`.
+     */
+    const val VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS: Long = 1_500L
+
+    fun newVerifyVideoPlayWatchdog(
+        analytics: AnalyticsPort,
+        crashReporter: CrashReporter,
+        scope: kotlinx.coroutines.CoroutineScope,
+    ): DeadControlWatchdog = DeadControlWatchdog(
+        analytics = analytics,
+        crashReporter = crashReporter,
+        scope = scope,
+        intentEvent = Events.VERIFY_VIDEO_PLAY_INTENT,
+        deadControlEvent = Events.VERIFY_VIDEO_PLAY_DEAD,
+    )
 
     fun trackVerifyVideoPlayStarted(
         analytics: AnalyticsPort,
@@ -239,5 +310,209 @@ object AnalyticsFunnels {
             AnalyticsEvents.VERIFY_VIDEO_PLAYBACK_ERROR,
             mapOf(Params.ITEM_ID to itemId, Params.PROOF_ID to proofId, Params.REASON to reason),
         )
+    }
+
+    /** Call when the fullscreen button is tapped on a proof video. */
+    fun trackVerifyVideoFullscreenOpened(analytics: AnalyticsPort, itemId: String, proofId: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_VIDEO_FULLSCREEN_OPENED,
+            mapOf(Params.ITEM_ID to itemId, Params.PROOF_ID to proofId),
+        )
+    }
+
+    /** Call when the fullscreen proof-video dialog is dismissed (X, back, or scrim). */
+    fun trackVerifyVideoFullscreenExited(analytics: AnalyticsPort, itemId: String, proofId: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_VIDEO_FULLSCREEN_EXITED,
+            mapOf(Params.ITEM_ID to itemId, Params.PROOF_ID to proofId),
+        )
+    }
+
+    // --- Leadership weighing video playback (WeighingLeadershipVideosViewModel) ----
+
+    fun trackWeighingLeadershipVideoPlayStarted(
+        analytics: AnalyticsPort,
+        proofId: String,
+        mimeType: String,
+        durationMs: Long,
+    ) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_PLAY_STARTED,
+            mapOf(
+                Params.PROOF_ID to proofId,
+                Params.MIME_TYPE to mimeType,
+                Params.DURATION_MS to durationMs.toString(),
+            ),
+        )
+    }
+
+    fun trackWeighingLeadershipVideoWatchSummary(
+        analytics: AnalyticsPort,
+        proofId: String,
+        mimeType: String,
+        watchTimeMs: Long,
+        durationMs: Long,
+        positionMs: Long,
+        percentWatched: Int,
+        seekCount: Int,
+        replayCount: Int,
+        bufferingTimeMs: Long,
+    ) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_WATCH_SUMMARY,
+            mapOf(
+                Params.PROOF_ID to proofId,
+                Params.MIME_TYPE to mimeType,
+                Params.WATCH_TIME_MS to watchTimeMs.toString(),
+                Params.DURATION_MS to durationMs.toString(),
+                Params.POSITION_MS to positionMs.toString(),
+                Params.PERCENT_WATCHED to percentWatched.toString(),
+                Params.SEEK_COUNT to seekCount.toString(),
+                Params.REPLAY_COUNT to replayCount.toString(),
+                Params.BUFFERING_TIME_MS to bufferingTimeMs.toString(),
+            ),
+        )
+    }
+
+    fun trackWeighingLeadershipVideoPlaybackError(analytics: AnalyticsPort, proofId: String, reason: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_PLAYBACK_ERROR,
+            mapOf(Params.PROOF_ID to proofId, Params.REASON to reason),
+        )
+    }
+
+    fun trackVaccinationLeadershipVideoPlayStarted(
+        analytics: AnalyticsPort,
+        proofId: String,
+        mimeType: String,
+        durationMs: Long,
+    ) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VACCINATION_LEADERSHIP_VIDEO_PLAY_STARTED,
+            mapOf(
+                Params.PROOF_ID to proofId,
+                Params.MIME_TYPE to mimeType,
+                Params.DURATION_MS to durationMs.toString(),
+            ),
+        )
+    }
+
+    fun trackVaccinationLeadershipVideoWatchSummary(
+        analytics: AnalyticsPort,
+        proofId: String,
+        mimeType: String,
+        watchTimeMs: Long,
+        durationMs: Long,
+        positionMs: Long,
+        percentWatched: Float,
+        seekCount: Int,
+        replayCount: Int,
+        bufferingTimeMs: Long,
+    ) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VACCINATION_LEADERSHIP_VIDEO_WATCH_SUMMARY,
+            mapOf(
+                Params.PROOF_ID to proofId,
+                Params.MIME_TYPE to mimeType,
+                Params.WATCH_TIME_MS to watchTimeMs.toString(),
+                Params.DURATION_MS to durationMs.toString(),
+                Params.POSITION_MS to positionMs.toString(),
+                Params.PERCENT_WATCHED to percentWatched.toInt().toString(),
+                Params.SEEK_COUNT to seekCount.toString(),
+                Params.REPLAY_COUNT to replayCount.toString(),
+                Params.BUFFERING_TIME_MS to bufferingTimeMs.toString(),
+            ),
+        )
+    }
+
+    fun trackVaccinationLeadershipVideoPlaybackError(analytics: AnalyticsPort, proofId: String, reason: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VACCINATION_LEADERSHIP_VIDEO_PLAYBACK_ERROR,
+            mapOf(Params.PROOF_ID to proofId, Params.REASON to reason),
+        )
+    }
+
+    /** Call whenever a queue-scoping filter changes. [dimension] is `park`/`shed`/`module`/
+     *  `category`; [action] is `set`/`cleared`, mirroring [AnalyticsEvents.COUNTS_FILTER_APPLIED]. */
+    fun trackVerifyQueueFilterApplied(analytics: AnalyticsPort, dimension: String, action: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_QUEUE_FILTER_APPLIED,
+            mapOf(Params.DIMENSION to dimension, Params.ACTION to action),
+        )
+    }
+
+    /** Call once a keyset "load more" page has been appended into the Room-backed scope. */
+    fun trackVerifyQueueLoadMore(analytics: AnalyticsPort, category: String, rowCount: Int) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_QUEUE_LOAD_MORE, // mobile-guard:ignore: analytics event name for auto-triggered keyset paging, not a tappable UI control
+            mapOf(Params.CATEGORY to category, Params.ROW_COUNT to rowCount.toString()),
+        )
+    }
+
+    /** Call ONCE per queue-screen exit with the deepest row index reached and how many rows were
+     *  loaded — never per scroll frame (see [AnalyticsEvents.VERIFY_QUEUE_SCROLL_SUMMARY]). */
+    fun trackVerifyQueueScrollSummary(analytics: AnalyticsPort, maxScrollIndex: Int, rowCount: Int) {
+        if (rowCount <= 0) return
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_QUEUE_SCROLL_SUMMARY,
+            mapOf(Params.MAX_SCROLL_INDEX to maxScrollIndex.toString(), Params.ROW_COUNT to rowCount.toString()),
+        )
+    }
+
+    fun trackVerifyDriveCloseAttempted(analytics: AnalyticsPort, batchId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_DRIVE_CLOSE_ATTEMPTED, mapOf(Params.BATCH_ID to batchId))
+    }
+
+    fun trackVerifyDriveCloseSucceeded(analytics: AnalyticsPort, batchId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_DRIVE_CLOSE_SUCCEEDED, mapOf(Params.BATCH_ID to batchId))
+    }
+
+    fun trackVerifyDriveCloseFailed(analytics: AnalyticsPort, batchId: String, reason: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_DRIVE_CLOSE_FAILED,
+            mapOf(Params.BATCH_ID to batchId, Params.REASON to reason),
+        )
+    }
+
+    /** Call when the detail screen closes. [reason] is `fully_decided` or `abandoned` — see
+     *  [AnalyticsEvents.VERIFY_ITEM_CLOSED]. */
+    fun trackVerifyItemClosed(analytics: AnalyticsPort, itemId: String, reason: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VERIFY_ITEM_CLOSED,
+            mapOf(Params.ITEM_ID to itemId, Params.REASON to reason),
+        )
+    }
+
+    fun trackVerifyRejectDialogOpened(analytics: AnalyticsPort, itemId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_REJECT_DIALOG_OPENED, mapOf(Params.ITEM_ID to itemId))
+    }
+
+    fun trackVerifyRejectDialogCancelled(analytics: AnalyticsPort, itemId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_REJECT_DIALOG_CANCELLED, mapOf(Params.ITEM_ID to itemId))
+    }
+
+    fun trackVerifyRejectBlockedEmptyReason(analytics: AnalyticsPort, itemId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_REJECT_BLOCKED_EMPTY_REASON, mapOf(Params.ITEM_ID to itemId))
+    }
+
+    fun trackVerifyApproveDialogOpened(analytics: AnalyticsPort, itemId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_APPROVE_DIALOG_OPENED, mapOf(Params.ITEM_ID to itemId))
+    }
+
+    fun trackVerifyApproveDialogCancelled(analytics: AnalyticsPort, itemId: String) {
+        safeTrack(analytics, AnalyticsEvents.VERIFY_APPROVE_DIALOG_CANCELLED, mapOf(Params.ITEM_ID to itemId))
     }
 }

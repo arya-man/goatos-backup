@@ -233,6 +233,493 @@ func (r *Repository) RetireGoatIdentifier(ctx context.Context, cmd ports.RetireG
 	})
 }
 
+// PromoteTemporaryIdentifier atomically retires a goat's active temporary_tag and attaches the
+// supplied permanent animal_identifier_1 as its primary identity, in ONE transaction.
+//
+// This is the crux of the temp->permanent conversion: a kid tagged provisionally at birth gets its
+// real RFID. Both the retire and the add commit together or not at all -- there is no window where
+// the goat has neither a temp nor a permanent tag, and none where it has both as active primaries.
+// It emits BOTH goat.identifier.retired (temp) and goat.identifier.added (permanent) under one
+// decision, so the audit trail and downstream consumers see the whole promotion.
+//
+// Idempotency mirrors the single-identifier mutations: a first call runs the promotion; an exact
+// replay under the same stored key returns the added permanent identifier without moving anything;
+// a same-key/different-payload replay is a conflict.
+func (r *Repository) PromoteTemporaryIdentifier(ctx context.Context, cmd ports.PromoteTemporaryIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	goatUUID, err := uuidParam(cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+
+	_, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+		TenantID:       tenantUUID,
+		Scope:          cmd.IdempotencyScope,
+		RequestHash:    cmd.RequestHash,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The completed result is the ADDED permanent identifier, so the replay returns it.
+		return r.replayIdentifierMutation(ctx, qtx, tenantUUID, cmd.StoredIdempotencyKey, cmd.RequestHash, attachIdentifierAction)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	if err := guardGoatForIdentifierMutation(ctx, qtx, tenantUUID, goatUUID, cmd.RowVersion, now); err != nil {
+		return nil, err
+	}
+
+	// Find the temp tag to retire (server-side; the operator supplies only the goat + the RFID).
+	tempRow, err := qtx.GetActiveTemporaryIdentifierForGoat(ctx, identitydb.GetActiveTemporaryIdentifierForGoatParams{
+		TenantID: tenantUUID,
+		GoatID:   goatUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrNoTemporaryIdentifier
+	}
+	if err != nil {
+		return nil, err
+	}
+	tempIdentifierUUID, err := uuidParam(tempRow.IdentifierID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Retire the temp. Its value stays claimed for the tenant's lifetime (a physical temp tag is a
+	// single-use object) -- the lifetime-unique constraint is intentional, not bypassed here.
+	retired, err := qtx.RetireGoatIdentifier(ctx, identitydb.RetireGoatIdentifierParams{
+		ValidTo:      pgtype.Timestamptz{Time: now, Valid: true},
+		ApprovedBy:   actorUUID,
+		UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+		TenantID:     tenantUUID,
+		GoatID:       goatUUID,
+		IdentifierID: tempIdentifierUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Raced: another promotion retired it between the read and here.
+		return nil, ports.ErrWriteConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Attach the permanent animal_identifier_1 as primary.
+	policy, err := qtx.GetIdentifierPolicy(ctx, identitydb.GetIdentifierPolicyParams{
+		PolicyVersion:  identifierPolicyVersion,
+		IdentifierType: "animal_identifier_1",
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrWriteConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	inserted, err := qtx.InsertGoatIdentifier(ctx, identitydb.InsertGoatIdentifierParams{
+		TenantID:          tenantUUID,
+		GoatID:            goatUUID,
+		IdentifierType:    "animal_identifier_1",
+		IdentifierValue:   cmd.PermanentValue,
+		NormalizedValue:   cmd.NormalizedValue,
+		ScopeKey:          "global",
+		IsPrimaryForGoat:  true,
+		ValidFrom:         pgtype.Timestamptz{Time: now, Valid: true},
+		NormalizerVersion: policy.NormalizerVersion,
+		ApprovedBy:        actorUUID,
+	})
+	if isUniqueViolation(err) {
+		// The permanent RFID is already used in this tenant (lifetime-unique).
+		return nil, ports.ErrWriteConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Optionally attach a second permanent RFID (animal_identifier_2, non-primary) in the SAME
+	// transaction, exactly like the birth flow's optional animal_identifier_2. Empty means the
+	// promotion attaches only the primary.
+	var secondary *domain.GoatIdentifier
+	if cmd.SecondaryValue != "" {
+		secondaryPolicy, err := qtx.GetIdentifierPolicy(ctx, identitydb.GetIdentifierPolicyParams{
+			PolicyVersion:  identifierPolicyVersion,
+			IdentifierType: "animal_identifier_2",
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+		insertedSecondary, err := qtx.InsertGoatIdentifier(ctx, identitydb.InsertGoatIdentifierParams{
+			TenantID:          tenantUUID,
+			GoatID:            goatUUID,
+			IdentifierType:    "animal_identifier_2",
+			IdentifierValue:   cmd.SecondaryValue,
+			NormalizedValue:   cmd.SecondaryNormalized,
+			ScopeKey:          "global",
+			IsPrimaryForGoat:  false,
+			ValidFrom:         pgtype.Timestamptz{Time: now, Valid: true},
+			NormalizerVersion: secondaryPolicy.NormalizerVersion,
+			ApprovedBy:        actorUUID,
+		})
+		if isUniqueViolation(err) {
+			return nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+		s := identifierFromInsertRow(insertedSecondary)
+		secondary = &s
+	}
+
+	envelope := identifierCommandEnvelope{
+		TenantID:             cmd.TenantID,
+		ActorID:              cmd.ActorID,
+		ClientIdempotencyKey: cmd.ClientIdempotencyKey,
+		StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+		IdempotencyScope:     cmd.IdempotencyScope,
+		TraceID:              cmd.TraceID,
+		GoatID:               cmd.GoatID,
+		Reason:               cmd.Reason,
+		EvidenceRefs:         cmd.EvidenceRefs,
+	}
+	return r.finishPromoteMutation(ctx, qtx, tx, &committed, promoteMutationFinish{
+		TenantUUID:          tenantUUID,
+		ActorUUID:           actorUUID,
+		GoatUUID:            goatUUID,
+		Command:             envelope,
+		RetiredIdentifier:   identifierFromRetireRow(retired),
+		RetiredNormalized:   retired.NormalizedValue,
+		AttachedIdentifier:  identifierFromInsertRow(inserted),
+		AttachedNormalized:  cmd.NormalizedValue,
+		SecondaryIdentifier: secondary,
+		SecondaryNormalized: cmd.SecondaryNormalized,
+		OccurredAt:          now,
+	})
+}
+
+// promoteMutationFinish carries the two identifiers a promotion touched (retired temp + attached
+// permanent) into the shared decision/event/outbox emission.
+type promoteMutationFinish struct {
+	TenantUUID         pgtype.UUID
+	ActorUUID          pgtype.UUID
+	GoatUUID           pgtype.UUID
+	Command            identifierCommandEnvelope
+	RetiredIdentifier  domain.GoatIdentifier
+	RetiredNormalized  string
+	AttachedIdentifier domain.GoatIdentifier
+	AttachedNormalized string
+	// SecondaryIdentifier is the OPTIONAL animal_identifier_2 attached in the same promotion, or nil.
+	SecondaryIdentifier *domain.GoatIdentifier
+	SecondaryNormalized string
+	OccurredAt          time.Time
+}
+
+// promoteIdentifierAction is one identifier touched by a promotion (retired temp, attached primary,
+// or the optional attached secondary). One list drives both the decision evidence and the per-action
+// event/outbox emission so a two-RFID promotion stays consistent across both.
+type promoteIdentifierAction struct {
+	identifierUUID pgtype.UUID
+	identifier     domain.GoatIdentifier
+	normalized     string
+	action         string
+	eventType      string
+}
+
+// finishPromoteMutation writes ONE decision covering both actions, emits an event + outbox message
+// for EACH (retired temp, added permanent), completes idempotency against the ADDED identifier, and
+// commits. It reuses the same single-action event/outbox emitters as finishIdentifierMutation so the
+// envelope shape is identical to an ordinary attach/retire.
+func (r *Repository) finishPromoteMutation(ctx context.Context, qtx *identitydb.Queries, tx pgx.Tx, committed *bool, finish promoteMutationFinish) (*ports.AdminGoatMutationResult, error) {
+	attachedUUID, err := uuidParam(finish.AttachedIdentifier.IdentifierID)
+	if err != nil {
+		return nil, err
+	}
+	retiredUUID, err := uuidParam(finish.RetiredIdentifier.IdentifierID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Every identifier action this promotion performed: the retired temp, the attached primary, and
+	// the OPTIONAL attached secondary. Built once, then used for the decision evidence AND the
+	// per-action event/outbox emission below.
+	actions := []promoteIdentifierAction{
+		{retiredUUID, finish.RetiredIdentifier, finish.RetiredNormalized, retireIdentifierAction, retireIdentifierEventType},
+		{attachedUUID, finish.AttachedIdentifier, finish.AttachedNormalized, attachIdentifierAction, attachIdentifierEventType},
+	}
+	if finish.SecondaryIdentifier != nil {
+		secondaryUUID, err := uuidParam(finish.SecondaryIdentifier.IdentifierID)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, promoteIdentifierAction{secondaryUUID, *finish.SecondaryIdentifier, finish.SecondaryNormalized, attachIdentifierAction, attachIdentifierEventType})
+	}
+	identifierActions := make([]map[string]any, 0, len(actions))
+	for _, act := range actions {
+		identifierActions = append(identifierActions, map[string]any{
+			"identifier_id": act.identifier.IdentifierID, "identifier_type": act.identifier.IdentifierType,
+			"identifier_value": act.identifier.IdentifierValue, "action": act.action,
+		})
+	}
+
+	decisionID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	decisionUUID, err := uuidParam(decisionID)
+	if err != nil {
+		return nil, err
+	}
+	decisionEvidence, err := json.Marshal(identifierDecisionEvidence{
+		EvidenceRefs: finish.Command.EvidenceRefs,
+		Reason:       finish.Command.Reason,
+		DecisionRecord: mustJSON(map[string]any{
+			"decision_id":   decisionID,
+			"decision_type": attachIdentifierDecisionType,
+			// idempotency_key is load-bearing: replayIdentifierMutation matches a replay on
+			// decision_record->>'idempotency_key', so omitting it makes every replay read as pending.
+			"idempotency_key":    finish.Command.StoredIdempotencyKey,
+			"identifier_actions": identifierActions,
+		}),
+	})
+	if err != nil {
+		return nil, err
+	}
+	decisionRow, err := qtx.InsertIdentityDecision(ctx, identitydb.InsertIdentityDecisionParams{
+		DecisionID:     decisionUUID,
+		TenantID:       finish.TenantUUID,
+		DecisionType:   attachIdentifierDecisionType,
+		DecisionResult: attachIdentifierDecisionResult,
+		DecisionState:  "approved",
+		DecidedBy:      finish.ActorUUID,
+		PolicyVersion:  identifierPolicyVersion,
+		ReviewerID:     finish.ActorUUID,
+		Evidence:       decisionEvidence,
+		CreatedAt:      pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+		ApprovedAt:     pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+		DecidedAt:      pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	decision := decisionSummaryFromInsertRow(decisionRow)
+
+	// An event + outbox message per identifier action (retired temp, attached primary, optional
+	// attached secondary), all linked to the one decision above.
+	var attachedEventID string
+	// The goat summary is read once after both writes so both event envelopes carry the final state.
+	goatSummaryResult, err := adminGoatMutationResult(ctx, qtx, finish.TenantUUID, finish.Command.TenantID, finish.GoatUUID, decision, nil, false, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, act := range actions {
+		if err := qtx.InsertIdentityDecisionIdentifier(ctx, identitydb.InsertIdentityDecisionIdentifierParams{
+			DecisionID:      decisionUUID,
+			TenantID:        finish.TenantUUID,
+			IdentifierID:    act.identifierUUID,
+			IdentifierType:  textParam(act.identifier.IdentifierType),
+			IdentifierValue: textParam(act.identifier.IdentifierValue),
+			Action:          act.action,
+		}); err != nil {
+			return nil, err
+		}
+		perAction := identifierMutationFinish{
+			TenantUUID:      finish.TenantUUID,
+			ActorUUID:       finish.ActorUUID,
+			GoatUUID:        finish.GoatUUID,
+			Command:         finish.Command,
+			Identifier:      act.identifier,
+			NormalizedValue: act.normalized,
+			Action:          act.action,
+			EventType:       act.eventType,
+			OccurredAt:      finish.OccurredAt,
+		}
+		eventID, err := r.emitIdentifierEvent(ctx, qtx, perAction, decision, decisionUUID, goatSummaryResult.Goat)
+		if err != nil {
+			return nil, err
+		}
+		// Idempotency + the response tag against the PRIMARY (animal_identifier_1) added event — not
+		// the optional secondary, which also has the attach action.
+		if act.identifier.IdentifierType == "animal_identifier_1" {
+			attachedEventID = eventID
+		}
+	}
+
+	// Idempotency completes against the ADDED permanent identifier, so a replay returns it.
+	if err := qtx.CompleteIdempotencyKey(ctx, identitydb.CompleteIdempotencyKeyParams{
+		ResultType:     textParam(identifierResultType),
+		ResultID:       attachedUUID,
+		IdempotencyKey: finish.Command.StoredIdempotencyKey,
+	}); err != nil {
+		return nil, err
+	}
+
+	// Build the response BEFORE commit — reading through qtx after tx.Commit is a "tx is closed"
+	// error. The final goat + identifiers were read (goatSummaryResult) after both identifier writes,
+	// so they already reflect the retired temp + attached permanent; just tag the added event.
+	response := goatSummaryResult
+	response.Events = []domain.EventSummary{{EventID: attachedEventID, EventType: attachIdentifierEventType}}
+
+	if r.afterAuditHook != nil {
+		if err := r.afterAuditHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	*committed = true
+	return response, nil
+}
+
+// emitIdentifierEvent writes one goat_identity_event + its decision link + audit log + outbox
+// message for a single identifier action, returning the event id. Shared by the promotion so both
+// the retire and the add produce the same envelope an ordinary single mutation would.
+func (r *Repository) emitIdentifierEvent(ctx context.Context, qtx *identitydb.Queries, finish identifierMutationFinish, decision domain.DecisionRecordSummary, decisionUUID pgtype.UUID, goat domain.GoatSummary) (string, error) {
+	identifierUUID, err := uuidParam(finish.Identifier.IdentifierID)
+	if err != nil {
+		return "", err
+	}
+	// The ADDED (attach) event carries the BARE stored key so replayIdentifierMutation finds it by
+	// that key; the retired event gets an action-suffixed key so the two events -- and their two
+	// outbox rows -- never collide on the outbox's unique idempotency_key.
+	perEventKey := finish.Command.StoredIdempotencyKey
+	switch {
+	case finish.Action != attachIdentifierAction:
+		perEventKey = finish.Command.StoredIdempotencyKey + ":" + finish.Action
+	case finish.Identifier.IdentifierType == "animal_identifier_2":
+		// A promotion can attach TWO identifiers, both with the attach action. The primary keeps the
+		// bare key (replayIdentifierMutation finds it there); the optional secondary gets a suffixed
+		// key so its event + outbox row never collide with the primary on the unique idempotency_key.
+		perEventKey = finish.Command.StoredIdempotencyKey + ":animal_identifier_2"
+	}
+	eventID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return "", err
+	}
+	eventUUID, err := uuidParam(eventID)
+	if err != nil {
+		return "", err
+	}
+	eventPayload, err := identifierEventPayload(finish, decision.DecisionID)
+	if err != nil {
+		return "", err
+	}
+	eventRow, err := qtx.InsertGoatIdentityEvent(ctx, identitydb.InsertGoatIdentityEventParams{
+		IdentityEventID: eventUUID,
+		TenantID:        finish.TenantUUID,
+		GoatID:          finish.GoatUUID,
+		EventType:       finish.EventType,
+		OccurredAt:      pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+		RecordedAt:      pgtype.Timestamptz{Time: finish.OccurredAt, Valid: true},
+		ActorID:         finish.ActorUUID,
+		Payload:         eventPayload,
+		DecisionID:      decisionUUID,
+		IdempotencyKey:  perEventKey,
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := qtx.InsertIdentityDecisionEvent(ctx, identitydb.InsertIdentityDecisionEventParams{
+		DecisionID:      decisionUUID,
+		TenantID:        finish.TenantUUID,
+		EventID:         eventUUID,
+		EventRecordedAt: eventRow.RecordedAt,
+	}); err != nil {
+		return "", err
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"actor_id":        finish.Command.ActorID,
+		"idempotency_key": finish.Command.StoredIdempotencyKey,
+		"decision_id":     decision.DecisionID,
+		"identifier_id":   finish.Identifier.IdentifierID,
+		"action":          finish.Action,
+	})
+	if err != nil {
+		return "", err
+	}
+	afterState, err := json.Marshal(map[string]any{"identifier_id": finish.Identifier.IdentifierID, "action": finish.Action})
+	if err != nil {
+		return "", err
+	}
+	if err := qtx.InsertAuditLog(ctx, identitydb.InsertAuditLogParams{
+		TenantID:     finish.TenantUUID,
+		ActorID:      finish.ActorUUID,
+		Action:       finish.EventType,
+		ResourceType: identifierSubject,
+		ResourceID:   identifierUUID,
+		ScopeType:    nullableText(nonEmptyStringPtr(scopeType(locationScopeFromSummary(goat)))),
+		ScopeID:      nullableUUID(scopeID(locationScopeFromSummary(goat))),
+		AfterState:   afterState,
+		Metadata:     metadata,
+		TraceID:      nullableText(nonEmptyStringPtr(finish.Command.TraceID)),
+	}); err != nil {
+		return "", err
+	}
+	envelope, err := identifierDomainEventEnvelope(finish, goat, decision, eventRow.EventID)
+	if err != nil {
+		return "", err
+	}
+	headers, err := json.Marshal(map[string]any{
+		"actor_id":               finish.Command.ActorID,
+		"client_idempotency_key": finish.Command.ClientIdempotencyKey,
+		"trace_id":               finish.Command.TraceID,
+		"decision_id":            decision.DecisionID,
+		"identifier_id":          finish.Identifier.IdentifierID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := qtx.InsertOutboxMessage(ctx, identitydb.InsertOutboxMessageParams{
+		TenantID:       finish.TenantUUID,
+		EventID:        eventUUID,
+		EventType:      finish.EventType,
+		SchemaVersion:  eventSchemaVersion,
+		AggregateType:  identifierAggregate,
+		AggregateID:    finish.GoatUUID,
+		Topic:          identifierTopic,
+		Payload:        envelope,
+		Headers:        headers,
+		IdempotencyKey: perEventKey,
+		TraceID:        nullableText(nonEmptyStringPtr(finish.Command.TraceID)),
+	}); err != nil {
+		return "", err
+	}
+	return eventRow.EventID, nil
+}
+
+func mustJSON(v any) json.RawMessage {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return raw
+}
+
 type identifierCommandEnvelope struct {
 	TenantID             string
 	ActorID              string

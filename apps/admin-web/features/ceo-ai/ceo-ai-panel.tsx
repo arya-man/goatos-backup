@@ -6,7 +6,6 @@ import {
   Pencil,
   Send,
   Sparkles,
-  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -44,21 +43,17 @@ const CHROME = {
   emptyReason: "No records found for the requested scope.",
   liveData: "Live data",
   planning: "Planning your answer…",
-  querying: "Consulting Mesha data…",
+  querying: "Checking live Mesha data…",
   synthesizing: "Composing the answer…",
+  staleToolFailure: "That old answer came from a broken local data route. Ask again and I’ll use the live Mesha read API.",
 } as const;
 
-// progressStatusLabel maps a coarse backend progress frame to a friendly status
-// line. It leads with the phase copy and, for the querying phase, appends the
-// coarse route label the backend supplied (e.g. "Consulting Cube ·
-// vaccination_overdue"). It never renders reasoning/chain-of-thought — the
-// backend frame carries only phase + a route tag.
 function progressStatusLabel(progress: { phase: string; label?: string }): string {
   switch (progress.phase) {
     case "planning":
       return CHROME.planning;
     case "querying":
-      return progress.label && progress.label.trim() ? progress.label : CHROME.querying;
+      return CHROME.querying;
     case "synthesizing":
       return CHROME.synthesizing;
     default:
@@ -148,6 +143,16 @@ function formatSource(source: string | undefined): string {
   return parts.join(" · ");
 }
 
+function cleanAssistantText(text: string | undefined): string {
+  const raw = (text ?? "").trim();
+  if (!raw) return "";
+  if (/cube:\s*could not be retrieved/i.test(raw)) return CHROME.staleToolFailure;
+  return raw
+    .replace(/\bHere is what I found from the live read models:\s*/gi, "")
+    .replace(/\bcube:\s*/gi, "")
+    .trim();
+}
+
 // formatFreshness turns the raw ISO/microsecond as_of into a friendly short IST
 // phrase — "just now", "N min ago", "as of 3:10 PM" (today), or a short date —
 // so the CEO never sees an ISO timestamp, microseconds, or a +05:30 offset.
@@ -176,6 +181,20 @@ function newId(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random()}`;
 }
 
+function asksAllParks(question: string): boolean {
+  return /\b(all parks|across all parks|company(?:-wide)?|overall|whole company|tenant-wide)\b/i.test(question);
+}
+
+function currentPageScope(question: string): { park_id?: string; shed_id?: string } | undefined {
+  if (typeof window === "undefined") return undefined;
+  if (asksAllParks(question)) return undefined;
+  const params = new URLSearchParams(window.location.search);
+  const park = params.get("park") ?? undefined;
+  const shed = params.get("shed") ?? undefined;
+  if (!park && !shed) return undefined;
+  return { park_id: park, shed_id: shed };
+}
+
 export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | null {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [starters, setStarters] = useState<string[]>(copy.starters);
@@ -186,6 +205,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [showStarters, setShowStarters] = useState(true);
   const [banner, setBanner] = useState<{ kind: "err" | "warn"; text: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
@@ -215,6 +235,15 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     if (open) refreshThreads();
   }, [open, refreshThreads]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
   const helloMessage = useMemo<ChatMessage>(
     () => ({ id: "hello", role: "assistant", text: copy.hello, state: "complete", source: copy.helloMeta }),
     [copy.hello, copy.helloMeta],
@@ -236,6 +265,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       setInput("");
       setBanner(null);
       setPending(true);
+      setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.Ask, { streaming: "true" });
 
       const assistantId = newId();
@@ -253,7 +283,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
       try {
         const final = await readCeoAiStream(
-          { question, conversationId, signal: controller.signal },
+          { question, conversationId, pageScope: currentPageScope(question), signal: controller.signal },
           {
             onToken: (text) =>
               setMessages((prev) =>
@@ -342,6 +372,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     setMessages([]);
     setConversationId(undefined);
     setBanner(null);
+    setShowStarters(true);
     trackCeoAiEvent(CeoAiEvents.NewChat);
     const created = await createConversation().catch(() => null);
     if (created?.id) {
@@ -356,21 +387,25 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       stopGenerating();
       setConversationId(id);
       setBanner(null);
+      setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.ResumeChat);
       const stored = await loadConversationMessages(id).catch(() => []);
-      setMessages(
-        stored.map((m) => ({
+      const restoredMessages: ChatMessage[] = stored.map((m) => {
+        const role: ChatMessage["role"] = m.role === "user" ? "user" : "assistant";
+        const message: ChatMessage = {
           id: m.id ?? m.message_id ?? newId(),
-          role: m.role === "user" ? "user" : "assistant",
-          text: m.content ?? "",
-          state: "complete",
+          role,
+          text: role === "user" ? m.content ?? "" : cleanAssistantText(m.content),
+          state: "complete" as const,
           source: m.source,
           mode: m.mode,
           requestId: m.request_id,
           messageId: m.message_id ?? m.id,
           citations: m.citations,
-        })),
-      );
+        };
+        return message;
+      });
+      setMessages(restoredMessages);
     },
     [conversationId, stopGenerating],
   );
@@ -383,6 +418,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
         if (id === conversationId) {
           setConversationId(undefined);
           setMessages([]);
+          setShowStarters(true);
         }
         refreshThreads();
       }
@@ -403,6 +439,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   );
 
   if (allowed !== true) return null;
+
+  const startersVisible = showStarters || messages.length === 0;
 
   const rootStyle = open
     ? {
@@ -568,7 +606,16 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
               {banner ? <div className={`mzai-banner ${banner.kind}`}>{banner.text}</div> : null}
 
-              {messages.length === 0 ? (
+              {messages.length > 0 ? (
+                <div className="mzai-suggestbar">
+                  <button type="button" onClick={() => setShowStarters((v) => !v)} aria-expanded={startersVisible}>
+                    <Sparkles className="ic" />
+                    Suggestions
+                  </button>
+                </div>
+              ) : null}
+
+              {startersVisible ? (
                 <div className="mzai-starters">
                   {starters.map((question) => (
                     <button

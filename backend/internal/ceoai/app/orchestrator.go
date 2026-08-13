@@ -46,7 +46,7 @@ func (c Config) withDefaults() Config {
 		c.MemoryTurns = 6
 	}
 	if c.ModelVersion == "" {
-		c.ModelVersion = "gemini-2.5-flash"
+		c.ModelVersion = "gemini-3.5-flash-lite"
 	}
 	if c.PromptVersion == "" {
 		c.PromptVersion = "v1"
@@ -272,6 +272,8 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// operator) so the composer can state exactly which operators are OVER capacity
 	// and by how much (e.g. "155% of capacity").
 	plan.SubQuestions = ensureUtilizationForOverload(q.Text, plan.SubQuestions)
+
+	normalizeVaccinationIntent(q.Text, plan.SubQuestions)
 
 	// Thread the resolved as-of business instant into every sub-question's
 	// params (P1-4). Question.AsOf was already resolved above but previously
@@ -512,6 +514,54 @@ func ensureUtilizationForOverload(questionText string, subs []domain.SubQuestion
 		ToolName:    "operator_vaccination_utilization",
 		Params:      map[string]any{"group_by": "operator_label"},
 	})
+}
+
+var missedVaccinationIntent = regexp.MustCompile(`(?i)(missed|missing|not\s+done|not\s+vaccinated).{0,60}(vaccine|vaccination|vaccinat|shot|dose)|(vaccine|vaccination|vaccinat|shot|dose).{0,60}(missed|missing|not\s+done|not\s+vaccinated)`)
+
+func normalizeVaccinationIntent(questionText string, subs []domain.SubQuestion) {
+	low := strings.ToLower(questionText)
+	wantsMissed := missedVaccinationIntent.MatchString(questionText)
+	wantsOverdue := wantsMissed || strings.Contains(low, "overdue") || strings.Contains(low, "behind") || strings.Contains(low, "late")
+	wantsGraph := plotRequested(questionText) || strings.Contains(low, "by shed") || strings.Contains(low, "per shed")
+	wantsHowMany := strings.Contains(low, "how many") || strings.Contains(low, "count")
+	wantsAllParks := asksAllParks(questionText)
+	for i := range subs {
+		if subs[i].ToolName != "vaccination_shed_summary" && subs[i].ToolName != "vaccination_due" &&
+			subs[i].ToolName != "vaccination_due_today" && subs[i].ToolName != "vaccination_overdue" {
+			continue
+		}
+		if subs[i].Params == nil {
+			subs[i].Params = map[string]any{}
+		}
+		if wantsAllParks {
+			delete(subs[i].Params, "park_id")
+			delete(subs[i].Params, "shed_id")
+			delete(subs[i].Params, "park_label")
+			delete(subs[i].Params, "shed_label")
+		}
+		if wantsMissed {
+			subs[i].Params["vaccination_intent"] = "missed"
+			subs[i].Params["_fallback_from_tool"] = "vaccination_overdue"
+		} else if wantsOverdue {
+			subs[i].Params["vaccination_intent"] = "overdue"
+			subs[i].Params["_fallback_from_tool"] = "vaccination_overdue"
+		}
+		if wantsGraph {
+			subs[i].Params["group_by"] = "shed_label"
+		} else if wantsHowMany && wantsOverdue {
+			subs[i].Params["aggregate_total"] = "true"
+		}
+	}
+}
+
+func asksAllParks(questionText string) bool {
+	low := strings.ToLower(questionText)
+	for _, kw := range []string{"all parks", "across all parks", "company-wide", "company wide", "overall", "whole company", "tenant-wide", "tenant wide"} {
+		if strings.Contains(low, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Assistant) strictRecompose(results []domain.ToolResult) string {

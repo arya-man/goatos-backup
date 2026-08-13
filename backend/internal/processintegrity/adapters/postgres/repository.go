@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
 )
@@ -21,8 +22,8 @@ const (
 	defaultClosedHistoryAge = 14 * 24 * time.Hour
 	defaultLimit            = 100
 	maxLimit                = 500
-	countQueryArgCount      = 15
-	rowsQueryArgCount       = 19
+	countQueryArgCount      = 16
+	rowsQueryArgCount       = 20
 )
 
 type Repository struct {
@@ -109,6 +110,9 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		); err != nil {
 			return domain.ListResult{}, fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
 		}
+		if summary.ExpectedCount > 0 {
+			summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
+		}
 		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
 	} else {
 		var err error
@@ -186,7 +190,7 @@ type rowScanner interface {
 
 func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	var row domain.Row
-	var batchID, taskID, submissionID, completionID, cohortID, goatID, driveName, sopVersionID pgtype.Text
+	var batchID, taskID, submissionID, completionID, partitionLabel, cohortID, goatID, driveName, sopVersionID pgtype.Text
 	var taskRowVersion pgtype.Int4
 	var windowStart, windowEnd, latestEvidenceAt, driveLatestSafeDate pgtype.Timestamptz
 	var batchStatus, submissionState, completionState, blockerReason, latestRejection, auditRef pgtype.Text
@@ -212,6 +216,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 		&row.ParkName,
 		&row.ShedID,
 		&row.ShedName,
+		&partitionLabel,
 		&cohortID,
 		&goatID,
 		&row.AnimalStage,
@@ -273,6 +278,16 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.SOPTaskVersion = int32Ptr(taskRowVersion)
 	row.SOPSubmissionID = textPtr(submissionID)
 	row.CompletionID = textPtr(completionID)
+	row.PartitionLabel = textPtr(partitionLabel)
+	partition := ""
+	if row.PartitionLabel != nil {
+		partition = *row.PartitionLabel
+	}
+	row.OperationalLocationDisplay = (oploc.OperationalLocation{
+		ShedID:         row.ShedID,
+		ShedName:       row.ShedName,
+		PartitionLabel: partition,
+	}).Display()
 	row.CohortID = textPtr(cohortID)
 	row.GoatID = textPtr(goatID)
 	row.DriveName = textPtr(driveName)
@@ -390,6 +405,7 @@ func queryArgs(q domain.Query) []any {
 		q.OnlyBrokenOrAtRisk,
 		q.IncludeCompleted,
 		textValue(q.Category),
+		q.ScopeLatestDrive,
 		cursorSort,
 		cursorDue,
 		cursorRow,
@@ -520,6 +536,26 @@ WITH completions AS (
     WHERE tenant_id = $1::uuid
       AND status <> 'reversed'
       AND COALESCE(administered_at, created_at) <= $10::timestamptz
+    UNION ALL
+    -- Rejected completions no longer live in vaccination_completions: they are MOVED to the
+    -- rejection archive (migration 000093) so a sent-back animal becomes outstanding work again
+    -- on every read by default. Process integrity MUST still see them, or the surface that exists
+    -- to answer "who is sending animals back, and why" reports zero rejections forever -- exactly
+    -- as this feature made rejection tracking per-animal instead of per-shed.
+    --
+    -- Same as-of downgrade shape as the live branch above: a rejection PROVEN to have happened
+    -- after as_of was only 'recorded' at as_of, and its verifier/reason are stripped for that
+    -- snapshot. Ranked below live recorded/accepted by the ORDER BY, so a redone-and-accepted
+    -- animal stops reading as rejected.
+    SELECT
+      obligation_id, completion_id, verified_by, verified_at, rejection_reason,
+      original_updated_at AS completion_updated_at, administered_at,
+      original_created_at AS created_at,
+      (rejected_at > $10::timestamptz) AS downgrade,
+      CASE WHEN rejected_at > $10::timestamptz THEN 'recorded' ELSE 'rejected' END AS asof_status
+    FROM vaccination_completion_rejections
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, original_created_at) <= $10::timestamptz
   ) c
   ORDER BY obligation_id,
     CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
@@ -641,7 +677,8 @@ assignment_binding AS (
     cand.assignment_id,
     cand.operator_id,
     cand.assignment_planned_at,
-    cand.assignment_is_exact
+    cand.assignment_is_exact,
+    cand.partition_label
   FROM (
     -- EXACT PATH (migration 000040): membership names the arm outright, and
     -- (tenant_id, obligation_id) is UNIQUE, so this arm is strictly 1:1 -- no ranking needed.
@@ -674,7 +711,8 @@ assignment_binding AS (
         ELSE 2
       END AS rule_rank,
       CASE
-        WHEN assignment.partition_label = w.binding_partition_label THEN 0
+        WHEN regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
+           = regexp_replace(lower(btrim(COALESCE(w.binding_partition_label, 'whole'))), '^part[[:space:]]+', '') THEN 0
         WHEN assignment.partition_label = 'whole' THEN 1
         ELSE 2
       END AS partition_rank,
@@ -741,6 +779,14 @@ raw AS (
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
     g.cohort_id AS goat_cohort_id,
+    COALESCE(
+      CASE
+        WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
+      END,
+      CASE
+        WHEN LOWER(BTRIM(COALESCE(vda.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(vda.partition_label)
+      END
+    ) AS goat_partition_label,
     oi.completed_at,
     te.asof_terminal_type,
     te.has_terminal_event,
@@ -812,10 +858,15 @@ raw AS (
     ON st.tenant_id = oi.tenant_id
    AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
   LEFT JOIN LATERAL (
-    SELECT submission_id, state, proof_refs, submitted_at, accepted_at
-    FROM sop_submissions sub
-    WHERE sub.tenant_id = oi.tenant_id
-      AND sub.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
+    SELECT sub.submission_id, sub.state, sub.proof_refs, sub.submitted_at, sub.accepted_at
+    FROM sop_submission_items si
+    JOIN sop_submissions sub
+      ON sub.tenant_id = si.tenant_id
+     AND sub.submission_id = si.submission_id
+    WHERE si.tenant_id = oi.tenant_id
+      AND si.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
+      AND oi.target_type = 'goat'
+      AND si.goat_id = oi.target_id
       -- as_of correctness: evidence submitted AFTER as_of must not be seen.
       AND sub.submitted_at <= $10::timestamptz
     ORDER BY sub.submitted_at DESC, sub.submission_id DESC
@@ -893,7 +944,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_id,protocol_version_id,protocol_name,dose_code,unbatched-business-date); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply expected counts; pagination=grouped/all_rows feed keyset list plus full-window count/adherence aggregates independent of page size; scope=park/shed/protocol/owner/category filters are applied before grouping.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,partition_label,batch_id,rule_id,protocol_id,protocol_version_id,protocol_name,dose_code,unbatched-business-date); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply expected counts; pagination=grouped/all_rows feed keyset list plus full-window count/adherence aggregates independent of page size; scope=park/shed/protocol/owner/category filters are applied before grouping.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -910,6 +961,7 @@ grouped AS (
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
     (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
+    located.goat_partition_label AS partition_label,
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
@@ -1013,7 +1065,7 @@ grouped AS (
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
     AND ($9::text = '' OR located.protocol_version_id = $9::uuid)
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
+  GROUP BY located.park_uuid, located.shed_uuid, located.goat_partition_label, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
     CASE WHEN located.batch_id IS NULL THEN (located.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
 ),
 -- projection-review: membership=grouped grains decorated with the capacity facts of the drive assignments they bound to; group_key=grouped grain (park/shed/batch/rule/protocol/business-date) unchanged, assignment rollup keyed on the DISTINCT drive_assignment_ids array -- used verbatim when drive_membership_exact (every bound obligation resolved through vaccination_drive_assignment_members, so the arms ARE the animal's own), and otherwise expanded to its same-partition split cohort (same batch/shed/partition_label/vaccine_rule_ids) by the drive_split lateral, which ARRAY_AGGs DISTINCT assignment_ids so the cohort cannot contain a duplicate; join_cardinality=drive_assignment lateral aggregates assignment rows by PK (assignment_id = ANY(cohort_ids)) so each assignment contributes exactly once regardless of how many obligations bound to it or how many split arms exist, and drive_operator_capacity pre-collapses to one row per DISTINCT operator before summing caps so a two-assignment/one-operator grain cannot double count; pagination=both laterals are per-grain rollups, independent of the LIST keyset/limit; scope=tenant-scoped ($1) and reachable only through the already scope-filtered grouped grains.
@@ -1057,7 +1109,8 @@ enriched AS (
           AND bound.assignment_id = ANY(grouped.drive_assignment_ids)
           AND bound.batch_id IS NOT DISTINCT FROM a.batch_id
           AND bound.shed_id IS NOT DISTINCT FROM a.shed_id
-          AND bound.partition_label = a.partition_label
+          AND regexp_replace(lower(btrim(COALESCE(bound.partition_label, 'whole'))), '^part[[:space:]]+', '')
+            = regexp_replace(lower(btrim(COALESCE(a.partition_label, 'whole'))), '^part[[:space:]]+', '')
           AND bound.vaccine_rule_ids = a.vaccine_rule_ids
       )
   ) drive_split ON true
@@ -1142,7 +1195,7 @@ stateful AS (
       -- obligation lifecycle only; the assignment gap surfaces through owner/drive fields below.
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN enriched.completion_recorded > 0
-        OR enriched.task_state IN ('submitted', 'needs_review') THEN 'verification_pending'
+        OR enriched.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
@@ -1188,7 +1241,13 @@ derived AS (
       ELSE 'assigned'
     END AS owner_state,
     CASE
-      WHEN stateful.batch_id IS NOT NULL THEN 'batch:' || stateful.batch_id::text || ':rule:' || stateful.rule_id::text || ':shed:' || stateful.shed_uuid::text
+      WHEN stateful.batch_id IS NOT NULL THEN
+        'batch:' || stateful.batch_id::text ||
+        ':rule:' || stateful.rule_id::text ||
+        ':protocol_version:' || stateful.protocol_version_id::text ||
+        ':shed:' || stateful.shed_uuid::text ||
+        ':partition:' || COALESCE(NULLIF(stateful.partition_label, ''), 'whole') ||
+        ':date:' || (stateful.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date::text
       ELSE 'obligation:' || stateful.obligation_id
     END AS row_id,
     CASE stateful.work_state
@@ -1228,7 +1287,7 @@ derived AS (
     CASE
       WHEN stateful.completion_rejected > 0 THEN 'rework'
       WHEN stateful.task_state IN ('in_progress') THEN 'in_progress'
-      WHEN stateful.task_state IN ('submitted', 'needs_review') THEN 'submitted'
+      WHEN stateful.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'submitted'
       WHEN stateful.task_state = 'accepted' THEN 'accepted'
       WHEN stateful.task_state IN ('rework_requested', 'rejected') THEN 'rework'
       ELSE 'not_started'
@@ -1236,12 +1295,12 @@ derived AS (
     CASE
       WHEN stateful.completion_rejected > 0 THEN 'rejected'
       WHEN stateful.completion_accepted > 0 AND stateful.completion_recorded = 0 THEN 'accepted'
-      WHEN stateful.proof_count > 0 OR stateful.completion_recorded > 0 OR stateful.task_state IN ('submitted', 'needs_review') THEN 'uploaded'
+      WHEN stateful.proof_count > 0 OR stateful.completion_recorded > 0 OR stateful.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'uploaded'
       ELSE 'missing'
     END AS proof_state,
     CASE
       WHEN stateful.completion_rejected > 0 THEN 'rejected'
-      WHEN stateful.completion_recorded > 0 OR stateful.task_state IN ('submitted', 'needs_review') THEN 'pending'
+      WHEN stateful.completion_recorded > 0 OR stateful.submission_state IN ('submitted', 'needs_review', 'accepted') THEN 'pending'
       WHEN stateful.completion_accepted > 0 AND stateful.completed_count = stateful.expected_count THEN 'accepted'
       ELSE 'not_ready'
     END AS verification_state
@@ -1460,6 +1519,7 @@ all_rows AS (
     park_name,
     shed_uuid::text AS shed_id,
     shed_name,
+    partition_label,
     cohort_id,
     goat_id,
     animal_stage,
@@ -1558,6 +1618,7 @@ all_rows AS (
     park_name,
     shed_id,
     shed_name,
+    NULL::text AS partition_label,
     cohort_id,
     goat_id,
     animal_stage,
@@ -1622,12 +1683,72 @@ all_rows AS (
 // projector (RecomputeProjection / processIntegrityProjectionInsertSQL) and the process_integrity_
 // projection_rows/_state/_summaries tables it fed were removed (migrations 000187/000188).
 
-// processIntegrityCanonicalRowsSQL is the LIST read: the canonical all_rows reconstruction, keyset-paginated
-// on (sort_priority, due_at, row_id) with LIMIT $19. The base joins are tenant+due_at index-bound and all
+// processIntegrityLatestDriveScopeSQL selects the latest in-scope vaccination drive for Protocol
+// Adherence, then constrains list and aggregate wrappers to the same drive identity. Batched work is
+// keyed by the stable operational drive tuple (park + batch + protocol version + business date), so a
+// multi-shed/multi-rule drive remains together while same-day sibling batches stay separate. Unbatched
+// legacy work falls back to the narrower row-lane tuple (park/shed/partition/protocol version/rule/date).
+// The selected row is the latest non-future row at q.AsOf; if the window has no non-future row, it uses
+// the earliest future row. This is a bounded aggregate/list filter, not service-side page draining.
+const processIntegrityLatestDriveScopeSQL = `,
+selected_adherence_scope AS (
+  SELECT
+    batch_id,
+    park_id,
+    shed_id,
+    COALESCE(NULLIF(partition_label, ''), 'whole') AS partition_label,
+    protocol_version_id,
+    rule_id,
+    (due_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date
+  FROM all_rows
+  WHERE $16::boolean
+    AND category = 'vaccination'
+    AND ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+  ORDER BY
+    CASE WHEN due_at <= $10::timestamptz THEN 0 ELSE 1 END,
+    CASE WHEN due_at <= $10::timestamptz THEN due_at END DESC NULLS LAST,
+    CASE WHEN due_at > $10::timestamptz THEN due_at END ASC NULLS LAST,
+    row_id ASC
+  LIMIT 1
+),
+scoped_rows AS (
+  SELECT all_rows.*
+  FROM all_rows
+  WHERE (
+    NOT $16::boolean
+    OR category <> 'vaccination'
+    OR EXISTS (
+      SELECT 1
+      FROM selected_adherence_scope s
+      WHERE all_rows.category = 'vaccination'
+        AND (all_rows.due_at AT TIME ZONE 'Asia/Kolkata')::date = s.business_date
+        AND all_rows.park_id = s.park_id
+        AND all_rows.protocol_version_id = s.protocol_version_id
+        AND (
+          (
+            all_rows.batch_id IS NOT NULL
+            AND s.batch_id IS NOT NULL
+            AND all_rows.batch_id = s.batch_id
+          )
+          OR (
+            all_rows.batch_id IS NULL
+            AND s.batch_id IS NULL
+            AND all_rows.shed_id = s.shed_id
+            AND COALESCE(NULLIF(all_rows.partition_label, ''), 'whole') = s.partition_label
+            AND all_rows.rule_id = s.rule_id
+          )
+        )
+    )
+  )
+)
+`
+
+// processIntegrityCanonicalRowsSQL is the LIST read: the canonical scoped_rows reconstruction,
+// keyset-paginated on (sort_priority, due_at, row_id) with LIMIT $20. The base joins are tenant+due_at index-bound and all
 // scope/state/owner/category filters ($2-$15) are applied inside all_rows, so the outer read only advances
 // the cursor and bounds the page.
-// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $19), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + `
+// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $20), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
+const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
 SELECT
   sort_priority,
   row_id,
@@ -1643,6 +1764,7 @@ SELECT
   park_name,
   shed_id,
   shed_name,
+  scoped_rows.partition_label,
   cohort_id,
   goat_id,
   animal_stage,
@@ -1696,10 +1818,10 @@ SELECT
   latest_evidence_at,
   latest_rejection_reason,
   audit_ref
-FROM all_rows
+FROM scoped_rows
 WHERE (
-  $16::int < 0
-  OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
+  $17::int < 0
+  OR (sort_priority, due_at, row_id) > ($17::int, $18::timestamptz, $19::text)
 )
   -- When IncludeCompleted is off ($14 false), a row that reads 'completed' at as_of but is due before the
   -- closed-history floor ($11 = as_of - closed-history age) is genuine closed history and must not appear in
@@ -1708,19 +1830,19 @@ WHERE (
   -- projection read filter exactly.
   AND ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
 ORDER BY sort_priority ASC, due_at ASC, row_id ASC
-LIMIT $19;
+LIMIT $20;
 `
 
 // processIntegrityCanonicalCountsSQL is the NON-keyset indexed AGGREGATE: it collapses the whole canonical
 // filtered set into one count per work_state. Membership is one all_rows grain (already GROUP BY'd in the
 // base to park/shed/batch/rule/protocol/business-date), so COUNT(*) here is 1:1 with the LIST rows and the
-// window total never depends on the LIST page size ($19 is not referenced). Args are countQueryArgs (the
-// first 15 = $1..$15); the keyset args $16-$19 are intentionally absent.
-// projection-review: membership=all_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=work_state; join_cardinality=base joins pre-aggregated to grains in processIntegrityBaseSQL grouped/all_rows before this COUNT so no fan-out; pagination=full-tenant aggregate independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15).
+// window total never depends on the LIST page size ($20 is not referenced). Args are countQueryArgs (the
+// first 16 = $1..$16); the keyset args $17-$20 are intentionally absent.
+// projection-review: membership=scoped_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=work_state; join_cardinality=base joins pre-aggregated to grains in processIntegrityBaseSQL grouped/all_rows before this COUNT so no fan-out; pagination=full selected scope aggregate independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15), optional latest-drive scope via $16.
 // scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed aggregate over the tenant+due_at bounded base joins, projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalCountsSQL = processIntegrityAllRowsSQL + `
+const processIntegrityCanonicalCountsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
 SELECT work_state, COUNT(*)::bigint AS row_count
-FROM all_rows
+FROM scoped_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
 GROUP BY work_state
 ORDER BY work_state;
@@ -1730,15 +1852,15 @@ ORDER BY work_state;
 // grains: expected/completed sums plus the process-intact split, all independent of the LIST page. The
 // deferred total mirrors the projector grain (GREATEST(deferred_count, 1) on deferred-state grains) so a
 // canonical read and a projector-built summary agree.
-// projection-review: membership=all_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=none (single tenant summary row); join_cardinality=base joins pre-aggregated to grains before this SUM so no fan-out double-count; pagination=window totals independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15).
+// projection-review: membership=scoped_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=none (single selected-scope summary row); join_cardinality=base joins pre-aggregated to grains before this SUM so no fan-out double-count; pagination=selected-scope totals independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15), optional latest-drive scope via $16.
 // scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed aggregate over the tenant+due_at bounded base joins, projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalAdherenceSummarySQL = processIntegrityAllRowsSQL + `
+const processIntegrityCanonicalAdherenceSummarySQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
 SELECT
   COALESCE(SUM(expected_count), 0)::integer AS expected_count,
   COALESCE(SUM(completed_count), 0)::integer AS completed_count,
   COUNT(*) FILTER (WHERE NOT process_intact)::integer AS open_gap_count,
   COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
   COUNT(*) FILTER (WHERE process_intact)::integer AS process_intact_count
-FROM all_rows
+FROM scoped_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz);
 `

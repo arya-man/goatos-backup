@@ -65,6 +65,7 @@ distinct operator question:
 | Cloud SQL infra metrics (CPU/mem/connections) | Cloud SQL itself | native | Cloud Monitoring | `cloud-monitoring` (`stackdriver`) |
 | Mobile funnels/journeys | goatos-android (Firebase Analytics/GA4) | GA4 native export | BigQuery (raw) → scheduled rollup → Postgres `analytics.*` | `postgres-analytics` (dashboards), `bigquery-analytics` (ad-hoc) |
 | Mobile crash/perf | goatos-android (Crashlytics, Firebase Performance) | Firebase native | Firebase console (not yet in Grafana) | — |
+| Mobile request provenance | goatos-android OkHttp headers | API request headers | Cloud Run logs + `audit_log.metadata->'client'` | Cloud Logging / SQL |
 
 ## Where do I look when X is slow/broken?
 
@@ -76,6 +77,7 @@ distinct operator question:
 | Obligations/notifications aren't firing or are late | Dashboard 3 (Kernel pipeline) — check outbox queue depth/DLQ and consumer lag first |
 | admin-web feels slow or is throwing JS errors for users | Dashboard 4 (Frontend RUM) — Web Vitals + JS error rate; `ObservabilityErrorBoundary` also reports to Cloud Logging |
 | Android app is slow, crashing, or funnel drop-off | Dashboard 5 (Mobile) — crash-free rate and funnel conversion; raw crash detail lives in Firebase Crashlytics console (not yet mirrored to Grafana) |
+| A bad field submission came from an old APK/device | Query the relevant `audit_log` row and inspect `metadata->'client'` for `app_version`, `app_version_code`, `build_type`, `device_id`, `os_version`, `sdk_version`, and `device_model`; Cloud Run request logs carry the same fields |
 | Something might be about to breach an SLO | Dashboard 6 (SLO/burn) — multi-window burn-rate alerts page `monitoring_alert_email_addresses` |
 | "Is telemetry even flowing?" after a deploy | `RUNBOOK.md` → "Verify telemetry is flowing" checklist |
 | Can't reach Grafana at all | `GRAFANA_ACCESS.md` |

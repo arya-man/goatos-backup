@@ -127,6 +127,13 @@ data class ScanRosterRowEntity(
      *  matches backend order. Defaults to 0 for rows written before the ordering column existed. */
     val seq: Long = 0,
     val updatedAt: Long,
+    /** `obligation_instances.row_version` for this row's obligation, echoed from
+     *  [sg.mesha.goatos.core.network.dto.ScanRosterRowDto.obligationRowVersion]. See
+     *  `sg.mesha.goatos.core.data.capture.scanCaptureIdempotencyKey` — this is the server-issued
+     *  cycle discriminator folded into the scan-capture idempotency key so a genuinely-new scan
+     *  after a verifier-rejection reopen is not deduped away as a replay of the prior cycle's
+     *  already-synced capture. Defaults to 0 for rows written before this column existed. */
+    val obligationRowVersion: Int = 0,
 )
 
 @Dao
@@ -143,16 +150,21 @@ interface ScanRosterRowDao {
     @Query("SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey ORDER BY seq ASC, id ASC LIMIT :limit")
     fun observeRowsWindow(scopeKey: String, limit: Int): Flow<List<ScanRosterRowEntity>>
 
-    /** Full-roster row count for this scope — drives `hasMore` (window < total) without loading rows. */
-    @Query("SELECT COUNT(*) FROM scan_roster_row WHERE scopeKey = :scopeKey")
+    /** Full-roster animal count for this scope — one animal may carry several vaccine obligations. */
+    @Query("SELECT COUNT(DISTINCT goatId) FROM scan_roster_row WHERE scopeKey = :scopeKey")
     fun observeScopeTotal(scopeKey: String): Flow<Int>
 
     /** Distinct goat ids of every DONE/completed animal in the FULL roster (backend-persisted status).
      *  The submit proof gate unions this with the session's local-done overlay to require a synced
      *  proof for every vaccinated animal, page-independent. Bounded by one shed's animal count. */
+    // An OUTSTANDING server status (rejected/due/pending/in_progress) vetoes the timestamp. A sent-back animal
+    // keeps its scannedAtMs forever -- it really was scanned -- so OR-ing the timestamp in without
+    // that veto kept a rejected animal in the done set, feeding the per-goat proof gate and letting
+    // a reopened animal count as already proven.
     @Query(
-        "SELECT DISTINCT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' AND " +
-            "(scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%')"
+        "SELECT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' GROUP BY goatId HAVING " +
+            "SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) = 0 AND " +
+            "SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0"
     )
     fun observeDoneGoatIds(scopeKey: String): Flow<List<String>>
 
@@ -170,25 +182,53 @@ interface ScanRosterRowDao {
     )
     suspend fun findByTag(scopeKey: String, normalizedTag: String): ScanRosterRowEntity?
 
-    /** Count rows by status for a shed. Used to derive total/done/pending counts without reloading
-     *  the entire JSON blob. (R50-008: aggregates independent of loaded page size). */
-    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE scopeKey = :scopeKey GROUP BY status")
+    /** Count one effective status per animal for a shed. A multi-vaccine animal can have several
+     *  roster rows; any outstanding sibling obligation keeps the animal open unless the goat-level
+     *  proof/completion has satisfied every sibling row. */
+    @Query(
+        "WITH per_goat AS (" +
+            "SELECT goatId, " +
+            "CASE " +
+            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
+            "WHEN SUM(CASE WHEN LOWER(status) LIKE '%skip%' THEN 1 ELSE 0 END) > 0 THEN 'skipped' " +
+            "WHEN SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0 THEN 'done' " +
+            "ELSE 'due' END AS effectiveStatus " +
+            "FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' GROUP BY goatId" +
+            ") SELECT effectiveStatus AS status, COUNT(*) as count FROM per_goat GROUP BY effectiveStatus"
+    )
     suspend fun countByStatus(scopeKey: String): List<StatusCount>
 
-    /** R50-008: Observable status aggregates for a shed — a bounded GROUP BY (max a handful of
-     *  status rows), re-emitted whenever the roster rows change, so ring/tile counters stay
-     *  page-independent. */
-    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE scopeKey = :scopeKey GROUP BY status")
+    /** R50-008: Observable animal-grain status aggregates for a shed — a bounded GROUP BY (max a
+     *  handful of status rows), re-emitted whenever roster rows change, so ring/tile counters stay
+     *  page-independent and multi-vaccine rows do not double-count a goat. */
+    @Query(
+        "WITH per_goat AS (" +
+            "SELECT goatId, " +
+            "CASE " +
+            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
+            "WHEN SUM(CASE WHEN LOWER(status) LIKE '%skip%' THEN 1 ELSE 0 END) > 0 THEN 'skipped' " +
+            "WHEN SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0 THEN 'done' " +
+            "ELSE 'due' END AS effectiveStatus " +
+            "FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' GROUP BY goatId" +
+            ") SELECT effectiveStatus AS status, COUNT(*) as count FROM per_goat GROUP BY effectiveStatus"
+    )
     fun observeCountsByStatus(scopeKey: String): Flow<List<StatusCount>>
 
-    /** R50-008: Status aggregates for a bounded id set (the session's local unsynced DONE overlay,
-     *  at most a scan session's worth of ids). Lets the ViewModel add local edits to the full-roster
-     *  counts without double-counting rows the backend already reports DONE. */
+    /** R50-008: Effective status aggregates for a bounded goat-id set (the session's local unsynced
+     *  DONE overlay, at most a scan session's worth of ids). Lets the ViewModel add local edits to
+     *  the full-roster counts without double-counting goats the backend already reports DONE. */
     @Query(
-        "SELECT status, COUNT(*) as count FROM scan_roster_row " +
-            "WHERE scopeKey = :scopeKey AND obligationId IN (:obligationIds) GROUP BY status"
+        "WITH per_goat AS (" +
+            "SELECT goatId, " +
+            "CASE " +
+            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
+            "WHEN SUM(CASE WHEN LOWER(status) LIKE '%skip%' THEN 1 ELSE 0 END) > 0 THEN 'skipped' " +
+            "WHEN SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0 THEN 'done' " +
+            "ELSE 'due' END AS effectiveStatus " +
+            "FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId IN (:goatIds) GROUP BY goatId" +
+            ") SELECT effectiveStatus AS status, COUNT(*) as count FROM per_goat GROUP BY effectiveStatus"
     )
-    suspend fun countByStatusForObligations(scopeKey: String, obligationIds: List<String>): List<StatusCount>
+    suspend fun countByStatusForGoats(scopeKey: String, goatIds: List<String>): List<StatusCount>
 
     @Query("DELETE FROM scan_roster_row WHERE scopeKey = :scopeKey")
     suspend fun deleteForScope(scopeKey: String)

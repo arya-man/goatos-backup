@@ -71,6 +71,8 @@ type config struct {
 	Level2After      time.Duration
 	Level3After      time.Duration
 	Level4After      time.Duration
+	DoseCodes        map[string]struct{}
+	TargetIDs        map[string]struct{}
 }
 
 func main() {
@@ -137,6 +139,10 @@ func run(args []string) error {
 			if err != nil {
 				return fmt.Errorf("sweep config version %s: %w", versionID, err)
 			}
+			if len(cfg.DoseCodes) > 0 && len(sweepCfg.AllowedRuleIDs) == 0 {
+				continue
+			}
+			sweepCfg.AllowedTargetIDs = cfg.TargetIDs
 			plans = append(plans, obligationapp.SweepVersionPriority{VersionID: versionID, Config: sweepCfg})
 		}
 		plans = obligationapp.SortSweepVersionsByPriority(plans)
@@ -281,6 +287,14 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 	}
 	out.RuleVaccineIDs = make(map[string]obligationapp.RuleVaccineIdentity, len(rules))
 	for _, rule := range rules {
+		if len(cfg.DoseCodes) > 0 {
+			if _, ok := cfg.DoseCodes[strings.ToLower(strings.TrimSpace(rule.DoseCode))]; ok {
+				if out.AllowedRuleIDs == nil {
+					out.AllowedRuleIDs = map[string]struct{}{}
+				}
+				out.AllowedRuleIDs[rule.RuleID] = struct{}{}
+			}
+		}
 		ruleVaccineID := obligationapp.ExtractRuleVaccineIdentity(rule.EligibilityJSON)
 		if ruleVaccineID.VaccineCode != "" {
 			out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
@@ -353,6 +367,8 @@ func parseFlagsAt(args []string, now time.Time) (config, error) {
 	fs.DurationVar(&cfg.Level2After, "level2-after", durationEnv("GOATOS_ESCALATION_LEVEL2_AFTER", 4*time.Hour), "level 2 SLA threshold after due_at")
 	fs.DurationVar(&cfg.Level3After, "level3-after", durationEnv("GOATOS_ESCALATION_LEVEL3_AFTER", 24*time.Hour), "level 3 SLA threshold after due_at")
 	fs.DurationVar(&cfg.Level4After, "level4-after", durationEnv("GOATOS_ESCALATION_LEVEL4_AFTER", 48*time.Hour), "level 4 SLA threshold after due_at")
+	doseCodesRaw := fs.String("dose-codes", getenv("GOATOS_SWEEPER_DOSE_CODES"), "optional comma-separated protocol dose_code allowlist for campaign-only sweeps")
+	targetIDsFile := fs.String("target-ids-file", getenv("GOATOS_SWEEPER_TARGET_IDS_FILE"), "optional newline-delimited target goat UUID allowlist for campaign-only sweeps")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -399,6 +415,12 @@ func parseFlagsAt(args []string, now time.Time) (config, error) {
 	if cfg.DosesPerGoat < 1 {
 		cfg.DosesPerGoat = 1
 	}
+	cfg.DoseCodes = parseDoseCodeSet(*doseCodesRaw)
+	targetIDs, err := readIDSetFile(*targetIDsFile)
+	if err != nil {
+		return config{}, err
+	}
+	cfg.TargetIDs = targetIDs
 	if cfg.ReminderLimit <= 0 {
 		cfg.ReminderLimit = 100
 	}
@@ -417,6 +439,44 @@ func parseFlagsAt(args []string, now time.Time) (config, error) {
 		return config{}, errors.New("actor-id is required for obligation-sweeper")
 	}
 	return cfg, nil
+}
+
+func readIDSetFile(path string) (map[string]struct{}, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read target ids file: %w", err)
+	}
+	out := map[string]struct{}{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		id := strings.TrimSpace(line)
+		if id == "" || strings.HasPrefix(id, "#") {
+			continue
+		}
+		out[id] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("target ids file contained no ids")
+	}
+	return out, nil
+}
+
+func parseDoseCodeSet(raw string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, part := range strings.Split(raw, ",") {
+		code := strings.ToLower(strings.TrimSpace(part))
+		if code == "" {
+			continue
+		}
+		out[code] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string) error {

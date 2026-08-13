@@ -82,6 +82,61 @@ func (r *Repository) SyncPartitionMoveForGoat(ctx context.Context, tenantID, goa
 	return len(batchIDs), nil
 }
 
+// SyncDriveAssignmentMembershipForGoatsInTx re-derives vaccination_drive_assignment_members (and
+// their assignment-level counters) for the OPEN batches of the given goats, inside a transaction the
+// CALLER owns and commits.
+//
+// It is the cross-module wiring point for identity.RelocateGoatsToShedInTx: that command already
+// writes goats.shed_id AND upserts goat_shed_partitions.partition_label in its own transaction (see
+// backend/internal/identity/adapters/postgres/goat_relocate.go), for BOTH a cross-shed move and a
+// same-shed partition-only move. A cross-shed move is separately re-scoped by the async
+// goat.location.changed consumer (obligation SM-2, ReScopeOpenForGoatShift), which unbatches the
+// goat's open obligations entirely -- so by the time this runs for a cross-shed move, the goat
+// typically has no open BATCHED obligation left to re-derive membership for, and this call is a
+// no-op via openObligationBatchIDsForGoatTx returning nothing. A SAME-shed partition-only move (the
+// "Castro 1 -> Castro 2" case) has no shed change to trigger that async re-scope at all, so THIS is
+// the only path that re-derives which drive-assignment arm (operator/partition) each affected goat's
+// still-open batched obligations belong to.
+//
+// Unlike SyncPartitionMoveForGoat (the standalone single-goat entry point used before this wiring
+// existed), this does NOT write goat_shed_partitions itself -- the caller's transaction has already
+// done that as part of the same atomic relocation. It only re-derives the READ MODEL
+// (vaccination_drive_assignment_members + counters) that depends on that write, exactly the second
+// half of SyncPartitionMoveForGoat's body. Set-based across the whole goat group: one batch-id lookup
+// plus two set-based rewrites, not a per-goat loop.
+func SyncDriveAssignmentMembershipForGoatsInTx(ctx context.Context, tx pgx.Tx, tenantID string, goatIDs []string) error {
+	if len(goatIDs) == 0 {
+		return nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	goats := make([]pgtype.UUID, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		goat, err := pgconv.UUID(goatID)
+		if err != nil {
+			return fmt.Errorf("obligation: goat id: %w", err)
+		}
+		goats = append(goats, goat)
+	}
+	batchIDs, err := openObligationBatchIDsForGoatsTx(ctx, tx, tenant, goats)
+	if err != nil {
+		return err
+	}
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	if err := syncVaccinationDriveAssignmentMembersTx(ctx, tx, tenant, batchIDs); err != nil {
+		return err
+	}
+	// See recomputeDriveAssignmentCountersExactFromMembersTx: re-binding membership alone leaves a
+	// vacated arm's animal_count/total_doses stale (it can only SHRINK, which the grow-only
+	// reconcile path cannot correct), so counters are recomputed exactly from current membership on
+	// every affected batch.
+	return recomputeDriveAssignmentCountersExactFromMembersTx(ctx, tx, tenant, batchIDs)
+}
+
 // syncPartitionMoveForGoatInTx writes the new partition_label for a goat whose shed_id is
 // unchanged and reports whether the label actually changed. It fails if the caller's shedID does
 // not match the goat's current goat_shed_partitions row -- a cross-shed move must go through the
@@ -129,6 +184,39 @@ WHERE tenant_id = $1::uuid
   AND target_id = $2::uuid
   AND status IN ('scheduled', 'due', 'deferred')
   AND batch_id IS NOT NULL`, tenant, goat)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: partition move: list open batches: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]pgtype.UUID, 0)
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("obligation: partition move: scan batch id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: partition move: batch id rows: %w", err)
+	}
+	return ids, nil
+}
+
+// openObligationBatchIDsForGoatsTx is the set-based sibling of openObligationBatchIDsForGoatTx: one
+// statement covering a whole goat group instead of one query per goat (the n-plus-one-fanout
+// anti-pattern), for SyncDriveAssignmentMembershipForGoatsInTx.
+func openObligationBatchIDsForGoatsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, goats []pgtype.UUID) ([]pgtype.UUID, error) {
+	if len(goats) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT DISTINCT batch_id
+FROM obligation_instances
+WHERE tenant_id = $1::uuid
+  AND target_type = 'goat'
+  AND target_id = ANY($2::uuid[])
+  AND status IN ('scheduled', 'due', 'deferred')
+  AND batch_id IS NOT NULL`, tenant, goats)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: partition move: list open batches: %w", err)
 	}

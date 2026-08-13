@@ -1,55 +1,49 @@
 # ADR: Vaccination notification rules — what to send, when, how often, to whom
 
-Status: **PROPOSED design + business-rule catalog.** The delivery pipeline it
-rides on is already built (see `notification-delivery.md`); this doc defines the
-*rule layer* that currently does not exist in code. It is the source of truth for
-the vaccination slice's notification cadence and the reusable framework every
-future obligation-backed feature (feeding, breeding, procurement, delivery,
-health) plugs into.
+Status: **PARTIALLY IMPLEMENTED compatibility catalog.** The D-7/D-6..D0
+reminder cadence and a due-age escalation lane exist, but the production
+escalation semantics, recipient resolution, and channels do not yet satisfy the
+target described here. The accepted cross-module authority is
+[`task-timing-alerting-violations-and-appeals.md`](./task-timing-alerting-violations-and-appeals.md).
 
-Scope note: **FCM (push) is the channel we build now.** SMS, email, voice call,
-WhatsApp, and Slack are documented here as roadmap and mapped to the same rule
-engine, but only `push_fcm` is wired in the first cut.
+Maintainer decision, 2026-08-10: a Vaccination drive date is a planning target,
+not a personal hard deadline. D+1 and D+2 are an accepted carry-forward band.
+That band is always capped by the earliest applicable animal-level clinical
+latest-safe boundary. Crossing the drive date or its ordinary extension is not
+an employee violation; an animal-level clinical breach is still only a breach
+occurrence until attribution and appeal are complete.
 
----
-
-## 0. The GCP "which SQS?" answer (short)
-
-You do **not** rebuild SQS. This is already mapped and implemented — full detail
-in [`notification-delivery.md`](./notification-delivery.md). One-line version:
-
-| Amazon (SQS-centric) | GCP equivalent | Role in this system |
-|---|---|---|
-| SQS work queue | **Cloud Tasks** | near-term timed dispatch + per-message retry/backoff (the closest 1:1 to an SQS sender) |
-| SNS/SQS fan-out bus | **Pub/Sub** | event spine, at-least-once, many idempotent consumers |
-| SQS delay / visibility timeout | Cloud Tasks `schedule_time` / Postgres `next_attempt_at` + lease token | timers + in-flight lease |
-| CloudWatch cron | **Cloud Scheduler** | ticks the sweeper for due / reminder / escalation scans |
-| SNS → device push | **FCM** behind `notification/ports.Gateway` | last hop to the phone |
-
-**Hard rule:** far-future "this vaccine is due in 6 weeks" state lives in
-**Postgres**, never in the queue. Cloud Scheduler drives a sweeper that scans
-indexed Postgres due-windows and *materializes* the near-term reminders into
-Cloud Tasks / `notification_requests`. The queue is transport; Postgres is the
-calendar. A queue is not a calendar database.
-
-For vaccination specifically, the reminder fan-out ("1 week before, then daily")
-is realized two ways, and both are valid:
-
-- **Sweeper-materialized (default):** the scheduler-driven sweeper scans
-  `calendar_event_projections` where `reminder_state <> 'not_scheduled'` and
-  `due_at` falls inside the active reminder window, and emits the due reminder
-  rows for *today's* fires. Simple, self-healing, no far-future queue state.
-- **Cloud Tasks pre-scheduled:** when an obligation's `due_at` is set, enqueue
-  each future reminder as a Cloud Task with `schedule_time = due_at − offset`.
-  Lower latency, but every reschedule must cancel + re-enqueue.
-
-Start with sweeper-materialized (it already has the index — mig `000102`,
-`000086:111`); add pre-scheduled tasks only if reminder latency needs to beat the
-sweeper tick.
+Scope note: FCM is the intended named-person first channel. The current reminder
+stage can queue FCM, while the legacy escalation lane uses local-stub at L1,
+Slack at L2, and incident webhook behavior at L3/L4. SMS, WhatsApp, and voice are
+not production channels. Email, Slack, webhook, FCM, and incident gateway cases
+exist, but source alone does not prove a deployed provider/secret is live.
 
 ---
 
-## 1. What exists vs what this doc adds
+## 0. Current delivery topology
+
+Goat OS does **not** rebuild SQS and does not use Cloud Scheduler, Cloud Tasks,
+or a calendar projection table as the operational reminder authority. Current
+production source uses:
+
+| Concern | Current authority |
+|---|---|
+| Durable domain fan-out | Pub/Sub plus idempotent consumers |
+| Future schedule and business clock | Canonical Postgres obligation/calendar facts |
+| Reminder materialization | Consolidated `kernel-worker` reminder stage on its five-minute operational cadence |
+| Notification queue/retry/lease | Postgres `notification_requests` |
+| Named-device last hop | FCM behind `notification/ports.Gateway` |
+
+Far-future “this vaccine is due in six weeks” state remains in Postgres. The
+kernel stage reads canonical events/windows, materializes only the fires that are
+currently due, and the notification dispatcher leases and sends those durable
+requests. Cloud Tasks may be evaluated as a future transport optimization only
+through a separate accepted change; it is not the current or required calendar.
+
+---
+
+## 1. Current runtime vs target
 
 Already built (do not rebuild):
 
@@ -57,24 +51,35 @@ Already built (do not rebuild):
 - `notification-dispatcher` worker + multi-channel gateway routing
   `slack | webhook | email | push_fcm | incident` — `internal/notification/...`.
 - Obligation engine with the full status lifecycle + sweeper missed-marking.
-- `calendar_event_projections.reminder_state` / `escalation_state` columns —
-  mig `000086:41-43`.
 - `calendar/domain/types.go:230 NotificationPolicy json.RawMessage` — the empty
   slot this doc's rule schema fills.
 - Device registry `workforce_member_devices(push_token_hash, status, …)` +
   routes `POST /app/devices/{register,heartbeat,deregister}` — mig `000050`.
+- Android `FirebaseMessagingService`, token registration/refresh, and logout
+  deregistration plumbing.
+- The five-minute Vaccination reminder cadence stage in the consolidated
+  `kernel-worker`.
 
-Missing (this doc specifies it; implementation tracked separately):
+Deployment credentials, actual device reachability, and external provider
+secrets remain deployment proof, not facts source code can establish.
 
-1. The **reminder cadence ladder** (T-7d, daily reminders, due-today) — no
-   offsets are defined anywhere in code today.
-2. The **audience → recipient resolution** rules (park-scoped vs all-park
-   leadership).
-3. The **escalation ladder** timing for vaccination.
-4. The **domain-event-consumer → notification_requests** wiring that reads a
-   rule and fans out rows (the seam is identified in `notification-delivery.md`).
-5. Device handlers (`internal/devices/` is an empty module) + mobile FCM SDK
-   (both already tracked in `fcm-device-lifecycle.md`).
+Audited current behavior:
+
+1. The reminder stage implements D-7 at 08:00, D-6..D-1 at
+   08:00/13:00/20:30, and D0 at the same three slots, with 21:00-07:00 quiet
+   hours and latest-fire catch-up.
+2. The due-age escalation lane computes the highest crossed L1/L2/L3/L4 level
+   (defaults approximately 0h/4h/24h/48h). It can skip levels and is not the
+   required next-human-level-after-unacknowledged-wait state machine.
+3. Acknowledging the current escalation row does not reliably stop later levels.
+4. Escalation recipients may be role slugs rather than resolved on-duty people.
+5. The ordinary obligation missed sweep defaults to +24h and late completion is
+   still possible. That row is operational evidence, not a disciplinary finding.
+
+Target work is owned by the operational-task-kernel plan: named owner and clock,
+the D+1/D+2 flexible drive band with clinical cap, run/step/contact-attempt
+state, acknowledgement fencing, one-level advancement, delivery-failure policy,
+and attribution/appeal separation.
 
 ---
 
@@ -83,32 +88,40 @@ Missing (this doc specifies it; implementation tracked separately):
 Obligation status machine (from `obligation/domain`):
 
 ```
-scheduled ─▶ due ─▶ overdue ─▶ missed          (deadline path)
+scheduled ─▶ due ─▶ missed                       (deadline path)
                 └─▶ in_progress ─▶ completed    (execution path)
-   any ─▶ deferred (health block) ─▶ rescheduled (recovery)
-   any ─▶ canceled (animal exit / manual)
+   open ─▶ deferred ─▶ scheduled                (health block and reschedule)
+   open ─▶ waived | canceled | superseded
 ```
 
-Each transition is written in one Postgres txn with an `obligation_status_event`
-+ outbox row; the domain-event-consumer is the natural place to evaluate
-notification rules.
+`overdue` is a read-time classification for an open row whose clock has crossed;
+it is not a persisted obligation status. Rescheduling is an action/reason that
+returns the row to `scheduled`; `rescheduled` is not a persisted status.
+Blocking is dependency/task context while the obligation remains in an allowed
+persisted status; `blocked` is not an obligation status.
+
+Current writer coverage is not universal: some transitions write a status event
+without the matching outbox event. The target requires every governed transition
+to persist its status/audit and outbox fact in the owning transaction, with a
+writer-by-writer production-path closure gate before shared contacts activate.
 
 Business events the vaccination slice raises, and whether they notify:
 
 | Event | Trigger | Notifies? |
 |---|---|---|
 | Drive planned | `vaccination_shed_event` created (shed × vaccine × date) | yes — heads-up to the park |
-| Obligation `scheduled → due` window opens | sweeper / projection at window start | yes — reminder ladder starts |
-| Reminder tick | scheduler, inside the reminder window | yes — the cadence in §3 |
+| Obligation `scheduled → due` window opens | canonical Postgres clock evaluated by the consolidated five-minute kernel-worker stage | yes — reminder ladder starts |
+| Reminder fire becomes due | consolidated kernel-worker reminder stage evaluates the canonical window | yes — the cadence in §3 |
 | `due → in_progress` | field batch started | low-priority ack to head/manager |
 | `→ proof_pending` | execution done, proof (SOP video) uploaded | no push (interim state) |
-| `→ verification_pending` | shed proof/video submitted for review | **yes — notify the verifier, that park head, PC director, and all CEOs** |
+| `→ verification_pending` | shed proof/video submitted for review | **yes — notify verifier + park head; PC Director/CEO receive portfolio visibility, not routine per-shed CEO push** |
 | `→ rejected` / `rework_due` | **verifier rejects the proof** | **yes — notify the operator who did it (+ park head)** so they redo |
 | `→ completed` (verified/approved) | proof accepted (`vaccination_completion`) | rollup only (digest), no push spam |
-| `due → overdue` | window closed, still open | yes — high priority + escalation start |
-| `→ missed` | sweeper `MarkMissedBefore` crosses deadline | yes — escalation |
+| planned drive date crossed | drive remains open inside D+1/D+2 carry-forward and below every clinical cap | yes — lightweight owner reminder + manager aggregate; no incident/voice and no violation |
+| clinical latest-safe boundary crossed | exact animal obligation remains open | yes — hard clinical breach/contact policy at animal grain; attribution is separate |
+| legacy `→ missed` | current sweeper crosses its configured cutoff | operational alert/evidence only; never a final employee violation |
 | `→ deferred` | health block (sick / quarantine / ICU / pregnancy window) | manager only |
-| `deferred → rescheduled` | health recovery replanned | operator + manager |
+| `deferred → scheduled` (reschedule action) | health recovery replanned | operator + manager |
 | `→ canceled` | animal exit | none (audit only) |
 | Cold-chain / stock buffer low | 3-week buffer trigger (PHC SLA) | manager + director |
 
@@ -125,7 +138,8 @@ plan + EOD report):
 | `D − 7d` | 1× | 08:00 | `advance_notice` | normal |
 | `D − 6d … D − 1d` | 3×/day | 08:00, 13:00, 20:30 | `reminder` (with `reminder_number` 1..N) | normal |
 | `D − 0` (due day) | 3× | 08:00, 13:00, 20:30 | `due_today` | high |
-| `D + 0` EOD not done | 1× | 20:30 | `due_today` + escalation state | high → leadership exception |
+| `D + 0` EOD not done | 1× | 20:30 | `carry_forward_start` | normal manager aggregate; not a breach |
+| `D + 1 … D + 2` | 1×/day | 08:00 | `carry_forward` | normal; no incident/voice |
 
 This is the literal encoding of "1 week before, then daily reminders till the day
 arrives," aligned to the current field rhythm of 08:00 / 13:00 / 20:30 local
@@ -148,10 +162,14 @@ hours defers to the next allowed slot (field staff, not on-call).
 Batching key = `(recipient, park, due_date, notification_type)`. This is the
 mobile "never fetch/notify per-animal" rule applied to pushes.
 
-**De-scheduling:** on `completed | deferred | canceled | rescheduled`, cancel all
-pending future reminders for that obligation (set `reminder_state` back or drop
-queued Cloud Tasks). A recovered/rescheduled obligation restarts the ladder from
-its new `D`.
+**De-scheduling:** on completion, defer, cancellation, or a reschedule action,
+suppress all pending future reminder/contact rows for the previous schedule.
+A recovered obligation returned to `scheduled` starts a new version-fenced
+ladder from its new `D`; stale workers cannot send the prior generation.
+
+The drive extension must stop earlier for any animal whose pinned clinical
+`latest_safe_at` is earlier than D+2. That animal becomes an exact clinical
+exception; the remaining safe drive work does not inherit a personal violation.
 
 ---
 
@@ -164,23 +182,25 @@ Manager → Assistant/Operator) and the position table
 
 ### 4a. Park-scoped roles — their park only
 
-Operators, Park Heads, and the PHC Manager for a park receive the **operational**
-reminder ladder for events in **that park** (`scope_type='center'` AND
-`scope_id = event.park_id`). They never see other parks' per-drive reminders.
+The park operational audience receives only its park's reminder ladder. Resolve
+it through the workforce module-duty contract, never a literal role-code list:
 
-Recipient query (already validated pattern):
-
-```sql
-SELECT DISTINCT d.device_id, d.push_token_hash
-FROM workforce_positions p
-JOIN workforce_members m  ON p.workforce_member_id = m.workforce_member_id
-JOIN workforce_member_devices d ON d.workforce_member_id = m.workforce_member_id
-WHERE p.tenant_id = $tenant
-  AND p.scope_type = 'center' AND p.scope_id = $park_id
-  AND p.position_code IN ('operator','park_head','phc_manager')
-  AND p.status = 'active' AND m.status = 'active'
-  AND d.status = 'active' AND d.push_token_hash IS NOT NULL;
+```text
+ResolveModuleDutyRecipientsBatch(
+  module = "pc.vaccination",
+  duties = ["execute", "manage"],
+  scope = event.park_id,
+  at = contact_time,
+)
+  -> on-duty member/replacement
+  -> active reachable device
+  -> raw fcm_token for the gateway
 ```
+
+The shared-kernel equivalent must preserve module duty, park scope, shift time,
+absence/replacement/week-off handling, real member/user identity, and explicit
+no-route/no-recipient outcomes. `push_token_hash` is device identity/dedup data;
+it is not the FCM delivery address.
 
 Backup Manager: when the park's PHC Manager is absent (`workforce_absences`
 approved, coverage assigned), the **Backup Manager covers that manager's
@@ -191,21 +211,19 @@ coverage of *tasks*, not a role swap.)
 
 ### 4b. HQ-tier roles — all parks
 
-PC Director and CEOs (`scope_type='tenant'`, `position_code IN
-('pc_director','ceo_internal')`) get **all-park** visibility for vaccination
-drive exceptions and EOD risk. Routine operator nudges remain field-owned; the
-20:30 slot becomes the leadership-visible checkpoint when scheduled shed work is
-still not submitted, stuck in review, or otherwise at risk. Events are still
-batched/collapsed by recipient, park, date, and notification type so they do not
-become per-animal spam.
+PC Director and CEOs get **all-park read visibility**, but read scope is not the
+same as direct notification audience. Routine operator nudges remain
+field-owned. The PC Director receives department-level exception aggregates and
+owns intervention tasks. The CEO sees tenant-level/systemic summaries and is
+contacted directly only for a ratified critical or unresolved systemic risk—not
+for every shed, carry-forward, or proof handoff.
 
 Leadership receives:
 
-- 20:30 exception summaries while sheds scheduled for that business day are
-  still scheduled/open and not submitted,
-- the immediate shed-submitted-for-review notification, and
-- escalation/aging notifications when a drive is overdue, missed, stuck in
-  review, or repeatedly rejected.
+- PC Director 20:30 portfolio summaries while sheds remain open;
+- PC Director follow-up tasks for aged review or repeated rework; and
+- CEO aggregate/systemic exception summaries, with drill-down but no routine
+  per-shed push.
 
 Directors also get the **operational** ladder for department-wide events (stock
 buffer low, biosecurity) per the PHC handbook SLAs, not per-drive reminders.
@@ -221,7 +239,7 @@ hard-coded in clients:
 
 | Event | Who is notified | Why | Priority |
 |---|---|---|---|
-| `verification_pending` (shed proof/video submitted) | **verifier(s)** with `pc.vaccination` verify duty for that park, that park's **park head**, tenant **PC director(s)**, and all tenant **CEOs** | verifier can review, park leadership tracks execution, tenant leadership sees every submitted vaccination shed | normal, deduped by shed submission id per device |
+| `verification_pending` (shed proof/video submitted) | **verifier(s)** with `pc.vaccination` verify duty for that park and that park's **park head**; the **PC director** sees it on the portfolio board/aggregate | verifier can review and operational leadership can track the handoff without pushing every item to the CEO | normal, deduped by shed submission id per device |
 | `rejected` / `rework_due` (verifier rejected) | the **operator who performed it** + that park's **park head** | they must redo the drive — this is the one verification event that must reach the field fast | high |
 | `→ completed` (approved) | no push | success is the default; shows in the daily rollup only | — |
 
@@ -238,34 +256,35 @@ Leadership also receives an individual escalation when the loop breaks:
 - `vaccination_config_activation_review` / policy-level approvals that genuinely
   need a leader's sign-off.
 
-So shed submit → verifier + park head + PC director + CEOs. A normal reject →
-operator + park head. A *stuck* or *looping* verification → escalation up the
-ladder (§5).
+So shed submit → verifier + park head, with PC Director portfolio visibility. A
+normal reject → operator + park head. A *stuck* or *looping* verification may
+create a Director-owned follow-up. CEO receives aggregate/systemic exception
+visibility, not one push per shed submission.
 
 ### 4d. Notification tap landing
 
 Vaccination push taps do **not** open Scan. Scan is an operator-initiated action
 from the Vaccination sheds list only.
 
-| Recipient role | Reminder tap | Shed-submitted tap |
+| Resolved recipient | Reminder tap | Shed-submitted tap |
 |---|---|---|
-| `operator`, `park_head`, `phc_manager` | Vaccination | Vaccination |
-| `verifier` | Vaccination | Verify item detail |
+| `pc.vaccination` `execute`/`manage` duty holder | Vaccination | Vaccination |
+| `pc.vaccination` `verify` duty holder | Vaccination | Verify item detail |
 | `pc_director`, `ceo_internal` | Vaccination tab | Vaccination tab |
 
 ---
 
 ## 5. The reusable rule framework (how future features auto-derive notifs)
 
-Every obligation-backed feature declares a **NotificationPolicy** for its event
-types. The domain-event-consumer looks up the policy for an incoming
-`obligation_status_event`, resolves audience + cadence, and writes
-`notification_requests` rows (scheduling future fires via the sweeper window or
-Cloud Tasks). This is the "auto-assume when and what to send" engine — a new
-feature ships a policy, not new dispatch code. Policy is stored in
-`calendar_event_projections.notification_policy` (the existing
-`NotificationPolicy json.RawMessage` slot) and/or a versioned `notification_rules`
-config table.
+Every obligation-backed feature declares a versioned **NotificationPolicy** for
+its governed events. The shared task/contact engine snapshots that policy on the
+task/contact run, resolves the named on-duty audience and cadence, and writes
+durable `notification_requests`/contact-attempt rows when each step is due. A
+new feature ships a versioned policy and adapter, not private dispatch code.
+Calendar projections and queue schedule times are never the policy authority.
+Until the versioned policy registry and shared contact engine land, the current
+Vaccination cadence remains compatibility behavior governed by the cutover
+requirements in §7.
 
 Declarative shape (vaccination example):
 
@@ -284,21 +303,28 @@ notification_policy:
   batch_key: [recipient, park_id, due_date, type]   # collapse per-animal spam
   # audience
   audience:
-    - roles: [operator, park_head, phc_manager]
-      scope: { by: park, from: event.park_id }       # park-scoped
-    - roles: [pc_director, ceo_internal]
-      scope: { by: tenant }                           # all parks, batched/collapsed
+    - module: pc.vaccination
+      duties: [execute, manage]
+      scope: { by: park, from: event.park_id }
+      effective_at: contact_time
+      delivery_address: active_device.fcm_token
+  portfolio_visibility:
+    - { roles: [pc_director, ceo_internal], scope: tenant }
+  direct_leadership_contact:
+    pc_director: [aged_review, repeated_rework, clinical_breach, systemic_capacity]
+    ceo_internal: [critical_unacknowledged, systemic_cross_park_risk]
   # verification loop — shed submit is backend-owned and routed by capability/position
   verification:
     - on: verification_pending
       to:
-        - { capability: verify_vaccination, scope: { by: park, from: event.park_id } }
-        - { roles: [park_head], scope: { by: park, from: event.park_id } }
-        - { roles: [pc_director, ceo_internal], scope: { by: tenant } }
+        - { module: pc.vaccination, duties: [verify], scope: { by: park, from: event.park_id } }
+        - { module: pc.vaccination, duties: [manage], scope: { by: park, from: event.park_id } }
+      portfolio_visibility: [pc_director, ceo_internal]
+      direct_ceo_contact: false
       priority: normal
       idempotency: submission_id_per_device
     - on: [rejected, rework_due]
-      to: { actor: event.performed_by, plus_roles: [park_head], scope: park }
+      to: { actor: event.performed_by, plus_module_duties: [manage], scope: park }
       priority: high
     - on: completed                                   # approved
       to: none                                        # digest rollup only
@@ -307,11 +333,18 @@ notification_policy:
       - verification_pending aged past review_sla
       - rework_loop: rejections >= 3 on same drive
       - config_activation_review                      # policy-level sign-off
-  # escalation ladder (overdue -> missed)
+  # Drive date is flexible through D+2; only an exact clinical boundary is hard.
+  flexible_carry_forward:
+    through: D+2
+    contacts: [owner_push, manager_digest]
+    forbidden_channels: [incident, voice]
+    never_employee_violation: true
+  # Hard clinical escalation runs at exact animal obligation grain.
   escalation:
-    - after: overdue + 0h   -> { roles: [operator, park_head], scope: park }
-    - after: overdue + 4h   -> { roles: [phc_manager, phc_director], scope: [park, tenant] }   # PHC 4h SLA
-    - after: overdue + 24h  -> { roles: [coo], scope: tenant, channels: [push_fcm, incident] }
+    trigger: animal_clinical_latest_safe_breached
+    advance: exactly_one_human_level_after_unacknowledged_wait
+    stop_contacts_on_ack: true
+    attribution_and_appeal_required_for_violation: true
   channels: [push_fcm]        # roadmap: sms, email, whatsapp, slack, voice (§6)
   per_priority_override:      # tune the ladder by vaccine priority (Vaccination Rules table)
     "1": {}                            # ET+TT — full ladder
@@ -324,8 +357,10 @@ Framework guarantees, feature-agnostic:
   written once; replays are no-ops (rides the outbox idempotency key).
 - **Self-healing** — sweeper re-derives today's fires from Postgres state, so a
   crashed dispatcher or missed tick auto-recovers.
-- **Escalation is state, not spam** — `escalation_state` + `obligation_escalations`
-  (one open row per level) drive one push per level; ack stops the ladder.
+- **Target escalation is state, not spam** — the shared kernel's versioned
+  run/step/contact-attempt model advances one human level at a time and fences
+  every future send after acknowledgement. The current
+  `obligation_escalations` implementation does not yet meet that statement.
 - **Scope resolution is one query** — role × park via `workforce_positions`;
   reused verbatim by feeding/breeding/etc. by swapping `position_code` + `roles`.
 
@@ -344,9 +379,9 @@ per-feature.
 
 | Channel | `Channel` key | Status | Use for | Notes / seam |
 |---|---|---|---|---|
-| **FCM push** | `push_fcm` | **BUILD NOW** (code done, creds + mobile SDK gated) | all in-app reminders, due-today, escalation, digest | `sendFCM` OAuth2 bearer coded; needs `goatos-prod` Firebase + device handlers + mobile `FirebaseMessagingService` (see `fcm-device-lifecycle.md`) |
-| **Slack** | `slack` | wired (live ops channel today) | team/park ops threads, escalation mirror, EOD rollups | already the production channel; keep as the ops mirror of every escalation |
-| **Email** | `email` | wired (gateway case exists) | leadership digest, formal escalation record, completion certificates | `EmailWebhookURL` + auth token config; document, low effort to enable |
+| **FCM push** | `push_fcm` | gateway + reminder request path exist; deployed credential/device reachability must be proven | named-person reminders, contacts, digest | provider configuration and device resolution are deployment facts, not source-code assumptions |
+| **Slack** | `slack` | gateway case exists; legacy L2 escalation selects it | shared operations mirror/digest | it is not proof that the named owner was contacted or that a live webhook is configured |
+| **Email** | `email` | gateway case exists | leadership digest and formal case copy where configured | deployed webhook/auth/recipient configuration is unproven from source |
 | **SMS** | `sms` | **document only** | critical/overdue for staff with no app or poor connectivity (field) | needs an SMS provider gateway case (e.g. via a webhook to an India SMS/DLT-registered sender); DLT template registration required in India |
 | **WhatsApp** | `whatsapp` | **document only** | Director-level comms + reports (per handbooks) | needs WhatsApp Business API (template/HSM approval); handbook-mandated channel for leadership |
 | **Voice / IVR call** | `voice` | **document only** | last-resort critical: biosecurity breach, death cluster, disease suspicion (PHC 4h escalation to leadership) | not in any doc today; add only for `priority: critical` escalations that go unacked; needs a telephony provider case |
@@ -354,9 +389,11 @@ per-feature.
 Channel-selection policy (recommended default):
 
 - `normal` reminders → `push_fcm` (+ in-app feed).
-- `high` (due-today, overdue) → `push_fcm`; `sms` fallback if no active device.
-- `critical` escalation (missed + unacked, biosecurity) → `push_fcm` **and**
-  `incident`/`slack`; escalate to `voice` if still unacked past the top SLA.
+- Vaccination `carry_forward` through D+2 → in-app/`push_fcm` plus manager
+  aggregate only; no incident, SMS, or voice merely because the drive moved.
+- `critical` clinical escalation (animal latest-safe breach, biosecurity) →
+  `push_fcm` and configured incident/operations channel; future voice only if
+  still unacknowledged and the provider/policy is actually activated.
 - leadership `digest` → `push_fcm` + `email` (+ `whatsapp` for directors later).
 
 Everything except the last hop is channel-agnostic: the same
@@ -366,34 +403,39 @@ pipeline change.
 
 ---
 
-## 7. Build order (FCM slice)
+## 7. Remaining closure order
 
-1. **Device handlers** — fill the empty `internal/devices/` (or fold into
-   `workforce`): implement `RegisterAppDevice` / `heartbeat` / `deregister`
-   against the existing routes + `workforce_member_devices`.
-2. **Rule evaluation in domain-event-consumer** — on `obligation_status_event`,
-   load the `notification_policy`, resolve audience (§4 query) + cadence (§3),
-   write `notification_requests` rows; schedule future fires via the sweeper
-   window (index `000102`) — Cloud Tasks pre-scheduling optional later.
-3. **Reminder sweeper pass** — extend the scheduler-driven sweeper to emit
-   today's 08:00, 13:00, and 20:30 due reminder fires and flip `reminder_state`.
-4. **Escalation ladder** — wire `obligation_escalations` level advance + ack to
-   the §5 timing; leadership digest job at 18:00 IST.
-5. **FCM credentials** — provision `goatos-prod` Firebase in the `vgoats.com`
-   org; supply the service-account bearer to the gateway (Secret Manager).
-6. **Mobile FCM SDK** — `FirebaseMessagingService`, token couple on launch,
-   `onNewToken` re-register, deregister on logout (`fcm-device-lifecycle.md`).
+Device lifecycle handlers, the Android FCM service, durable notification queue,
+dispatcher, gateway switch, and five-minute reminder stage are built. Do not
+rebuild them. Close the remaining gap in this order:
 
-Steps 1–4 need **zero Firebase** and are testable today via
-`GOATOS_NOTIFICATION_DRY_RUN` + the `local-stub`/`slack` channels. Steps 5–6 are
-the org-gated last hop.
+1. **Canonical transition coverage** — inventory every obligation/proof/verdict
+   writer and add the missing same-transaction status/audit/outbox facts.
+2. **Named-person resolution** — resolve the real on-duty owner, replacement,
+   verifier, and manager before queuing a contact; persist explicit no-route and
+   no-recipient outcomes.
+3. **Run/step/contact state** — replace highest-crossed due-age escalation with
+   acknowledgement-fenced, exactly-one-human-level advancement and durable
+   delivery-failure behavior.
+4. **Audience cutover** — shadow and then suppress the current D0 20:30 direct
+   PC Director/CEO reminder and other per-item leadership fan-out. Replace it
+   with Director-owned interventions and CEO aggregate/systemic exceptions;
+   update the production tests that currently require the old audiences.
+5. **Deployment certification** — prove Firebase/project credentials, device
+   reachability, retry/DLQ, notification tap, and real staging delivery at the
+   exact deployed revision. Source configuration alone is not proof.
+6. **Optional future channels** — add SMS, WhatsApp, or voice only through an
+   accepted provider/policy change with consent, regional, delivery-receipt,
+   retry, and acknowledgement proof.
 
 ---
 
 ## References
 
 - [`notification-delivery.md`](./notification-delivery.md) — the GCP/SQS pipeline (built).
-- [`fcm-device-lifecycle.md`](./fcm-device-lifecycle.md) — token couple/decouple (backend done, mobile TODO).
+- [`fcm-device-lifecycle.md`](./fcm-device-lifecycle.md) — token couple/decouple
+  contract; backend and mobile plumbing exist, while deployed credential/device
+  reachability still requires exact-environment proof.
 - [`calendar-ownership.md`](./calendar-ownership.md) — projection schema, `reminder_state`/`escalation_state`.
 - `context/architecture/operational-kernel.md` — the 13-step kernel this rides.
 - `wiki/Vaccination Rules.docx` — schedule, gap rules, tolerances (business truth).

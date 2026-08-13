@@ -7,6 +7,7 @@ Canonical docs:
 
 - `context/architecture/final-architecture.md`
 - `context/architecture/operational-kernel.md`
+- `docs/architecture/operational-read-model-contract.md`
 - `context/agents/ai-agent-context-and-protocols.md`
 - `context/execution/next-contracts.md`
 - `context/product/glossary.md`
@@ -45,6 +46,15 @@ Rules:
   or work item -> sweeper/scheduler/reminder -> notification/escalation -> proof
   and verification -> read model answering whether the process was followed and
   where it broke.
+- Shared operational read models are contract-first and grain-explicit. Calendar,
+  Control Tower, Action Center, Protocol Adherence, Workflows, admin-web detail
+  pages, Android execution/proof screens, and reporting must consume common
+  backend-owned facts rather than recomputing private screen truth. For any new
+  vertical/module or shared surface change, apply
+  `docs/architecture/operational-read-model-contract.md`: declare canonical
+  write owner, work-item identity, scope/time grain, status bucket
+  disjointness/overlap, whole-result summary behavior, evidence model, and every
+  consuming surface.
 - The identity foundation uses tenants for isolation, global parties for
   actors, shared-PK org subtype rows, owner_party/custodian_party separation,
   temporal ownership/custody ledgers, and locations as separate physical

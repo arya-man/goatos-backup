@@ -11,6 +11,7 @@ type Position = AdminApiComponents['schemas']['Position'];
 type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items'][number];
 
 interface VaccinationOperatorsScreenProps {
+  initialParkId?: string;
   pageContract?: AdminUiPageContract;
 }
 
@@ -116,7 +117,7 @@ function ownDates(opId: string, allLeaves: Record<string, { from: string; to: st
   return s;
 }
 
-export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) {
+export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperatorsScreenProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [commonCap, setCommonCap] = useState(200);
   const [operatorCount, setOperatorCount] = useState(1);
@@ -189,7 +190,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         // multi-park tenant into one screen. When the caller's scope covers several parks the backend
         // returns the parks they may choose from, and this screen renders that selector rather than
         // dying — a tenant-wide (ceo_internal) actor must still be able to use the screen.
-        const result = await loadVaccinationOperatorsScreen(api, chosenParkId ?? undefined);
+        const result = await loadVaccinationOperatorsScreen(api, chosenParkId ?? initialParkId);
         if (!alive) return;
         if (result.state === 'needs_park_selection') {
           setParkChoices(result.parks);
@@ -218,14 +219,18 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         setCapRowVersion(result.capRowVersion);
         setCapConfigError(result.capConfigError);
         if (!config) {
+          const nonBackupOps = pos.filter((p) => !p.is_backup_slot);
+          const firstNonBackupOp = nonBackupOps[0];
+          const firstNonBackupId = firstNonBackupOp?.workforce_member_id ?? '';
+
+          setAssignmentConfig(null);
+          setRowVersion(0);
+          setOperatorCount(Math.max(1, Math.min(3, nonBackupOps.length)));
           // No config authored yet: fall back to the first NON-BACKUP operator of
           // THIS park. operatorsList/orderedOps filter out backup slots, so a
           // backup-slot default would highlight the wrong operator.
-          const firstNonBackupOp = pos.find((p) => !p.is_backup_slot);
-          if (firstNonBackupOp?.workforce_member_id) {
-            setDefaultOperator(firstNonBackupOp.workforce_member_id);
-            setSelectedOperatorIds([firstNonBackupOp.workforce_member_id]);
-          }
+          setDefaultOperator(firstNonBackupId);
+          setSelectedOperatorIds(firstNonBackupId ? [firstNonBackupId] : []);
         }
 
         // Map leaves from backend by workforce_member_id
@@ -261,7 +266,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
     return () => {
       alive = false;
     };
-  }, [chosenParkId]);
+  }, [chosenParkId, initialParkId]);
 
   // Drawer
   const openDrawer = (opId: string) => {
@@ -307,7 +312,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
 
   // Persist operator count and default operator to backend
   const persistOperatorConfig = async () => {
-    if (!parkId || !assignmentConfig) {
+    if (!parkId || !defaultOperator) {
       showToast('Configuration not ready. Please refresh.');
       return;
     }
@@ -328,6 +333,7 @@ export function VaccinationOperatorsScreen({}: VaccinationOperatorsScreenProps) 
         rowVersion,
       });
       if (result.data) {
+        setAssignmentConfig(result.data);
         setRowVersion(result.data.rowVersion);
         setSelectedOperatorIds(result.data.selectedOperatorIds ?? nextSelected);
         showToast(`<b style="color:var(--brand)">Saved</b> · ${operatorCount} operator${operatorCount !== 1 ? 's' : ''}/day assigned`);

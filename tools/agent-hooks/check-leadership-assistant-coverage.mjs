@@ -106,11 +106,11 @@ function detectNewLeadershipSurfaces(files, readDiff = () => "") {
         continue;
       }
       // Match new exported functions (func ... Name(...) or func (r *Type) Name(...))
-      const functionMatches = diff.match(/^\+\s*func\s+(?:\([^)]*\)\s+)?([A-Z]\w+)\s*\(/gm);
+      const functionMatches = diff.match(/^\+[ \t]*func[ \t]+(?:\([^)]*\)[ \t]+)?([A-Z]\w*)[ \t]*\(/gm);
       if (functionMatches) {
         isClean = false;
         for (const m of functionMatches) {
-          const functionName = m.match(/func\s+(?:\([^)]*\)\s+)?([A-Z]\w+)\s*\(/)?.[1];
+          const functionName = m.match(/func[ \t]+(?:\([^)]*\)[ \t]+)?([A-Z]\w*)[ \t]*\(/)?.[1];
           if (functionName) surfaces.add(`func:${functionName}`);
         }
       }
@@ -385,7 +385,19 @@ function selfTest() {
   );
   if (unrelated.length !== 0) throw new Error(`self-test: unrelated refactor was incorrectly blocked: ${unrelated.join("; ")}`);
 
-  console.log("leadership-assistant-coverage guard self-test passed (all 10 adversarial cases verified)");
+  // TEST 11: Added non-function lines followed by context exported constructor → PASS.
+  // This guards against /^\+\s*func/ accidentally consuming the newline after a
+  // plus line and treating the following context line as a newly added function.
+  const contextConstructor = evaluateChangedFiles(
+    ["backend/internal/processintegrity/app/service.go"],
+    (rel) => "",
+    (rel) => "+const maxProtocolAdherencePages = 100\n+\n func NewService(repo ports.Repository) *Service {\n"
+  );
+  if (contextConstructor.length !== 0) {
+    throw new Error(`self-test: context exported constructor was incorrectly detected as a new surface: ${contextConstructor.join("; ")}`);
+  }
+
+  console.log("leadership-assistant-coverage guard self-test passed (all 11 adversarial cases verified)");
 }
 
 function main() {

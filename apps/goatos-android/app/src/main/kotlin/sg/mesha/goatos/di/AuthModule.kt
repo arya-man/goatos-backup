@@ -6,6 +6,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.auth.FirebaseAuthRepository
+import sg.mesha.goatos.core.analytics.CrashReporter
 import javax.inject.Singleton
 
 /** Firebase Auth repository wiring for stg/prod SSO and email/password sign-in. */
@@ -15,5 +16,6 @@ object AuthModule {
 
     @Provides
     @Singleton
-    fun provideAuthRepository(): AuthRepository = FirebaseAuthRepository()
+    fun provideAuthRepository(crashReporter: CrashReporter): AuthRepository =
+        FirebaseAuthRepository(crashReporter)
 }

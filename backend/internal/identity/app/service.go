@@ -146,6 +146,56 @@ func (s *Service) SearchGoats(ctx context.Context, params ports.SearchGoatsParam
 	return &domain.GoatSearchResult{Items: items, NextCursor: next, TraceID: traceID}, nil
 }
 
+// ListTemporaryTaggedGoatsInput is the operator "Awaiting RFID" list request. Cursor is the last
+// row's display_id (keyset); Limit is capped by the caller.
+type ListTemporaryTaggedGoatsInput struct {
+	TenantID string
+	Limit    int
+	Cursor   *string
+	// ParkID / ShedID optionally narrow the list to one location. Empty means unfiltered on that
+	// dimension. Both are UUIDs chosen from the destinations catalog on the client, never free text.
+	ParkID  string
+	ShedID  string
+	TraceID string
+}
+
+// ListTemporaryTaggedGoats returns one keyset page of goats carrying an active temporary tag so the
+// operator can promote each to a permanent RFID. Tenant-scoped; visibility is tenant-level exactly
+// like SearchGoats.
+func (s *Service) ListTemporaryTaggedGoats(ctx context.Context, in ListTemporaryTaggedGoatsInput) (*domain.TemporaryTaggedGoatsResult, error) {
+	if err := requireTenant(in.TenantID); err != nil {
+		return nil, err
+	}
+	if in.Limit < 1 || in.Limit > 100 {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
+	}
+	// Location filters are optional but, when present, must be well-formed UUIDs — a malformed
+	// value is rejected here rather than reaching Postgres as a failed ::uuid cast (a 500). The
+	// client only ever sends real park/shed ids chosen from the destinations catalog.
+	parkID := strings.TrimSpace(in.ParkID)
+	if parkID != "" && !uuidPattern.MatchString(parkID) {
+		return nil, BadRequest("invalid_park_id", "park_id must be a valid identifier")
+	}
+	shedID := strings.TrimSpace(in.ShedID)
+	if shedID != "" && !uuidPattern.MatchString(shedID) {
+		return nil, BadRequest("invalid_shed_id", "shed_id must be a valid identifier")
+	}
+	items, next, err := s.repo.ListTemporaryTaggedGoats(ctx, ports.ListTemporaryTaggedGoatsParams{
+		TenantID: in.TenantID,
+		Limit:    in.Limit,
+		Cursor:   in.Cursor,
+		ParkID:   parkID,
+		ShedID:   shedID,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if items == nil {
+		items = []domain.TemporaryTaggedGoat{}
+	}
+	return &domain.TemporaryTaggedGoatsResult{Items: items, NextCursor: next, TraceID: in.TraceID}, nil
+}
+
 func (s *Service) ResolveIdentifier(ctx context.Context, params ports.ResolveIdentifierParams, traceID string) (*domain.ResolveIdentifierResult, error) {
 	if err := requireTenant(params.TenantID); err != nil {
 		return nil, err
@@ -337,11 +387,22 @@ func mapRepoErr(err error) error {
 		return Unprocessable("cross_park_move_forbidden",
 			"cross-park goat movement does not exist: sheds move only within one park; leaving a park is a terminal transfer/sale exit, not a move")
 	}
+	if errors.Is(err, ports.ErrNoTemporaryIdentifier) {
+		return Conflict("no_temporary_identifier", "this animal has no active temporary tag to promote (it may already have a permanent RFID)")
+	}
 	if errors.Is(err, ports.ErrWriteConflict) {
 		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}
 	if errors.Is(err, ports.ErrInvalidReference) {
 		return BadRequest("invalid_reference", "referenced identity data is missing, inactive, or outside tenant scope")
+	}
+	// A bad pen is operator input, not a server fault: surface it as a 400 the app can show on
+	// the field rather than letting it escape as a 500.
+	if errors.Is(err, ports.ErrPartitionNotInShed) {
+		return BadRequest("invalid_partition_label", "that partition does not exist in the selected shed")
+	}
+	if errors.Is(err, ports.ErrPartitionRequired) {
+		return BadRequest("partition_label_required", "partition_label is required for the selected shed")
 	}
 	if errors.Is(err, ports.ErrInvalidChronology) {
 		return BadRequest("invalid_chronology", "dob must be on or before entry_date")

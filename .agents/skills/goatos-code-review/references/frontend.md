@@ -8,6 +8,8 @@ Scope lock: `context/frontend/current-admin-web-scope.md`. Contract law:
 `docs/frontend/admin-web-engineering-quality.md`. (Do not hardcode framework
 versions when reviewing — read `package.json`, the lockfile, and CI; versions
 drift.)
+Shared operational read-model law:
+`docs/architecture/operational-read-model-contract.md`.
 
 > **Verify-against-source, not memory.** The concrete script names, contract
 > field names, route names, and taxonomy below are anchors that may drift.
@@ -41,6 +43,11 @@ is the highest-frequency frontend finding. Backend OpenAPI/app contracts must ow
 navigation, route availability, page titles, section/table labels, filter/sort/
 page-size semantics, chips/tabs, row-click params, drawer/action labels,
 empty/error copy, disabled reasons, and summary-vs-detail field sets.
+For shared command lenses, those contracts must also own grain and bucket
+semantics: animal vs obligation vs completion/proof/verification vs shed/
+partition/drive/park-day/task/alert. Do not approve a React-only fix that makes
+Calendar, Control Tower, Protocol Adherence, or mobile numbers look consistent
+while backend/OpenAPI/generated clients still disagree.
 
 Frontend may own only: layout, CSS, responsive density, icon-token rendering,
 focus/hover state, and local open/closed or selected-row state.
@@ -51,6 +58,22 @@ registered in `context/architecture/domain-event-registry.json`; the downstream
 event/outbox/consumer/E2E proof belongs to the backend contract. Frontend must
 send an idempotency key where the contract requires one and render the backend
 result/error; it must not schedule local follow-up work.
+
+## User-facing copy firewall
+
+Admin-web UI is for CEO/CXO, directors, and operators. Treat leaked
+implementation/debug/test/roadmap language as a blocking product-truth bug.
+Visible React copy, screenshots, empty/error/loading states, toasts/snackbars,
+cards, chips, buttons, drawers, modals, popovers, and alerts must not contain
+words such as `V1`, `V2`, `debug`, `mock`, `fixture`, `Paparazzi`, `Room`,
+`outbox`, `idempotency`, `groupKey`, `payload`, `backend`, `frontend`, `API`,
+`route`, `PRD`, `TRD`, `TODO`, `local`, or `localhost`, unless the screen is an
+explicit developer/admin diagnostics tool.
+
+Expected copy is business-facing: "Proof uploads in background", "Waiting for
+network", "Already scanned", "Needs proof", "Wrong shed", "Try again",
+"Cannot submit yet", "No assigned work", and similar product language.
+Implementation detail belongs in docs/tests/logs, not in UI.
 
 Check for:
 - [ ] No hardcoded page titles / section labels / table headers / filter labels /

@@ -329,12 +329,18 @@ func recordAndApproveShifting(
 
 // completeShiftingE2E drives the production CompleteShiftingEvent completion path, which is where the
 // animals actually move and both goat events are emitted.
+//
+// ProofRef carries the operator's completion video. It is MANDATORY (maintainer decision
+// 2026-07-26): CompleteShiftingEvent rejects a blank one with ErrShiftingProofRequired before opening
+// a transaction, so without it every shifting story fails at its first completion and never reaches
+// the behaviour it is actually asserting.
 func completeShiftingE2E(
 	repo *countspg.Repository, ctx context.Context, key, shiftingEventID, tag string, at time.Time,
 ) (countsdomain.ShiftingExecutionResult, bool, error) {
 	return repo.CompleteShiftingEvent(ctx, countsdomain.ShiftingCompletionCommand{
 		TenantID: fxTenant, ShiftingEventID: shiftingEventID,
 		CompletedByUserID: fxParty, CompletedAt: at, TraceID: "trace-complete-" + key,
+		ProofRef:       "proof-artifact-" + key,
 		DestinationTag: tag, IdempotencyKey: "complete-" + key, RequestFingerprint: "complete-fp-" + key + ":" + tag,
 	})
 }

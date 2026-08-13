@@ -298,6 +298,7 @@ fun SyncSheet(
     isOnline: Boolean = false,
     syncingCount: Int = 0,
     queuedCount: Int = 0,
+    failedCount: Int = 0,
     queue: List<SyncQueueItem> = emptyList(),
     onRetryAll: () -> Unit = {},
     onDismiss: () -> Unit,
@@ -305,6 +306,7 @@ fun SyncSheet(
     val syncing = syncingCount
     val pending = queuedCount
     val summary = when {
+        failedCount > 0 -> stringResource(DesignSystemR.string.sync_summary_failed_fmt, failedCount)
         syncing > 0 -> stringResource(DesignSystemR.string.sync_summary_syncing_fmt, syncing)
         pending > 0 -> stringResource(DesignSystemR.string.sync_summary_queued_fmt, pending)
         else -> stringResource(DesignSystemR.string.sync_summary_all_synced)
@@ -332,7 +334,7 @@ fun SyncSheet(
                 fontWeight = FontWeight.W600,
             )
             Spacer(Modifier.weight(1f))
-            if (pending > 0) {
+            if (pending > 0 || failedCount > 0) {
                 Text(
                     "↻ ${stringResource(DesignSystemR.string.sync_retry_all)}",
                     color = OverlayTokens.brandD,

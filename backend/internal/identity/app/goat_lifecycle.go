@@ -96,12 +96,12 @@ func (s *Service) MoveGoat(ctx context.Context, input MoveGoatInput) (*domain.Ad
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, Internal("move goat request normalization failed")
+		return nil, fmt.Errorf("move goat request normalization failed: %w", err)
 	}
 	route := "/admin/goats/{goat_id}/move"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, moveGoatCommand, route, goatID, raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("move goat request hash failed: %w", err)
 	}
 	occurredAt := time.Now().UTC()
 	if body.OccurredAt != nil {
@@ -118,6 +118,7 @@ func (s *Service) MoveGoat(ctx context.Context, input MoveGoatInput) (*domain.Ad
 		GoatID:               goatID,
 		ToParkID:             body.ParkID,
 		ToShedID:             body.ShedID,
+		ToPartitionLabel:     body.PartitionLabel,
 		Reason:               strings.TrimSpace(body.Reason),
 		OccurredAt:           occurredAt,
 		EvidenceRefs:         body.EvidenceRefs,
@@ -173,11 +174,11 @@ func (s *Service) exitGoat(ctx context.Context, input ExitGoatInput, commandName
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, Internal("exit goat request normalization failed")
+		return nil, fmt.Errorf("exit goat request normalization failed: %w", err)
 	}
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, commandName, route, goatID, raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("exit goat request hash failed: %w", err)
 	}
 	occurredAt := time.Now().UTC()
 	if body.OccurredAt != nil {
@@ -224,12 +225,12 @@ func (s *Service) StageGoat(ctx context.Context, input StageGoatInput) (*domain.
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, Internal("stage goat request normalization failed")
+		return nil, fmt.Errorf("stage goat request normalization failed: %w", err)
 	}
 	route := "/admin/goats/{goat_id}/stage"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, stageGoatCommand, route, goatID, raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("stage goat request hash failed: %w", err)
 	}
 	occurredAt := time.Now().UTC()
 	if body.OccurredAt != nil {
@@ -274,12 +275,12 @@ func (s *Service) HealthGoat(ctx context.Context, input HealthGoatInput) (*domai
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, Internal("health goat request normalization failed")
+		return nil, fmt.Errorf("health goat request normalization failed: %w", err)
 	}
 	route := "/admin/goats/{goat_id}/health"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, healthGoatCommand, route, goatID, raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("health goat request hash failed: %w", err)
 	}
 	occurredAt := time.Now().UTC()
 	if body.OccurredAt != nil {
@@ -325,12 +326,12 @@ func (s *Service) ReproductiveGoat(ctx context.Context, input ReproductiveGoatIn
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, Internal("reproductive goat request normalization failed")
+		return nil, fmt.Errorf("reproductive goat request normalization failed: %w", err)
 	}
 	route := "/admin/goats/{goat_id}/reproductive"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, reproductiveGoatCommand, route, goatID, raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("reproductive goat request hash failed: %w", err)
 	}
 	occurredAt := time.Now().UTC()
 	if body.OccurredAt != nil {
@@ -381,12 +382,12 @@ func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*d
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, Internal("identity goat request normalization failed")
+		return nil, fmt.Errorf("identity goat request normalization failed: %w", err)
 	}
 	route := "/admin/goats/{goat_id}/identity"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, identityGoatCommand, route, goatID, raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("identity goat request hash failed: %w", err)
 	}
 	// VACC-REV-07: recomputation + persistence use the SERVER processing instant, never a
 	// client-supplied occurred_at. A backdated occurred_at must not become the generation as_of (it
@@ -588,6 +589,16 @@ func validateMoveGoat(body *domain.MoveGoatRequest) error {
 	if body.RowVersion < 1 {
 		return BadRequest("invalid_row_version", "row_version must be positive")
 	}
+	// A pen is meaningless without a shed and must never be the "whole" matching sentinel.
+	// Existence against shed_partitions is checked in the repository, inside the move transaction.
+	if body.PartitionLabel != nil {
+		label := strings.TrimSpace(*body.PartitionLabel)
+		if label == "" || strings.EqualFold(label, "whole") {
+			return BadRequest("invalid_partition_label",
+				`partition_label must name a real pen; omit it for a shed-level move`)
+		}
+		body.PartitionLabel = &label
+	}
 	return validateEvidenceRefs(body.EvidenceRefs, true)
 }
 
@@ -713,7 +724,11 @@ func optionalDateField(field string, raw *string) (*time.Time, error) {
 	}
 	parsed, err := parseDateField(field, *raw)
 	if err != nil {
-		return nil, BadRequest("invalid_"+field, field+" must be YYYY-MM-DD")
+		// The CODE is what the HTTP layer maps to a 400, so the typed error must survive --
+		// wrapping this into a plain fmt.wrapError turned a malformed date into a 500 (see
+		// TestReproductiveGoatRejectsMalformedBreedingDate). The cause still travels, in the
+		// detail, so neither the status nor the reason is lost.
+		return nil, BadRequest("invalid_"+field, fmt.Sprintf("%s must be YYYY-MM-DD: %v", field, err))
 	}
 	utc := parsed.UTC()
 	return &utc, nil
@@ -738,7 +753,7 @@ func criticalHealthStatus(status string) bool {
 }
 
 func criticalHealthTransitionError() *Error {
-	return GuardrailRequired("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+	return GuardrailRequired("critical_action_guardrail_required", "quarantine and ICU health transitions must use the critical-action guardrail path")
 }
 
 // criticalDeathExit detects a death exit from EITHER half of the dead+died pairing

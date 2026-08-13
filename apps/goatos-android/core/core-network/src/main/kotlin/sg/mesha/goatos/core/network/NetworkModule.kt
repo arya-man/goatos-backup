@@ -7,30 +7,64 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import okhttp3.ResponseBody
 import retrofit2.HttpException
 import retrofit2.Response as RetrofitResponse
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.PUT
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemPageDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
-import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
@@ -38,6 +72,7 @@ import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.UploadedProofListResponseDto
 import sg.mesha.goatos.core.network.dto.forCreateUpload
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
@@ -56,6 +91,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
+import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
@@ -66,6 +102,30 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingParkListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
 const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
@@ -81,6 +141,9 @@ private val localeTagPattern = Regex("^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
 interface AppApiService {
     @POST("auth/session-events")
     suspend fun recordAuthSessionEvent(@Body request: AuthSessionEventRequestDto)
+
+    @POST("app/analytics/events")
+    suspend fun recordAnalyticsEvent(@Body request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto
 
     @GET("app/bootstrap")
     suspend fun bootstrap(@Query("device_id") deviceId: String?): BootstrapDto
@@ -115,6 +178,7 @@ interface AppApiService {
         @Query("as_of") asOf: String?,
         @Query("due_before") dueBefore: String?,
         @Query("limit") limit: Int?,
+        @Query("partition_label") partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto
 
     @GET("calendar/vaccination/events")
@@ -126,6 +190,7 @@ interface AppApiService {
         @Query("date_from") dateFrom: String?,
         @Query("date_to") dateTo: String?,
         @Query("include_date_markers") includeDateMarkers: Boolean?,
+        @Query("include_drive_summary") includeDriveSummary: Boolean?,
         @Query("vaccine") vaccine: String?,
         @Query("include_filter_options") includeFilterOptions: Boolean?,
         @Query("cursor") cursor: String?,
@@ -173,7 +238,108 @@ interface AppApiService {
     suspend fun getShedCompletionSummary(
         @Path("task_id") taskId: String,
         @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
     ): ShedCompletionSummaryDto
+
+    /**
+     * Lists weighing campaigns for ONE weighing surface.
+     *
+     * [scope] names the surface the caller is rendering rather than letting the server infer it
+     * from the actor's roles: "mine" is the caller's own assigned sheds (the only executable
+     * list), "all" is the planner's flat all-tasks list, and "operators" is read-only oversight
+     * of other people's work. Omitting it means "mine".
+     */
+    @GET("app/weighing/campaigns")
+    suspend fun listWeighingCampaigns(
+        @Query("scope") scope: String? = null,
+        @Query("cursor") cursor: String? = null,
+        @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
+        @Query("park_id") parkId: String? = null,
+    ): WeighingCampaignListResponseDto
+
+    // Declared before the {campaign_id} pattern so the literal "parks" segment reads as what it
+    // is -- a sibling route, not a campaign id. Retrofit matches on the annotation, not order.
+    @GET("app/weighing/parks")
+    suspend fun listWeighingParks(): WeighingParkListResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}")
+    suspend fun getWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+    ): WeighingCampaignDetailResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}/sheds")
+    suspend fun listWeighingCampaignSheds(
+        @Path("campaign_id") campaignId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingCampaignShedPageResponseDto
+
+    @GET("app/weighing/planner/catalog")
+    suspend fun getWeighingPlannerCatalog(
+        @Query("period_start_date") periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto
+
+    @GET("app/weighing/planner/parks/{park_id}/buckets")
+    suspend fun getWeighingPlannerParkBuckets(
+        @Path("park_id") parkId: String,
+        @Query("period_start_date") periodStartDate: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+        @Query("exclude_campaign_id") excludeCampaignId: String? = null,
+    ): WeighingPlannerParkBucketsResponseDto
+
+    @POST("weighing/campaigns")
+    suspend fun createWeighingCampaign(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    @PUT("weighing/campaigns/{campaign_id}")
+    suspend fun updateWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    @POST("weighing/campaigns/{campaign_id}/publish")
+    suspend fun publishWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): WeighingCampaignResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster")
+    suspend fun getWeighingRoster(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Query("observations_cursor") observationsCursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingRosterResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos")
+    suspend fun getWeighingLeadershipShedVideos(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingLeadershipShedVideosResponseDto
+
+    @GET("app/weighing/leadership/sheds")
+    suspend fun listWeighingLeadershipSheds(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingLeadershipShedPageResponseDto
+
+    @GET("app/vaccination/alerts")
+    suspend fun listVaccinationAlerts(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): VaccinationAlertPageResponseDto
+
+    @GET("app/weighing/alerts")
+    suspend fun listWeighingAlerts(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingAlertPageResponseDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -196,6 +362,60 @@ interface AppApiService {
         @Body request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto
 
+    @POST("app/weighing/campaigns/{campaign_id}/animal-observations")
+    suspend fun recordWeighingAnimalObservation(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto
+
+    @POST("app/weighing/campaigns/{campaign_id}/shed-observations")
+    suspend fun recordWeighingShedObservation(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto
+
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit")
+    suspend fun submitWeighingScope(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeSubmitRequestDto,
+    )
+
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen")
+    suspend fun reopenWeighingScope(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeReopenRequestDto,
+    )
+
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close")
+    suspend fun closeShedWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeCloseRequestDto,
+    )
+
+    @POST("app/weighing/campaigns/{campaign_id}/close")
+    suspend fun closeWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeCloseRequestDto,
+    )
+
+    // @Streaming: this is a FILE download (text/csv), not a JSON body -- without it Retrofit
+    // would buffer the whole response into memory before handing back the ResponseBody, which
+    // defeats the point of streaming the body straight through without a second in-memory copy.
+    // Path is the PLANNER route -- NOT under `/app` like the rest of this interface -- registered
+    // in backend/internal/permissions/routes.go as exportWeighingCampaignCSV.
+    @Streaming
+    @GET("weighing/campaigns/{campaign_id}/export")
+    suspend fun exportWeighingCampaignCsv(@Path("campaign_id") campaignId: String): ResponseBody
+
     @POST("admin/tasks/{task_id}/verify")
     suspend fun verifyAppTask(
         @Path("task_id") taskId: String,
@@ -216,6 +436,7 @@ interface AppApiService {
         @Query("task_id") taskId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
+        @Query("partition_label") partitionLabel: String?,
     ): ScanRosterResponseDto
 
     @POST("app/vaccination/obligations/{obligation_id}/reschedule")
@@ -239,6 +460,18 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ProofUploadRequestDto,
     ): ProofUploadResponseDto
+
+    @GET("app/proofs/uploads")
+    suspend fun listUploadedProofs(
+        @Query("scope_type") scopeType: String,
+        @Query("scope_id") scopeId: String,
+        @Query("client_task_key") clientTaskKey: String?,
+        @Query("field_key") fieldKey: String?,
+        @Query("limit") limit: Int?,
+    ): UploadedProofListResponseDto
+
+    @DELETE("app/proofs/{proof_id}")
+    suspend fun deleteProof(@Path("proof_id") proofId: String)
 
     @POST("app/proofs/{proof_id}/complete")
     suspend fun completeProofUpload(
@@ -269,6 +502,9 @@ interface AppApiService {
     @GET("verification/queue")
     suspend fun listVerificationQueue(
         @Query("category") category: String?,
+        @Query("status") status: String?,
+        @Query("business_date") businessDate: String?,
+        @Query("missed") missed: Boolean?,
         @Query("park_id") parkId: String?,
         @Query("shed_id") shedId: String?,
         @Query("cursor") cursor: String?,
@@ -338,17 +574,195 @@ interface AppApiService {
     @GET("app/counts/shifting/destinations")
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
 
+    @GET("app/counts/breeds")
+    suspend fun getAppCountsBreeds(): CountsBreedsResponseDto
+
+    @GET("app/counts/shifting-events/pending-execution")
+    suspend fun listCountsShiftingPendingExecution(
+        @Query("date") date: String?,
+        @Query("status") status: String?,
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+    ): CountsShiftingPendingExecutionResponseDto
+
+    @GET("app/counts/goats/temporary-tagged")
+    suspend fun listCountsTemporaryTaggedGoats(
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+    ): TemporaryTaggedGoatsResponseDto
+
+    @POST("app/counts/goats/{goat_id}/promote-identifier")
+    suspend fun promoteCountsIdentifier(
+        @Path("goat_id") goatId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsPromoteIdentifierRequestDto,
+    ): CountsPromoteIdentifierResponseDto
+
+    @POST("app/counts/shifting-events/{shifting_event_id}/complete")
+    suspend fun completeCountsShiftingEvent(
+        @Path("shifting_event_id") shiftingEventId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsShiftingCompleteRequestDto,
+    ): CountsShiftingExecutionResponseDto
+
+    @POST("app/counts/shifting-events/{shifting_event_id}/cancel")
+    suspend fun cancelCountsShiftingEvent(
+        @Path("shifting_event_id") shiftingEventId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: CountsShiftingCancelRequestDto,
+    ): CountsShiftingExecutionResponseDto
+
+    @GET("feed-direction/preview")
+    suspend fun getFeedDirectionPreview(
+        @Query("park_id") parkId: String,
+        @Query("target_date") targetDate: String,
+        @Query("shed_id") shedId: String?,
+        @Query("session") session: Int?,
+        @Query("workflow") workflow: String?,
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedDirectionPreviewPageDto
+
+    @GET("feed-packing/worklist")
+    suspend fun getFeedPackingWorklist(
+        @Query("park_id") parkId: String,
+        @Query("target_date") targetDate: String,
+        @Query("session") session: Int?,
+        @Query("workflow") workflow: String?,
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedPackingWorklistPageDto
+
+    @POST("feed-direction/complete")
+    suspend fun completeFeedDirectionSession(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto
+
+    @POST("feed-direction/distribution/complete")
+    suspend fun completeFeedDistribution(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto
+
+    @POST("feed-direction/packing/complete")
+    suspend fun completeFeedPacking(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedPackingCompleteRequestDto,
+    ): FeedPackingCompleteResponseDto
+
+    @POST("app/counts/milk-preparation/submit")
+    suspend fun submitMilkPreparation(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto
+
+    @GET("app/counts/milk-preparation")
+    suspend fun getMilkPreparation(
+        @Query("park_id") parkId: String?,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
+    ): MilkPreparationPageDto
+
+    @GET("app/counts/milk-feeding/tasks")
+    suspend fun getMilkFeedingTasks(@Query("feeding_date") feedingDate: String, @Query("park_id") parkId: String?, @Query("session_no") sessionNo: Int?, @Query("limit") limit: Int, @Query("offset") offset: Int): MilkFeedingPageDto
+
+    @POST("app/counts/milk-feeding/tasks/{task_id}/submit")
+    suspend fun submitMilkFeedingTask(@Path("task_id") taskId: String, @Header("Idempotency-Key") idempotencyKey: String, @Body request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto
+
+    // No partition filter: transport is one task per physical shed, so shed_id is the finest
+    // location this list narrows to.
+    @GET("feed-transport/tasks")
+    suspend fun getFeedTransportTasks(
+        @Query("business_date") businessDate: String,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("status") status: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): FeedTransportTaskPageDto
+
+    @POST("feed-transport/tasks/{task_id}/submit")
+    suspend fun submitFeedTransport(@Path("task_id") taskId: String, @Header("Idempotency-Key") idempotencyKey: String, @Body request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto
+
     @POST("app/counts/birth-events")
     suspend fun recordCountsBirthEvent(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
     @POST("app/counts/death-events")
     suspend fun recordCountsDeathEvent(
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
+
+    @GET("app/workflows")
+    suspend fun listWorkflows(
+        @Query("module") module: String,
+        @Query("date") date: String?,
+        @Query("filter") filter: String?,
+        @Query("page_size") pageSize: Int?,
+        @Query("cursor") cursor: String?,
+    ): WorkflowListResponseDto
+
+    @GET("app/workflows/{workflow_id}")
+    suspend fun getWorkflow(
+        @Path("workflow_id") workflowId: String,
+        @Query("lens") lens: String? = null,
+        @Query("date") date: String? = null,
+    ): WorkflowDetailResponseDto
+
+    @POST("app/workflows/{workflow_id}/actions/{action_id}/answer")
+    suspend fun answerWorkflowAction(
+        @Path("workflow_id") workflowId: String,
+        @Path("action_id") actionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto
+
+    @POST("app/workflows/{workflow_id}/actions/{action_id}/complete")
+    suspend fun completeWorkflowAction(
+        @Path("workflow_id") workflowId: String,
+        @Path("action_id") actionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto
+
+    @GET("app/health/work-items")
+    suspend fun listHealthWorkItems(
+        @Query("age_band") ageBand: String,
+        @Query("date") date: String,
+        @Query("status") status: String?,
+        @Query("disease_key") diseaseKey: String?,
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String?,
+        @Query("session") session: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): HealthWorkItemPageDto
+
+    @POST("app/health/cases")
+    suspend fun openHealthCase(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto
+
+    @GET("app/health/work-items/{health_session_id}")
+    suspend fun getHealthWorkItem(
+        @Path("health_session_id") healthSessionId: String,
+    ): HealthWorkItemDetailDto
+
+    @POST("app/health/work-items/{health_session_id}/complete")
+    suspend fun completeHealthWorkItem(
+        @Path("health_session_id") healthSessionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto
 
     @GET("goats/search")
     suspend fun searchGoats(
@@ -380,6 +794,20 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
+
+    @GET("app/weighing/weight-history")
+    suspend fun getWeightHistory(
+        @Query("park_id") parkId: String?,
+        @Query("campaign_shed_id") campaignShedId: String?,
+    ): WeightHistoryResponseDto
+
+    // park_id omitted = every park the caller may see.
+    @GET("app/weighing/leadership/growth")
+    suspend fun getWeighingGrowth(
+        @Query("park_id") parkId: String?,
+        @Query("from") from: String?,
+        @Query("to") to: String?,
+    ): GrowthSummaryDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -392,6 +820,9 @@ class RetrofitAppApi(
 ) : AppApi {
     override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) =
         service.recordAuthSessionEvent(request)
+
+    override suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto =
+        service.recordAnalyticsEvent(request)
 
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = service.bootstrap(deviceId)
 
@@ -421,8 +852,9 @@ class RetrofitAppApi(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto =
-        service.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit)
+        service.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit, partitionLabel)
 
     override suspend fun listCalendarVaccinationEvents(
         parkId: String?,
@@ -432,6 +864,7 @@ class RetrofitAppApi(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        includeDriveSummary: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -445,6 +878,7 @@ class RetrofitAppApi(
             dateFrom,
             dateTo,
             includeDateMarkers.takeIf { it },
+            includeDriveSummary.takeIf { it },
             vaccine,
             includeFilterOptions.takeIf { it },
             cursor,
@@ -486,8 +920,86 @@ class RetrofitAppApi(
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         service.getTaskOptionValues(taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
-        service.getShedCompletionSummary(taskId, shedId)
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): ShedCompletionSummaryDto =
+        service.getShedCompletionSummary(taskId, shedId, partitionLabel)
+
+    override suspend fun listWeighingCampaigns(
+        scope: String?,
+        cursor: String?,
+        limit: Int,
+        parkId: String?,
+    ): WeighingCampaignListResponseDto =
+        service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit, parkId = parkId)
+
+    override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
+        service.getWeighingCampaign(campaignId)
+
+    override suspend fun listWeighingParks(): WeighingParkListResponseDto = service.listWeighingParks()
+
+    override suspend fun listWeighingCampaignSheds(
+        campaignId: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingCampaignShedPageResponseDto = service.listWeighingCampaignSheds(campaignId, cursor, limit)
+
+    override suspend fun getWeighingPlannerCatalog(
+        periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto = service.getWeighingPlannerCatalog(periodStartDate)
+
+    override suspend fun getWeighingPlannerParkBuckets(
+        parkId: String,
+        periodStartDate: String,
+        cursor: String?,
+        limit: Int,
+        excludeCampaignId: String?,
+    ): WeighingPlannerParkBucketsResponseDto =
+        service.getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, limit, excludeCampaignId)
+
+    override suspend fun createWeighingCampaign(
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = service.createWeighingCampaign(idempotencyKey, request)
+
+    override suspend fun updateWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = service.updateWeighingCampaign(campaignId, idempotencyKey, request)
+
+    override suspend fun publishWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+    ): WeighingCampaignResponseDto = service.publishWeighingCampaign(campaignId, idempotencyKey)
+
+    override suspend fun getWeighingRoster(
+        campaignId: String,
+        campaignShedId: String,
+        observationsCursor: String?,
+        limit: Int,
+    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, observationsCursor, limit)
+
+    override suspend fun getWeighingLeadershipShedVideos(
+        campaignId: String,
+        campaignShedId: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingLeadershipShedVideosResponseDto =
+        service.getWeighingLeadershipShedVideos(campaignId, campaignShedId, cursor, limit)
+
+    override suspend fun listWeighingLeadershipSheds(
+        cursor: String?,
+        limit: Int,
+    ): WeighingLeadershipShedPageResponseDto = service.listWeighingLeadershipSheds(cursor, limit)
+
+    override suspend fun listVaccinationAlerts(
+        cursor: String?,
+        limit: Int,
+    ): VaccinationAlertPageResponseDto = service.listVaccinationAlerts(cursor, limit)
+
+    override suspend fun listWeighingAlerts(
+        cursor: String?,
+        limit: Int,
+    ): WeighingAlertPageResponseDto = service.listWeighingAlerts(cursor, limit)
 
     override suspend fun submitAppTask(
         taskId: String,
@@ -507,6 +1019,51 @@ class RetrofitAppApi(
         request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto = service.recordScanAttempt(taskId, idempotencyKey, request)
 
+    override suspend fun recordWeighingAnimalObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto = service.recordWeighingAnimalObservation(campaignId, idempotencyKey, request)
+
+    override suspend fun recordWeighingShedObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto = service.recordWeighingShedObservation(campaignId, idempotencyKey, request)
+
+    override suspend fun submitWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    ) = service.submitWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
+    ) = service.reopenWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = service.closeShedWeighingCampaign(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun closeWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = service.closeWeighingCampaign(campaignId, idempotencyKey, request)
+
+    // .use { } closes the response body's underlying source once read, so the connection is
+    // released even if `.bytes()` throws -- same discipline as every other network read here,
+    // just with a raw byte body instead of a decoded DTO.
+    override suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray =
+        service.exportWeighingCampaignCsv(campaignId).use { it.bytes() }
+
     override suspend fun verifyAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -524,7 +1081,8 @@ class RetrofitAppApi(
         taskId: String?,
         cursor: String?,
         limit: Int?,
-    ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit)
+        partitionLabel: String?,
+    ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit, partitionLabel)
 
     override suspend fun rescheduleObligation(
         obligationId: String,
@@ -542,6 +1100,16 @@ class RetrofitAppApi(
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
         service.registerProof(idempotencyKey, request.forCreateUpload())
+
+    override suspend fun listUploadedProofs(
+        scopeType: String,
+        scopeId: String,
+        clientTaskKey: String?,
+        fieldKey: String?,
+        limit: Int?,
+    ): UploadedProofListResponseDto = service.listUploadedProofs(scopeType, scopeId, clientTaskKey, fieldKey, limit)
+
+    override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 
     override suspend fun uploadProofBlob(
         proofId: String,
@@ -605,11 +1173,14 @@ class RetrofitAppApi(
 
     override suspend fun listVerificationQueue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         cursor: String?,
         limit: Int?,
-    ): VerificationQueueResponseDto = service.listVerificationQueue(category, parkId, shedId, cursor, limit)
+    ): VerificationQueueResponseDto = service.listVerificationQueue(category, status, businessDate, missed, parkId, shedId, cursor, limit)
 
     override suspend fun listVerificationActionQueue(
         category: String?,
@@ -665,6 +1236,133 @@ class RetrofitAppApi(
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         service.getCountsShiftingDestinations()
 
+    override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto =
+        service.getAppCountsBreeds()
+
+    override suspend fun listCountsShiftingPendingExecution(
+        date: String?,
+        status: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsShiftingPendingExecutionResponseDto =
+        service.listCountsShiftingPendingExecution(date, status, pageSize, cursor)
+
+    override suspend fun listCountsTemporaryTaggedGoats(
+        pageSize: Int?,
+        cursor: String?,
+        parkId: String?,
+        shedId: String?,
+    ): TemporaryTaggedGoatsResponseDto =
+        service.listCountsTemporaryTaggedGoats(pageSize, cursor, parkId, shedId)
+
+    override suspend fun promoteCountsIdentifier(
+        goatId: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String?,
+    ): CountsPromoteIdentifierResponseDto =
+        service.promoteCountsIdentifier(
+            goatId,
+            idempotencyKey,
+            CountsPromoteIdentifierRequestDto(
+                permanentIdentifier = permanentIdentifier,
+                animalIdentifier2 = secondaryIdentifier?.trim()?.ifBlank { null },
+                rowVersion = rowVersion,
+            ),
+        )
+
+    override suspend fun completeCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        destinationTag: String?,
+        proofRef: String,
+        feedPackingProofRef: String?,
+        feedGivenProofRef: String?,
+        feedConfigFingerprint: String?,
+    ): CountsShiftingExecutionResponseDto =
+        service.completeCountsShiftingEvent(
+            shiftingEventId,
+            idempotencyKey,
+            CountsShiftingCompleteRequestDto(
+                proofRef = proofRef,
+                feedPackingProofRef = feedPackingProofRef,
+                feedGivenProofRef = feedGivenProofRef,
+                feedConfigFingerprint = feedConfigFingerprint,
+                destinationTag = destinationTag,
+            ),
+        )
+
+    override suspend fun cancelCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): CountsShiftingExecutionResponseDto =
+        service.cancelCountsShiftingEvent(
+            shiftingEventId,
+            idempotencyKey,
+            CountsShiftingCancelRequestDto(reason = reason),
+        )
+
+    override suspend fun getFeedDirectionPreview(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        session: Int?,
+        workflow: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedDirectionPreviewPageDto =
+        service.getFeedDirectionPreview(parkId, targetDate, shedId, session, workflow, status, limit, offset)
+
+    override suspend fun getFeedPackingWorklist(
+        parkId: String,
+        targetDate: String,
+        session: Int?,
+        workflow: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedPackingWorklistPageDto =
+        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, status, limit, offset)
+
+    override suspend fun completeFeedDirectionSession(
+        idempotencyKey: String,
+        request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto = service.completeFeedDirectionSession(idempotencyKey, request)
+
+    override suspend fun completeFeedDistribution(
+        idempotencyKey: String,
+        request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto = service.completeFeedDistribution(idempotencyKey, request)
+
+    override suspend fun completeFeedPacking(
+        idempotencyKey: String,
+        request: FeedPackingCompleteRequestDto,
+    ): FeedPackingCompleteResponseDto = service.completeFeedPacking(idempotencyKey, request)
+
+    override suspend fun submitMilkPreparation(
+        idempotencyKey: String,
+        request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto = service.submitMilkPreparation(idempotencyKey, request)
+
+    override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = service.getMilkFeedingTasks(feedingDate, parkId, sessionNo, limit, offset)
+    override suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto = service.submitMilkFeedingTask(taskId, idempotencyKey, request)
+
+    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+        service.getMilkPreparation(parkId, limit, offset)
+
+    override suspend fun getFeedTransportTasks(
+        businessDate: String,
+        parkId: String?,
+        shedId: String?,
+        status: String?,
+        cursor: String?,
+        limit: Int?,
+    ): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, parkId, shedId, status, cursor, limit)
+    override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = service.submitFeedTransport(taskId, idempotencyKey, request)
+
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,
         request: CountsShiftingEventRequestDto,
@@ -673,12 +1371,68 @@ class RetrofitAppApi(
     override suspend fun recordCountsBirthEvent(
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = service.recordCountsBirthEvent(idempotencyKey, request)
+    ): CountsApprovalSubmitResponseDto = service.recordCountsBirthEvent(idempotencyKey, request)
 
     override suspend fun recordCountsDeathEvent(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
+    ): CountsApprovalSubmitResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
+
+    override suspend fun listWorkflows(
+        module: String,
+        date: String?,
+        filter: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): WorkflowListResponseDto = service.listWorkflows(module, date, filter, pageSize, cursor)
+
+    override suspend fun getWorkflow(workflowId: String, lens: String?, date: String?): WorkflowDetailResponseDto =
+        service.getWorkflow(workflowId, lens, date)
+
+    override suspend fun answerWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        service.answerWorkflowAction(workflowId, actionId, idempotencyKey, request)
+
+    override suspend fun completeWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        service.completeWorkflowAction(workflowId, actionId, idempotencyKey, request)
+
+    override suspend fun listHealthWorkItems(
+        ageBand: String,
+        date: String,
+        status: String?,
+        diseaseKey: String?,
+        parkId: String?,
+        shedId: String?,
+        session: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthWorkItemPageDto = service.listHealthWorkItems(
+        ageBand, date, status, diseaseKey, parkId, shedId, session, cursor, limit,
+    )
+
+    override suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto = service.openHealthCase(idempotencyKey, request)
+
+    override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
+        service.getHealthWorkItem(healthSessionId)
+
+    override suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto =
+        service.completeHealthWorkItem(healthSessionId, idempotencyKey, request)
 
     override suspend fun searchGoats(
         q: String?,
@@ -706,6 +1460,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto = service.rejectCountsApproval(requestId, idempotencyKey, request)
+
+    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
+        service.getWeightHistory(parkId, campaignShedId)
+
+    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
+        service.getWeighingGrowth(parkId, from, to)
 }
 
 /**
@@ -717,11 +1477,13 @@ class BearerAuthInterceptor(
     private val tokenProvider: () -> String?,
     private val tenantIdProvider: () -> String? = { null },
     private val localeProvider: () -> String? = { null },
+    private val requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = tokenProvider()
         val tenantId = tenantIdProvider()
         val localeTag = normalizedLocaleTag(localeProvider())
+        val requestMetadata = requestMetadataProvider()
         val builder = chain.request().newBuilder()
         if (!token.isNullOrBlank()) {
             builder.header("Authorization", "Bearer $token")
@@ -731,7 +1493,36 @@ class BearerAuthInterceptor(
         }
         builder.header(ACCEPT_LANGUAGE_HEADER, acceptLanguageValue(localeTag))
         builder.header(LOCALE_CONTEXT_HEADER, localeTag)
+        requestMetadata.headers().forEach { (name, value) -> builder.header(name, value) }
         return chain.proceed(builder.build())
+    }
+}
+
+data class RequestMetadata(
+    val appVersion: String = "",
+    val appVersionCode: String = "",
+    val buildType: String = "",
+    val deviceId: String = "",
+    val platform: String = "",
+    val osVersion: String = "",
+    val sdkVersion: String = "",
+    val deviceModel: String = "",
+) {
+    fun headers(): List<Pair<String, String>> = listOfNotNull(
+        header("X-GoatOS-App-Version", appVersion),
+        header("X-GoatOS-App-Version-Code", appVersionCode),
+        header("X-GoatOS-Build-Type", buildType),
+        header("X-GoatOS-Device-Id", deviceId),
+        header("X-Device-Id", deviceId),
+        header("X-GoatOS-Platform", platform),
+        header("X-GoatOS-OS-Version", osVersion),
+        header("X-GoatOS-SDK-Version", sdkVersion),
+        header("X-GoatOS-Device-Model", deviceModel),
+    )
+
+    private fun header(name: String, rawValue: String): Pair<String, String>? {
+        val value = rawValue.trim().filterNot { it.code < 0x20 || it.code == 0x7f }.take(128)
+        return value.takeIf { it.isNotBlank() }?.let { name to it }
     }
 }
 
@@ -747,13 +1538,14 @@ object NetworkFactory {
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
+        requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
         // Optional: traceparent stamping + method/route/status/duration reporting
         // (docs/observability/OBSERVABILITY_DESIGN.md §2.5). Null keeps the client identical to
         // before this was wired — every existing caller is unaffected until it opts in.
         telemetryInterceptor: okhttp3.Interceptor? = null,
     ): OkHttpClient =
         OkHttpClient.Builder()
-            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider, localeProvider))
+            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider))
             .apply { telemetryInterceptor?.let { addInterceptor(it) } }
             // Explicit bounds — never rely on the platform/OkHttp defaults (a stuck socket on a
             // field 2G link must fail and let the outbox back off, not hang the drain coroutine).
@@ -796,10 +1588,11 @@ object NetworkFactory {
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
+        requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
         telemetryInterceptor: okhttp3.Interceptor? = null,
     ): AppApi =
         RetrofitAppApi(
-            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, telemetryInterceptor)).create(),
+            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider, telemetryInterceptor)).create(),
             proofBlobUploader(baseUrl, tokenProvider),
         )
 }

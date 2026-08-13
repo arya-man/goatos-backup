@@ -1,9 +1,9 @@
 # ADR: FCM device lifecycle — couple on launch, decouple on logout
 
-Status: ACCEPTED — backend contract shipped; mobile wiring is a tracked TODO gated
-on the `goatos-prod` Firebase project (see `docs/decisions/goatos-firebase-project`
-context and the founder memory note). Applies to every agent (Claude + Codex) and
-human working on `apps/goatos-android`.
+Status: ACCEPTED — backend and mobile lifecycle plumbing is implemented; exact
+environment credentials, token reachability, and real-device delivery remain
+deployment certification. Applies to every agent and human working on
+`apps/goatos-android`.
 
 References (authoritative): Firebase Cloud Messaging on Android
 (https://firebase.google.com/docs/cloud-messaging/android/client) and
@@ -27,9 +27,11 @@ So the token must be **coupled on launch/login** and **decoupled on logout**.
 
 ## Decision
 
-The FCM token binding is a write-path fact owned by the workforce module, carried
-on the existing device record (`workforce_member_devices.push_token_hash`). We store
-only a HASH of the token, never the raw token at rest.
+The FCM token binding is a write-path fact owned by the workforce module. Device
+identity/dedup may use `push_token_hash`, while the dedicated `fcm_token` field
+stores the raw delivery address required by the FCM send API (migration 000171).
+Treat that raw token as sensitive delivery data: tenant/device scope it, never
+log it, clear it on deregistration, and keep it out of analytics and task facts.
 
 ### Couple — on app launch / successful login
 
@@ -66,23 +68,21 @@ only a HASH of the token, never the raw token at rest.
 | --- | --- |
 | Backend `push_token_hash` on `registerDevice` | DONE (pre-existing: `workforce/domain/types.go`, `RegisterDevice` upsert) |
 | Backend `POST /app/devices/{device_id}/deregister` | **DONE** — `deregisterAppDevice`, workforce app/adapters + `app-api.yaml` |
-| Mobile: send `push_token_hash` on register (launch) | TODO — needs the FirebaseMessaging SDK in the app (none present today) |
-| Mobile: `onNewToken` re-register | TODO — needs `FirebaseMessagingService` |
-| Mobile: call deregister + `deleteToken()` on logout | TODO — wire into `SessionViewModel.signOut()` with `DeviceStore.deviceId` |
-| FCM message delivery | GATED on `goatos-prod` Firebase (India delivery) — not wired, device-untestable now |
+| Mobile: register/heartbeat raw `fcm_token` on launch/session bootstrap | **DONE** — `PushTokenSync` → `DefaultNotificationsPort` |
+| Mobile: `onNewToken` re-register | **DONE** — `GoatOsMessagingService` |
+| Mobile: backend deregister + local `deleteToken()` on logout | **DONE** — `LogoutCoordinator` + `PushLogoutCleanup` |
+| FCM message delivery | Code/config exists; live provider credentials, token reachability, notification permission, and real-device delivery remain environment proof |
 
-The mobile pieces are one coherent unit and land with the offline-first mobile body
-(they touch `SessionViewModel`, which the logout clean-sweep also edits). They are
-deliberately NOT shipped as a partial edit on the current tree to avoid a
-half-coupled token path (a decouple call for a token that was never coupled is a
-no-op) and a merge conflict with the in-flight sign-out changes.
+The lifecycle is one coherent unit. Future edits must preserve launch/login
+coupling, token-rotation re-registration, backend deregistration before auth
+sign-out, local token deletion, and the session-generation/logout safety fences.
 
 ## Consequences
 
-- The server always has the current token hash (delivery works) and drops it the
-  instant a user signs out (no bleed).
-- Storing only the hash keeps the raw token out of the DB — consistent with the
-  "no ID token at rest" hardening already in the Firebase auth flow.
-- Until the mobile SDK wiring lands, pushes are not delivered on-device; the
-  backend contract is ready so the mobile unit is purely additive when Firebase is
-  un-gated on `goatos-prod`.
+- The server can address the active device with `fcm_token` and clears it when
+  that device is deregistered, preventing cross-user push bleed.
+- The raw delivery token is not an auth ID token, but it is still sensitive and
+  must remain isolated to the device/delivery boundary.
+- Source completion does not prove delivery: exact deployment credentials,
+  notification permission, provider response, and real-device receipt remain
+  required certification evidence.

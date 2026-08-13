@@ -97,6 +97,82 @@ start/end of the relevant action — each viewmodel already receives `AnalyticsP
 `BootstrapViewModel`/`SessionViewModel` do (constructor injection), so no new DI wiring is
 needed, just the call.
 
+### 3.1. Proof video processing events
+
+Shared phone-camera proof processing is documented in
+`docs/mobile/proof-video-processing-pipeline.md`. When implemented, emit these
+events through `AnalyticsPort` and never call Firebase directly from feature
+code:
+
+| Stage | Event |
+|---|---|
+| capture starts/ends | `proof_capture_started`, `proof_capture_completed` |
+| location/address | `proof_location_started`, `proof_location_resolved` |
+| compression/overlay starts | `proof_processing_started` |
+| compression/overlay succeeds | `proof_processing_completed` |
+| compression/overlay fails and original is queued | `proof_processing_failed` |
+| upload registration | `proof_upload_registered` |
+| upload starts/ends | `proof_upload_started`, `proof_upload_completed` |
+| upload retry/dead-letter | `proof_upload_failed`, `proof_dead_lettered` |
+
+### 3.2. Stuck submit diagnostics
+
+The submit screen must emit both coarse Firebase events and durable backend/Room
+evidence for every visible submit state:
+
+| UI state | Firebase/logcat event | Required compact params | Durable place to inspect |
+|---|---|---|---|
+| queued/yellow | `submit_status` | `task_id`, `submit_status=queued` | Android Room `outbox` row by `idempotency_key` |
+| syncing/yellow | `submit_status` | `task_id`, `submit_status=syncing`, `attempt_count`, `max_attempts` | Android Room `outbox.status=IN_FLIGHT` |
+| retrying/yellow | `submit_status` | `task_id`, `submit_status=retrying`, `reason`, `attempt_count`, `max_attempts` | Android Room `outbox.lastError` and `nextAttemptAt` |
+| backend rejected/red | `submit_status`, `funnel_submit_failed` | `task_id`, `submit_status=conflict`, `reason` | backend `sop_submit_attempt` API log, `audit_log`, `sop_submissions`, scan/proof tables |
+| dead letter/red | `submit_status`, `funnel_submit_failed` | `task_id`, `submit_status=dead_letter`, `reason`, `attempt_count`, `max_attempts` | Android Room `outbox` failed row; backend may have no submission if transport never reached API |
+| accepted/green | `submit_status`, `funnel_submit_succeeded` | `task_id`, `submit_status=synced` | backend `sop_submissions` plus vaccination completion/proof refs |
+
+For vaccination submit, the common first checks are:
+
+```sql
+SELECT status, attempt_count, max_attempts, last_error, idempotency_key
+FROM outbox
+WHERE idempotency_key LIKE '%<task_id>%'
+ORDER BY updated_at DESC;
+
+SELECT task_id, goat_id, obligation_id, status, captured_at
+FROM sop_task_scan_captures
+WHERE task_id = '<task_id>'
+ORDER BY captured_at DESC;
+
+SELECT proof_id, scope_type, scope_id, subject_type, subject_id, upload_state, storage_uri
+FROM proof_artifacts
+WHERE scope_id IN ('<task_id>', '<shed_id>')
+ORDER BY created_at DESC;
+```
+
+On phone QA, filter logcat with:
+
+```bash
+adb -s <device> logcat -v time | rg 'GoatOSAnalytics|submit_status|funnel_submit|proof_|scan_'
+```
+
+Firebase receives only the compact fields above. Full error text, request id,
+operator/device headers, proof refs, RFID/obligation ids, and server validation
+details belong in backend logs/audit tables and the Room outbox row.
+
+Custom Firebase Performance traces:
+
+```text
+proof_location_resolution
+proof_video_processing
+proof_video_upload
+proof_end_to_end_capture_to_uploaded
+```
+
+Crashlytics non-fatals are mandatory for every caught exception. Attach only
+non-PII diagnostic keys such as module, stage, app version, device model, SDK,
+input/output size bucket, target bitrate bucket, and whether original-upload
+fallback was used. Do not attach raw address text, GPS coordinates, local file
+paths, signed URLs, or Firebase tokens.
+
 ## 4. Firebase project per flavor
 
 | Flavor | Firebase project | Evidence | `TELEMETRY_ENABLED` |
@@ -151,6 +227,29 @@ Both `TelemetryInterceptor` and `FirebasePerfNetworkTelemetryReporter` carry a
 live and its `asia-south1` URL is known; `BuildConfig.OTLP_ENDPOINT` is reserved (currently `""`
 for every flavor) for that URL.
 
+## 6.1. API client identity headers
+
+Every authenticated API request also carries client identity headers from
+`BearerAuthInterceptor`, populated in `AppModule` from `BuildConfig`, Android `Build`, and
+`DeviceStore.appInstallIdSync()`:
+
+```
+X-GoatOS-App-Version: <versionName, e.g. 0.1.17>
+X-GoatOS-App-Version-Code: <versionCode, e.g. 18>
+X-GoatOS-Build-Type: <flavor + Debug/Release, e.g. stgRelease>
+X-GoatOS-Device-Id: <stable app install id>
+X-Device-Id: <same stable app install id, legacy backend fallback>
+X-GoatOS-Platform: android
+X-GoatOS-OS-Version: Android <release>
+X-GoatOS-SDK-Version: <SDK_INT>
+X-GoatOS-Device-Model: <manufacturer model>
+```
+
+The backend request middleware records these into request logs and the audit recorder stores them
+under `audit_log.metadata->'client'`. For a bad weighing/vaccination proof, audio/video capture, or
+RFID scan, query the domain row's audit record and inspect that `client` block to identify the exact
+APK version, build, install id, Android OS, SDK, and device model that submitted it.
+
 ## 7. Verification
 
 Run with `JAVA_HOME=$(brew --prefix openjdk@21)` and `ANDROID_HOME=$HOME/Library/Android/sdk`
@@ -181,3 +280,19 @@ are pre-existing (unrelated files this task never touched — `AppNavHost.kt`, `
 **Not run** (out of scope / needs a device): `assembleStgRelease` / Firebase App Distribution
 end-to-end, and any real on-device run with `TELEMETRY_ENABLED=true` hitting a live Firebase
 project.
+
+## 8. Companion rule: never swallow an exception
+
+The `CrashReporter`/`recordException` seam documented in §2 exists to be used on *every* caught
+exception, not just the ones a screen's own analytics wiring happens to hit. The maintainer's
+golden rule — "never swallow any exception, always dump it into Firebase non-fatal errors
+(mobile) or backend logs (server)" — is enforced separately from this doc's per-screen telemetry
+rule, by a diff-scoped guard: `tools/exception-guard/` (CI target `make exception-guard`, chained
+into `make ci-local`). It flags an empty `catch {}`, a catch body that only logs
+(`Log.x`/`println`) without a `CrashReporter.recordException(...)` call, a catch body that only
+`return`s/`emit`s without recording anything, and `runCatching { ... }.getOrNull()` /
+`.getOrDefault(...)` chains that discard the failure instead of chaining `.onFailure { ... }`.
+Escape hatch: `// exception:exempt <reason>` (distinct from this doc's own `// telemetry:exempt
+<reason>` marker family in `docs/observability/TELEMETRY_GUARDRAILS.md` §4, so the two guards'
+findings don't get confused). Full write-up, the Go-side equivalent, and the deliberately-NOT-
+detected list: `docs/observability/TELEMETRY_GUARDRAILS.md` §8.

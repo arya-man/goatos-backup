@@ -1118,7 +1118,7 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	}
 }
 
-func TestGenerateForVersionDoesNotAnchorAdultManualCampaignToEntryDate(t *testing.T) {
+func TestGenerateForVersionAutomaticallySchedulesAdultBlankHistoryCampaignByShed(t *testing.T) {
 	ctx := context.Background()
 	entryEarly := time.Date(2026, time.June, 18, 0, 0, 0, 0, time.UTC)
 	entryLate := time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC)
@@ -1130,7 +1130,9 @@ func TestGenerateForVersionDoesNotAnchorAdultManualCampaignToEntryDate(t *testin
 	}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
 		{GoatID: "godel-main", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryEarly, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
-		{GoatID: "godel-late-singleton", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryLate, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
+		// A physical-shed placement is sufficient. Partition metadata is optional and
+		// must never block an adult from joining the normal catch-up drive.
+		{GoatID: "godel-late-singleton", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "sheep", Stage: "adult", EntryDate: &entryLate, ShedID: "shed-godel-1", ParkID: "cpt"},
 	}}
 	obl := &generationObligationFake{seen: map[string]bool{}}
 	gen := NewGenerationService(proto, goats, obl)
@@ -1140,17 +1142,22 @@ func TestGenerateForVersionDoesNotAnchorAdultManualCampaignToEntryDate(t *testin
 	if err != nil {
 		t.Fatalf("normal generate: %v", err)
 	}
-	if result.Generated != 0 || len(obl.inserted) != 0 {
-		t.Fatalf("normal result=%#v inserted=%#v, want adult manual campaign to skip normal entry-date generation", result, obl.inserted)
+	wantDue := adultCampaignStart(asOf)
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("normal result=%#v inserted=%#v, want both blank-history adults in the normal campaign", result, obl.inserted)
+	}
+	for _, inserted := range obl.inserted {
+		if !inserted.DueAt.Equal(wantDue) {
+			t.Fatalf("goat %s due=%s, want shared adult campaign due %s", inserted.TargetID, inserted.DueAt, wantDue)
+		}
 	}
 
 	result, err = gen.GenerateManualCampaignForVersion(ctx, "tenant-1", "version-1", "cpt-adult-campaign", asOf)
 	if err != nil {
 		t.Fatalf("manual campaign generate: %v", err)
 	}
-	wantDue := adultCampaignStart(asOf)
-	if result.Generated != 2 || result.Deferred != 0 || len(obl.inserted) != 2 {
-		t.Fatalf("result=%#v inserted=%#v, want two normal campaign obligations", result, obl.inserted)
+	if result.Generated != 0 || result.Deferred != 0 || len(obl.inserted) != 2 {
+		t.Fatalf("explicit replay result=%#v inserted=%#v, want no duplicate campaign obligations", result, obl.inserted)
 	}
 	for _, inserted := range obl.inserted {
 		if !inserted.DueAt.Equal(wantDue) {
@@ -1158,6 +1165,249 @@ func TestGenerateForVersionDoesNotAnchorAdultManualCampaignToEntryDate(t *testin
 		}
 		if inserted.Status != "scheduled" {
 			t.Fatalf("goat %s status=%q, want scheduled normal campaign row", inserted.TargetID, inserted.Status)
+		}
+	}
+}
+
+func TestGenerateForVersionClubsAdultBlankHistoryWithSameVaccineRepeatDate(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)
+	earlyHistoryAt := time.Date(2026, time.March, 19, 0, 0, 0, 0, time.UTC)
+	lateHistoryAt := time.Date(2026, time.April, 7, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{
+			{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", OffsetDays: 63, DueWindowDays: 30},
+			{RuleID: "rule-fmd-adult-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, DueWindowDays: 30, Repeat: "every_n_days"},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "blank-history", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-godel-1", ParkID: "cpt"},
+			{GoatID: "repeat-history-early", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-gandhi", ParkID: "cpt", PartitionLabel: "Part 2"},
+			{GoatID: "repeat-history-late", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 4"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"repeat-history-early": {{AdministeredAt: earlyHistoryAt, VaccineCode: "FMD", VaccineType: "killed", PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2}},
+			"repeat-history-late":  {{AdministeredAt: lateHistoryAt, VaccineCode: "FMD", VaccineType: "killed", PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	staleDue := businessDayStart(earlyHistoryAt).AddDate(0, 0, 274)
+	staleKey := obligationKey("tenant-1", "version-1", "rule-fmd-adult-repeat", "goat", "repeat-history-early", staleDue.UTC().Format(time.RFC3339), "2")
+	if _, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: "rule-fmd-adult-repeat",
+		TargetType: "goat", TargetID: "repeat-history-early", ScopeType: "shed", ScopeID: "shed-gandhi",
+		DueAt: staleDue, Status: "scheduled", IdempotencyKey: staleKey, Sequence: 2,
+	}); err != nil || !applied {
+		t.Fatalf("seed stale earlier repeat: applied=%v err=%v", applied, err)
+	}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	wantDue := businessDayStart(lateHistoryAt).AddDate(0, 0, 274)
+	if result.Generated != 3 || len(obl.inserted) != 4 {
+		t.Fatalf("result=%#v inserted=%#v, want stale predecessor plus one blank-history and two repeat obligations", result, obl.inserted)
+	}
+	seen := map[string]string{}
+	for _, inserted := range obl.inserted {
+		if inserted.Status == "canceled" {
+			continue
+		}
+		if !inserted.DueAt.Equal(wantDue) {
+			t.Fatalf("goat %s due=%s, want shared drive date %s", inserted.TargetID, inserted.DueAt, wantDue)
+		}
+		seen[inserted.TargetID] = inserted.RuleID
+	}
+	if seen["blank-history"] != "rule-fmd-adult-w1" || seen["repeat-history-early"] != "rule-fmd-adult-repeat" || seen["repeat-history-late"] != "rule-fmd-adult-repeat" {
+		t.Fatalf("generated rules=%#v, want catch-up and repeat dose instructions inside one date cohort", seen)
+	}
+	if got := obl.cancelReasonsByKey[staleKey]; got != "adult_campaign_date_realigned" {
+		t.Fatalf("stale repeat cancellation reason=%q, want adult_campaign_date_realigned", got)
+	}
+}
+
+func TestGenerateForVersionRealignsExistingStableBlankHistoryWhenRepeatHistoryArrivesLater(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)
+	historyAt := time.Date(2026, time.April, 7, 0, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 30},
+		{RuleID: "rule-fmd-adult-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, DueWindowDays: 30, Repeat: "every_n_days"},
+	}
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules:   rules,
+	}
+	blank := domain.EligibleGoat{GoatID: "blank-history", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-godel-1", ParkID: "cpt"}
+	historyGoat := domain.EligibleGoat{GoatID: "history-arrived-later", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-gandhi", ParkID: "cpt"}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{blank}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if first, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil || first.Generated != 1 {
+		t.Fatalf("first blank-history generation result=%#v err=%v", first, err)
+	}
+	stableKey := stableAdultCampaignObligationKey("tenant-1", "version-1", rules[0], blank)
+	if got := obl.inserted[0].DueAt; !got.Equal(adultCampaignStart(asOf)) {
+		t.Fatalf("initial due=%s, want standalone campaign %s", got, adultCampaignStart(asOf))
+	}
+
+	goats.list = append(goats.list, historyGoat)
+	goats.vaccineHistory = map[string][]domain.RecentVaccineAdministration{
+		historyGoat.GoatID: {{AdministeredAt: historyAt, VaccineCode: "FMD", VaccineType: "killed", PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2}},
+	}
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("second generation after history import: %v", err)
+	}
+	want := businessDayStart(historyAt).AddDate(0, 0, 274)
+	idx := obl.keyIndex[stableKey]
+	if got := obl.inserted[idx].DueAt; !got.Equal(want) {
+		t.Fatalf("stable blank-history due=%s, want cohort date %s", got, want)
+	}
+	if len(obl.realignedKeys) != 1 || obl.realignedKeys[0] != stableKey {
+		t.Fatalf("realigned keys=%v, want [%s]", obl.realignedKeys, stableKey)
+	}
+}
+
+func TestGenerateForVersionAcceptedHistoryRetiresStableAdultCampaignAndStartsRepeat(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 30},
+		{RuleID: "rule-fmd-adult-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 182, DueWindowDays: 30, Repeat: "every_n_days"},
+	}
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules:   rules,
+	}
+	goat := domain.EligibleGoat{
+		GoatID: "late-verified", LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open",
+		Species: "goat", Stage: "adult", ParkID: "cpt", ShedID: "shed-gandhi",
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{goat}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	first, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("first blank-history generate: %v", err)
+	}
+	if first.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].Status != "scheduled" {
+		t.Fatalf("first result=%#v inserted=%#v, want one normal adult campaign row", first, obl.inserted)
+	}
+	stableKey := stableAdultCampaignObligationKey("tenant-1", "version-1", rules[0], goat)
+	if obl.inserted[0].IdempotencyKey != stableKey {
+		t.Fatalf("campaign key=%q, want stable key %q", obl.inserted[0].IdempotencyKey, stableKey)
+	}
+
+	administeredAt := time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC)
+	goats.vaccineHistory = map[string][]domain.RecentVaccineAdministration{
+		goat.GoatID: {{
+			AdministeredAt: administeredAt, VaccineCode: "FMD", VaccineType: "killed", PathogenClass: "viral",
+			DoseCode: "fmd_adult_w1", Sequence: 1,
+		}},
+	}
+	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("second accepted-history generate: %v", err)
+	}
+	if second.SuppressedByTrustedHistory != 1 || second.Generated != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("second result=%#v inserted=%#v, want primary retired and one repeat generated", second, obl.inserted)
+	}
+	if obl.inserted[0].Status != "canceled" || obl.cancelReasonsByKey[stableKey] != "vaccine_history_outranks_adult_campaign" {
+		t.Fatalf("stable row=%#v reason=%q, want canceled after accepted history", obl.inserted[0], obl.cancelReasonsByKey[stableKey])
+	}
+	wantRepeatDue := businessDayStart(administeredAt).AddDate(0, 0, 182)
+	if got := obl.inserted[1]; got.RuleID != "rule-fmd-adult-repeat" || got.Status != "scheduled" || !got.DueAt.Equal(wantRepeatDue) {
+		t.Fatalf("repeat=%#v, want accepted medical date + 182 days = %s", got, wantRepeatDue)
+	}
+}
+
+func TestCampaignDueOverridesDoesNotExtendExpiredAuthoredWindow(t *testing.T) {
+	asOf := time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 30},
+		{RuleID: "rule-fmd-adult-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 182, DueWindowDays: 7, Repeat: "every_n_days"},
+	}
+	profile := vaccineProfile{Code: "FMD", Type: "killed", PathogenClass: "viral", Class: immunoKilledViral}
+	plans := []goatGenerationPlan{
+		{
+			versionID: "version-1", rules: rules, vaccineProfile: profile,
+			goat: domain.EligibleGoat{GoatID: "expired-repeat", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", ParkID: "cpt", ShedID: "gandhi"},
+		},
+		{
+			versionID: "version-1", rules: rules, vaccineProfile: profile,
+			goat: domain.EligibleGoat{GoatID: "blank-history", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", ParkID: "cpt", ShedID: "godel-1"},
+		},
+	}
+	history := map[string][]domain.RecentVaccineAdministration{
+		"expired-repeat": {{
+			AdministeredAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+			VaccineCode:    "FMD", VaccineType: "killed", PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2,
+		}},
+	}
+	overrides, _, err := campaignDueOverrides(plans, asOf, history)
+	if err != nil {
+		t.Fatalf("campaignDueOverrides: %v", err)
+	}
+	if _, found := overrides[campaignDueGoatKey("version-1", "rule-fmd-adult-repeat", "expired-repeat")]; found {
+		t.Fatalf("expired repeat received a shared-drive override: %#v; readiness clamping must not extend its authored safety window", overrides)
+	}
+	wantBlankDue := adultCampaignStart(asOf)
+	if got, found := overrides[campaignDueGoatKey("version-1", "rule-fmd-adult-w1", "blank-history")]; !found || !got.Equal(wantBlankDue) {
+		t.Fatalf("blank-history due=%s found=%v, want independent normal campaign %s", got, found, wantBlankDue)
+	}
+}
+
+func TestCampaignDueOverridesIgnoresPrimaryContinuationWhenAligningETTTRepeat(t *testing.T) {
+	asOf := time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 3, TriggerType: "manual_campaign", DueWindowDays: 7},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 4, TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 21, DueWindowDays: 7},
+		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 5, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, DueWindowDays: 30, Repeat: "every_n_days"},
+	}
+	historyDates := map[string]time.Time{
+		"day-1": time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC),
+		"day-2": time.Date(2026, time.July, 25, 0, 0, 0, 0, time.UTC),
+		"day-3": time.Date(2026, time.July, 26, 0, 0, 0, 0, time.UTC),
+	}
+	plans := make([]goatGenerationPlan, 0, len(historyDates))
+	history := make(map[string][]domain.RecentVaccineAdministration, len(historyDates))
+	for goatID, administeredAt := range historyDates {
+		plans = append(plans, goatGenerationPlan{
+			versionID: "version-1",
+			rules:     rules,
+			goat: domain.EligibleGoat{
+				GoatID: goatID, LifecycleStatus: "alive", HealthStatus: "healthy", ReproductiveStatus: "open",
+				Species: "goat", Stage: "adult", ParkID: "cpt", ShedID: "gandhi",
+			},
+			vaccineProfile: vaccineProfile{Code: "ET_TT", Type: "killed", PathogenClass: "bacterial", Class: immunoKilledBacterial},
+		})
+		history[goatID] = []domain.RecentVaccineAdministration{{
+			AdministeredAt: administeredAt, VaccineCode: "ET_TT", VaccineType: "killed", PathogenClass: "bacterial",
+			DoseCode: "et_tt_adult_w2", Sequence: 4,
+		}}
+	}
+
+	overrides, aligned, err := campaignDueOverrides(plans, asOf, history)
+	if err != nil {
+		t.Fatalf("campaignDueOverrides: %v", err)
+	}
+	want := businessDayStart(historyDates["day-3"]).AddDate(0, 0, 182)
+	for goatID := range historyDates {
+		key := campaignDueGoatKey("version-1", "rule-et-revac", goatID)
+		if got, ok := overrides[key]; !ok || !got.Equal(want) {
+			t.Fatalf("repeat override goat=%s due=%s found=%v, want shared %s", goatID, got, ok, want)
+		}
+		if !aligned[key] {
+			t.Fatalf("repeat override goat=%s was not marked cohort-aligned", goatID)
+		}
+		if _, found := overrides[campaignDueGoatKey("version-1", "rule-et-adult-w2", goatID)]; found {
+			t.Fatalf("primary continuation for goat=%s must not enter recurring campaign alignment", goatID)
 		}
 	}
 }
@@ -1213,7 +1463,7 @@ func TestCampaignDueOverridesDoNotReplaceAdultSameVaccineHistory(t *testing.T) {
 			goat: domain.EligibleGoat{GoatID: "godel-history", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", EntryDate: &entryLate, ShedID: "shed-godel-1", ParkID: "cpt", PartitionLabel: "Part 1"},
 		},
 	}
-	overrides, err := campaignDueOverrides(plans, time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC), map[string][]domain.RecentVaccineAdministration{
+	overrides, _, err := campaignDueOverrides(plans, time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC), map[string][]domain.RecentVaccineAdministration{
 		"godel-history": {{AdministeredAt: time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC), VaccineCode: "FMD"}},
 	})
 	if err != nil {
@@ -1224,8 +1474,9 @@ func TestCampaignDueOverridesDoNotReplaceAdultSameVaccineHistory(t *testing.T) {
 		t.Fatalf("history-backed adult goat received campaign override %#v; same-vaccine history must keep last-vaccination precedence", overrides[historyKey])
 	}
 	blankKey := campaignDueGoatKey("version-1", "rule-fmd-adult-w1", "godel-main")
-	if got, found := overrides[blankKey]; !found || !got.Equal(adultCampaignStart(time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))) {
-		t.Fatalf("blank-history adult override=%s found=%v, want next campaign date", got, found)
+	wantBlankDue := adultCampaignStart(time.Date(2026, time.July, 24, 0, 0, 0, 0, time.UTC))
+	if got, found := overrides[blankKey]; !found || !got.Equal(wantBlankDue) {
+		t.Fatalf("blank-history adult override=%s found=%v, want normal campaign date %s", got, found, wantBlankDue)
 	}
 }
 
@@ -2864,6 +3115,7 @@ type generationObligationFake struct {
 	deferredKeys           []string
 	deferReasons           []string
 	reopenedKeys           []string
+	realignedKeys          []string
 	canceledKeys           []string
 	canceledVersions       []string
 	canceledExceptVersions [][]string
@@ -2957,6 +3209,22 @@ func (o *generationObligationFake) ReopenDeferredObligationForGeneration(_ conte
 	}
 	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
 	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "scheduled", DueAt: o.inserted[idx].DueAt, Reason: ""}, true, nil
+}
+
+func (o *generationObligationFake) RealignOpenObligationForGeneration(_ context.Context, _, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, _ time.Time) (obldomain.ObligationRef, bool, error) {
+	idx, ok := o.keyIndex[idempotencyKey]
+	if !ok {
+		return obldomain.ObligationRef{}, false, nil
+	}
+	status := o.inserted[idx].Status
+	if (status != "scheduled" && status != "due") || o.inserted[idx].DueAt.Equal(dueAt) {
+		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: status, DueAt: o.inserted[idx].DueAt}, false, nil
+	}
+	o.inserted[idx].DueAt = dueAt
+	o.inserted[idx].WindowStart = &dueAt
+	o.inserted[idx].WindowEnd = windowEnd
+	o.realignedKeys = append(o.realignedKeys, idempotencyKey)
+	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: status, DueAt: dueAt}, true, nil
 }
 
 func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, ruleID, vaccineCode, shedID, parkID string, _, _ time.Time) (*time.Time, error) {

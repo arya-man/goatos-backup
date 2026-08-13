@@ -1,5 +1,6 @@
 package sg.mesha.goatos.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,24 +58,35 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerCarriesModules
 import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.feature.auth.RoleBasedPermissionGate
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
+import sg.mesha.goatos.push.DevicePushStateViewModel
 import sg.mesha.goatos.push.PushNavigationViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
+
+private const val TAG_SHELL = "GoatOsShell"
 
 /** Drawer-header identity (mock `.dp`): avatar initials + name + "role · location" sub. */
 data class DrawerProfile(val name: String, val role: String, val initials: String)
@@ -95,9 +107,50 @@ data class DrawerProfile(val name: String, val role: String, val initials: Strin
 class ShellModuleViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
     val selectedModuleKey: StateFlow<String?> = savedState.getStateFlow(KEY_SELECTED_MODULE, null)
+
+    /**
+     * Records that the OS notification prompt was shown, and what the person answered.
+     *
+     * Worth measuring precisely because the absence of it hid a total failure: POST_NOTIFICATIONS
+     * was never requested, so FCM accepted every push, reported it delivered, and Android dropped
+     * it. "Delivered" counted a notification nobody could see. A denial rate is now visible
+     * instead of inferred.
+     */
+    fun recordNotificationPrompt() {
+        analytics.track(AnalyticsEvents.NOTIFICATION_PERMISSION_PROMPTED, emptyMap())
+    }
+
+    fun recordNotificationPermissionAnswer(granted: Boolean) {
+        analytics.track(
+            AnalyticsEvents.NOTIFICATION_PERMISSION_RESULT,
+            mapOf(AnalyticsEvents.Params.REASON to if (granted) "granted" else "denied"),
+        )
+    }
+
+    fun recordShellAction(action: String, route: String? = null) {
+        analytics.track(
+            AnalyticsEventsSession.SHELL_ACTION,
+            buildMap {
+                put(AnalyticsEventsSession.Params.SHELL_ACTION, action)
+                route?.let { put(AnalyticsEventsSession.Params.NAV_ROUTE, it.routeBase()) }
+            },
+        )
+    }
+
+    fun recordNavigationBlocked(reason: String, route: String) {
+        analytics.track(
+            AnalyticsEventsSession.NAVIGATION_BLOCKED,
+            mapOf(
+                AnalyticsEvents.Params.REASON to reason,
+                AnalyticsEventsSession.Params.NAV_ROUTE to route.routeBase(),
+            ),
+        )
+        crashReporter.log("navigation_blocked reason=$reason route=${route.routeBase()}")
+    }
 
     /** Records the operator switching modules. No-ops when the module is already open. */
     fun select(module: NavModule) {
@@ -137,11 +190,13 @@ fun GoatOsShell(navState: NavState) {
     // (e.g. a config change) never re-navigates to the same tap twice.
     val pushNavVm: PushNavigationViewModel = hiltViewModel()
     val pendingPushRoute by pushNavVm.pendingRoute.collectAsStateWithLifecycle()
-    LaunchedEffect(pendingPushRoute) {
-        val route = pendingPushRoute ?: return@LaunchedEffect
-        navController.navigate(route) { launchSingleTop = true }
-        pushNavVm.consume()
-    }
+    // Set when a tapped alert points at something this person cannot open, so the screen can say
+    // so in one line instead of leaving them on a blank or unexpected page.
+    var showUnavailableAlertNotice by remember { mutableStateOf(false) }
+
+    // Re-reports this device's push state (token + whether the phone will actually show what we
+    // send) when the alerts gate below sees access come back on.
+    val pushStateVm: DevicePushStateViewModel = hiltViewModel()
 
     // Shell-level connectivity/outbox status. Feeds the passive offline banner (debounced) and
     // the on-demand sync sheet — both read the one live SyncRepository flow, no polling.
@@ -156,41 +211,178 @@ fun GoatOsShell(navState: NavState) {
     val profile by profileVm.state.collectAsStateWithLifecycle()
     var showLanguage by remember { mutableStateOf(false) }
 
+    // Which module the drawer has open — local UI selection, persisted across config change
+    // and process death (see ShellModuleViewModel). Also owns shared shell telemetry.
+    val moduleVm: ShellModuleViewModel = hiltViewModel()
+    val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
+
     // Bottom-nav roots are true role roots, not "return me to whatever child screen was last
     // under this tab" shortcuts. We used to save/restore tab state here; after camera/permission
     // interruptions that could resurrect a hosted child route as the operator landing page, which
     // put a Back affordance on a root and hid the bottom bar. Selecting a backend-composed L0 item
     // now clears any stale child stack and lands on the exact href the backend granted.
-    val navigate: (String) -> Unit = { href ->
-        navController.navigate(href) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = false }
-            launchSingleTop = true
-            restoreState = false
+    //
+    // Navigation is BACKEND-COMPOSED and CACHED OFFLINE, but the nav graph is fixed at build time,
+    // so the two can legitimately disagree: a cached bar that predates a route rename, or a backend
+    // newer than the installed APK, both hand us an href this build does not host. Passing that
+    // straight to navController.navigate() throws IllegalArgumentException and kills the app — it
+    // shipped twice (an old RFID-list route, then /counts/birth-death after the birth/death split). An
+    // unknown href is a stale-contract condition to survive, never a crash: skip it and let the next
+    // successful bootstrap refresh heal the cache.
+    // Returns whether the href was actually hosted, so a caller holding several candidates (the
+    // drawer) can fall through to the next one instead of leaving the tap dead.
+    val navigate: (String) -> Boolean = { href ->
+        if (navController.graph.findNode(href) == null) {
+            Log.w(TAG_SHELL, "nav_href_not_hosted route=$href — stale nav cache or newer backend")
+            moduleVm.recordNavigationBlocked("not_hosted", href)
+            false
+        } else if (navController.popBackStack(href, inclusive = false)) {
+            // The tapped root is ALREADY on the back stack (the common case: leaving a sibling tab
+            // and coming back). Pop back to it instead of navigating onto it.
+            //
+            // navigate() with popUpTo(start) reuses that same entry via launchSingleTop, but leaves
+            // its lifecycle parked below STARTED, so every collectAsStateWithLifecycle on the screen
+            // stops collecting while the last rendered frame stays on screen. The screen then looks
+            // alive -- taps still run click handlers, so a row CTA still navigates -- but nothing
+            // driven by ViewModel state updates again. That is what made the weighing park chips go
+            // dead after a trip through another tab: the chip callback fired and set the selection,
+            // and the list never re-rendered.
+            //
+            // popBackStack resumes the existing entry, and still clears any child routes above it,
+            // so the roots-are-roots behaviour documented above is unchanged.
+            true
+        } else {
+            navController.navigate(href) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+                restoreState = false
+            }
+            true
         }
     }
 
-    // Which module the drawer has open — local UI selection, persisted across config change
-    // and process death (see ShellModuleViewModel).
-    val moduleVm: ShellModuleViewModel = hiltViewModel()
-    val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
+    val visibleNavState = navState
+    val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
+    // Backend-owned, never inferred. `weighing_execute` is compiled by the backend from
+    // the real grant + module truth (workforce/app/bootstrap_copy.go canExecuteWeighing:
+    // WeighingExecute permission AND the weighing module granted).
+    //
+    // This used to fall back to parsing the DISPLAY label -- roleLabel.substringBefore("·")
+    // == "operator" -- which is exactly the role-name-string inference AGENTS.md bans: it
+    // makes an authorization decision out of copy that exists to be shown to a human, so a
+    // label tweak or a translation silently grants or revokes execution.
+    val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
+    val verificationVideoControlsEnabled = visibleNavState.featureFlags["verification_video_controls"] == true
+
+    // Cold-start / pre-auth notification-tap deep-link. A tap can arrive before this NavHost even
+    // exists (MainActivity writes into PendingNavigation as soon as the intent is read, well before
+    // sign-in + bootstrap resolve), so this is the first point a real NavHostController AND the
+    // person's own navigation both exist. Fires exactly once: PendingNavigation.consume() atomically
+    // nulls the held route, so a later recomposition (e.g. a config change) never re-navigates to
+    // the same tap twice.
+    //
+    // Two ways a tap can point nowhere usable, and NEITHER may leave a blank screen: the route is
+    // not hosted by this build (older APK, retired link), or it is a module landing this person was
+    // not granted (an alert forwarded to the wrong recipient, or access changed since it was sent).
+    // Both land on this person's OWN home screen with a one-line notice.
+    LaunchedEffect(pendingPushRoute, visibleNavState) {
+        val route = pendingPushRoute ?: return@LaunchedEffect
+        // Hold the tap until this person's own navigation has resolved. Judging it against an
+        // empty pre-bootstrap state would reject every alert on a cold start.
+        if (visibleNavState.items.isEmpty() && visibleNavState.modules.isEmpty()) return@LaunchedEffect
+        val hosted = navController.graph.findNode(route) != null
+        val permitted = !isRootDestination(route) || visibleNavState.grantsRootDestination(route)
+        when {
+            !hosted -> {
+                Log.w(TAG_SHELL, "push_route_not_hosted route=$route — landing on the default screen")
+                moduleVm.recordNavigationBlocked("push_not_hosted", route)
+                showUnavailableAlertNotice = true
+                navigate(startDestinationFor(visibleNavState))
+            }
+            !permitted -> {
+                Log.w(TAG_SHELL, "push_route_not_granted route=$route — landing on the default screen")
+                moduleVm.recordNavigationBlocked("push_not_granted", route)
+                showUnavailableAlertNotice = true
+                navigate(startDestinationFor(visibleNavState))
+            }
+            else -> navController.navigate(route) { launchSingleTop = true }
+        }
+        pushNavVm.consume()
+    }
+
+    LaunchedEffect(visibleNavState, selectedModuleKey, backStackEntry?.destination?.route) {
+        val selected = visibleNavState.availableModules().firstOrNull { it.key == selectedModuleKey }
+        val currentBaseRoute = backStackEntry?.destination?.route?.routeBase()
+        val allTopLevelRoutes = visibleNavState.availableModules().flatMap { module -> module.navItems.map { it.href } }
+        if (
+            selected != null &&
+            selected.href.isNotBlank() &&
+            currentBaseRoute in allTopLevelRoutes &&
+            currentBaseRoute !in selected.navItems.map { it.href }
+        ) {
+            navigate(selected.href)
+        }
+    }
 
     GoatOsShellChrome(
-        navState = navState,
+        navState = visibleNavState,
         currentRoute = backStackEntry?.destination?.route,
         onNavigate = navigate,
         drawerProfile = DrawerProfile(profile.name, profile.roleLabel, profile.initials),
         languageLabel = languageLabel(AppLocaleState.tag),
-        onOpenLanguage = { showLanguage = true },
-        onSignOut = profileVm::signOut,
+        onOpenLanguage = {
+            moduleVm.recordShellAction("language_open", backStackEntry?.destination?.route)
+            showLanguage = true
+        },
+        onSignOut = {
+            moduleVm.recordShellAction("sign_out", backStackEntry?.destination?.route)
+            profileVm.signOut()
+        },
+        onShellAction = { action, route -> moduleVm.recordShellAction(action, route) },
         selectedModuleKey = selectedModuleKey,
         onSelectModule = moduleVm::select,
     ) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
-        OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
+        OfflineBanner(visible = showOffline, onOpenDetails = {
+            moduleVm.recordShellAction("sync_sheet_open", backStackEntry?.destination?.route)
+            showSyncSheet = true
+        })
+
+        // Mandatory role-based permission gate — NON-DISMISSIBLE dialog shown after bootstrap.
+        // Blocks the app until all required permissions (based on role) are granted.
+        //
+        // Operators require: camera (proof capture), BLE (RFID reader), notifications (alerts)
+        // All other roles require: notifications (alerts) only
+        //
+        // Derives requirements from the backend-composed module list (featureFlags indicate
+        // vaccination_execute, weighing_execute, etc.) rather than hardcoding role strings,
+        // following the nav-composition guard pattern (AGENTS.md: do NOT hardcode per-role
+        // arrays). If OS stops showing prompts ("Don't ask again"), redirects to app settings.
+        // Re-checks on resume and auto-dismisses when all required permissions are granted.
+        RoleBasedPermissionGate(
+            navState = visibleNavState,
+            onAllPermissionsGranted = { pushStateVm.reportNow() },
+            onPermissionPrompted = moduleVm::recordNotificationPrompt,
+            onPermissionAnswered = { _, granted ->
+                if (granted) moduleVm.recordNotificationPermissionAnswer(true)
+            },
+        )
+        UnavailableAlertNotice(
+            visible = showUnavailableAlertNotice,
+            onDismiss = { showUnavailableAlertNotice = false },
+        )
+        val navState = visibleNavState
         AppNavHost(
             navController = navController,
             startDestination = startDestinationFor(navState),
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
+            canExecuteVaccination = canExecuteVaccination,
+            canExecuteWeighing = canExecuteWeighing,
+            // The SAME "has this person's own navigation arrived yet" test the push-route effect
+            // above applies. Destinations that redirect on an absent capability must not act while
+            // every flag still reads false because bootstrap has not answered.
+            navStateResolved = navState.items.isNotEmpty() || navState.modules.isNotEmpty(),
+            verificationVideoControlsEnabled = verificationVideoControlsEnabled,
         )
     }
 
@@ -199,6 +391,7 @@ fun GoatOsShell(navState: NavState) {
             isOnline = syncStatus.online,
             syncingCount = syncStatus.inFlightCount,
             queuedCount = syncStatus.pendingCount,
+            failedCount = syncStatus.failedCount,
             queue = syncStatus.items,
             onRetryAll = syncVm::retryAll,
             onDismiss = { showSyncSheet = false },
@@ -207,7 +400,11 @@ fun GoatOsShell(navState: NavState) {
     if (showLanguage) {
         LanguageSheet(
             current = AppLocaleState.tag,
-            onSelect = { code -> profileVm.setLanguage(code); showLanguage = false },
+            onSelect = { code ->
+                moduleVm.recordShellAction("language_select", backStackEntry?.destination?.route)
+                profileVm.setLanguage(code)
+                showLanguage = false
+            },
             onDismiss = { showLanguage = false },
         )
     }
@@ -226,12 +423,13 @@ fun GoatOsShell(navState: NavState) {
 fun GoatOsShellChrome(
     navState: NavState,
     currentRoute: String?,
-    onNavigate: (String) -> Unit,
+    onNavigate: (String) -> Boolean,
     initialDrawerValue: DrawerValue = DrawerValue.Closed,
     drawerProfile: DrawerProfile? = null,
     languageLabel: String = "English",
     onOpenLanguage: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    onShellAction: (String, String?) -> Unit = { _, _ -> },
     selectedModuleKey: String? = null,
     onSelectModule: (NavModule) -> Unit = {},
     content: @Composable () -> Unit,
@@ -239,6 +437,20 @@ fun GoatOsShellChrome(
     val hasDrawer = navState.chrome == NavChrome.EXPANDED
     val drawerState = rememberDrawerState(initialDrawerValue)
     val scope = rememberCoroutineScope()
+
+    // The bottom bar's DOUBLE-TAP guard. `isSelected` inside [MeshaNavBar] is derived from
+    // `currentRoute`, which only updates once the nav graph's back-stack entry actually settles
+    // — navigate() is not synchronous with the composition. Two fast taps on a tab that is not
+    // yet selected both see `isSelected == false` and both call onNavigate, firing navigation
+    // twice. Tracking the href a tap is ALREADY headed for -- independent of `isSelected` --
+    // closes that window: a repeat tap on the same href is ignored until `currentRoute` catches
+    // up to it (or the attempt is known to have failed, see below).
+    var pendingNavTarget by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentRoute) {
+        if (pendingNavTarget != null && currentRoute?.routeBase() == pendingNavTarget?.routeBase()) {
+            pendingNavTarget = null
+        }
+    }
 
     // The bottom bar is MODULE-SCOPED: it shows the OPEN module's own destinations, so
     // switching modules in the drawer swaps the bar. Resolution lives in the shared nav
@@ -258,8 +470,9 @@ fun GoatOsShellChrome(
     // Exact membership only — a drill (L1+) must never inherit root chrome, so no
     // prefix/substring matching here. See docs/decisions/android-navigation-stack.md.
     val topLevelRoutes = barItems.map { it.href }
+    val drawerTopLevelRoutes = navState.availableModules().flatMap { module -> module.navItems.map { it.href } }
     val topLevelRouteKey = topLevelRoutes.joinToString(separator = "\u001F")
-    val isTopLevel = isTopLevelRoute(currentRoute, topLevelRoutes)
+    val isTopLevel = isTopLevelRoute(currentRoute, drawerTopLevelRoutes)
 
     // A process/activity restore can resurrect ModalNavigationDrawer in an open or partially
     // offset state while the sheet is not actually visible yet. On real phones that makes the
@@ -287,12 +500,22 @@ fun GoatOsShellChrome(
                     onSelectModule = { module ->
                         scope.launch { drawerState.close() }
                         onSelectModule(module)
-                        // Selecting a module opens its landing route; the bar swaps with it.
-                        module.href.takeIf { it.isNotBlank() }?.let(onNavigate)
+                        // Selecting a module opens its landing route; the bar swaps with it. A cached
+                        // landing href can predate a route rename, so fall back to the module's own
+                        // tabs rather than leaving the tap dead (onNavigate itself refuses any href
+                        // this build does not host).
+                        (listOf(module.href) + module.navItems.map { it.href })
+                            .filter { it.isNotBlank() }
+                            .firstOrNull { onNavigate(it) }
                     },
                     onOpenLanguage = {
                         scope.launch { drawerState.close() }
                         onOpenLanguage()
+                    },
+                    onOpenAccount = {
+                        scope.launch { drawerState.close() }
+                        onShellAction("account_open", currentRoute)
+                        onNavigate("/you")
                     },
                     onSignOut = {
                         scope.launch { drawerState.close() }
@@ -309,7 +532,25 @@ fun GoatOsShellChrome(
                     MeshaNavBar(
                         items = barItems,
                         currentRoute = currentRoute,
-                        onSelect = onNavigate,
+                        // A bar tab has no fallback candidate; the guard inside onNavigate is what
+                        // keeps a stale cached tab from crashing the app.
+                        //
+                        // DOUBLE-TAP guard (see `pendingNavTarget` above): ignore a repeat tap on
+                        // the href already in flight. If onNavigate itself refuses the href (stale
+                        // cache / unhosted route -- returns false), immediately release the guard
+                        // so the tap is not permanently swallowed with nothing on screen to show
+                        // for it.
+                        onSelect = { href ->
+                            // Tapping the tab you are ALREADY on must not arm the guard. The
+                            // guard clears when the route becomes the target, so arming it for a
+                            // route that is already current means the clearing effect never
+                            // re-runs and every later tap on that tab is swallowed for good.
+                            if (href != currentRoute && pendingNavTarget != href) {
+                                onShellAction("bottom_nav", href)
+                                pendingNavTarget = href
+                                if (!onNavigate(href)) pendingNavTarget = null
+                            }
+                        },
                     )
                 }
             },
@@ -333,6 +574,9 @@ fun GoatOsShellChrome(
             CompositionLocalProvider(
                 LocalDrawerOpener provides drawerOpener,
                 LocalIsTopLevelRoot provides isTopLevel,
+                // Read-only signal: the drawer is on screen and already lists the modules, so a
+                // screen must not repeat that list as in-body chips.
+                LocalDrawerCarriesModules provides (drawerOpener != null),
             ) {
                 Column(
                     modifier = Modifier
@@ -356,7 +600,11 @@ fun GoatOsShellChrome(
  * not inherit root chrome from a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-    currentRoute?.routeBase() in topLevelRoutes
+    // Normalise BOTH sides. A backend root href may carry a scoping query arg — the verifier's
+    // per-feature drawer entries are "/verify?module=weighing" — and comparing a stripped current
+    // route against an unstripped href silently dropped the drawer and bottom bar. Membership is
+    // still EXACT on the path; only the query is ignored, so a real drill still gets no chrome.
+    currentRoute?.routeBase() in topLevelRoutes.map { it.routeBase() }
 
 /**
  * Whether the destination on screen offers the module drawer — the single rule behind every
@@ -411,7 +659,14 @@ private fun MeshaNavBar(
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
         // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
-            val isSelected = currentBaseRoute == item.href
+            // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a
+            // backend-composed href can carry a query -- the verifier's tabs are
+            // "/verify?module=vaccination&category=vaccination_proof". Comparing the stripped
+            // route against the UNstripped href never matched, so the verifier's bottom bar
+            // highlighted NOTHING and they could not tell which screen they were on, while
+            // operator/CEO (whose hrefs carry no query) looked fine. Same mismatch also kept the
+            // double-tap guard armed forever for those tabs.
+            val isSelected = currentBaseRoute == item.href.routeBase()
             NavigationBarItem(
                 selected = isSelected,
                 onClick = {
@@ -424,6 +679,9 @@ private fun MeshaNavBar(
                         modifier = Modifier.size(24.dp),
                     )
                 },
+                // design-system:ignore: weight-only override on the M3 NavigationBarItem label
+                // (no fontSize to pair with); applying a full MeshaType style would also change
+                // the bar label's size away from the M3 default.
                 label = { Text(item.label, fontWeight = FontWeight.SemiBold) },
                 colors = itemColors,
             )
@@ -454,6 +712,7 @@ private fun ModuleDrawer(
     profile: DrawerProfile?,
     onSelectModule: (NavModule) -> Unit,
     onOpenLanguage: () -> Unit,
+    onOpenAccount: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     ModalDrawerSheet(
@@ -462,7 +721,7 @@ private fun ModuleDrawer(
         modifier = Modifier.width(288.dp).fillMaxHeight(),
     ) {
         Column(Modifier.fillMaxSize()) {
-            DrawerHeader(profile)
+            DrawerHeader(profile, appVersionLabel = appVersionLabel())
             Column(
                 Modifier
                     .weight(1f)
@@ -470,7 +729,12 @@ private fun ModuleDrawer(
                     .verticalScroll(rememberScrollState()),
             ) {
                 DrawerGroupLabel(stringResource(DesignSystemR.string.nav_modules))
-                modules.forEach { module ->
+                val visibleModules = if (profile?.role.equals("operator", ignoreCase = true)) {
+                    modules.filter { it.status == NavModuleStatus.AVAILABLE }
+                } else {
+                    modules
+                }
+                visibleModules.forEach { module ->
                     if (module.status == NavModuleStatus.AVAILABLE) {
                         val active = module.key == selectedModuleKey
                         DrawerRow(
@@ -487,13 +751,13 @@ private fun ModuleDrawer(
                     }
                 }
             }
-            DrawerFooter(onSignOut)
+            DrawerFooter(onOpenAccount = onOpenAccount, onSignOut = onSignOut)
         }
     }
 }
 
 @Composable
-private fun DrawerHeader(profile: DrawerProfile?) {
+private fun DrawerHeader(profile: DrawerProfile?, appVersionLabel: String? = null) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -509,6 +773,8 @@ private fun DrawerHeader(profile: DrawerProfile?) {
             Text(
                 text = profile?.initials?.ifBlank { "M" } ?: "M",
                 color = MeshaColors.OnBrand,
+                // design-system:ignore: 18sp/W800 avatar initials — nearest token (button 15sp/W800)
+                // is 3sp smaller, which would visibly shrink the drawer avatar glyph.
                 fontSize = 18.sp,
                 fontWeight = FontWeight.W800,
             )
@@ -517,26 +783,30 @@ private fun DrawerHeader(profile: DrawerProfile?) {
             Text(
                 profile?.name?.ifBlank { "Mesha" } ?: "Mesha",
                 color = MeshaColors.Ink,
-                fontSize = 15.5.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.cardTitle,
             )
             val sub = profile?.role?.takeIf { it.isNotBlank() }
             if (sub != null) {
+                // design-system:ignore: 11.5sp at default W400; the only 11.5sp token (caption)
+                // is W600, which would bolden this sub-label.
                 Text(sub, color = MeshaColors.Muted, fontSize = 11.5.sp)
+            }
+            appVersionLabel?.takeIf { it.isNotBlank() }?.let {
+                Text(it, color = MeshaColors.Faint, style = MeshaType.overline)
             }
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(MeshaColors.Hair))
 }
 
+private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
+
 @Composable
 private fun DrawerGroupLabel(text: String) {
     Text(
         text.uppercase(),
         color = MeshaColors.Faint,
-        fontSize = 10.5.sp,
-        fontWeight = FontWeight.W700,
-        letterSpacing = 0.6.sp,
+        style = MeshaType.overline,
         modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 6.dp),
     )
 }
@@ -565,6 +835,8 @@ private fun DrawerRow(
             Box(Modifier.width(3.dp).height(20.dp).clip(RoundedCornerShape(2.dp)).background(MeshaColors.Brand))
         }
         Icon(icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(20.dp))
+        // design-system:ignore: 14.5sp/W600 — the 14.5sp tokens are body (W400) and bodyStrong
+        // (W700); neither carries W600, so either would change this drawer row's weight.
         Text(label, color = fg, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
         trailing?.invoke()
     }
@@ -584,6 +856,7 @@ private fun DrawerSoonRow(module: NavModule) {
             tint = MeshaColors.Faint,
             modifier = Modifier.size(20.dp),
         )
+        // design-system:ignore: 14.5sp/W600 — no W600 token at 14.5sp (body=W400, bodyStrong=W700).
         Text(module.label, color = MeshaColors.Faint, fontSize = 14.5.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
         DrawerBadge(stringResource(DesignSystemR.string.nav_soon), brand = false)
     }
@@ -599,8 +872,7 @@ private fun DrawerBadge(text: String, brand: Boolean) {
     Text(
         text,
         color = if (brand) MeshaColors.BrandD else MeshaColors.Muted,
-        fontSize = 9.5.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.dayName,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(if (brand) MeshaColors.Brand.copy(alpha = 0.16f) else MeshaColors.Surf3)
@@ -609,8 +881,24 @@ private fun DrawerBadge(text: String, brand: Boolean) {
 }
 
 @Composable
-private fun DrawerFooter(onSignOut: () -> Unit) {
+private fun DrawerFooter(onOpenAccount: () -> Unit, onSignOut: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(1.dp).background(MeshaColors.Hair))
+    // The account sits at the FOOT of the drawer, beside Sign out, because it belongs to the person
+    // rather than to Weighing or Vaccination. A principal with the drawer therefore reaches it once
+    // here instead of carrying a You tab in every module's bottom bar. A principal without a drawer
+    // keeps You on the bar -- that is their only route to it.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenAccount)
+            .padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        Icon(MeshaIcons.forNavKey("you"), contentDescription = null, tint = MeshaColors.Ink, modifier = Modifier.size(20.dp))
+        // design-system:ignore: 14.5sp/W600 — no W600 token at 14.5sp (body=W400, bodyStrong=W700).
+        Text(stringResource(DesignSystemR.string.nav_you), color = MeshaColors.Ink, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -620,6 +908,7 @@ private fun DrawerFooter(onSignOut: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
         Icon(MeshaIcons.Logout, contentDescription = stringResource(DesignSystemR.string.nav_sign_out), tint = MeshaColors.Danger, modifier = Modifier.size(20.dp))
+        // design-system:ignore: 14.5sp/W600 — no W600 token at 14.5sp (body=W400, bodyStrong=W700).
         Text(stringResource(DesignSystemR.string.nav_sign_out), color = MeshaColors.Danger, fontSize = 14.5.sp, fontWeight = FontWeight.W600)
     }
 }

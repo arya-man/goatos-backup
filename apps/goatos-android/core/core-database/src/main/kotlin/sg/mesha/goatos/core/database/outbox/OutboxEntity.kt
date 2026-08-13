@@ -38,15 +38,110 @@ enum class OutboxOpType {
     /**
      * Counts lifecycle APPROVAL decisions (`POST /app/counts/approvals/{id}/{approve,reject}`).
      *
-     * These are the writes that actually change the herd: approving a birth creates the kid and
-     * generates its vaccination obligations, approving a death exits the animal and cancels its
-     * open obligations, and approving a shifting relocates the named animals and re-scopes their
-     * shed-scoped obligations. A double-applied decision is therefore not a cosmetic duplicate —
+     * These are herd-changing writes: approving a birth creates the kid and generates its
+     * vaccination obligations, approving a death exits the animal and cancels its open obligations,
+     * and approving a shifting relocates the named animals only when operator completion already
+     * exists. Otherwise it records the independent approval gate and completion performs the move
+     * later. A double-applied decision is therefore not a cosmetic duplicate —
      * so, like the three writes above, their callers derive a STABLE `SavedStateHandle`-persisted
      * idempotency key and never a timestamp-suffixed one.
      */
     COUNTS_APPROVAL_APPROVE,
     COUNTS_APPROVAL_REJECT,
+
+    /**
+     * Shifting EXECUTION from the operator's Pending tab
+     * (`POST /app/counts/shifting-events/{id}/{complete,cancel}`).
+     *
+     * `SHIFTING_COMPLETE` records the operator's mandatory live-camera video and completion gate.
+     * If Park Head approval already exists, that same transaction relocates the animals; otherwise
+     * the event stays pending and approval performs the move later. The transaction recording the
+     * second gate flips the movement to applied, rewrites shed/stage, and publishes location/stage
+     * events. Its caller derives a STABLE idempotency key from the movement id (never a timestamp-
+     * suffixed one), so a server-committed-but-client-unrecorded retry cannot apply twice. The
+     * SHIFTING EVENT ID is the outbox group key so two actions on the same movement cannot drain
+     * concurrently or out of order. `SHIFTING_CANCEL` retires an un-applied movement and moves
+     * nothing; same stable-key + group-key contract.
+     */
+    SHIFTING_COMPLETE,
+    SHIFTING_CANCEL,
+
+    /**
+     * Counts identifier PROMOTE from the operator's "Awaiting RFID" list
+     * (`POST /app/counts/goats/{goat_id}/promote-identifier`).
+     *
+     * Assigns a permanent RFID to a temporary-tagged goat, atomically retiring the temp tag.
+     * Promoting twice would attempt a second retag under a different RFID, so its caller derives a
+     * STABLE idempotency key from the goat id (never a timestamp-suffixed one); under that key a
+     * server-committed-but-client-unrecorded retry returns the original promotion instead of
+     * retagging onward. The GOAT ID is the outbox group key so two promotes of the same goat can
+     * never drain concurrently or out of order.
+     */
+    COUNTS_PROMOTE_IDENTIFIER,
+
+    /**
+     * Feed direction completion (`POST /feed-direction/complete`): an operator marks one shed-session
+     * as fed. The completion carries only the shed-session identity; the OPTIONAL video flows
+     * separately through [PROOF_UPLOAD] (mirroring [SHIFTING_COMPLETE]). Its caller derives a STABLE
+     * idempotency key so a server-committed-but-client-unrecorded retry returns the original
+     * completion, and the shed-session natural key makes a second completion a backend no-op. The
+     * shed-session key is the outbox group key so two completions of the same shed-session drain
+     * strictly oldest-first.
+     */
+    FEED_DIRECTION_COMPLETE,
+
+    /**
+     * Feed DISTRIBUTION completion (`POST /feed-direction/distribution/complete`), the
+     * verifier-GATED direction flow (docs/decisions/feed-distribution-verification.md). Distinct
+     * from [FEED_DIRECTION_COMPLETE] (the untouched packing path): it carries a MANDATORY
+     * feed-distribution video ref AND a MANDATORY water-distribution proof ref (photo or video),
+     * both resolved from PROOF_UPLOAD rows enqueued on the SAME group that drain first (mirroring
+     * [SHIFTING_COMPLETE]'s mandatory-video coupling). It flips the shed-session to
+     * `pending_verification` — nothing is completed until a verifier approves the pair. Its caller
+     * derives a STABLE idempotency key so a server-committed-but-client-unrecorded retry re-enqueues
+     * the SAME verification item instead of completing twice. The shed-session key is the outbox
+     * group key so two completions of the same shed-session drain strictly oldest-first.
+     */
+    FEED_DISTRIBUTION_COMPLETE,
+
+    /**
+     * Feed PACKING completion (`POST /feed-direction/packing/complete`), the verifier-GATED packing
+     * flow. Distinct from [FEED_DIRECTION_COMPLETE] (the untouched instant packing/direction path)
+     * and simpler than [FEED_DISTRIBUTION_COMPLETE]: it carries a SINGLE MANDATORY packing video ref,
+     * resolved from a PROOF_UPLOAD row enqueued on the SAME group that drains first (mirroring
+     * [SHIFTING_COMPLETE]'s mandatory-video coupling). It flips the shed-session to
+     * `pending_verification` — nothing is completed until a verifier approves. Its caller derives a
+     * STABLE idempotency key so a server-committed-but-client-unrecorded retry re-enqueues the SAME
+     * verification item instead of completing twice. The shed-session key is the outbox group key so
+     * two completions of the same shed-session drain strictly oldest-first.
+     */
+    FEED_PACKING_COMPLETE,
+    /** Shed-day milk preparation; carries 2 or 5 proof-upload row references as one submission. */
+    MILK_PREPARATION_SUBMIT,
+    /** One shed-session Milk Feeding answer cascade plus two proof-upload references. */
+    MILK_FEEDING_SUBMIT,
+    FEED_TRANSPORT_SUBMIT,
+
+    /**
+     * Birth/Death follow-up workflow action writes (docs/decisions/birth-death-workflows.md):
+     * `POST /app/workflows/{workflow_id}/actions/{action_id}/answer` (question / question_select)
+     * and `…/complete` (action type; `proof_ref` MANDATORY when the action `requires_video`).
+     *
+     * Both are must-not-double-apply writes — the backend rejects a NEW key against an
+     * already-completed action with 409 — so their callers derive a STABLE per-action idempotency
+     * key (never a timestamp-suffixed one); an exact replay returns the original result with
+     * `idempotent_replay=true`. The WORKFLOW ID is the outbox group key so two actions on the same
+     * workflow drain strictly oldest-first (and a `requires_video` completion drains AFTER its
+     * coupled PROOF_UPLOAD row on the same group, exactly like [SHIFTING_COMPLETE]).
+     */
+    WORKFLOW_ACTION_ANSWER,
+    WORKFLOW_ACTION_COMPLETE,
+    /** Opens one disease course for a goat with a stable SavedStateHandle-persisted key. */
+    HEALTH_CASE_OPEN,
+    /** One idempotent Health treatment-session completion. */
+    HEALTH_TREATMENT_COMPLETE,
+    WEIGHING_ANIMAL_OBSERVATION,
+    WEIGHING_SHED_OBSERVATION,
 }
 
 /**

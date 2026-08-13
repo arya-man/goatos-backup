@@ -85,8 +85,21 @@ type ShedScope struct {
 	Items []Shed
 }
 
+// Park is one park (farm) in the caller's tenant, for the feed screens' farm filter vocabulary.
+type Park struct {
+	ParkID string
+	Label  string
+}
+
 // ConfigRepository reads the authored configuration a park's generation resolves against.
 type ConfigRepository interface {
+	// ListParks returns every active park in the tenant, ordered deterministically (display order,
+	// then name), for the farm filter vocabulary AND for default-park resolution when a request
+	// omits park_id. Bounded by physical infrastructure (a tenant has order-of two parks), never by
+	// herd size. It is the backend-owned park list a client renders the farm picker from, so the
+	// client holds no park vocabulary of its own.
+	ListParks(ctx context.Context, tenantID string) ([]Park, error)
+
 	// LoadConfigSnapshot reads the ENTIRE authored configuration for one park in a bounded batch of
 	// set-based queries -- the tag vocabulary, the breed map, the item catalog, the currently-open
 	// ration grid, the shed factors, the session split, and the experiment sheds.
@@ -115,6 +128,16 @@ type ConfigRepository interface {
 	//
 	// It FAILS with ErrScopeTooLarge rather than truncating -- see that error's contract.
 	ListShedScope(ctx context.Context, q ShedScopeQuery) (ShedScope, error)
+
+	// ListSessionTemplates returns ONLY the served park's active feeding-session split (session_no +
+	// label, in display order), effective on asOf. It is the backend-owned session-filter vocabulary.
+	//
+	// This is a DEDICATED bounded read (~2 sessions live), deliberately NOT LoadConfigSnapshot: the
+	// module's read-count invariant is that the full config snapshot is loaded exactly once per
+	// request, by generation. The filter vocabulary is a separate, tiny read on the same footing as
+	// ListParks/ListShedScope, and like them it runs even on the never-issued/beyond-horizon path so
+	// the session picker still renders.
+	ListSessionTemplates(ctx context.Context, tenantID, parkID string, asOf time.Time) ([]domain.SessionTemplate, error)
 }
 
 // ShedCountsReader is the projected-count input, expressed in this module's terms.

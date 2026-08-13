@@ -9,16 +9,45 @@ import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
+import sg.mesha.goatos.core.network.dto.HealthWorkItemPageDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionResponseDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalListResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
-import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
+import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
+import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
@@ -28,6 +57,7 @@ import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.UploadedProofListResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
@@ -44,6 +74,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskDetailResponseDto
 import sg.mesha.goatos.core.network.dto.TaskListResponseDto
 import sg.mesha.goatos.core.network.dto.TaskOptionValuesResponseDto
+import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
@@ -54,6 +85,66 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingParkListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
+
+/**
+ * One phone-screen page of weighing roster rows. A viewport holds ~7-10 rows, so the
+ * network page and the observed Room window are both this size and grow only by
+ * viewport-triggered continuation (see docs/decisions/mobile-data-fetch-anti-patterns.md).
+ */
+const val WEIGHING_PAGE_SIZE = 20
+
+/**
+ * One phone-screen page of weighing ALERTS. Same ~20-rows-per-screen budget as every other
+ * mobile list; the backend clamps anything larger, so this is the client's half of one contract
+ * rather than an independent guess.
+ */
+const val WEIGHING_ALERTS_PAGE_SIZE = 20
+
+/** One phone-viewport page of vaccination alerts. Matches the backend's AlertPageSize. */
+const val VACCINATION_ALERTS_PAGE_SIZE = 20
+
+/**
+ * The three weighing surfaces. Each is a separate destination with its own authority, so the
+ * client names the surface it is rendering instead of the server inferring it from the viewer's
+ * roles. Values match the backend `scope` query parameter.
+ */
+const val WEIGHING_SCOPE_MINE = "mine"
+
+/** The planner's flat all-tasks list across parks. Read-only; requires weighing.plan. */
+const val WEIGHING_SCOPE_ALL = "all"
+
+/** Read-only oversight of other people's work. Requires weighing.oversee_operators. */
+const val WEIGHING_SCOPE_OPERATORS = "operators"
+
+/** Hard ceiling for a caller-requested Room window (e.g., observeScope). */
+const val MAX_OBSERVED_WINDOW = WEIGHING_PAGE_SIZE * 2  // 40
+
+/** Hard ceiling for background scope hydration (e.g., refreshScope). */
+const val MAX_SCOPE_HYDRATION_ROWS = WEIGHING_PAGE_SIZE * 10  // 200
 
 /** Canonical task-page boundary shared by Retrofit, Room PagingSource and RemoteMediator. */
 const val APP_TASK_PAGE_SIZE = 20
@@ -132,6 +223,10 @@ data class RegisterDeviceRequestDto(
     @SerialName("os_version") val osVersion: String = "",
     @SerialName("push_token_hash") val pushTokenHash: String? = null,
     @SerialName("fcm_token") val fcmToken: String? = null,
+    /** Whether this phone will actually SHOW what we send it
+     *  (`NotificationManagerCompat.areNotificationsEnabled()`), so the backend can mark the device
+     *  push-muted and stop counting a dropped push as delivered. `null` = not reported. */
+    @SerialName("notifications_enabled") val notificationsEnabled: Boolean? = null,
 )
 
 /** Request body for POST /app/devices/{device_id}/heartbeat (HeartbeatDeviceRequest).
@@ -142,6 +237,9 @@ data class HeartbeatDeviceRequestDto(
     @SerialName("os_version") val osVersion: String = "",
     @SerialName("push_token_hash") val pushTokenHash: String? = null,
     @SerialName("fcm_token") val fcmToken: String? = null,
+    /** Re-reported on every heartbeat: someone who switches notifications off (or back on) in
+     *  system settings after registering is picked up on the next bootstrap. */
+    @SerialName("notifications_enabled") val notificationsEnabled: Boolean? = null,
 )
 
 /** Response for register/heartbeat (DeviceResponse). */
@@ -161,6 +259,21 @@ data class DeviceResponseDto(
 data class AuthSessionEventRequestDto(
     @SerialName("event_type") val eventType: String,
     @SerialName("source") val source: String,
+)
+
+@Serializable
+data class AppAnalyticsEventRequestDto(
+    @SerialName("event_name") val eventName: String,
+    @SerialName("properties") val properties: Map<String, String> = emptyMap(),
+    @SerialName("client_event_time_ms") val clientEventTimeMs: Long,
+    @SerialName("flavor") val flavor: String,
+    @SerialName("app_version_name") val appVersionName: String,
+    @SerialName("app_version_code") val appVersionCode: Int,
+)
+
+@Serializable
+data class AppAnalyticsEventResponseDto(
+    @SerialName("accepted") val accepted: Boolean = true,
 )
 
 @Serializable
@@ -202,6 +315,10 @@ interface AppApi {
     /** POST /auth/session-events — audited sign-in/session-refresh bridge for Firebase auth. */
     suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) = Unit
 
+    /** POST /app/analytics/events — backend mirror for Firebase product analytics. */
+    suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto =
+        AppAnalyticsEventResponseDto()
+
     /** GET /app/bootstrap — nav + identity + device state. [deviceId] identifies a
      *  previously-registered device so the backend can return its device_state. */
     suspend fun bootstrap(deviceId: String? = null): BootstrapDto
@@ -235,6 +352,7 @@ interface AppApi {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): VaccinationExecutionShedDrilldownDto
 
     /** GET /calendar/vaccination/events — presentation + bounded events. */
@@ -246,6 +364,7 @@ interface AppApi {
         dateFrom: String? = null,
         dateTo: String? = null,
         includeDateMarkers: Boolean = false,
+        includeDriveSummary: Boolean = false,
         vaccine: String? = null,
         includeFilterOptions: Boolean = false,
         cursor: String? = null,
@@ -293,7 +412,146 @@ interface AppApi {
 
     /** GET /app/tasks/{task_id}/shed-completion-summary — vaccination shed completion summary
      *  (read-only acknowledgement contract: shed name, drive name, animal counts, vaccine breakdown). */
-    suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
+    suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null, partitionLabel: String? = null): ShedCompletionSummaryDto
+
+    /** GET /app/weighing/campaigns — operator-visible Weighing campaigns (keyset paginated). */
+    suspend fun listWeighingCampaigns(
+        scope: String? = null,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+        parkId: String? = null,
+    ): WeighingCampaignListResponseDto
+
+    /**
+     * GET /app/weighing/campaigns/{campaign_id} — ONE task resolved by id.
+     *
+     * The read behind a notification deep link. The task list is a keyset page with no id filter,
+     * so a cold tap on a task further down the keyset could only be answered by walking pages;
+     * this answers it in one call. A 404 means "not yours or not there" and the two are
+     * deliberately indistinguishable -- the client must not report which.
+     */
+    suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto
+
+    /**
+     * GET /app/weighing/parks — the parks whose weighing this caller may look at.
+     *
+     * Identity-only park VOCABULARY, already capability-scoped by the backend and unpaged. It
+     * exists because the only other park list is the planner catalog, which is gated on the
+     * planning permission a Growth Director does not hold.
+     */
+    suspend fun listWeighingParks(): WeighingParkListResponseDto
+
+    /**
+     * GET /app/weighing/campaigns/{campaign_id}/sheds — ONE task's shed buckets, keyset-paged on
+     * (display_name, campaign_shed_id). The task-detail read; the task LIST is not a substitute,
+     * because a park holds 76+ sheds and a 20-task page would carry over a thousand bucket rows.
+     */
+    suspend fun listWeighingCampaignSheds(
+        campaignId: String,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingCampaignShedPageResponseDto
+
+    /**
+     * GET /app/weighing/planner/catalog — the PARK-grain planner vocabulary for one weigh date.
+     *
+     * Every park the planner may use, each with its own shed COUNT, plus the operator picker. No
+     * cursor and no limit: the park step must offer them ALL. The many side pages separately
+     * through [getWeighingPlannerParkBuckets].
+     */
+    suspend fun getWeighingPlannerCatalog(
+        periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto
+
+    /**
+     * GET /app/weighing/planner/parks/{park_id}/buckets — ONE keyset page of ONE park's sheds,
+     * carrying the date-scoped availability the bucket step renders.
+     */
+    suspend fun getWeighingPlannerParkBuckets(
+        parkId: String,
+        periodStartDate: String,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+        // The task being EDITED, so its own sheds never read back as "already scheduled" against
+        // themselves. Null on the create wizard, where there is no source task to exclude.
+        excludeCampaignId: String? = null,
+    ): WeighingPlannerParkBucketsResponseDto
+
+    suspend fun createWeighingCampaign(
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    suspend fun updateWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto
+
+    suspend fun publishWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+    ): WeighingCampaignResponseDto
+
+    /**
+     * GET .../roster — the active scope's SCAN HISTORY. Free-flow weighing has no expected-animal
+     * roster (`weighing_expected_animals` dropped by 000079), so the response's `items` array is
+     * permanently empty and the roster cursor/`include_roster` gate are gone with it: this read
+     * pages `observations` only.
+     */
+    suspend fun getWeighingRoster(
+        campaignId: String,
+        campaignShedId: String,
+        observationsCursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingRosterResponseDto
+
+    /**
+     * GET .../videos — the shed bucket as leadership reads it. `individual` is a keyset page on
+     * (accepted_at, observation_id); the lump-sum row is a single latest read and is not paged.
+     */
+    suspend fun getWeighingLeadershipShedVideos(
+        campaignId: String,
+        campaignShedId: String,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingLeadershipShedVideosResponseDto
+
+    /**
+     * GET /app/weighing/leadership/sheds — ONE keyset page of shed buckets across tasks, each with
+     * its own context and its first page of evidence. The gallery's own read: building this page
+     * client-side meant one HTTP call per bucket (~1,500 on a 76-shed park) on every resume.
+     */
+    suspend fun listWeighingLeadershipSheds(
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingLeadershipShedPageResponseDto
+
+    /**
+     * GET /app/weighing/alerts — the weighing module's OWN lifecycle feed: work assigned, shed
+     * submitted for verification, proof sent back for rework, shed reopened, work closed, each
+     * routed to whoever owns the next action.
+     *
+     * NOT the vaccination process-integrity feed. The backend scopes the rows to the caller and
+     * authors every visible string (title/body plus the page's title and empty-state sentence).
+     */
+    suspend fun listWeighingAlerts(
+        cursor: String? = null,
+        limit: Int = WEIGHING_ALERTS_PAGE_SIZE,
+    ): WeighingAlertPageResponseDto
+
+    /**
+     * GET /app/vaccination/alerts — the vaccination module's OWN lifecycle feed: a proof
+     * approved, a proof sent back for rework, a record closed.
+     *
+     * NOT the control-tower gap summary, which is what this tab used to render and is why
+     * lifecycle notifications were invisible on the phone. The backend scopes rows to the caller
+     * and authors every visible string (title/body plus the page title and empty-state sentence).
+     */
+    suspend fun listVaccinationAlerts(
+        cursor: String? = null,
+        limit: Int = VACCINATION_ALERTS_PAGE_SIZE,
+    ): VaccinationAlertPageResponseDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -322,6 +580,62 @@ interface AppApi {
         request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto
 
+    suspend fun recordWeighingAnimalObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto
+
+    suspend fun recordWeighingShedObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto
+
+    suspend fun submitWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    )
+
+    suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
+    )
+
+    /** POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close — leadership close
+     *  action for a weighing shed scope. Requires permission weighing.monitor. */
+    suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    )
+
+    /** POST /app/weighing/campaigns/{campaign_id}/close — leadership close action for an entire
+     *  weighing campaign. Requires permission weighing.monitor. */
+    suspend fun closeWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    )
+
+    /**
+     * GET /weighing/campaigns/{campaign_id}/export (the PLANNER route, NOT under `/app`) — the
+     * task's full CSV export (every shed, including ones with nothing captured). Requires
+     * permission weighing.monitor, park-scope checked. Returns the raw `text/csv` bytes: this is a
+     * FILE download, not a decoded DTO, and okhttp3.ResponseBody stays confined to core-network --
+     * the implementation reads and closes it here so nothing above this module depends on OkHttp
+     * types for what is otherwise just "give me the bytes of a CSV".
+     */
+    suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray
+
+    /** Leadership growth (ADG). parkId null = every park the caller may see. */
+    suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto
+
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
     suspend fun verifyAppTask(
@@ -344,6 +658,7 @@ interface AppApi {
         taskId: String? = null,
         cursor: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): ScanRosterResponseDto
 
     /** POST /app/vaccination/obligations/{obligation_id}/reschedule — reschedule obligation to new date. */
@@ -374,6 +689,14 @@ interface AppApi {
      *  idempotency key exactly like [submitAppTask] / [rescheduleObligation]. */
     suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto
 
+    suspend fun listUploadedProofs(
+        scopeType: String,
+        scopeId: String,
+        clientTaskKey: String?,
+        fieldKey: String?,
+        limit: Int? = 20,
+    ): UploadedProofListResponseDto
+
     /**
      * The binary-PUT + completion pass that follows a successful [registerProof]
      * (docs/mobile/proof-capture-sync-and-e2e.md §3): streams [filePath]'s bytes (this app's own
@@ -395,6 +718,11 @@ interface AppApi {
         filePath: String,
         durationMs: Long?,
     ): ProofCompleteResponseDto
+
+    /** DELETE /app/proofs/{proof_id} — removes a synced proof only while it is still unattached
+     *  to any submitted record. Used by pre-submit X/remove so the local UI cannot hide a backend
+     *  video that would still be eligible for submission. */
+    suspend fun deleteProof(proofId: String)
 
     /** GET /app/vaccination/gaps — animals excluded from vaccination coverage with reasons.
      *  Backs the mobile "Data gaps" overlay. */
@@ -427,6 +755,9 @@ interface AppApi {
      *  `breeding`/…, `null` = every category this verifier is assigned). Per contracts/openapi/app-api.yaml. */
     suspend fun listVerificationQueue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         cursor: String? = null,
@@ -506,6 +837,196 @@ interface AppApi {
      */
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
 
+    /**
+     * GET /app/counts/breeds — the breeds present on the live herd, backing the birth form's breed
+     * picker. Served on the operator (CountsWrite) surface, unlike the Counts Breakdown breed facet
+     * which is CountsRead: a field operator holds CountsWrite (to record births) but not CountsRead,
+     * so the picker must source its vocabulary from here, never from `/counts/breakdown`.
+     *
+     * A bounded picker VOCABULARY (a handful of breeds), not a screen list that grows with the herd,
+     * so it is fetched whole and cached — the same contract as the shifting destinations catalog.
+     */
+    suspend fun getAppCountsBreeds(): CountsBreedsResponseDto
+
+    /**
+     * GET /app/counts/shifting-events/pending-execution — the operator's Actions queue: newly raised,
+     * authorized, and applied movements needing evidence rework.
+     * Keyset-paginated and server-capped at 20 rows. [date] is the Asia/Kolkata raised business day
+     * and [status] is a disjoint backend-owned Actions bucket.
+     */
+    suspend fun listCountsShiftingPendingExecution(
+        date: String? = null,
+        status: String? = null,
+        pageSize: Int? = null,
+        cursor: String? = null,
+    ): CountsShiftingPendingExecutionResponseDto
+
+    /**
+     * POST /app/counts/shifting-events/{id}/complete — records the operator's mandatory live-camera
+     * video and completion gate. It can run before or after Park Head approval. If approval already
+     * exists, this transaction relocates the animals and returns `applied`; otherwise it returns
+     * `pending`, and the later approval transaction performs the move. Evidence verification is a
+     * post-task review and cannot roll the herd or census back. Drained through the offline outbox
+     * with a stable [idempotencyKey], so a server-committed-but-client-unrecorded retry cannot apply
+     * twice. The mobile flow sends an empty [destinationTag] and lets the server derive the
+     * destination cohort.
+     */
+    suspend fun completeCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        destinationTag: String? = null,
+        proofRef: String,
+        feedPackingProofRef: String? = null,
+        feedGivenProofRef: String? = null,
+        feedConfigFingerprint: String? = null,
+    ): CountsShiftingExecutionResponseDto
+
+    /**
+     * GET /app/counts/goats/temporary-tagged — the operator's "Awaiting RFID" list: goats that still
+     * carry an active temporary tag and are waiting to be promoted to a permanent RFID. Keyset-
+     * paginated and server-capped at 20 rows. The app renders what arrives; each row carries the
+     * goat's row_version for the promote call.
+     */
+    suspend fun listCountsTemporaryTaggedGoats(
+        pageSize: Int? = null,
+        cursor: String? = null,
+        // Optional location filter (park -> shed cascade). Null = unfiltered on that dimension.
+        parkId: String? = null,
+        shedId: String? = null,
+    ): TemporaryTaggedGoatsResponseDto
+
+    /**
+     * POST /app/counts/goats/{goat_id}/promote-identifier — assigns a permanent RFID to a
+     * temporary-tagged goat, atomically retiring the temp. Drained through the offline outbox with a
+     * stable [idempotencyKey]: a server-committed-but-client-unrecorded retry returns the ORIGINAL
+     * promotion (idempotent_replay=true) instead of retagging twice. The temp tag to retire is found
+     * server-side; the caller sends only the [permanentIdentifier] and the goat's [rowVersion].
+     */
+    suspend fun promoteCountsIdentifier(
+        goatId: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String? = null,
+    ): CountsPromoteIdentifierResponseDto
+
+    /**
+     * POST /app/counts/shifting-events/{id}/cancel — retires an authorized movement that will never
+     * be walked. Moves NOTHING. A [reason] is REQUIRED server-side. Same stable-key replay contract
+     * as complete.
+     */
+    suspend fun cancelCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): CountsShiftingExecutionResponseDto
+
+    /**
+     * GET /feed-direction/preview — one park's generated feed sheet for one Asia/Kolkata business
+     * day (projected head count x authored grams/head x shed factor, split across sessions). Only
+     * `items` is a page ([limit]/[offset], paged by SHED); `summary` rolls up the FULL filtered
+     * scope and must never be re-derived from the fetched page. [targetDate] is `YYYY-MM-DD`;
+     * [parkId] is REQUIRED by the backend (the ration grid, session split, and dispatch clock are
+     * all park-scoped). [workflow] narrows to `normal`/`experiment`; null/blank means both.
+     */
+    suspend fun getFeedDirectionPreview(
+        parkId: String,
+        targetDate: String,
+        shedId: String? = null,
+        session: Int? = null,
+        workflow: String? = null,
+        // Optional verification-lifecycle filter: pending | pending_verification | completed.
+        // null/blank means every status. Backend-owned semantics; the backend filters the whole scope
+        // before paging so the page and its summary stay consistent.
+        status: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedDirectionPreviewPageDto
+
+    /**
+     * GET /feed-packing/worklist — one park's per-shed bag worklist for one business day. Same
+     * paging + whole-scope-summary contract as [getFeedDirectionPreview]; the row grain here is the
+     * packing line (shed x session), not the ration grain.
+     */
+    /**
+     * POST /feed-direction/complete — record that one shed-session's feed direction was carried out,
+     * with OPTIONAL video proof. Idempotent on [idempotencyKey]: a replay returns the original
+     * result, and the shed-session natural key makes a second completion a no-op (`applied=false`).
+     */
+    suspend fun completeFeedDirectionSession(
+        idempotencyKey: String,
+        request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto
+
+    /**
+     * POST /feed-direction/distribution/complete — the verifier-GATED feed-distribution completion
+     * (docs/decisions/feed-distribution-verification.md). Carries a MANDATORY feed-distribution
+     * video ref plus a MANDATORY water-distribution proof ref; flips the shed-session to
+     * `pending_verification` and enqueues a verification item — NOTHING is completed until a verifier
+     * approves. A blank either proof is rejected `422 proof_required`. Idempotent on [idempotencyKey]:
+     * a replay re-enqueues the SAME verification item and completes nobody twice. This is separate
+     * from [completeFeedDirectionSession] (the untouched packing path).
+     */
+    suspend fun completeFeedDistribution(
+        idempotencyKey: String,
+        request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto
+
+    /**
+     * POST /feed-direction/packing/complete — the verifier-GATED feed-PACKING completion. Carries a
+     * SINGLE MANDATORY packing video ref; flips the shed-session to `pending_verification` and
+     * enqueues a verification item — NOTHING is completed until a verifier approves. A blank proof
+     * is rejected `422 proof_required`. Idempotent on [idempotencyKey]: a replay re-enqueues the SAME
+     * verification item and completes nobody twice. This is separate from both
+     * [completeFeedDirectionSession] (the untouched instant packing path) and
+     * [completeFeedDistribution] (the two-proof distribution path).
+     */
+    suspend fun completeFeedPacking(
+        idempotencyKey: String,
+        request: FeedPackingCompleteRequestDto,
+    ): FeedPackingCompleteResponseDto
+
+    /** All applicable step videos are submitted together; only verifier approval completes it. */
+    suspend fun submitMilkPreparation(
+        idempotencyKey: String,
+        request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto
+
+    suspend fun getMilkPreparation(
+        parkId: String? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+    ): MilkPreparationPageDto
+
+    suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String? = null, sessionNo: Int? = null, limit: Int = 20, offset: Int = 0): MilkFeedingPageDto
+    suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto
+
+    /**
+     * One task per PHYSICAL SHED per day -- there is no pen filter, because a shed's whole load
+     * leaves on one trip. Pen grain belongs to packing and distribution.
+     */
+    suspend fun getFeedTransportTasks(
+        businessDate: String,
+        parkId: String? = null,
+        shedId: String? = null,
+        status: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): FeedTransportTaskPageDto
+    suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto
+
+    suspend fun getFeedPackingWorklist(
+        parkId: String,
+        targetDate: String,
+        // Optional session filter (session_no; null = every session). Mirrors the preview.
+        session: Int? = null,
+        workflow: String? = null,
+        // Optional verification-lifecycle filter, same contract as the preview.
+        status: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedPackingWorklistPageDto
+
     /** POST /app/counts/shifting-events — an operator-reported movement between sheds. Drained
      *  through the offline-sync outbox with a stable [idempotencyKey]: the backend derives the
      *  movement's logical key from that key, so an exact retry collapses onto the SAME row
@@ -515,22 +1036,19 @@ interface AppApi {
         request: CountsShiftingEventRequestDto,
     ): CountsShiftingEventResponseDto
 
-    /** POST /app/counts/birth-events — records a birth as goat creation with `origin_type`
-     *  pinned to `birth` server-side. The `goat.created` event it emits still auto-generates the
-     *  kid's vaccination obligations. Idempotent on [idempotencyKey] like every other write. */
+    /** POST /app/counts/birth-events — creates every child and its birth work immediately. The
+     *  accompanying web approval controls only whether those children join herd counts. */
     suspend fun recordCountsBirthEvent(
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
-    /** POST /app/counts/death-events — records a death through identity's guardrailed
-     *  critical-death exit. The `lifecycle_status="dead"` + `exit_reason="died"` pairing is
-     *  enforced server-side; the emitted `goat.exited` event auto-cancels the animal's open
-     *  obligations. Idempotent on [idempotencyKey]. */
+    /** POST /app/counts/death-events — raises a pending death approval request. The animal exits
+     *  only when the request is approved. */
     suspend fun recordCountsDeathEvent(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto
+    ): CountsApprovalSubmitResponseDto
 
     /**
      * GET /goats/search — scope-filtered animal lookup. Backs the shifting screen's animal
@@ -558,8 +1076,8 @@ interface AppApi {
         cursor: String? = null,
     ): CountsApprovalListResponseDto
 
-    /** POST /app/counts/approvals/{request_id}/approve — applies the request (creates the kid,
-     *  exits the animal, or authorizes the movement AND relocates its animals), atomically with
+    /** POST /app/counts/approvals/{request_id}/approve — applies the request (activates birth
+     *  count eligibility, exits the animal, or authorizes movement), atomically with
      *  the status flip. Drained through the offline outbox with a stable [idempotencyKey] so a
      *  server-committed-but-client-unrecorded retry returns the original decision instead of
      *  applying the effect twice. */
@@ -576,6 +1094,93 @@ interface AppApi {
         idempotencyKey: String,
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
+
+    /**
+     * GET /app/workflows — the Birth/Death follow-up work list
+     * (docs/decisions/birth-death-workflows.md): one card per (template, subject goat) workflow
+     * opened when the event APPLIED. Scoped to ONE [module] (`birth`|`death`) and one Asia/Kolkata
+     * business [date] (`YYYY-MM-DD`, default today IST); [filter] is the backend bucket
+     * (`all|overdue|due|completed|awaiting_video`). Keyset-paginated and server-capped at 20; the
+     * response also carries the day's chip counts computed over the same key set the page reads.
+     */
+    suspend fun listWorkflows(
+        module: String,
+        date: String? = null,
+        filter: String? = null,
+        pageSize: Int? = null,
+        cursor: String? = null,
+    ): WorkflowListResponseDto
+
+    /**
+     * GET /app/workflows/{workflow_id} — one workflow's card header, context facts, and full
+     * bounded action list (≤18 rows).
+     *
+     * [lens] = `colostrum` narrows the rows to the colostrum feeds due on [date] and re-counts the
+     * card header at that day's grain, so the Colostrum detail matches the card that opened it
+     * (docs/decisions/colostrum-milk-module.md). Blocked state still comes from the kid's complete
+     * action set, so a feed may legitimately arrive `blocked` with a reason naming work this
+     * screen does not show.
+     */
+    suspend fun getWorkflow(
+        workflowId: String,
+        lens: String? = null,
+        date: String? = null,
+    ): WorkflowDetailResponseDto
+
+    /**
+     * POST /app/workflows/{workflow_id}/actions/{action_id}/answer — answers a question /
+     * question_select action and completes it. Drained through the offline outbox with a stable
+     * [idempotencyKey]: an exact replay returns the original result with `idempotent_replay=true`.
+     */
+    suspend fun answerWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto
+
+    /**
+     * POST /app/workflows/{workflow_id}/actions/{action_id}/complete — completes an `action`-type
+     * step. `proof_ref` is MANDATORY when the action `requires_video` (missing → 422
+     * `proof_required`). Same stable-key replay contract as answer.
+     */
+    suspend fun completeWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto
+
+    suspend fun listHealthWorkItems(
+        ageBand: String,
+        date: String,
+        status: String? = null,
+        diseaseKey: String? = null,
+        parkId: String? = null,
+        shedId: String? = null,
+        session: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): HealthWorkItemPageDto
+
+    suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto
+
+    suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto
+
+    suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto
+    /**
+     * GET /app/weighing/weight-history — fetch weight history data for charting.
+     * [parkId]/[campaignShedId] narrow the result server-side (handler.go `GetWeightHistory`).
+     * Both null = every park/shed the caller may see, matching the unfiltered gallery view.
+     */
+    suspend fun getWeightHistory(parkId: String? = null, campaignShedId: String? = null): WeightHistoryResponseDto
 }
 
 /**
@@ -585,12 +1190,15 @@ interface AppApi {
  * responses so previews/tests compile without a live backend.
  */
 class FakeAppApi(private val chrome: String = "expanded") : AppApi {
+    override suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto =
+        AppAnalyticsEventResponseDto()
+
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = BootstrapDto(
         navChrome = chrome,
         visibleNavigation = listOf(
             NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
             NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-            NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+            NavItemDto(key = "alerts", label = "Alerts", href = "/vaccination/alerts"),
         ),
         // Mirrors the backend moduleNavRegistry shape (available + soon) so previews and
         // screenshot tests render the real backend-composed drawer, not a client stub.
@@ -603,10 +1211,20 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
                 navItems = listOf(
                     NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
                     NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-                    NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+                    NavItemDto(key = "alerts", label = "Alerts", href = "/vaccination/alerts"),
                 ),
             ),
-            BootstrapModuleDto(key = "feed_direction", label = "Feed direction", status = "soon"),
+            BootstrapModuleDto(
+                key = "feed_direction",
+                label = "Feed",
+                href = "/feed/direction",
+                status = "available",
+                navItems = listOf(
+                    NavItemDto(key = "feed_direction", label = "Feed Direction", href = "/feed/direction"),
+                    NavItemDto(key = "feed_packing", label = "Feed Packing", href = "/feed/packing"),
+                    NavItemDto(key = "feed_transport", label = "Feed Transport", href = "/feed/transport"),
+                ),
+            ),
             BootstrapModuleDto(key = "breeding", label = "Breeding", status = "soon"),
         ),
         featureFlags = mapOf("tasks" to true, "sop_runner" to true),
@@ -638,6 +1256,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto = VaccinationExecutionShedDrilldownDto(shedId = shedId)
 
     override suspend fun listCalendarVaccinationEvents(
@@ -648,6 +1267,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        includeDriveSummary: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -687,7 +1307,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         TaskOptionValuesResponseDto(taskId = taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): ShedCompletionSummaryDto =
         ShedCompletionSummaryDto(
             taskId = taskId,
             shedName = "Shed A — Weaners",
@@ -700,6 +1320,81 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             blockingReason = null,
             submitState = "draft",
         )
+
+    override suspend fun listWeighingCampaigns(
+        scope: String?,
+        cursor: String?,
+        limit: Int,
+        parkId: String?,
+    ): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+
+    override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
+        WeighingCampaignDetailResponseDto()
+
+    override suspend fun listWeighingParks(): WeighingParkListResponseDto = WeighingParkListResponseDto()
+
+    override suspend fun listWeighingCampaignSheds(
+        campaignId: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingCampaignShedPageResponseDto = WeighingCampaignShedPageResponseDto()
+
+    override suspend fun getWeighingPlannerCatalog(
+        periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto = WeighingPlannerCatalogResponseDto()
+
+    override suspend fun getWeighingPlannerParkBuckets(
+        parkId: String,
+        periodStartDate: String,
+        cursor: String?,
+        limit: Int,
+        excludeCampaignId: String?,
+    ): WeighingPlannerParkBucketsResponseDto = WeighingPlannerParkBucketsResponseDto()
+
+    override suspend fun createWeighingCampaign(
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = WeighingCampaignResponseDto()
+
+    override suspend fun updateWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingCreateCampaignRequestDto,
+    ): WeighingCampaignResponseDto = WeighingCampaignResponseDto()
+
+    override suspend fun publishWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+    ): WeighingCampaignResponseDto = WeighingCampaignResponseDto()
+
+    override suspend fun getWeighingRoster(
+        campaignId: String,
+        campaignShedId: String,
+        observationsCursor: String?,
+        limit: Int,
+    ): WeighingRosterResponseDto = WeighingRosterResponseDto()
+
+    override suspend fun getWeighingLeadershipShedVideos(
+        campaignId: String,
+        campaignShedId: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingLeadershipShedVideosResponseDto = WeighingLeadershipShedVideosResponseDto()
+
+    override suspend fun listWeighingLeadershipSheds(
+        cursor: String?,
+        limit: Int,
+    ): WeighingLeadershipShedPageResponseDto = WeighingLeadershipShedPageResponseDto()
+
+    override suspend fun listWeighingAlerts(
+        cursor: String?,
+        limit: Int,
+    ): WeighingAlertPageResponseDto = WeighingAlertPageResponseDto()
+
+    override suspend fun listVaccinationAlerts(
+        cursor: String?,
+        limit: Int,
+    ): VaccinationAlertPageResponseDto = VaccinationAlertPageResponseDto()
 
     override suspend fun submitAppTask(
         taskId: String,
@@ -719,6 +1414,50 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: ScanAttemptRequestDto,
     ): ScanAttemptResponseDto = ScanAttemptResponseDto()
 
+    override suspend fun recordWeighingAnimalObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): WeighingObservationResponseDto = WeighingObservationResponseDto()
+
+    override suspend fun recordWeighingShedObservation(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): WeighingObservationResponseDto = WeighingObservationResponseDto()
+
+    override suspend fun submitWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    ) = Unit
+
+    override suspend fun reopenWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeReopenRequestDto,
+    ) = Unit
+
+    override suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = Unit
+
+    override suspend fun closeWeighingCampaign(
+        campaignId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = Unit
+
+    override suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray = ByteArray(0)
+
+    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
+        GrowthSummaryDto()
+
     override suspend fun verifyAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -736,6 +1475,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         taskId: String?,
         cursor: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())
 
     override suspend fun rescheduleObligation(
@@ -764,6 +1504,14 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             uploadMethod = "PUT",
         )
 
+    override suspend fun listUploadedProofs(
+        scopeType: String,
+        scopeId: String,
+        clientTaskKey: String?,
+        fieldKey: String?,
+        limit: Int?,
+    ): UploadedProofListResponseDto = UploadedProofListResponseDto()
+
     // Test/dev scaffolding — does not touch the filesystem or network; a proof is simply marked
     // completed under the id `registerProof` handed back, so previews/unit tests that don't care
     // about the real byte-streaming path (see OkHttpProofBlobUploader) compile and pass.
@@ -780,6 +1528,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): ProofCompleteResponseDto = ProofCompleteResponseDto(
         proof = ProofArtifactDto(proofId = proofId, uploadState = "completed", mimeType = mimeType, durationMs = durationMs),
     )
+
+    override suspend fun deleteProof(proofId: String) = Unit
 
     override suspend fun getVaccinationGaps(
         parkId: String?,
@@ -798,6 +1548,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun listVerificationQueue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         cursor: String?,
@@ -854,6 +1607,122 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         CountsShiftingDestinationsResponseDto()
 
+    override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto = CountsBreedsResponseDto()
+
+    override suspend fun listCountsShiftingPendingExecution(
+        date: String?,
+        status: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): CountsShiftingPendingExecutionResponseDto = CountsShiftingPendingExecutionResponseDto()
+
+    override suspend fun listCountsTemporaryTaggedGoats(
+        pageSize: Int?,
+        cursor: String?,
+        parkId: String?,
+        shedId: String?,
+    ): TemporaryTaggedGoatsResponseDto = TemporaryTaggedGoatsResponseDto()
+
+    override suspend fun promoteCountsIdentifier(
+        goatId: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String?,
+    ): CountsPromoteIdentifierResponseDto = CountsPromoteIdentifierResponseDto(goatId = goatId)
+
+    override suspend fun completeCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        destinationTag: String?,
+        proofRef: String,
+        feedPackingProofRef: String?,
+        feedGivenProofRef: String?,
+        feedConfigFingerprint: String?,
+    ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
+        shiftingEventId = shiftingEventId,
+        eventStatus = "pending_verification",
+    )
+
+    override suspend fun cancelCountsShiftingEvent(
+        shiftingEventId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
+        shiftingEventId = shiftingEventId,
+        eventStatus = "canceled",
+    )
+
+    override suspend fun completeFeedDirectionSession(
+        idempotencyKey: String,
+        request: FeedDirectionCompleteRequestDto,
+    ): FeedDirectionCompleteResponseDto =
+        FeedDirectionCompleteResponseDto(completionId = "fake-completion", status = "completed", applied = true)
+
+    override suspend fun completeFeedDistribution(
+        idempotencyKey: String,
+        request: FeedDistributionCompleteRequestDto,
+    ): FeedDistributionCompleteResponseDto =
+        FeedDistributionCompleteResponseDto(
+            completionId = "fake-distribution-completion",
+            status = "pending_verification",
+            newlyPending = true,
+        )
+
+    override suspend fun completeFeedPacking(
+        idempotencyKey: String,
+        request: FeedPackingCompleteRequestDto,
+    ): FeedPackingCompleteResponseDto =
+        FeedPackingCompleteResponseDto(
+            completionId = "fake-packing-completion",
+            status = "pending_verification",
+            newlyPending = true,
+        )
+
+    override suspend fun submitMilkPreparation(
+        idempotencyKey: String,
+        request: MilkPreparationSubmissionRequestDto,
+    ): MilkPreparationSubmissionResponseDto = MilkPreparationSubmissionResponseDto(
+        completionId = "fake-milk-preparation", status = "pending_verification", attemptNo = 1, rowVersion = 1,
+    )
+
+    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+        MilkPreparationPageDto()
+
+    override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = MilkFeedingPageDto(feedingDate = feedingDate)
+    override suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto = MilkFeedingSubmitResponseDto(completionId = taskId, status = "pending_verification", attemptNo = 1, rowVersion = 1)
+
+    override suspend fun getFeedTransportTasks(
+        businessDate: String,
+        parkId: String?,
+        shedId: String?,
+        status: String?,
+        cursor: String?,
+        limit: Int?,
+    ): FeedTransportTaskPageDto = FeedTransportTaskPageDto()
+    override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = FeedTransportSubmitResponseDto("fake-attempt", "verification_due", 1, true)
+
+    override suspend fun getFeedDirectionPreview(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        session: Int?,
+        workflow: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedDirectionPreviewPageDto = FeedDirectionPreviewPageDto(targetDate = targetDate)
+
+    override suspend fun getFeedPackingWorklist(
+        parkId: String,
+        targetDate: String,
+        session: Int?,
+        workflow: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedPackingWorklistPageDto = FeedPackingWorklistPageDto(targetDate = targetDate)
+
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,
         request: CountsShiftingEventRequestDto,
@@ -863,12 +1732,24 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun recordCountsBirthEvent(
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = CountsGoatLifecycleResponseDto()
+    ): CountsApprovalSubmitResponseDto = CountsApprovalSubmitResponseDto(
+        approvalRequestId = "fake-birth-approval-$idempotencyKey",
+        requestType = "birth",
+        status = "pending",
+        raisedAt = "2026-07-28T00:00:00Z",
+        idempotentReplay = false,
+    )
 
     override suspend fun recordCountsDeathEvent(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
-    ): CountsGoatLifecycleResponseDto = CountsGoatLifecycleResponseDto()
+    ): CountsApprovalSubmitResponseDto = CountsApprovalSubmitResponseDto(
+        approvalRequestId = "fake-death-approval-$idempotencyKey",
+        requestType = "death",
+        status = "pending",
+        raisedAt = "2026-07-28T00:00:00Z",
+        idempotentReplay = false,
+    )
 
     override suspend fun searchGoats(
         q: String?,
@@ -898,6 +1779,76 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto =
         CountsApprovalDecisionResponseDto(approvalRequestId = requestId, status = "rejected")
+
+    override suspend fun listWorkflows(
+        module: String,
+        date: String?,
+        filter: String?,
+        pageSize: Int?,
+        cursor: String?,
+    ): WorkflowListResponseDto = WorkflowListResponseDto()
+
+    override suspend fun getWorkflow(
+        workflowId: String,
+        lens: String?,
+        date: String?,
+    ): WorkflowDetailResponseDto = WorkflowDetailResponseDto(workflowId = workflowId)
+
+    override suspend fun answerWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionAnswerRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        WorkflowActionWriteResponseDto(workflowId = workflowId, actionId = actionId, status = "completed")
+
+    override suspend fun completeWorkflowAction(
+        workflowId: String,
+        actionId: String,
+        idempotencyKey: String,
+        request: WorkflowActionCompleteRequestDto,
+    ): WorkflowActionWriteResponseDto =
+        WorkflowActionWriteResponseDto(workflowId = workflowId, actionId = actionId, status = "completed")
+
+    override suspend fun listHealthWorkItems(
+        ageBand: String,
+        date: String,
+        status: String?,
+        diseaseKey: String?,
+        parkId: String?,
+        shedId: String?,
+        session: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthWorkItemPageDto = HealthWorkItemPageDto()
+
+    override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
+        HealthWorkItemDetailDto(healthSessionId = healthSessionId)
+
+    override suspend fun openHealthCase(
+        idempotencyKey: String,
+        request: HealthOpenCaseRequestDto,
+    ): HealthOpenCaseResponseDto = HealthOpenCaseResponseDto(
+        caseId = "case-${request.goatId}",
+        firstSessionId = "health-${request.goatId}",
+    )
+
+    override suspend fun completeHealthWorkItem(
+        healthSessionId: String,
+        idempotencyKey: String,
+        request: HealthCompleteRequestDto,
+    ): HealthCompleteResponseDto = HealthCompleteResponseDto(
+        healthSessionId = healthSessionId,
+        status = "completed",
+    )
+    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
+        WeightHistoryResponseDto(
+            parks = emptyList(),
+            sheds = emptyList(),
+            series = emptyList(),
+            truncated = false,
+            capped_at = null,
+        )
 }
 
 /**
@@ -905,19 +1856,27 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
  * module's bar; the client only parses them (TRD §14 dumb-renderer). Labels pass through
  * verbatim — they are localized backend-side in `bootstrap_copy.go`.
  */
-fun BootstrapDto.toNavState(): NavState = NavState(
-    chrome = if (navChrome.equals("expanded", ignoreCase = true)) NavChrome.EXPANDED else NavChrome.MINIMAL,
-    items = visibleNavigation.map { it.toNavItem() },
-    modules = modules.map { module ->
+fun BootstrapDto.toNavState(): NavState {
+    val enabledModules = modules
+        .map { module ->
         NavModule(
             key = module.key,
             label = module.label,
             href = module.href,
             status = NavModuleStatus.from(module.status),
-            navItems = module.navItems.map { it.toNavItem() },
+            navItems = module.navItems
+                .map { it.toNavItem() },
         )
-    },
-    featureFlags = featureFlags,
-)
+    }
+    val enabledItems = visibleNavigation
+        .map { it.toNavItem() }
+        .ifEmpty { enabledModules.firstOrNull()?.navItems.orEmpty() }
+    return NavState(
+        chrome = if (navChrome.equals("expanded", ignoreCase = true)) NavChrome.EXPANDED else NavChrome.MINIMAL,
+        items = enabledItems,
+        modules = enabledModules,
+        featureFlags = featureFlags,
+    )
+}
 
 private fun NavItemDto.toNavItem(): NavItem = NavItem(key = key, label = label, href = href)

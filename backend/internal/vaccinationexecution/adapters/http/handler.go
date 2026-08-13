@@ -24,10 +24,15 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+	vaccexecports "github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
 
 // Reader is the vaccination execution read slice required by this handler.
 type Reader interface {
+	// ListAlerts serves the vaccination module's OWN alerts feed (the phone's
+	// Alerts tab). Audience is enforced inside the query by member_id equality,
+	// so a caller can only ever read notifications addressed to them.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (vaccexecd.AlertPage, error)
 	VaccinationExecution(ctx context.Context, q vaccexecd.ExecutionQuery) ([]vaccexecd.ExecutionRow, error)
 	VaccinationExecutionPage(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ExecutionResponse, error)
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
@@ -56,6 +61,14 @@ type Reader interface {
 	// active park of the tenant. Ids and labels are `locations` data compiled by the backend -- the
 	// park option list is never assembled or labelled in the frontend.
 	AuthorizedParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]vaccexecd.ParkOption, error)
+
+	// VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
+	// weekly given, and verification queue.
+	VaccinationCommandBoard(ctx context.Context, q vaccexecd.CommandBoardQuery) (vaccexecd.CommandBoardResponse, error)
+
+	// LiveTracker returns the live drive-day tracker (KPIs, operator board, shed proof board, combo
+	// doses, activity feed, attention, verification, filter vocabulary) in one read.
+	LiveTracker(ctx context.Context, q vaccexecd.LiveTrackerQuery) (vaccexecd.LiveTrackerResponse, error)
 }
 
 // OperatorAssignmentConfigWriter is the write slice for the operator assignment admin screen.
@@ -143,6 +156,8 @@ func (h *Handler) now() time.Time {
 
 // Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
 func Register(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("GET /vaccination/command", h.GetVaccinationCommandBoard)
+	mux.HandleFunc("GET /vaccination/live-tracker", h.GetVaccinationLiveTracker)
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
@@ -156,6 +171,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /vaccination/capacity-config", h.PutCapacityConfig)
 	mux.HandleFunc("GET /vaccination/operator-assignment/config", h.GetOperatorAssignmentConfig)
 	mux.HandleFunc("PUT /vaccination/operator-assignment/config", h.PutOperatorAssignmentConfig)
+	mux.HandleFunc("GET /app/vaccination/alerts", h.ListAlerts)
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
@@ -174,13 +190,21 @@ type driveDateOverrideRequest struct {
 }
 
 type driveDateOverrideResponse struct {
-	ParkID            string `json:"park_id"`
-	VaccineCode       string `json:"vaccine_code"`
-	OriginalDriveDate string `json:"original_drive_date"`
-	OverrideDate      string `json:"override_date"`
-	Reason            string `json:"reason"`
-	CreatedBy         string `json:"created_by"`
-	CreatedAt         string `json:"created_at"`
+	ParkID                string `json:"park_id"`
+	VaccineCode           string `json:"vaccine_code"`
+	OriginalDriveDate     string `json:"original_drive_date"`
+	OverrideDate          string `json:"override_date"`
+	RequestedOverrideDate string `json:"requested_override_date"`
+	AppliedOverrideDate   string `json:"applied_override_date"`
+	AutoShifted           bool   `json:"auto_shifted"`
+	ShiftReason           string `json:"shift_reason,omitempty"`
+	ConflictVaccineCode   string `json:"conflicting_vaccine_code,omitempty"`
+	ConflictVaccineLabel  string `json:"conflicting_vaccine_label,omitempty"`
+	ConflictDate          string `json:"conflicting_date,omitempty"`
+	ConflictRule          string `json:"conflicting_rule,omitempty"`
+	Reason                string `json:"reason"`
+	CreatedBy             string `json:"created_by"`
+	CreatedAt             string `json:"created_at"`
 }
 
 func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request) {
@@ -252,14 +276,31 @@ func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request
 		h.internal(w, r, err)
 		return
 	}
+	requestedDate := out.RequestedOverrideDate
+	if requestedDate.IsZero() {
+		requestedDate = out.OverrideDate
+	}
+	conflictDate := ""
+	if !out.ConflictDate.IsZero() {
+		conflictDate = out.ConflictDate.In(biztime.DefaultLocation()).Format("2006-01-02")
+	}
+	applied := out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02")
 	httpresponse.WriteJSON(w, http.StatusOK, driveDateOverrideResponse{
-		ParkID:            out.ParkID,
-		VaccineCode:       out.VaccineCode,
-		OriginalDriveDate: out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
-		OverrideDate:      out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
-		Reason:            out.Reason,
-		CreatedBy:         out.CreatedBy,
-		CreatedAt:         out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+		ParkID:                out.ParkID,
+		VaccineCode:           out.VaccineCode,
+		OriginalDriveDate:     out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		OverrideDate:          applied,
+		RequestedOverrideDate: requestedDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		AppliedOverrideDate:   applied,
+		AutoShifted:           out.AutoShifted,
+		ShiftReason:           out.ShiftReason,
+		ConflictVaccineCode:   out.ConflictVaccineCode,
+		ConflictVaccineLabel:  out.ConflictVaccineLabel,
+		ConflictDate:          conflictDate,
+		ConflictRule:          out.ConflictRule,
+		Reason:                out.Reason,
+		CreatedBy:             out.CreatedBy,
+		CreatedAt:             out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
 	})
 }
 
@@ -498,8 +539,18 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
-	// A leadership oversight read (app route, no operator scope) is read-only: the client
-	// renders the shed list but must not open a shed into the operator scan/execute loop.
+	// A leadership read on an app execution route is OVERSIGHT: read-only, park-scoped, every
+	// shed. Vaccination execution belongs to the operator the drive is assigned to -- CBE to one
+	// operator, CPT to the other -- so a director sees both parks and opens neither into the
+	// scan/submit loop (maintainer decision; supersedes the earlier carve-out that kept the shed
+	// click open for a PC Director because the role happens to hold task.execute).
+	//
+	// Holding task.execute is no longer sufficient here: the scan and submit writes are refused
+	// `task_not_assigned` for a non-assignee anyway, so leaving the click open produced a scan
+	// screen that recorded a proof video and then failed every write in background sync.
+	//
+	// Weighing is deliberately NOT gated this way: it is free-flow, and a director is allowed to
+	// weigh anything. This branch is scoped to the vaccination execution routes only.
 	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
 		page.ViewerReadOnly = true
 	}
@@ -518,6 +569,9 @@ func (h *Handler) GetShedDrilldown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q.ShedID = &shedID
+	if partitionLabel := strings.TrimSpace(r.URL.Query().Get("partition_label")); partitionLabel != "" {
+		q.PartitionLabel = &partitionLabel
+	}
 	detail, found, err := h.reader.ShedDrilldown(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
@@ -634,13 +688,9 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.Limit = n
 	}
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
-		q.AuthorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		if q.AuthorizedParkIDs == nil {
-			q.AuthorizedParkIDs = []string{}
-		}
-	}
+	// Apply park scope: use the proper vaccination-execution authority check that
+	// verifies the tenant-wide grant's role, not just its scope.
+	q.AuthorizedParkIDs = authorizedParkFilterVaccinationExecution(r.Context(), tenantID(r))
 	if !h.applyExecutionParkScope(w, r, &q) {
 		return vaccexecd.ExecutionQuery{}, false
 	}
@@ -679,17 +729,28 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	q := vaccexecd.ScanRosterQuery{
-		TenantID:             tenantID(r),
-		ShedID:               shedID,
-		TaskID:               taskID,
-		OperatorScopeActorID: httpmiddleware.ActorIDFromContext(r.Context()),
-		Limit:                limit,
-	}
-	if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" || !uuidutil.IsUUIDString(actorID) {
 		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
 		return
 	}
+	q := vaccexecd.ScanRosterQuery{
+		TenantID:             tenantID(r),
+		ShedID:               shedID,
+		PartitionLabel:       strings.TrimSpace(query.Get("partition_label")),
+		TaskID:               taskID,
+		OperatorScopeActorID: actorID,
+		Limit:                limit,
+	}
+	// The scan roster stays OPERATOR-ASSIGNMENT scoped for every caller, leadership included.
+	// Vaccination execution belongs to the operator the drive is assigned to; a director oversees
+	// both parks read-only and must never receive scan-roster animals, because the writes that
+	// screen exists to make are refused as `task_not_assigned` anyway. Widening this read for
+	// leadership (briefly done to explain an empty roster) handed a director a fully populated
+	// scan screen whose every write then failed silently in background sync.
+	//
+	// Weighing is deliberately NOT like this: it is free-flow, so it has its own gate and must not
+	// inherit this assignment scoping.
 	if rawCursor := query.Get("cursor"); rawCursor != "" {
 		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
 		if err != nil {
@@ -729,19 +790,28 @@ func isAppExecutionRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
 }
 
-// leadershipExecutionRoles get the park-scoped read-only oversight view of vaccination
-// execution on the app routes, rather than operator-assignment-scoped work.
-var leadershipExecutionRoles = map[string]bool{
-	permissions.RoleCEOInternal: true,
-	permissions.RolePCDirector:  true,
-	permissions.RoleParkHead:    true,
-}
-
-// isLeadershipExecutionActor reports whether any of the caller's active grants is a
-// leadership role, in which case the app execution read is NOT operator-assignment scoped.
+// isLeadershipExecutionActor reports whether the caller holds the vaccination execution
+// OVERSIGHT capability, in which case the app execution read is NOT operator-assignment scoped
+// but park-scoped and read-only.
+//
+// This asks the permission model, not a role-name allowlist. The previous
+// {ceo_internal, pc_director, park_head} literal set excluded the org-role catalog's composed
+// preventive-care Director/Head -- the same authority under the tier x vertical model -- so they
+// fell into the operator-assignment branch, saw zero rows (they are assigned no drive), and got a
+// tappable shed whose every write is refused `task_not_assigned`. Granting the capability, not
+// renaming a role, is the lever for any future oversight tier.
 func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
 	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
-		if leadershipExecutionRoles[g.Role] {
+		if permissions.RoleHasPermission(g.Role, permissions.VaccinationOverseeExecution) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) canExecuteTasks(r *http.Request) bool {
+	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+		if permissions.RoleHasPermission(g.Role, permissions.TaskExecute) {
 			return true
 		}
 	}
@@ -823,14 +893,10 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestTenantID := tenantID(r)
-	var authorizedParkIDs []string
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, requestTenantID) {
-		authorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		if authorizedParkIDs == nil {
-			authorizedParkIDs = []string{}
-		}
-	}
+	// Apply park scope: use the proper vaccination-execution authority check that
+	// verifies the tenant-wide grant's role, not just its scope. Empty array means
+	// "access denied to any park" (fail-closed); nil means "unrestricted" (tenant-wide).
+	authorizedParkIDs := authorizedParkFilterVaccinationExecution(r.Context(), requestTenantID)
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=reschedule-decision-comparison-instant expiry=2026-12-31
 	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, h.now().UTC())
 	if err != nil {
@@ -1334,11 +1400,9 @@ func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		// -- silently picking one would let a CEO save a default operator for park A while reading a
 		// roster blended across A+B+C -- but the refusal carries the backend-owned options so the
 		// client renders a selector instead of dead-ending.
-		grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-		var scopedParkIDs []string
-		if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
-			scopedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		}
+		// Use the proper vaccination-execution authority check that verifies the tenant-wide
+		// grant's role, not just its scope.
+		scopedParkIDs := authorizedParkFilterVaccinationExecution(r.Context(), tenantID(r))
 		parks, err := h.reader.AuthorizedParkOptions(r.Context(), tenantID(r), scopedParkIDs)
 		if err != nil {
 			h.internal(w, r, err)
@@ -1445,6 +1509,57 @@ func (h *Handler) PutOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, updated)
+}
+
+// ListAlerts serves GET /app/vaccination/alerts -- the vaccination module's OWN
+// alerts feed, the twin of GET /app/weighing/alerts.
+//
+// WHY IT EXISTS: the Alerts tab used to render the control-tower GAP summary
+// (/control-tower/vaccination), which reports process gaps and knows nothing
+// about lifecycle transitions. So every "proof rework", "proof approved" and
+// "record closed" notification the vaccination consumers had been writing was
+// invisible on the phone -- 41 of them sat unread during the 2026-08-08 QA run
+// while the tab showed nothing.
+//
+// SCOPE: the query filters on context->>'member_id' = the caller, so the feed is
+// already "my own alerts" and cannot leak another person's row. Park scope is
+// therefore passed wide here rather than re-deriving capability park lists: a
+// narrower park filter could only ever hide alerts that were addressed to this
+// caller on purpose.
+func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	limit := vaccexecd.AlertPageSize
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+	if limit > vaccexecd.MaxAlertPageSize {
+		limit = vaccexecd.MaxAlertPageSize
+	}
+
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" {
+		h.badRequest(w, r, "actor_required", "vaccination alerts require an authenticated caller")
+		return
+	}
+
+	page, err := h.reader.ListAlerts(
+		r.Context(), tenantID(r), actorID,
+		true, nil,
+		strings.TrimSpace(r.URL.Query().Get("cursor")), limit,
+	)
+	if err != nil {
+		if errors.Is(err, vaccexecports.ErrInvalidArgument) {
+			h.badRequest(w, r, "invalid_cursor", "the paging cursor is not valid")
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
@@ -1573,8 +1688,40 @@ func (h *Handler) allowParkID(w http.ResponseWriter, r *http.Request, parkID str
 	return ok
 }
 
+// authorizedParkFilterVaccinationExecution returns the park IDs a park-scoped actor may
+// access for vaccination execution, or nil when the caller is tenant-wide with vaccination
+// authority (no restriction).
+//
+// Both the tenant-wide test and the park set come from vaccexecd (ParkAuthorities /
+// HasTenantWideAuthority) instead of being spelled out here. This file used to carry its
+// own two lists and the Postgres adapter a third; they disagreed, and a gate that
+// disagrees with the filter behind it produces an empty screen rather than a 403 anybody
+// can diagnose. See vaccexecd.ParkAuthorities for why that set is what it is.
+//
+// A park-scoped actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID string) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	if vaccexecd.HasTenantWideAuthority(grants, tenantID) {
+		return nil
+	}
+	return vaccexecd.AuthorizedParks(grants)
+}
+
+// authorizedParkID clamps a requested park to the parks in which the actor actually holds a
+// VACCINATION-EXECUTION capability. Every park-scoped read on this module funnels through it
+// (applyExecutionParkScope / applyGapsParkScope / applyShedSummaryParkScope / the command
+// board), so it is the single place that decision is made.
+//
+// It resolves against vaccexecd.ParkAuthorities rather than the capability-BLIND
+// ResolveAuthorizedParkScope it used to call. The blind form asked two decoupled questions --
+// "does some role of mine carry vaccination authority" and "which parks do I have any grant
+// in" -- and an actor could answer them with two DIFFERENT grants: a vaccination grant in park
+// B plus an unrelated grant (say a growth-director weighing grant) in park A got them park A's
+// vaccination execution data. The capability-aware form keeps each grant's role bound to its
+// own scope, and applies the same rule to the tenant-wide escape hatch.
 func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
-	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID(r), requested, vaccexecd.ParkAuthorities...)
 	if decision.Allowed {
 		return decision.ParkID, true
 	}
@@ -1588,4 +1735,80 @@ func optionalString(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+// GetVaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
+// weekly given, and verification queue. GET /vaccination/command
+func (h *Handler) GetVaccinationCommandBoard(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	asOf := h.now()
+	if asOfStr := r.URL.Query().Get("as_of"); asOfStr != "" {
+		t, err := time.Parse(time.RFC3339, asOfStr)
+		if err == nil {
+			asOf = t.In(biztime.DefaultLocation())
+		}
+	}
+
+	driveBatchID := r.URL.Query().Get("drive_batch_id")
+	var driveBatchIDPtr *string
+	if driveBatchID != "" {
+		driveBatchIDPtr = &driveBatchID
+	}
+
+	// projection-review: park scope is BACKEND-owned here exactly as in
+	// ListVaccinationExecution/Schedule/Gaps/Coverage/ShedSummary. Reading park_id straight off
+	// the query string let a park-bound actor see the OTHER park's board by omitting it (and
+	// forbade nothing when they named it); authorizedParkID clamps the request to the actor's
+	// grants -- tenant-wide callers keep the verbatim (possibly empty) request.
+	requestedPark := r.URL.Query().Get("park_id")
+	if requestedPark != "" && !uuidutil.IsUUIDString(requestedPark) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_park_id", Message: "park_id must be a valid UUID", TraceID: traceID(r)}, nil)
+		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requestedPark)
+	if !ok {
+		return
+	}
+	var parkIDPtr *string
+	if parkID != "" {
+		parkIDPtr = &parkID
+	}
+
+	// The selected drive's park. It narrows the board sections only; the picker stays at park_id's
+	// scope so the other parks' drives remain selectable. Clamped through the same authorization as
+	// park_id -- a park-bound actor must not reach another park's numbers by naming them here.
+	requestedDrivePark := r.URL.Query().Get("drive_park_id")
+	if requestedDrivePark != "" && !uuidutil.IsUUIDString(requestedDrivePark) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_drive_park_id", Message: "drive_park_id must be a valid UUID", TraceID: traceID(r)}, nil)
+		return
+	}
+	var drivePartIDPtr *string
+	if requestedDrivePark != "" {
+		drivePark, ok := h.authorizedParkID(w, r, requestedDrivePark)
+		if !ok {
+			return
+		}
+		if drivePark != "" {
+			drivePartIDPtr = &drivePark
+		}
+	}
+
+	resp, err := h.reader.VaccinationCommandBoard(r.Context(), vaccexecd.CommandBoardQuery{
+		TenantID:     tenantID,
+		DriveBatchID: driveBatchIDPtr,
+		ParkID:       parkIDPtr,
+		DriveParkID:  drivePartIDPtr,
+		AsOf:         asOf,
+	})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			errorEnvelope{Code: "read_error", Message: err.Error(), TraceID: traceID(r)}, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }

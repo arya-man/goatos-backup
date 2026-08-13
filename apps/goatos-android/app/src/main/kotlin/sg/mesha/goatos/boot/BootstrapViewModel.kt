@@ -1,5 +1,6 @@
 package sg.mesha.goatos.boot
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -9,9 +10,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.auth.AuthRepository
+import sg.mesha.goatos.core.network.BootstrapError
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.sync.ConnectivityGate
 import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavState
@@ -26,7 +31,9 @@ import javax.inject.Inject
 sealed interface BootstrapUiState {
     data object Loading : BootstrapUiState
     data class Ready(val navState: NavState) : BootstrapUiState
-    data class Error(val message: String) : BootstrapUiState
+    data class Error(
+        val errorType: BootstrapErrorType,
+    ) : BootstrapUiState
 }
 
 /**
@@ -41,15 +48,24 @@ class BootstrapViewModel @Inject constructor(
     private val analyticsContext: AnalyticsContext,
     private val deviceStore: DeviceStore,
     private val authRepository: AuthRepository,
+    private val crashReporter: CrashReporter,
     private val pushTokenSync: PushTokenSync,
+    private val connectivityGate: ConnectivityGate,
 ) : ViewModel() {
+    private companion object {
+        const val TAG = "GoatOSBootstrap"
+    }
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
     val state: StateFlow<BootstrapUiState> = _state.asStateFlow()
 
-    init {
-        load()
-    }
+    // NO init { load() }.
+    //
+    // MainActivity already drives the load on the auth transition, and it MUST -- a bootstrap
+    // fetched before the new session is active renders a stale shell (see the comment at that
+    // call site). With both, a cold start ran load() twice and emitted two bootstrap_loaded
+    // events, so every funnel counted one launch as two and the drop-off between "opened" and
+    // "started work" read better than it was. One owner, one event.
 
     /**
      * Discards whatever nav state is currently held (logout clean-slate, C35-001). This
@@ -71,13 +87,83 @@ class BootstrapViewModel @Inject constructor(
                 .onSuccess { navState ->
                     _state.value = BootstrapUiState.Ready(navState)
                     val chrome = if (navState.chrome == NavChrome.EXPANDED) "expanded" else "minimal"
-                    analytics.track(AnalyticsEvents.BOOTSTRAP_LOADED, mapOf(AnalyticsEvents.Params.CHROME to chrome))
+                    // Set analytics identity BEFORE any event is tracked (required: identity must be set
+                    // before the first event of the session). This ensures setUserId() and user properties
+                    // (email, device_id) are already applied when BOOTSTRAP_LOADED fires.
                     applyAnalyticsIdentity()
-                }
-                .onFailure {
-                    _state.value = BootstrapUiState.Error(
-                        "Couldn't load your workspace. Check your connection and try again.",
+                    // Now that identity is set, retrieve and log the signed-in user's credentials.
+                    val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
+                    val firebaseUid = runCatching { authRepository.currentFirebaseUid() }.getOrNull()?.ifBlank { null }
+                    // Missing email/uid is EXPECTED, not a bug, for AuthMode.DEV_BEARER (see
+                    // [identityGapIsExpectedForFlavor]) — the dev flavor's local backend authenticates
+                    // via a baked HS256 bearer token, never touching FirebaseAuth, so
+                    // `firebaseAuth.currentUser` is permanently null there and email/uid genuinely do
+                    // not exist at the source. Only log the non-fatal when the gap is UNEXPECTED
+                    // (stg/prod, Firebase-mode sign-in) so this breadcrumb stays a real signal instead
+                    // of firing on every single dev-flavor bootstrap.
+                    if ((email == null || firebaseUid == null) && !identityGapIsExpectedForFlavor()) {
+                        crashReporter.log("bootstrap identity incomplete email=$email uid=$firebaseUid")
+                    }
+                    // Extends the existing BOOTSTRAP_LOADED event (never a duplicate second
+                    // event) with WHO this bootstrap resolved for and WHAT it granted, plus
+                    // whether the answer came from the network or the offline cache fallback
+                    // (DefaultBootstrapRepository.loadNavState's ConnectivityFailure branch) —
+                    // best-effort inferred from connectivity AT THIS MOMENT, since the
+                    // repository itself does not report which path it took.
+                    // exception:exempt role is a DECORATION on an event that must still be
+                    // emitted. Failing to read the cached profile must never suppress
+                    // bootstrap_loaded itself; the event simply carries no role.
+                    val role = runCatching { repo.operatorProfile() }.getOrNull()?.primaryRoleHint?.ifBlank { null }
+                    val moduleKeys = navState.modules.map { it.key }.sorted().joinToString(",")
+                    // exception:exempt a connectivity probe that throws is itself evidence of
+                    // no usable network, which is exactly what `false` encodes here. There is no
+                    // second source to consult and the event must still be emitted.
+                    val offline = runCatching { !connectivityGate.isOnline() }.getOrDefault(false)
+                    analytics.track(
+                        AnalyticsEvents.BOOTSTRAP_LOADED,
+                        buildMap {
+                            put(AnalyticsEvents.Params.CHROME, chrome)
+                            email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+                            firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+                            role?.let { put(AnalyticsEventsSession.Params.ROLE, it) }
+                            if (moduleKeys.isNotBlank()) put(AnalyticsEventsSession.Params.MODULE_KEYS, moduleKeys)
+                            put(AnalyticsEventsSession.Params.OFFLINE, offline.toString())
+                        },
                     )
+                    logInfo("Bootstrap loaded email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} chrome=$chrome role=${role.orEmpty()} offline=$offline")
+                }
+                .onFailure { throwable ->
+                    // Set analytics identity even on bootstrap failure, so failure events have user context.
+                    runCatching { applyAnalyticsIdentity() }
+                    val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
+                    val firebaseUid = runCatching { authRepository.currentFirebaseUid() }.getOrNull()?.ifBlank { null }
+                    logError("Bootstrap failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", throwable)
+
+                    // Distinguish auth failures (401/expired token) from connectivity failures.
+                    val errorType = when (throwable) {
+                        is BootstrapError.AuthSessionExpired -> BootstrapErrorType.AUTH_SESSION_EXPIRED
+                        is BootstrapError.AccessNotProvisioned -> BootstrapErrorType.ACCESS_NOT_PROVISIONED
+                        is BootstrapError.ConnectivityFailure -> BootstrapErrorType.CONNECTIVITY_FAILURE
+                        else -> {
+                            // Fallback for unexpected errors (should not occur with the new mapping).
+                            BootstrapErrorType.CONNECTIVITY_FAILURE
+                        }
+                    }
+
+                    // exception:exempt a connectivity probe that throws is itself evidence of
+                    // no usable network, which is exactly what `false` encodes here. There is no
+                    // second source to consult and the event must still be emitted.
+                    val offline = runCatching { !connectivityGate.isOnline() }.getOrDefault(false)
+                    analytics.track(
+                        AnalyticsEvents.BOOTSTRAP_FAILED,
+                        buildMap {
+                            put(AnalyticsEvents.Params.REASON, throwable::class.java.simpleName.ifBlank { "unknown" })
+                            email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+                            firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+                            put(AnalyticsEventsSession.Params.OFFLINE, offline.toString())
+                        },
+                    )
+                    _state.value = BootstrapUiState.Error(errorType)
                 }
         }
     }
@@ -93,22 +179,44 @@ class BootstrapViewModel @Inject constructor(
      * its absence just leaves that piece of identity un-narrowed. Email is sent as a user property
      * by explicit business-owner decision (overrides the earlier ids/labels-only convention);
      * names/phone are still never sent.
+     *
+     * Email is genuinely ABSENT AT SOURCE (not merely late) for [sg.mesha.goatos.boot.AuthMode.
+     * DEV_BEARER] sign-ins: that flavor's `SessionViewModel.signInWithDevToken` never calls
+     * FirebaseAuth at all, so `authRepository.currentEmail()` returns null for the life of the
+     * session, by construction. `GET /app/bootstrap`'s [sg.mesha.goatos.core.data.BootstrapRepository]
+     * profile (`BootstrapOperatorProfileDto`) never carries an email either — deliberately, per the
+     * "names/phone are still never sent" rule above. The correct STABLE human key in that case is
+     * [memberId] (`profile.operatorId`), which is already sent via [AnalyticsPort.setUserId] whether
+     * or not email resolves — that call is unconditional, a few lines below.
      */
     private suspend fun applyAnalyticsIdentity() {
+        // exception:exempt first launch has no persisted id yet; a null is handled by the caller and recording here would fire on every clean install
         val profile = runCatching { repo.operatorProfile() }.getOrNull()
+        // exception:exempt same first-launch ambiguity as the line above
         val tenantId = runCatching { repo.actorTenantId() }.getOrNull()
         val role = profile?.primaryRoleHint?.ifBlank { null }
         val park = profile?.primaryLocation?.ifBlank { null }
         val parkId = profile?.primaryLocationId?.ifBlank { null }
         val memberId = profile?.operatorId?.ifBlank { null }
         // Signed-in user's email (business-owner decision: primary user identity dimension).
+        // exception:exempt a connectivity probe that throws IS evidence of no usable network, which is what false encodes; no second source to consult
         val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
-        // Stable per-install device id — same login on two phones is distinguishable.
-        val deviceId = runCatching { deviceStore.appInstallId() }.getOrNull()?.ifBlank { null }
+        // Identity has ONE owner: the Application resolves it at start, before the first event.
+        // This reads what is already there and only falls back to the store if that coroutine has
+        // not landed yet. Re-deriving it here unconditionally made two concurrent resolvers of the
+        // same ids, and the events already stamped with the first value would no longer match the
+        // value that finally persisted -- splitting the very session the journey id exists to join.
+        val deviceId = analyticsContext.deviceId
+            // exception:exempt first launch has not minted the id yet, so a failed read is indistinguishable from a legitimately absent one; the null is handled by the caller
+            ?: runCatching { deviceStore.appInstallId() }.getOrNull()?.ifBlank { null }
+        val journeyId = analyticsContext.journeyId
+            // exception:exempt first launch has not minted the id yet, so a failed read is indistinguishable from a legitimately absent one; the null is handled by the caller
+            ?: runCatching { deviceStore.journeyId() }.getOrNull()?.ifBlank { null }
 
         analyticsContext.role = role
         analyticsContext.parkScope = park
         analyticsContext.deviceId = deviceId
+        analyticsContext.journeyId = journeyId
 
         analytics.setUserId(memberId)
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, role)
@@ -120,5 +228,20 @@ class BootstrapViewModel @Inject constructor(
         analytics.setUserProperty(AnalyticsEvents.UserProps.DEVICE_ID, deviceId)
 
         pushTokenSync.syncNow()
+    }
+
+    /** True when a missing email/Firebase-uid is an EXPECTED gap, not a defect: the dev flavor's
+     *  [AuthMode.DEV_BEARER] path never establishes a Firebase session (see the KDoc on
+     *  [applyAnalyticsIdentity]), so email/uid are unavailable at source for every dev-flavor
+     *  bootstrap, by design. */
+    private fun identityGapIsExpectedForFlavor(): Boolean =
+        authModeForFlavor(analyticsContext.flavor) == AuthMode.DEV_BEARER
+
+    private fun logInfo(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun logError(message: String, throwable: Throwable) {
+        runCatching { Log.e(TAG, message, throwable) }
     }
 }

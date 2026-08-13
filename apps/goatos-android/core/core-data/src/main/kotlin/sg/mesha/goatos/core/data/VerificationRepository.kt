@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
@@ -18,7 +19,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 
 /**
- * The standalone Verifier section's media queue (context/architecture/verifier-app-and-flow.md
+ * The verifier-only workspace's reusable media queue (context/architecture/verifier-app-and-flow.md
  * + context/architecture/verification-module-design.md). Offline-first
  * (docs/decisions/android-offline-first.md): Room is the UI's single source of truth via
  * [observeQueue], a cache-first Flow scoped by [category], backed by
@@ -30,6 +31,9 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 interface VerificationRepository {
     suspend fun queue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -40,6 +44,9 @@ interface VerificationRepository {
      *  (null data on a cold cache) and re-emits after every successful [refreshQueue]/[appendQueue]. */
     fun observeQueue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -49,6 +56,9 @@ interface VerificationRepository {
      *  leaves the cache untouched — the caller surfaces stale/offline, never a blank screen. */
     suspend fun refreshQueue(
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -58,6 +68,9 @@ interface VerificationRepository {
     suspend fun appendQueue(
         cursor: String,
         category: String? = null,
+        status: String? = null,
+        businessDate: String? = null,
+        missed: Boolean? = null,
         parkId: String? = null,
         shedId: String? = null,
         limit: Int? = null,
@@ -92,6 +105,27 @@ interface VerificationRepository {
      *  verdict outbox row has SUCCEEDED. This keeps the verifier queue honest when the backend
      *  write landed but the follow-up refresh is temporarily offline/stale. */
     suspend fun markVerificationItemDecidedLocally(itemId: String)
+
+    /** Cache-first stream for leadership videos (full trail: pending/approved/rejected/closed).
+     *  Returns a bounded window of verification items rendered as UI models. */
+    fun observeLeadershipVideos(
+        category: String? = null,
+        windowSize: Int = 20,
+    ): Flow<List<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>>
+
+    /** Fetches and caches the first page of leadership videos. */
+    /** Backend-owned screen title (queue contract's module label). Empty until first fetch. */
+    fun observeLeadershipTitle(category: String? = null, windowSize: Int): Flow<String>
+
+    // windowSize MUST match the value passed to observeLeadershipVideos: the cache key is derived
+    // from every query parameter including the limit, so refreshing with a different window writes
+    // a row the observing Flow never reads, and the screen renders "No videos yet" over a
+    // successful fetch.
+    suspend fun refreshLeadershipVideos(
+        category: String? = null,
+        windowSize: Int,
+        reset: Boolean = true,
+    ): AppResult<Unit>
 }
 
 class DefaultVerificationRepository(
@@ -105,12 +139,18 @@ class DefaultVerificationRepository(
 
     override suspend fun queue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         limit: Int?,
         cursor: String?,
     ): VerificationQueueResponseDto = api.listVerificationQueue(
         category = category,
+        status = status,
+        businessDate = businessDate,
+        missed = missed,
         parkId = parkId,
         shedId = shedId,
         cursor = cursor,
@@ -119,26 +159,29 @@ class DefaultVerificationRepository(
 
     override fun observeQueue(
         category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
         parkId: String?,
         shedId: String?,
         limit: Int?,
     ): Flow<Resource<VerificationQueueResponseDto>> {
-        val key = scopeKey(category, parkId, shedId, limit)
+        val key = scopeKey(category, status, businessDate, missed, parkId, shedId, limit)
         return queueDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
-        val dto = queue(category, parkId, shedId, limit, cursor = null)
-        val key = scopeKey(category, parkId, shedId, limit)
+    override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
+        val dto = queue(category, status, businessDate, missed, parkId, shedId, limit, cursor = null)
+        val key = scopeKey(category, status, businessDate, missed, parkId, shedId, limit)
         queueDao.upsert(VerificationQueueCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         queueDao.enforceCacheBounds()
     }
 
-    override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
+    override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = runCatching {
         appendMutex.withLock {
-            val key = scopeKey(category, parkId, shedId, limit)
+            val key = scopeKey(category, status, businessDate, missed, parkId, shedId, limit)
             val currentEntity = queueDao.get(key)
             val current = readCachedJson<VerificationQueueResponseDto>(
                 json = json,
@@ -151,7 +194,7 @@ class DefaultVerificationRepository(
             if (current.nextCursor != cursor) {
                 throw VerificationQueueCursorException("verification queue cursor is stale or belongs to another category")
             }
-            val page = queue(category, parkId, shedId, limit, cursor)
+            val page = queue(category, status, businessDate, missed, parkId, shedId, limit, cursor)
             if (page.nextCursor == cursor) {
                 throw VerificationQueueCursorException("verification queue backend returned a non-advancing cursor")
             }
@@ -244,14 +287,104 @@ class DefaultVerificationRepository(
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
     }
 
-    private fun scopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
-        cacheKey(VERIFY_QUEUE_CACHE_PREFIX, category, parkId, shedId, limit?.toString())
+    private fun scopeKey(
+        category: String?,
+        status: String?,
+        businessDate: String?,
+        missed: Boolean?,
+        parkId: String?,
+        shedId: String?,
+        limit: Int?,
+    ): String = cacheKey(
+        VERIFY_QUEUE_CACHE_PREFIX,
+        category,
+        status,
+        businessDate,
+        missed?.toString(),
+        parkId,
+        shedId,
+        limit?.toString(),
+    )
 
     private fun actionScopeKey(category: String?, limit: Int?): String =
         actionScopeKey(category, null, null, limit)
 
     private fun actionScopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
         cacheKey("verification-action-queue", category, parkId, shedId, limit?.toString())
+
+    override fun observeLeadershipVideos(
+        category: String?,
+        windowSize: Int,
+    ): Flow<List<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>> {
+        // Leadership sees full trail: status=all returns pending + approved + rejected + closed
+        return observeQueue(
+            category = category,
+            status = "all", // Backend's no-filter sentinel (handler.statusAll)
+            limit = windowSize,
+        ).map { resource ->
+            resource.data?.items?.mapIndexed { index, item ->
+                sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi(
+                    id = item.itemId,
+                    title = item.subjectLabel?.ifEmpty { "Proof ${index + 1}" } ?: "Proof ${index + 1}",
+                    status = item.status,
+                    statusLabel = formatStatus(item.status),
+                    statusTone = when (item.status.lowercase()) {
+                        "pending_verification", "pending" -> "neutral"
+                        "approved" -> "success"
+                        "rework" -> "error"
+                        "closed" -> "neutral"
+                        else -> "neutral"
+                    },
+                    timestamp = item.capturedAt?.takeIf { it.isNotEmpty() }
+                        ?.let { formatCapturedAt(it) } ?: "Unknown time",
+                    proofCount = (item.media.size).coerceAtLeast(1),
+                    videoUrls = item.media.map { it.downloadUrl },
+                    summary = item.subjectLabel.orEmpty(), // Use backend copy, no composition
+                    // The verifier's reason for sending it back. Backend-authored, rendered
+                    // verbatim -- leadership saw "rework" with no explanation without it.
+                    verdictReason = item.verdictReason?.takeIf { it.isNotBlank() },
+                )
+            }.orEmpty()
+        }
+    }
+
+    override fun observeLeadershipTitle(category: String?, windowSize: Int): Flow<String> =
+        observeQueue(category = category, status = "all", limit = windowSize)
+            .map { it.data?.filterOptions?.moduleLabel.orEmpty() }
+
+    override suspend fun refreshLeadershipVideos(
+        category: String?,
+        windowSize: Int,
+        reset: Boolean,
+    ): AppResult<Unit> =
+        // refreshQueue is runCatching-based: it NEVER throws, it returns the failure. Discarding
+        // that Result reported success on every failed fetch, so the gallery rendered its empty
+        // state with no error while nothing was ever cached. Propagate it.
+        refreshQueue(category = category, status = "all", limit = windowSize).fold(
+            onSuccess = { AppResult.Ok(Unit) },
+            onFailure = { AppResult.Err("Failed to refresh leadership videos", it) },
+        )
+
+    private fun formatStatus(status: String): String = when (status.lowercase()) {
+        "pending_verification", "pending" -> "Pending Review"
+        "approved" -> "Approved"
+        "rejected" -> "Sent back"
+        "rework" -> "Needs Rework"
+        "closed" -> "Closed"
+        else -> status
+    }
+
+    /**
+     * Farm-readable capture time in IST. A raw ISO instant ("2026-08-05T22:09:49.971Z") is
+     * machine copy and reached a leadership screen; Goat OS business meaning is always
+     * Asia/Kolkata, never UTC. Unparseable input falls back to the original string rather than
+     * blanking the row.
+     */
+    private fun formatCapturedAt(raw: String): String = runCatching {
+        java.time.Instant.parse(raw)
+            .atZone(java.time.ZoneId.of("Asia/Kolkata"))
+            .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a"))
+    }.getOrElse { raw }
 }
 
 class VerificationQueueCursorException(message: String) : IllegalStateException(message)

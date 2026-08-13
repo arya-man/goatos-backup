@@ -3,6 +3,7 @@ package sopbridge
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,19 +75,28 @@ func TestVaccinationSubmissionBridgeFailsZeroMaterializedCompletions(t *testing.
 type captureVerificationProducer struct {
 	calls int
 	last  verificationdomain.CreateItem
+	// items keeps EVERY create, not just the newest: proof is per animal, so one submission now
+	// raises one item per goat and a test that only inspects `last` cannot see the fan-out.
+	items []verificationdomain.CreateItem
 	err   error
 }
 
 func (p *captureVerificationProducer) CreateItem(_ context.Context, in verificationdomain.CreateItem) (verificationdomain.CreateItemResult, error) {
 	p.calls++
 	p.last = in
+	p.items = append(p.items, in)
 	if p.err != nil {
 		return verificationdomain.CreateItemResult{}, p.err
 	}
 	return verificationdomain.CreateItemResult{Item: verificationdomain.Item{ItemID: "item-1", TenantID: in.TenantID}, Created: true}, nil
 }
 
-func TestVaccinationSubmissionBridgeEmitsOneVerificationItemPerShedSubmissionWithAllClips(t *testing.T) {
+// TestVaccinationSubmissionBridgeEmitsOnePerAnimalVerificationItemWithAllItsClips is the per-animal
+// fan-out contract: proof is captured one clip per goat, so ONE goat's multiple clips still land in
+// ONE verification item -- but that item is now keyed to the ANIMAL (ref_type vaccination_goat), not
+// the whole shed submission, so a verifier's decision on this goat never touches any other goat's
+// evidence or obligation.
+func TestVaccinationSubmissionBridgeEmitsOnePerAnimalVerificationItemWithAllItsClips(t *testing.T) {
 	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
 	rec := &captureVaccinationRecorder{
 		count: 2,
@@ -127,13 +137,16 @@ func TestVaccinationSubmissionBridgeEmitsOneVerificationItemPerShedSubmissionWit
 	if producer.last.ParkID == nil || *producer.last.ParkID != "park-1" {
 		t.Fatalf("park id = %v, want park-1", producer.last.ParkID)
 	}
-	if producer.last.Source.RefType != "sop_submission" || producer.last.Source.RefID != "sub-1" {
-		t.Fatalf("source = %+v, want sop_submission/sub-1", producer.last.Source)
+	if producer.last.Source.RefType != "vaccination_goat" || producer.last.Source.RefID != "goat-1" {
+		t.Fatalf("source = %+v, want vaccination_goat/goat-1", producer.last.Source)
+	}
+	if producer.last.Source.SubmissionID == nil || *producer.last.Source.SubmissionID != "sub-1" {
+		t.Fatalf("source submission id = %v, want sub-1 (grouping key)", producer.last.Source.SubmissionID)
 	}
 	if !producer.last.CapturedAt.Equal(administeredAt) {
 		t.Fatalf("captured at = %s, want operator administered_at %s", producer.last.CapturedAt, administeredAt)
 	}
-	if producer.last.IdempotencyKey != "vaccination:submission:sub-1" {
+	if producer.last.IdempotencyKey != "vaccination:submission:sub-1:goat:goat-1" {
 		t.Fatalf("idempotency key = %q", producer.last.IdempotencyKey)
 	}
 }
@@ -178,8 +191,8 @@ func TestVaccinationSubmissionBridgeUsesShedLevelVideoForOneShedVerificationItem
 	rec := &captureVaccinationRecorder{
 		count: 2,
 		completions: []vaccinationdomain.SubmissionCompletion{
-			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ParkID: "park-1", AdministeredAt: administeredAt},
-			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Godel 2 - Part 4", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ShedLabel: "Godel 2 - Part 4", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
 		},
 	}
 	producer := &captureVerificationProducer{}
@@ -204,6 +217,79 @@ func TestVaccinationSubmissionBridgeUsesShedLevelVideoForOneShedVerificationItem
 	if producer.last.Source.RefType != "sop_submission" || producer.last.Source.RefID != "sub-1" {
 		t.Fatalf("source = %+v, want one shed submission verification item", producer.last.Source)
 	}
+	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "Godel 2 - Part 4 · 2 goats" {
+		t.Fatalf("subject label = %v, want shed/partition context", producer.last.SubjectLabel)
+	}
+}
+
+func TestVaccinationSubmissionBridgeLabelsGroupedShedSubmissionHonestly(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 3,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Godel 1", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-2", ShedLabel: "Godel 2 - Part 4", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+			{CompletionID: "completion-3", SubmissionID: "sub-1", GoatID: "goat-3", ShedID: "shed-3", ShedLabel: "Mandela 2", ParkID: "park-1", AdministeredAt: administeredAt.Add(2 * time.Minute)},
+		},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		ProofRefs:    []sopdomain.ProofReference{{ProofID: "group-video", SubjectType: "shed"}},
+	}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "3 sheds · 3 goats" {
+		t.Fatalf("subject label = %v, want grouped shed context", producer.last.SubjectLabel)
+	}
+}
+
+// An unresolvable shed must be OMITTED from the subject, never replaced by its id.
+//
+// This test previously asserted the opposite -- that a blank/partition-only shed label falls back
+// to completion.ShedID ("shed-1 · 1 goats"). The fixture's readable "shed-1" hid what that rule
+// does in production, where ShedID is a UUID: it renders "c9145aa4-90d2-5185-8ec3-5b79e13e711b ·
+// 11 goats" to the verifier. mock/verifier-web-mock.SPEC.md section 5 bans that outright ("Never
+// render a UUID as a label. If subject_label / shed_label is null, that is a backend/seed bug to
+// fix -- not something to paper over by printing the id"), and it matters more now that the label
+// LEADS with the shed. The assertion below is the spec's behaviour.
+func TestVaccinationSubmissionBridgeDoesNotEmitBarePartitionLabel(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 1,
+		completions: []vaccinationdomain.SubmissionCompletion{{
+			CompletionID:   "completion-1",
+			SubmissionID:   "sub-1",
+			GoatID:         "goat-1",
+			ShedID:         "shed-1",
+			ShedLabel:      " - Part 4",
+			ParkID:         "park-1",
+			AdministeredAt: administeredAt,
+		}},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		ProofRefs:    []sopdomain.ProofReference{{ProofID: "shed-video", SubjectType: "shed"}},
+	}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	got := ""
+	if producer.last.SubjectLabel != nil {
+		got = *producer.last.SubjectLabel
+	}
+	if got != "1 goats" {
+		t.Fatalf("subject label = %q, want the unresolvable shed dropped entirely, not printed as an id", got)
+	}
+	if strings.Contains(got, "shed-1") {
+		t.Fatalf("subject label = %q leaked the raw shed id; SPEC section 5 forbids rendering an id as a label", got)
+	}
 }
 
 func TestVaccinationSubmissionBridgeFailsWhenScannedGoatHasNoCameraProof(t *testing.T) {
@@ -219,6 +305,41 @@ func TestVaccinationSubmissionBridgeFailsWhenScannedGoatHasNoCameraProof(t *test
 	producer := &captureVerificationProducer{}
 	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
 	submission := sopdomain.SubmissionSummary{SubmissionID: "sub-1", SubmittedBy: "operator-1"}
+	err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission)
+	if !errors.Is(err, ErrMissingGoatProof) {
+		t.Fatalf("err = %v, want ErrMissingGoatProof", err)
+	}
+	if producer.calls != 0 {
+		t.Fatalf("verification producer calls = %d, want 0", producer.calls)
+	}
+}
+
+func TestVaccinationSubmissionBridgeFailsWhenAnyScannedGoatLacksCameraProof(t *testing.T) {
+	rec := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{
+				CompletionID:   "completion-1",
+				SubmissionID:   "sub-1",
+				GoatID:         "goat-1",
+				AdministeredAt: time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC),
+			},
+			{
+				CompletionID:   "completion-2",
+				SubmissionID:   "sub-1",
+				GoatID:         "goat-2",
+				AdministeredAt: time.Date(2026, 7, 13, 8, 1, 0, 0, time.UTC),
+			},
+		},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	goatID := "goat-1"
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-1",
+		SubmittedBy:  "operator-1",
+		ProofRefs:    []sopdomain.ProofReference{{ProofID: "proof-goat-1", SubjectType: "goat", SubjectID: &goatID}},
+	}
 	err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission)
 	if !errors.Is(err, ErrMissingGoatProof) {
 		t.Fatalf("err = %v, want ErrMissingGoatProof", err)
@@ -260,3 +381,106 @@ func TestVaccinationSubmissionBridgeFailsClosedOnVerificationError(t *testing.T)
 // unreachable in the intended shape for this offline-first submit flow. The reachable in_progress
 // trigger now lives entirely in obligation.Repository.MarkCompleted's sibling-transition logic; see
 // backend/internal/obligation/adapters/postgres/inprogress_integration_test.go for its proof.
+
+// TestVaccinationSubmissionBridgeDropsForeignShedProofRefsFromCumulativePayload is the adversarial
+// two-shed regression for the media_refs shed leak: the Android client posts a CUMULATIVE payload,
+// so by the Nth shed submission of a shared parent task it re-sends every earlier shed's goat
+// proof_refs. sop_submission_items is already narrowed server-side to goats whose goats.shed_id
+// matches the submission's shed subject; verification_items.media_refs was NOT, so a verifier
+// reviewing shed B was shown shed A's animals as evidence. media_refs must carry only the proofs of
+// goats that actually belong to this submission's shed.
+func TestVaccinationSubmissionBridgeDropsForeignShedProofRefsFromCumulativePayload(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	goatA1, goatA2 := "goat-a1", "goat-a2"
+	goatB1, goatB2 := "goat-b1", "goat-b2"
+	shedA, shedB := "shed-a", "shed-b"
+
+	// Submission 2 of the parent task: server fanout materialized ONLY shed B's completions
+	// (the shed filter did its job), but the client payload still carries shed A's proofs.
+	rec := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "c-b1", SubmissionID: "sub-2", GoatID: goatB1, ShedID: shedB, ShedLabel: "Mandela 2", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "c-b2", SubmissionID: "sub-2", GoatID: goatB2, ShedID: shedB, ShedLabel: "Mandela 2", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+		},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-2",
+		SubmittedBy:  "operator-1",
+		ProofRefs: []sopdomain.ProofReference{
+			{ProofID: "proof-a1", SubjectType: "goat", SubjectID: &goatA1}, // shed A - foreign
+			{ProofID: "proof-a2", SubjectType: "goat", SubjectID: &goatA2}, // shed A - foreign
+			{ProofID: "proof-b1", SubjectType: "goat", SubjectID: &goatB1},
+			{ProofID: "proof-b2", SubjectType: "goat", SubjectID: &goatB2},
+			{ProofID: "shed-video-a", SubjectType: "shed", SubjectID: &shedA}, // shed A - foreign
+			{ProofID: "shed-video-b", SubjectType: "shed", SubjectID: &shedB},
+		},
+	}
+	task := sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", task, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	// Per-animal fan-out: shed B's two goats each raise their own item, and shed B's own group
+	// clip raises one shed-grain item. The leak assertions below are what actually matter and are
+	// unchanged in substance -- no foreign proof may appear on ANY of them.
+	if producer.calls != 3 {
+		t.Fatalf("verification producer calls = %d, want 3 (one per shed-B goat plus shed B's group clip)", producer.calls)
+	}
+	got := map[string]bool{}
+	for _, item := range producer.items {
+		for _, ref := range item.MediaRefs {
+			got[ref] = true
+		}
+		if item.Source.RefType == "vaccination_goat" && item.Source.RefID != goatB1 && item.Source.RefID != goatB2 {
+			t.Fatalf("raised a per-animal item for %q, which is not a member of this submission", item.Source.RefID)
+		}
+	}
+	for _, foreign := range []string{"proof-a1", "proof-a2", "shed-video-a"} {
+		if got[foreign] {
+			t.Fatalf("media_refs leaked foreign-shed proof %q across items %+v", foreign, producer.items)
+		}
+	}
+	for _, own := range []string{"proof-b1", "proof-b2", "shed-video-b"} {
+		if !got[own] {
+			t.Fatalf("media_refs dropped own-shed proof %q across items %+v", own, producer.items)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("media refs across items = %v, want exactly shed B's 3 proofs", got)
+	}
+
+	// Mirror image: the shed A submission must carry ONLY shed A's proofs.
+	recA := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "c-a1", SubmissionID: "sub-1", GoatID: goatA1, ShedID: shedA, ShedLabel: "Castro 1", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "c-a2", SubmissionID: "sub-1", GoatID: goatA2, ShedID: shedA, ShedLabel: "Castro 1", ParkID: "park-1", AdministeredAt: administeredAt},
+		},
+	}
+	producerA := &captureVerificationProducer{}
+	bridgeA := NewVaccinationSubmissionBridge(recA).WithVerificationProducer(producerA)
+	submissionA := submission
+	submissionA.SubmissionID = "sub-1"
+	if err := bridgeA.OnTaskSubmitted(context.Background(), "tenant-1", task, submissionA); err != nil {
+		t.Fatalf("shed A submit: %v", err)
+	}
+	gotA := map[string]bool{}
+	for _, item := range producerA.items {
+		for _, ref := range item.MediaRefs {
+			gotA[ref] = true
+		}
+		if item.Source.RefType == "vaccination_goat" && item.Source.RefID != goatA1 && item.Source.RefID != goatA2 {
+			t.Fatalf("shed A raised a per-animal item for %q, which belongs to another shed", item.Source.RefID)
+		}
+	}
+	for _, foreign := range []string{"proof-b1", "proof-b2", "shed-video-b"} {
+		if gotA[foreign] {
+			t.Fatalf("shed A media_refs leaked shed B proof %q across items %+v", foreign, producerA.items)
+		}
+	}
+	if len(gotA) != 3 {
+		t.Fatalf("shed A media refs across items = %v, want exactly shed A's 3 proofs", gotA)
+	}
+}

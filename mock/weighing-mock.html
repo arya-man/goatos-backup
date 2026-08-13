@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Mesha · Weighing — Android Mock</title>
+<style>
+:root{
+  --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --page:#090D0B;--bg:#0B100D;--surf:#141B16;--surf2:#1B241E;--surf3:#232E27;--hair:#26332B;
+  --ink:#ECF4EE;--muted:#8FA497;--faint:#5F7367;
+  --brand:#8AD457;--brand-d:#B7EA8C;
+  --grad:linear-gradient(135deg,#93DA5E,#5FB531);
+  --glow:0 6px 20px rgba(95,181,49,.26);
+  --ok:#8AD457;--okx:rgba(138,212,87,.15);
+  --warn:#F0B54B;--warnx:rgba(240,181,75,.14);
+  --danger:#FB6F63;--dangerx:rgba(251,111,99,.14);
+  --teal:#57C9B0;--tealx:rgba(87,201,176,.15);
+  --purple:#A98BF5;--purplex:rgba(169,139,245,.14);
+  --info:#5E9BE8;--infox:rgba(94,155,232,.14);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--f);color:var(--ink);-webkit-font-smoothing:antialiased;font-size:14px;line-height:1.5;
+  background:radial-gradient(900px 480px at 88% -12%,rgba(138,212,87,.07),transparent 60%),var(--page)}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#26332B;border-radius:20px}
+button{font-family:inherit}
+.tnum{font-variant-numeric:tabular-nums}
+
+.topbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;padding:11px 22px;
+  background:rgba(9,13,11,.8);backdrop-filter:blur(18px);border-bottom:1px solid var(--hair)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:750;letter-spacing:-.3px;font-size:14px}
+.logo{width:31px;height:31px;border-radius:10px;display:grid;place-items:center;background:var(--grad);color:#08130B;font-weight:900;font-size:15px}
+.brand small{display:block;font-size:10px;font-weight:550;color:var(--muted);letter-spacing:0}
+.rsw{margin-left:auto;display:flex;gap:4px;background:var(--surf);border:1px solid var(--hair);border-radius:12px;padding:3px}
+.rsw button{border:0;background:transparent;color:var(--muted);font-weight:700;font-size:12px;padding:7px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.rsw button.on{background:var(--grad);color:#08130B}
+
+.wrap{display:grid;grid-template-columns:1fr 372px;gap:48px;max-width:1040px;margin:0 auto;padding:26px 24px 40px;align-items:start}
+.lede h2{font-size:20px;font-weight:780;letter-spacing:-.45px;margin:0 0 8px}
+.lede p{color:var(--muted);font-size:13px;margin:0 0 26px;max-width:400px}
+.try{border:1px solid var(--hair);border-radius:15px;background:var(--surf);padding:16px 18px;margin-bottom:14px;max-width:420px}
+.try h4{margin:0;font-size:13px;font-weight:750;display:flex;align-items:center;gap:9px}
+.try p{margin:9px 0 0;font-size:12px;color:var(--muted);line-height:1.65}
+.try p b{color:var(--ink);font-weight:650}
+.try button{margin-top:14px;width:100%;border:1px solid var(--hair);background:var(--bg);color:var(--brand-d);font-weight:700;font-size:12px;padding:10px;border-radius:11px;cursor:pointer}
+.try button:hover{border-color:var(--brand)}
+.foot{font-size:11.5px;color:var(--faint);max-width:420px;margin-top:20px;line-height:1.7}
+
+/* ---------- phone ---------- */
+.phone{width:372px;height:min(748px,calc(100vh - 96px));min-height:600px;background:#030604;border-radius:46px;padding:10px;position:sticky;top:70px;justify-self:end;
+  box-shadow:0 34px 70px rgba(0,0,0,.5),inset 0 0 0 2px #1b241e}
+.scr{width:100%;height:100%;background:var(--bg);border-radius:37px;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.notch{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:100px;height:24px;background:#030604;border-radius:14px;z-index:31}
+.sbar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:11px;font-weight:700;z-index:30}
+.vhead{padding:42px 18px 12px;display:flex;align-items:center;gap:11px;flex:0 0 auto}
+.vhead .bk{width:29px;height:29px;border-radius:9px;border:1px solid var(--hair);background:var(--surf);color:var(--muted);cursor:pointer;font-size:15px;display:none;align-items:center;justify-content:center;flex:0 0 auto}
+.vhead.sub .bk{display:flex}
+.vhead .eb{font-size:10px;font-weight:750;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.vhead h3{margin:3px 0 0;font-size:17px;font-weight:780;letter-spacing:-.35px}
+.rchip{margin-left:auto;font-size:9.5px;font-weight:750;padding:5px 9px;border-radius:999px;background:var(--okx);color:var(--brand-d);white-space:nowrap;flex:0 0 auto}
+.av{width:32px;height:32px;border-radius:50%;background:var(--grad);display:grid;place-items:center;color:#08130B;font-weight:800;font-size:12.5px;margin-left:auto;flex:0 0 auto}
+.vscroll{flex:1;overflow:auto}
+.vscroll::-webkit-scrollbar{width:0}
+.view{display:none}.view.on{display:block;padding-bottom:20px}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:750;padding:4px 9px;border-radius:7px;white-space:nowrap;flex:none}
+.pill.ok{background:var(--okx);color:var(--brand-d)}
+.pill.warn{background:var(--warnx);color:var(--warn)}
+.pill.dng{background:var(--dangerx);color:var(--danger)}
+.pill.mut{background:var(--surf3);color:var(--muted)}
+.pill.teal{background:var(--tealx);color:var(--teal)}
+.pill.info{background:var(--infox);color:var(--info)}
+.pill.live{background:var(--infox);color:var(--info)}
+.pill.live::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;animation:pl 1.2s infinite}
+@keyframes pl{50%{opacity:.3}}
+.cat{display:inline-flex;font-size:9.5px;font-weight:800;padding:3px 7px;border-radius:6px;white-space:nowrap}
+.cat.ind{background:var(--infox);color:var(--info)}
+.cat.lump{background:var(--purplex);color:var(--purple)}
+
+/* week chips */
+.wkrow{display:flex;gap:8px;overflow-x:auto;padding:0 18px 4px}
+.wkrow::-webkit-scrollbar{height:0}
+.wkc{flex:0 0 auto;cursor:pointer;border:1px solid var(--hair);background:var(--surf);border-radius:12px;padding:9px 13px;min-width:96px}
+.wkc.on{border-color:transparent;background:var(--grad);box-shadow:var(--glow)}
+.wkc .l{font-size:9px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.wkc .d{font-size:12px;font-weight:750;margin:4px 0 8px;white-space:nowrap}
+.wkc.on .l,.wkc.on .d{color:#08130B}
+.wkc.on .pill{background:rgba(8,19,11,.18);color:#08130B}
+.wkc.on .pill.live::before{background:#08130B}
+
+/* weekday strip */
+.week{display:flex;gap:6px;padding:0 18px}
+.week .d{flex:1;text-align:center;padding:9px 0;border-radius:12px;background:var(--surf);border:1px solid var(--hair);cursor:pointer}
+.week .d .dn{font-size:9px;color:var(--faint);font-weight:750;text-transform:uppercase}
+.week .d .dd{font-size:14px;font-weight:750;margin-top:3px}
+.week .d.today{background:var(--grad);border-color:transparent;box-shadow:var(--glow)}
+.week .d.today .dn,.week .d.today .dd{color:#08130B}
+.week .d.has{position:relative}
+.week .d.has::after{content:"";position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--brand)}
+.week .d.today.has::after{background:#0a1206}
+
+/* section label — generous space above */
+.lt{font-size:10px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);padding:26px 18px 10px}
+.lt:first-child{padding-top:14px}
+
+/* cards */
+.card{margin:0 18px 12px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:17px 18px}
+.card .ch{display:flex;align-items:center;gap:9px}
+.card .ch .sp{flex:1}
+.card h4{margin:14px 0 0;font-size:15.5px;font-weight:750;letter-spacing:-.2px}
+.card .cs{font-size:11.5px;color:var(--muted);margin-top:6px}
+.tapc{cursor:pointer;transition:border-color .15s}
+.tapc:hover{border-color:#36483a}
+.tapc .go{font-size:12px;color:var(--brand-d);font-weight:700;margin-top:16px}
+
+/* metric block — replaces cramped rings */
+.metric{margin-top:20px}
+.metric+.metric{margin-top:22px;padding-top:22px;border-top:1px solid var(--hair)}
+.mh{display:flex;align-items:baseline;gap:9px}
+.mh .mv{margin-left:auto;font-size:19px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.mh .mv span{font-size:12px;color:var(--muted);font-weight:600}
+.mbar{height:8px;border-radius:20px;background:#0C110E;margin-top:11px;display:flex;gap:2px;padding:1px;overflow:hidden}
+.mbar i{border-radius:20px;transition:width .5s cubic-bezier(.3,.8,.3,1)}
+.b-ok{background:var(--grad)}.b-lump{background:linear-gradient(135deg,#BCA6FF,#8B6BE0)}
+.b-pend{background:var(--warn);opacity:.55}.b-unav{background:var(--purple);opacity:.4}
+.mleg{font-size:11px;color:var(--muted);margin-top:10px}
+.mleg b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* banner */
+.banner{margin:0 18px 12px;padding:13px 15px;border-radius:14px;background:var(--surf);border:1px solid var(--hair);font-size:11.5px;color:var(--muted);line-height:1.6}
+.banner b{color:var(--ink);font-weight:700}
+.banner.blue{border-color:rgba(94,155,232,.3)}
+.banner.green{border-color:rgba(87,201,176,.3)}
+.banner.amber{border-color:rgba(240,181,75,.3)}
+
+/* rows */
+.fgrp{margin:0 18px 12px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;overflow:hidden}
+.frow{display:flex;align-items:center;gap:12px;padding:14px 16px}
+.frow+.frow{border-top:1px solid var(--hair)}
+.fk{font-size:12px;color:var(--muted)}
+.fv{margin-left:auto;font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+
+/* buttons */
+.btn{display:block;width:calc(100% - 36px);margin:16px 18px 0;border:0;border-radius:14px;padding:14px;font-weight:750;font-size:13.5px;cursor:pointer;background:var(--grad);color:#08130B;box-shadow:var(--glow)}
+.btn:active{transform:scale(.99)}
+.btn:disabled{background:var(--surf3);color:var(--faint);box-shadow:none;cursor:not-allowed}
+.btn.ghost{background:transparent;border:1px solid var(--hair);color:var(--muted);box-shadow:none}
+.btnrow{display:flex;gap:10px;margin:18px 18px 0}
+.btnrow .btn{margin:0;width:auto;flex:1}
+.blockmsg{margin:11px 18px 0;font-size:11px;color:var(--warn);text-align:center}
+
+/* wizard */
+.stepper{display:flex;gap:5px;padding:6px 18px 20px}
+.stepper i{flex:1;height:3px;border-radius:20px;background:var(--surf3)}
+.stepper i.on{background:var(--grad)}
+.wlab{font-size:9.5px;font-weight:800;color:var(--brand-d);text-transform:uppercase;letter-spacing:.11em;padding:0 18px}
+.wtit{font-size:19px;font-weight:780;letter-spacing:-.45px;margin:7px 18px 0}
+.wsub{font-size:12px;color:var(--muted);margin:9px 18px 22px;line-height:1.6}
+.opt{display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid var(--hair);border-radius:14px;margin:0 18px 10px;background:var(--surf);cursor:pointer}
+.opt.sel{border-color:var(--brand);background:rgba(138,212,87,.07)}
+.opt.dis{opacity:.38;cursor:not-allowed}
+.opt .cb{width:21px;height:21px;border-radius:7px;border:1.5px solid var(--hair);flex:0 0 auto;display:grid;place-items:center;color:transparent;font-size:12px;font-weight:800}
+.opt.sel .cb{background:var(--grad);border-color:transparent;color:#08130B}
+.opt .rb{width:19px;height:19px;border-radius:50%;border:1.5px solid var(--hair);flex:0 0 auto;position:relative}
+.opt.sel .rb{border-color:var(--brand)}
+.opt.sel .rb::after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--grad)}
+.opt .ot{font-size:13px;font-weight:700}
+.opt .os{font-size:11px;color:var(--muted);margin-top:3px}
+.opt .cnt{margin-left:auto;font-size:12px;font-weight:750;color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.opt.sel .cnt{color:var(--brand-d)}
+.catseg{display:flex;gap:3px;background:var(--bg);border:1px solid var(--hair);border-radius:9px;padding:3px;margin-top:12px}
+.catseg button{flex:1;border:0;background:transparent;color:var(--faint);font-size:10px;font-weight:750;padding:7px 4px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.catseg button.on.i{background:var(--infox);color:var(--info)}
+.catseg button.on.l{background:var(--purplex);color:var(--purple)}
+.tot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-radius:14px;background:var(--surf2);margin:16px 18px 0}
+.tot b{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;display:block}
+.tot .tl2{font-size:10px;color:var(--muted);font-weight:650;margin-top:3px}
+.dayg{margin:0 18px 10px;border:1px solid var(--hair);border-radius:14px;padding:14px 16px;background:var(--surf)}
+.dayg .h{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:750}
+.dayg .h .n{margin-left:auto;font-weight:800;color:var(--brand-d);font-variant-numeric:tabular-nums}
+.dayg .s{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+
+/* scan */
+.ringwrap{position:relative;width:132px;height:132px;margin:20px auto 0;display:grid;place-items:center}
+.ringwrap svg{position:absolute;inset:0;width:132px;height:132px;transform:rotate(-90deg)}
+.ringwrap .rbg{fill:none;stroke:var(--surf2);stroke-width:9}
+.ringwrap .rfg{fill:none;stroke:var(--brand);stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .5s ease}
+.ringc{position:relative;text-align:center}
+.ringc .n{font-size:31px;font-weight:820;letter-spacing:-1.3px;font-variant-numeric:tabular-nums;line-height:1}
+.ringc .n small{font-size:14px;color:var(--muted);font-weight:750}
+.ringc .lb{font-size:9px;color:var(--muted);font-weight:750;text-transform:uppercase;letter-spacing:.1em;margin-top:6px}
+.taphint{display:flex;align-items:center;gap:11px;margin:22px 18px 0;padding:12px 14px;border:1px solid var(--hair);border-radius:13px;background:var(--surf);font-size:11.5px;color:var(--muted);line-height:1.5}
+.taphint .bt{width:26px;height:26px;border-radius:8px;background:var(--infox);color:var(--info);display:grid;place-items:center;flex:0 0 auto;font-size:12px}
+.taphint b{color:var(--ink);font-weight:700}
+.qchips{display:flex;gap:9px;margin:12px 18px 0}
+.qc{flex:1;border:1px solid var(--hair);border-radius:13px;padding:12px 6px;text-align:center;background:var(--surf)}
+.qc b{font-size:19px;font-weight:820;display:block;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.qc span{font-size:9px;color:var(--muted);font-weight:750;text-transform:uppercase;letter-spacing:.03em}
+.qc.ok b{color:var(--brand-d)}.qc.pd b{color:var(--warn)}.qc.of b{color:var(--info)}
+.capbox{margin:22px 18px 0;border:1.5px dashed var(--brand);border-radius:15px;padding:16px;background:rgba(138,212,87,.06)}
+.capbox.wait{border-color:var(--hair);background:var(--surf)}
+.capbox .cr{font-family:var(--mono);font-size:13px;font-weight:750;text-align:center;letter-spacing:.3px}
+.capstep{display:flex;gap:6px;margin-top:14px}
+.cstep{flex:1;text-align:center;font-size:9px;font-weight:750;color:var(--faint);padding:6px 2px;border-radius:7px;background:var(--bg);border:1px solid var(--hair)}
+.cstep.on{color:var(--brand-d);border-color:var(--brand)}
+.cstep.ok{color:var(--brand-d);background:var(--okx);border-color:transparent}
+.capin{display:flex;gap:9px;margin-top:12px}
+.wgin{flex:1;display:flex;align-items:center;background:var(--bg);border:1px solid var(--hair);border-radius:11px;padding:0 13px}
+.wgin input{flex:1;background:transparent;border:0;color:var(--ink);font:inherit;font-weight:750;font-size:15px;padding:11px 0;outline:none;font-variant-numeric:tabular-nums;min-width:0}
+.wgin input::placeholder{color:var(--faint);font-weight:600}
+.wgin .u{font-size:11.5px;color:var(--muted);font-weight:750}
+.vbtn{width:50px;border:1px solid var(--hair);background:var(--surf2);border-radius:11px;cursor:pointer;display:grid;place-items:center;font-size:17px;color:var(--muted)}
+.vbtn.done{border-color:var(--brand);color:var(--brand);background:var(--okx)}
+.savebtn{width:100%;margin-top:12px;border:0;border-radius:11px;padding:12px;font-weight:750;font-size:12px;cursor:pointer;background:var(--grad);color:#08130B}
+.savebtn:disabled{background:var(--surf3);color:var(--faint);cursor:not-allowed}
+.simh{font-size:10px;color:var(--faint);text-align:center;margin-top:14px;line-height:1.8}
+.simh input{background:var(--bg);border:1px solid var(--hair);border-radius:8px;color:var(--ink);font:inherit;font-size:10.5px;padding:7px 9px;width:158px;text-align:center;outline:none}
+.simh input:focus{border-color:var(--brand)}
+.proofbox{margin:0 18px;border:1.5px dashed var(--purple);border-radius:15px;padding:24px 16px;background:rgba(169,139,245,.05);text-align:center;cursor:pointer}
+.proofbox.read{border-style:solid;background:var(--okx);border-color:var(--brand)}
+.proofbox .ic{font-size:21px}
+.proofbox b{display:block;font-size:12.5px;font-weight:750;margin-top:9px}
+.proofbox span{display:block;font-size:10.5px;color:var(--muted);margin-top:4px}
+
+/* roster */
+.slist{list-style:none;margin:0;padding:0 18px}
+.slist li{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--hair);border-radius:13px;margin-bottom:9px;background:var(--surf)}
+.slist li.mism{border-color:rgba(94,155,232,.35)}
+.slist .tk{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:13px;flex:0 0 auto;background:var(--surf3)}
+.slist .tk.ok{background:var(--okx);color:var(--brand-d)}
+.slist .id{font-family:var(--mono);font-size:11.5px;font-weight:750}
+.slist .sub{font-size:10px;color:var(--muted);margin-top:3px}
+.slist .end{margin-left:auto;text-align:right;flex:0 0 auto}
+.slist .wt{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.slist .wt small{font-size:9.5px;color:var(--muted);font-weight:600}
+.mp{font-size:8.5px;font-weight:750;padding:2px 6px;border-radius:999px;display:inline-block;white-space:nowrap;margin-top:4px}
+.mp.acc{color:var(--brand-d);background:var(--okx)}
+.mp.up{color:var(--info);background:var(--infox)}
+.mp.pl{color:var(--warn);background:var(--warnx)}
+
+/* success */
+.succ{text-align:center;padding:44px 26px 0}
+.succ .ic{width:66px;height:66px;border-radius:50%;background:var(--grad);color:#08130B;font-size:30px;display:grid;place-items:center;margin:0 auto 20px;box-shadow:var(--glow)}
+.succ h2{font-size:20px;font-weight:790;margin:0;letter-spacing:-.4px}
+.succ p{font-size:12px;color:var(--muted);margin:11px 0 0;line-height:1.65}
+
+/* timeline */
+.tl{margin:0 18px}
+.tl .ev{display:flex;gap:13px;padding-bottom:20px;position:relative}
+.tl .ev:not(:last-child)::before{content:"";position:absolute;left:12px;top:28px;bottom:0;width:1.5px;background:var(--hair)}
+.tl .dot{width:25px;height:25px;border-radius:50%;background:var(--surf2);border:1px solid var(--hair);display:grid;place-items:center;font-size:10px;flex:0 0 auto;z-index:1}
+.tl .dot.on{background:var(--okx);border-color:transparent}
+.tl .dot.now{background:var(--infox);border-color:transparent}
+.tl .tx{font-size:12.5px;font-weight:700;line-height:1.4}
+.tl .tsub{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5}
+.tl .tm{font-size:10px;color:var(--faint);font-weight:650;margin-top:6px}
+
+/* header icon buttons */
+.ib{width:36px;height:36px;border-radius:11px;background:var(--surf2);display:grid;place-items:center;color:var(--muted);flex:none;cursor:pointer;border:0;font-size:15px}
+.ib:active{filter:brightness(1.3)}
+.ib.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* module drawer — L0 only */
+.ovl{position:absolute;top:0;right:0;bottom:0;left:0;z-index:60;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
+.ovl.open{opacity:1;visibility:visible}
+.ovl .vl{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(4,8,6,.62)}
+.draw{position:absolute;top:0;left:0;bottom:0;width:262px;max-width:82%;background:var(--surf);border-right:1px solid var(--hair);
+  box-shadow:10px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column;transform:translateX(-102%);transition:transform .26s ease}
+.ovl.open .draw{transform:none}
+.draw .dp{padding:26px 18px 16px;background:linear-gradient(160deg,rgba(138,212,87,.16),transparent);border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:12px}
+.draw .dp .dav{width:44px;height:44px;border-radius:14px;background:var(--grad);color:#08130B;display:grid;place-items:center;font-weight:800;font-size:17px;flex:none}
+.draw .dp b{font-size:15px;font-weight:770;display:block}
+.draw .dp span{font-size:11px;color:var(--muted)}
+.draw .ds{flex:1;overflow-y:auto}
+.draw .ds::-webkit-scrollbar{width:0}
+.dgrp{font-size:10px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:16px 18px 6px}
+.di{display:flex;align-items:center;gap:13px;padding:12px 18px;font-size:14px;font-weight:650;color:var(--ink);cursor:pointer}
+.di .dic{width:20px;text-align:center;color:var(--muted);flex:none;font-size:14px}
+.di .sp{flex:1}
+.di.on{color:var(--brand-d);background:rgba(138,212,87,.1);box-shadow:inset 3px 0 0 var(--brand)}
+.di.on .dic{color:var(--brand)}
+.di.soon{color:var(--faint);cursor:default}
+.di.soon .dic{color:var(--faint)}
+.di .badge{font-size:9px;font-weight:750;padding:3px 8px;border-radius:999px;background:var(--surf3);color:var(--muted)}
+.di .badge.gr{background:var(--okx);color:var(--brand-d)}
+.draw .df{border-top:1px solid var(--hair);padding:6px 0 12px}
+
+/* L1+ drill: no root chrome */
+.scr.drill .vnav{display:none}
+.scr.drill .fab{display:none}
+
+/* floating action button */
+.fab{position:absolute;right:16px;bottom:74px;z-index:20;display:none;align-items:center;gap:8px;
+  border:0;border-radius:16px;padding:13px 17px;font-weight:750;font-size:12.5px;cursor:pointer;
+  background:var(--grad);color:#08130B;box-shadow:0 8px 24px rgba(95,181,49,.42),0 2px 6px rgba(0,0,0,.4)}
+.fab.on{display:flex}
+.fab span{font-size:16px;font-weight:600;line-height:1}
+.fab:active{transform:scale(.96)}
+
+.vnav{display:flex;align-items:center;justify-content:space-around;padding:8px 10px 13px;background:rgba(20,27,22,.94);backdrop-filter:blur(12px);border-top:1px solid var(--hair);flex:none}
+.tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:9px;font-weight:700;color:var(--faint);padding:2px 6px;border-radius:12px;cursor:pointer;background:none;border:0}
+.tab .tabind{display:flex;align-items:center;justify-content:center;padding:4px 17px;border-radius:999px;transition:background .18s;font-size:17px}
+.tab.on{color:var(--brand)}
+.tab.on .tabind{background:rgba(138,212,87,.18)}
+.tab span:last-child{white-space:nowrap}
+
+@media(max-width:900px){.wrap{grid-template-columns:1fr;gap:32px}.phone{justify-self:center;position:relative;top:0}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="logo">मे</span><span>Mesha<small>Weighing · Android</small></span></div>
+  <div class="rsw">
+    <button id="t-lead" class="on" onclick="showRole('lead')">Leadership</button>
+    <button id="t-op" onclick="showRole('op')">Operator · Amit</button>
+  </div>
+</div>
+
+<!-- ============ LEADERSHIP ============ -->
+<div id="s-lead" class="stage on" style="display:block">
+<div class="wrap">
+  <div class="lede">
+    <h2>Leadership · plan &amp; track</h2>
+    <p>Kids only, once a week over 3 days. Pick the sheds and set each shed's category, then watch it run.</p>
+
+    <div class="try">
+      <h4>Campaign lifecycle</h4>
+      <p>Tap the week chips to move through every state — <b>completed</b> (Wk 29), <b>delayed</b> (Wk 30), <b>live</b> (Wk 31), <b>published, not started</b> (Wk 32), <b>no task</b> (Wk 33).</p>
+      <button onclick="selWeek('w31')">Show live tracking</button>
+    </div>
+
+    <div class="try">
+      <h4>Create the week's task</h4>
+      <p>Five steps: kids lane → park → <b>sheds + category per shed</b> → 3-day plan → assign Amit. Week 33 has no task — the button reads <b>New task</b> there.</p>
+      <button onclick="selWeek('w33');leadHome();startWiz('new')">Create for Week 33</button>
+    </div>
+
+    <div class="try">
+      <h4>Leftover sheds get their own task</h4>
+      <p>A park may hold several tasks in one week: the capture category is chosen per shed, so leadership plans some sheds lump-sum now and the leftover sheds as a separate task. Only the individual sheds another task already holds are locked, with the reason on the row.</p>
+      <button onclick="selWeek('w31');leadHome();startWiz('new')">Try planning the leftover sheds</button>
+    </div>
+
+    <p class="foot">Operator submissions update this view. Switch to Operator, submit a shed, then come back — Week 31's counters, shed rows and activity feed all move.</p>
+  </div>
+
+  <div class="phone"><div class="scr">
+    <div class="sbar"><span>2:15</span><span>••• 🔋</span></div>
+    <div class="notch"></div>
+    <div class="vhead" id="lHead">
+      <button class="ib" id="lLead" onclick="lNavBtn()">☰</button>
+      <div style="min-width:0"><div class="eb" id="lEb">Weighing</div><h3 id="lTitle">Plan</h3></div>
+      <span style="flex:1"></span>
+      <button class="ib" id="lSync" onclick="doSync('lSync')">⟳</button>
+      <button class="ib" onclick="alert('Alerts — delayed sheds, proof-blocked scopes, review-needed kids.')">🔔</button>
+    </div>
+    <div class="vscroll" id="lScroll">
+      <div class="view on" id="l-plan"></div>
+      <div class="view" id="l-prog"></div>
+      <div class="view" id="l-wiz"></div>
+      <div class="view" id="l-shed"></div>
+      <div class="view" id="l-act"></div>
+    </div>
+    <button class="fab" id="lFab" onclick="startWiz()"><span>＋</span>New task</button>
+    <div class="vnav">
+      <button class="tab on" onclick="leadTab('l-plan','Plan','Weighing',this)"><span class="tabind">▦</span><span>Plan</span></button>
+      <button class="tab" onclick="leadTab('l-prog','Progress','Weighing',this)"><span class="tabind">📈</span><span>Progress</span></button>
+      <button class="tab" onclick="alert('Alerts — delayed sheds, proof-blocked scopes, review-needed kids.')"><span class="tabind">🔔</span><span>Alerts</span></button>
+      <button class="tab" onclick="alert('Profile — role, park scope, capabilities.')"><span class="tabind">👤</span><span>You</span></button>
+    </div>
+    <div class="ovl" id="ovl-l"><div class="vl" onclick="closeDraw()"></div>
+      <div class="draw">
+        <div class="dp"><span class="dav">RT</span><div><b>Ravi Teja</b><span>CEO · Mesha</span></div></div>
+        <div class="ds">
+          <div class="dgrp">Modules</div>
+          <div class="di on"><span class="dic">⚖️</span><span>Weighing</span><span class="sp"></span><span style="color:var(--brand)">✓</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">💉</span><span>Vaccination</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">👥</span><span>People / HRMS</span><span class="sp"></span><span class="badge gr">New</span></div>
+          <div class="di soon"><span class="dic">🌾</span><span>Feed direction</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="di soon"><span class="dic">🐐</span><span>Breeding</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="dgrp">Settings</div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🌐</span><span>Language</span><span class="sp"></span><span class="badge gr">English</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🔔</span><span>Notifications</span></div>
+        </div>
+        <div class="df"><div class="di" style="color:var(--danger)" onclick="closeDraw()"><span class="dic" style="color:var(--danger)">⏻</span><span>Sign out</span></div></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+</div>
+
+<!-- ============ OPERATOR ============ -->
+<div id="s-op" class="stage" style="display:none">
+<div class="wrap">
+  <div class="lede">
+    <h2>Operator · capture &amp; submit</h2>
+    <p>Each shed card says which category it is — that decides what the capture screen asks for.</p>
+
+    <div class="try">
+      <h4><span class="cat lump">Lumpsum</span> &nbsp;shed scope</h4>
+      <p>Tap <b>Castro 2</b> → enter total weight → attach the <b>shed video</b> → Submit → review → confirm. No per-kid RFID; creates one scope observation, never individual weights.</p>
+      <button onclick="openWork('Castro 2')">Run the lumpsum flow</button>
+    </div>
+
+    <div class="try">
+      <h4><span class="cat ind">Individual</span> &nbsp;per kid</h4>
+      <p>Tap <b>Gandhi 1</b> → tap the reader → weight → <b>🎥</b> → Save kid → repeat → Submit → review → confirm. A kid with no video is held back and named on the review screen.</p>
+      <button onclick="openWork('Gandhi 1')">Run the individual flow</button>
+    </div>
+
+    <p class="foot">Every ~4th kid resolves as an off-shed scan — it stays in the roster, flagged expected vs actual, and is counted once.</p>
+  </div>
+
+  <div class="phone"><div class="scr">
+    <div class="sbar"><span>2:15</span><span>••• 🔋</span></div>
+    <div class="notch"></div>
+    <div class="vhead" id="oHead">
+      <button class="ib" id="oLead" onclick="oNavBtn()">☰</button>
+      <div style="min-width:0"><div class="eb" id="oEb">Weighing</div><h3 id="oTitle">My work</h3></div>
+      <span style="flex:1"></span>
+      <button class="ib" id="oSync" onclick="doSync('oSync')">⟳</button>
+      <button class="ib" onclick="alert('Alerts — proof upload failures, sync retries, review-needed scans.')">🔔</button>
+    </div>
+    <div class="vscroll" id="oScroll">
+      <div class="view on" id="o-work">
+        <div class="lt" style="padding-top:6px">Today · Wed 29 Jul</div>
+        <div id="oToday"></div>
+        <div class="lt">Upcoming</div>
+        <div id="oUp"></div>
+      </div>
+      <div class="view" id="o-scan">
+        <div class="ringwrap"><svg viewBox="0 0 132 132"><circle class="rbg" cx="66" cy="66" r="56"/><circle class="rfg" id="rfg" cx="66" cy="66" r="56" stroke-dasharray="351.9" stroke-dashoffset="351.9"/></svg>
+          <div class="ringc"><div class="n tnum"><span id="ringN">0</span><small id="ringT">/76</small></div><div class="lb">Kids weighed</div></div></div>
+        <div class="taphint"><span class="bt">📡</span><span id="tapTxt">Tap the reader to a kid to start</span></div>
+        <div class="qchips">
+          <div class="qc ok"><b id="qDone">0</b><span>Weighed</span></div>
+          <div class="qc pd"><b id="qPend">76</b><span>Pending</span></div>
+          <div class="qc of"><b id="qOff">0</b><span>Off-shed</span></div>
+        </div>
+        <div class="capbox wait" id="capBox">
+          <div class="cr" id="capR">⣿ Waiting for reader</div>
+          <div class="capstep"><div class="cstep on" id="cs1">1 · RFID</div><div class="cstep" id="cs2">2 · Weight</div><div class="cstep" id="cs3">3 · Video</div></div>
+          <div class="capin"><div class="wgin"><input id="wgIn" type="number" step="0.1" placeholder="Weight" inputmode="decimal" disabled/><span class="u">kg</span></div>
+            <button class="vbtn" id="vBtn" disabled>🎥</button></div>
+          <button class="savebtn" id="saveBtn" disabled>Save kid</button>
+          <div class="simh">simulate a reader tap<br/><input id="simIn" placeholder="tag + Enter" autocomplete="off"/></div>
+        </div>
+        <button class="btn" id="subBtn" disabled>Submit weighed kids</button>
+        <div id="blockNote"></div>
+        <div class="lt">Scan roster</div>
+        <ul class="slist" id="slist"></ul>
+      </div>
+      <div class="view" id="o-lump"></div>
+      <div class="view" id="o-review"></div>
+      <div class="view" id="o-done"></div>
+    </div>
+    <div class="vnav">
+      <button class="tab on" onclick="opTab('o-work','My work','Weighing',this)"><span class="tabind">▦</span><span>My work</span></button>
+      <button class="tab" onclick="alert('Alerts — proof upload failures, sync retries, review-needed scans.')"><span class="tabind">🔔</span><span>Alerts</span></button>
+      <button class="tab" onclick="alert('Profile — Amit Kumar · weighing.execute')"><span class="tabind">👤</span><span>You</span></button>
+    </div>
+    <div class="ovl" id="ovl-o"><div class="vl" onclick="closeDraw()"></div>
+      <div class="draw">
+        <div class="dp"><span class="dav">AK</span><div><b>Amit Kumar</b><span>Field operator · CPT</span></div></div>
+        <div class="ds">
+          <div class="dgrp">Modules</div>
+          <div class="di on"><span class="dic">⚖️</span><span>Weighing</span><span class="sp"></span><span style="color:var(--brand)">✓</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">💉</span><span>Vaccination</span></div>
+          <div class="di soon"><span class="dic">🌾</span><span>Feed direction</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="di soon"><span class="dic">🐐</span><span>Breeding</span><span class="sp"></span><span class="badge">Soon</span></div>
+          <div class="dgrp">Settings</div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🌐</span><span>Language</span><span class="sp"></span><span class="badge gr">English</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">📡</span><span>RFID reader</span><span class="sp"></span><span class="badge gr">Paired</span></div>
+          <div class="di" onclick="closeDraw()"><span class="dic">🔔</span><span>Notifications</span></div>
+        </div>
+        <div class="df"><div class="di" style="color:var(--danger)" onclick="closeDraw()"><span class="dic" style="color:var(--danger)">⏻</span><span>Sign out</span></div></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+</div>
+
+<script>
+const TAGS=['982 000 4512 8830','982 000 4498 1120','982 000 4521 0074','982 000 4487 6602','982 000 4530 9915','982 000 4402 3388','982 000 4515 7741'];
+const ALLSHEDS=[['Castro 1',80,'lump'],['Castro 2',64,'lump'],['Godel 2 · Part 1',92,'lump'],['Godel 2 · Part 2',88,'lump'],['Gandhi 1',78,'ind'],['Gandhi 2',64,'ind'],['Godel 1 · Part 3',50,'ind']];
+const catLabel=c=>c==='lump'?'Lumpsum':'Individual';
+const W31={
+ 'Castro 1':{cat:'lump',kids:80,day:29,done:true,ts:'today 10:12',total:'1 486.0'},
+ 'Castro 2':{cat:'lump',kids:64,day:29,done:false,ts:'—'},
+ 'Gandhi 1':{cat:'ind',kids:78,day:30,weighed:0,pending:76,unav:2,off:0,ts:'—',started:false},
+ 'Gandhi 2':{cat:'ind',kids:64,day:30,weighed:0,pending:60,unav:4,off:0,ts:'—',started:false},
+ 'Godel 2 · Part 1':{cat:'lump',kids:92,day:31,done:false,ts:'—'},
+ 'Godel 2 · Part 2':{cat:'lump',kids:88,day:31,done:false,ts:'—'}
+};
+let FEED=[
+ {ic:'🚀',t:'Amit started the task',s:'Castro 1 · lumpsum',tm:'today 09:40'},
+ {ic:'🎥',t:'Castro 1 shed video accepted',s:'scope observation recorded · 80 kids in scope',tm:'today 10:12'}
+];
+function w31Stats(){let iExp=0,iW=0,iP=0,iU=0,off=0,lS=0,lD=0,lP=0;
+  Object.values(W31).forEach(s=>{if(s.cat==='ind'){iExp+=s.kids;iW+=s.weighed;iP+=s.pending;iU+=s.unav;off+=s.off;}else{lS++;s.done?lD++:lP++;}});
+  return{iExp,iW,iP,iU,off,lS,lD,lP};}
+const WEEKS=[
+ {id:'w29',lbl:'Week 29',dt:'13–19 Jul',pill:'teal',state:'completed',phase:'done',range:'13 – 19 Jul',start:'13 Jul',op:'Amit Kumar',finish:'finished 15 Jul · 16:40',dur:'3 days',
+  iExp:186,iW:182,iP:0,iU:4,lS:4,lD:4,lP:0,off:9,notin:2,closed:0,
+  days:{13:['Castro 1','Castro 2'],14:['Gandhi 1','Gandhi 2'],15:['Godel 2 · Part 1','Godel 2 · Part 2']},strip:[13,14,15,16,17,18,19],mon:'Jul',
+  sheds:[['Castro 1','lump',80,80,0,0,'15 Jul','ok','completed'],['Castro 2','lump',64,64,0,0,'15 Jul','ok','completed'],['Godel 2 · Part 1','lump',92,92,0,0,'15 Jul','ok','completed'],['Godel 2 · Part 2','lump',88,88,0,0,'15 Jul','ok','completed'],['Gandhi 1','ind',74,73,0,1,'14 Jul','ok','completed'],['Gandhi 2','ind',62,61,0,1,'14 Jul','ok','completed']]},
+ {id:'w30',lbl:'Week 30',dt:'20–26 Jul',pill:'warn',state:'delayed',phase:'delayed',range:'20 – 26 Jul',start:'20 Jul',op:'Amit Kumar',finish:'suggested 22 Jul',roll:'+2 days',
+  iExp:190,iW:167,iP:15,iU:8,lS:4,lD:3,lP:0,lBlock:1,off:14,notin:4,delay:2,closed:0,
+  days:{20:['Castro 1','Castro 2'],21:['Gandhi 1','Gandhi 2'],22:['Godel 2 · Part 1','Godel 2 · Part 2']},strip:[20,21,22,23,24,25,26],mon:'Jul',
+  sheds:[['Castro 1','lump',80,80,0,0,'20 Jul','ok','completed'],['Castro 2','lump',64,64,0,0,'20 Jul','ok','completed'],['Godel 2 · Part 1','lump',92,92,0,0,'22 Jul','ok','completed'],['Godel 2 · Part 2','lump',88,0,88,0,'—','dng','proof failed'],['Gandhi 1','ind',76,74,0,2,'21 Jul','ok','completed'],['Gandhi 2','ind',64,60,2,2,'21 Jul','warn','delayed']]},
+ {id:'w31',lbl:'Week 31',dt:'27 Jul–2 Aug',pill:'live',state:'in progress',phase:'live',cur:true,range:'27 Jul – 2 Aug',start:'29 Jul',op:'Amit Kumar',finish:'suggested finish 31 Jul',
+  notin:1,closed:0,strip:[27,28,29,30,31,1,2],mon:'Jul'},
+ {id:'w32',lbl:'Week 32',dt:'3–9 Aug',pill:'info',state:'published',phase:'waiting',range:'3 – 9 Aug',start:'3 Aug',op:'Amit Kumar',finish:'suggested finish 5 Aug',publishedAt:'27 Jul · 18:20',
+  iExp:142,iW:0,iP:136,iU:6,lS:4,lD:0,lP:4,off:0,notin:0,closed:0,
+  days:{3:['Castro 1','Castro 2'],4:['Gandhi 1','Gandhi 2'],5:['Godel 2 · Part 1','Godel 2 · Part 2']},strip:[3,4,5,6,7,8,9],mon:'Aug',
+  sheds:[['Castro 1','lump',80,0,80,0,'—','mut','planned'],['Castro 2','lump',64,0,64,0,'—','mut','planned'],['Godel 2 · Part 1','lump',92,0,92,0,'—','mut','planned'],['Godel 2 · Part 2','lump',88,0,88,0,'—','mut','planned'],['Gandhi 1','ind',78,0,74,4,'—','mut','planned'],['Gandhi 2','ind',64,0,62,2,'—','mut','planned']]},
+ {id:'w33',lbl:'Week 33',dt:'10–16 Aug',pill:'mut',state:'no task',phase:'none',noTask:true,days:{},strip:[10,11,12,13,14,15,16],mon:'Aug',sheds:[],iExp:0,iW:0,iP:0,iU:0,lS:0,lD:0,lP:0,off:0,notin:0}
+];
+const WDN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DOW={27:'Mon',28:'Tue',29:'Wed',30:'Thu',31:'Fri',1:'Sat',2:'Sun',13:'Mon',14:'Tue',15:'Wed',20:'Mon',21:'Tue',22:'Wed',3:'Mon',4:'Tue',5:'Wed'};
+let CUR='w31',SELDAY=29;
+function syncW31(){
+  const w=WEEKS.find(x=>x.id==='w31');Object.assign(w,w31Stats());
+  w.days={29:['Castro 1','Castro 2'],30:['Gandhi 1','Gandhi 2'],31:['Godel 2 · Part 1','Godel 2 · Part 2']};
+  w.sheds=Object.entries(W31).map(([n,s])=>{
+    if(s.cat==='lump')return[n,'lump',s.kids,s.done?s.kids:0,s.done?0:s.kids,0,s.ts,s.done?'ok':(s.day===29?'warn':'mut'),s.done?'completed':(s.day===29?'due now':'planned')];
+    const t=s.kids-s.unav;
+    return[n,'ind',s.kids,s.weighed,s.pending,s.unav,s.ts,s.weighed>=t?'ok':(s.started?'info':'mut'),s.weighed>=t?'completed':(s.started?'in progress':'planned')];});
+}
+function showRole(r){
+  document.getElementById('s-lead').style.display=r==='lead'?'block':'none';
+  document.getElementById('s-op').style.display=r==='op'?'block':'none';
+  document.getElementById('t-lead').classList.toggle('on',r==='lead');
+  document.getElementById('t-op').classList.toggle('on',r==='op');
+  if(r==='lead'){syncW31();renderWkRow();renderLead();}else renderWork();
+  window.scrollTo(0,0);
+}
+/* ---- shell: drawer, sync, L0/L1 chrome ---- */
+function openDraw(id){document.getElementById(id).classList.add('open');}
+function closeDraw(){document.querySelectorAll('.ovl').forEach(o=>o.classList.remove('open'));}
+function doSync(id){const b=document.getElementById(id);b.classList.add('spin');setTimeout(()=>b.classList.remove('spin'),1400);}
+function lNavBtn(){document.querySelector('#s-lead .scr').classList.contains('drill')?leadHome():openDraw('ovl-l');}
+function oNavBtn(){document.querySelector('#s-op .scr').classList.contains('drill')?opHome():openDraw('ovl-o');}
+/* leadership */
+function leadTab(v,t,e,btn){
+  document.querySelectorAll('#s-lead .view').forEach(x=>x.classList.remove('on'));
+  document.getElementById(v).classList.add('on');
+  document.getElementById('lTitle').textContent=t;document.getElementById('lEb').textContent=e;
+  document.querySelector('#s-lead .scr').classList.remove('drill');
+  document.getElementById('lLead').textContent='☰';
+  document.querySelectorAll('#s-lead .tab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
+  document.getElementById('lFab').classList.toggle('on',v==='l-plan');
+  document.getElementById('lScroll').scrollTop=0;closeDraw();}
+function leadHome(){leadTab('l-plan','Plan','Weighing',document.querySelector('#s-lead .tab'));}
+function leadSub(v,t,e){
+  document.querySelectorAll('#s-lead .view').forEach(x=>x.classList.remove('on'));
+  document.getElementById(v).classList.add('on');
+  document.getElementById('lTitle').textContent=t;document.getElementById('lEb').textContent=e;
+  document.querySelector('#s-lead .scr').classList.add('drill');
+  document.getElementById('lLead').textContent='‹';
+  document.getElementById('lFab').classList.remove('on');
+  document.getElementById('lScroll').scrollTop=0;closeDraw();}
+function renderWkRow(){
+  const el=document.getElementById('wkrow');if(!el)return;
+  el.innerHTML=WEEKS.map(w=>
+    `<div class="wkc ${w.id===CUR?'on':''}" onclick="selWeek('${w.id}')"><div class="l">${w.lbl}</div><div class="d">${w.dt}</div><span class="pill ${w.pill}">${w.state}</span></div>`).join('');}
+function selWeek(id){showRole('lead');CUR=id;const w=WEEKS.find(x=>x.id===id);
+  const ds=Object.keys(w.days||{}).map(Number);SELDAY=ds.length?ds[0]:w.strip[0];
+  renderLead();
+  leadTab('l-prog','Progress','Weighing',document.querySelectorAll('#s-lead .tab')[1]);}
+function metric(cat,done,total,unit,legend,lump){
+  const pct=total?done/total*100:0;
+  return `<div class="metric"><div class="mh"><span class="cat ${cat}">${catLabel(cat)}</span>
+    <span class="mv tnum">${done}<span> / ${total} ${unit}</span></span></div>
+    <div class="mbar"><i class="${lump?'b-lump':'b-ok'}" style="width:${pct}%"></i></div>
+    <div class="mleg">${legend}</div></div>`;
+}
+function renderLead(){renderPlan();renderProg();}
+function renderPlan(){
+  if(CUR==='w31')syncW31();
+  const w=WEEKS.find(x=>x.id===CUR);
+  if(w.noTask){
+    document.getElementById('l-plan').innerHTML=`<div class="lt" style="padding-top:14px">Week plan</div>
+      <div class="card"><h4 style="margin-top:0">No weighing task yet</h4>
+      <div class="cs">Kids run once a week over 3 days. Create the task and set each shed's category.</div></div>`;
+    setFab();return;
+  }
+  const days=Object.keys(w.days).map(Number);
+  const strip=w.strip.map((d,i)=>`<div class="d${d===SELDAY?' today':''}${days.includes(d)&&d!==SELDAY?' has':''}" onclick="selDay(${d})"><div class="dn">${WDN[i]}</div><div class="dd">${d}</div></div>`).join('');
+  const list=(w.days[SELDAY]||[]).map(n=>{
+    const s=w.sheds.find(x=>x[0]===n);if(!s)return'';
+    const[nm,cat,pl,dn,pd,un,lt,tone,stt]=s;
+    return `<div class="card tapc" onclick="openShed('${nm}')">
+      <div class="ch"><span class="pill ${tone}">${stt}</span><span class="cat ${cat}">${catLabel(cat)}</span>${lt!=='—'?`<span class="sp"></span><span class="pill mut">${lt}</span>`:''}</div>
+      <h4>${nm}</h4>
+      <div class="cs">${cat==='lump'?`${pl} kids in scope · one shed video`:`${dn} of ${pl-un} kids · ${pd} pending`}</div>
+      <div class="mbar" style="margin-top:14px"><i class="${cat==='lump'?'b-lump':'b-ok'}" style="width:${cat==='lump'?(dn?100:0):Math.round(dn/(pl-un)*100)}%"></i></div>
+      <div class="go">View rows →</div></div>`;}).join('');
+  document.getElementById('l-plan').innerHTML=
+    `<div class="lt" style="padding-top:6px;display:flex;align-items:center">Week plan
+      <span style="margin-left:auto;text-transform:none;letter-spacing:0;font-size:10.5px;color:var(--muted)">${w.lbl} · ${w.dt}</span></div>
+     <div class="week">${strip}</div>
+     <div class="lt">${SELDAY===29?'Today · ':''}${DOW[SELDAY]||''} ${SELDAY} ${w.mon}</div>
+     ${list||`<div class="card" style="text-align:center;color:var(--muted);font-size:12px">No work groups this day</div>`}
+     <div style="height:64px"></div>`;
+  setFab();
+}
+function renderProg(){
+  if(CUR==='w31')syncW31();
+  const w=WEEKS.find(x=>x.id===CUR);
+  let head='';
+  if(w.noTask){
+    head=`<div class="card"><h4 style="margin-top:0">No weighing task yet</h4>
+      <div class="cs">Kids run once a week over 3 days. Create the task and set each shed's category.</div></div>
+      <button class="btn" onclick="startWiz()">Plan Week 33</button>`;
+  }else{
+    head=`<div class="card">
+      <div class="ch"><span class="pill ${w.pill}">${w.state}</span>${w.roll?`<span class="pill warn">rolled ${w.roll}</span>`:''}<span class="sp"></span><span class="pill mut">${w.range}</span></div>
+      <h4>${w.lbl} · kids weighing</h4>
+      <div class="cs">${w.op} · started ${w.start} · ${w.finish}</div>
+      ${metric('ind',w.iW,w.iExp,'kids',`<b>${w.iW}</b> weighed &nbsp;·&nbsp; <b>${w.iP}</b> pending &nbsp;·&nbsp; <b>${w.iU}</b> unavailable`)}
+      ${metric('lump',w.lD,w.lS,'sheds',`<b>${w.lD}</b> complete &nbsp;·&nbsp; <b>${w.lP}</b> pending${w.lBlock?` &nbsp;·&nbsp; <b style="color:var(--danger)">${w.lBlock}</b> proof blocked`:''}`,1)}
+      </div>`;
+    const b=w.phase==='waiting'?['blue',`<b>Published ${w.publishedAt}</b> — assigned to ${w.op}. Operator has not started; work opens ${w.start}.`]
+      :w.phase==='live'?['blue',`<b>Amit is working now</b> — last activity ${FEED[FEED.length-1].tm}. Counters move as each capture is accepted.`]
+      :w.phase==='done'?['green',`<b>Completed ${w.finish}</b> — ${w.dur} from start. Every shed weighed, unavailable, or closed. Proof complete on all rows.`]
+      :['amber',`<b>Delayed ${w.delay} days</b> — still open and executable. One lumpsum scope is proof-blocked.`];
+    head+=`<div class="banner ${b[0]}">${b[1]}</div>`;
+    head+=`<div class="btnrow" style="margin:0 0 12px"><button class="btn ghost" style="margin:0 18px;width:calc(100% - 36px)" onclick="startWiz('edit')">\u270e Edit this task</button></div>`;
+    if(w.phase==='live')head+=`<div class="card tapc" onclick="openActivity()"><div class="ch"><span class="pill live">live</span><span class="sp"></span></div><h4>Activity feed</h4><div class="cs">Every accepted capture, in order.</div><div class="go">Open →</div></div>`;
+    if(w.phase==='done')head+=`<div class="fgrp"><div class="frow"><span class="fk">Duration</span><span class="fv">${w.dur}</span></div>
+      <div class="frow"><span class="fk">Rows with proof</span><span class="fv" style="color:var(--brand-d)">${w.iW} / ${w.iW}</span></div>
+      <div class="frow"><span class="fk">Scopes with shed video</span><span class="fv" style="color:var(--brand-d)">${w.lD} / ${w.lS}</span></div>
+      <div class="frow"><span class="fk">Off-shed weighed</span><span class="fv">${w.off}</span></div>
+      <div class="frow"><span class="fk">Closed by leadership</span><span class="fv">${w.closed}</span></div></div>`;
+  }
+  document.getElementById('l-prog').innerHTML=
+    `<div class="lt" style="padding-top:6px">Campaign week</div><div class="wkrow" id="wkrow"></div>`+head+`<div style="height:20px"></div>`;
+  renderWkRow();
+}
+function setFab(){
+  const f=document.getElementById('lFab');if(!f)return;
+  const ex=hasTask(CUR,'CPT');
+  f.innerHTML=ex?'<span>\u270e</span>Edit task':'<span>\uFF0B</span>New task';
+  f.onclick=()=>startWiz(ex?'edit':'new');}
+function selDay(d){SELDAY=d;renderLead();}
+function openActivity(){
+  document.getElementById('l-act').innerHTML=`<div class="lt" style="padding-top:14px">Timeline</div>
+    <div class="tl">${[...FEED].reverse().map((e,i)=>`<div class="ev"><div class="dot ${i===0?'now':'on'}">${e.ic}</div>
+      <div><div class="tx">${e.t}</div><div class="tsub">${e.s}</div><div class="tm">${e.tm}</div></div></div>`).join('')}
+      <div class="ev"><div class="dot">⏳</div><div><div class="tx" style="color:var(--muted)">Awaiting next capture</div><div class="tsub">remaining work rolls forward automatically</div></div></div></div>`;
+  leadSub('l-act','Live activity','Week 31 · Amit Kumar');}
+function openShed(nm){
+  const w=WEEKS.find(x=>x.id===CUR);const s=w.sheds.find(x=>x[0]===nm);
+  const[n,cat,pl,dn,pd,un,lt,tone,stt]=s;let body;
+  if(cat==='lump'){
+    const blocked=stt==='proof failed';
+    body=`<div class="lt" style="padding-top:14px">Scope result</div>
+      <div class="fgrp"><div class="frow"><span class="fk">Category</span><span class="fv"><span class="cat lump">Lumpsum</span></span></div>
+      <div class="frow"><span class="fk">Kids in scope</span><span class="fv">${pl}</span></div>
+      <div class="frow"><span class="fk">Scope observation</span><span class="fv" style="color:${dn?'var(--brand-d)':'var(--warn)'}">${dn?'accepted':'pending'}</span></div>
+      <div class="frow"><span class="fk">Shed proof video</span><span class="fv" style="color:${blocked?'var(--danger)':dn?'var(--brand-d)':'var(--muted)'}">${blocked?'upload failed':dn?'linked':'not captured'}</span></div>
+      <div class="frow"><span class="fk">Recorded</span><span class="fv">${lt}</span></div>
+      <div class="frow"><span class="fk">Individual weights</span><span class="fv" style="color:var(--muted)">none</span></div></div>
+      <div class="banner">Per-shed proof is tied to this scope and session. It is not per-animal proof and never updates a kid's latest trusted weight.</div>`;
+  }else{
+    const rows=[];
+    for(let k=0;k<Math.min(dn,5);k++){const mis=k%5===2;
+      rows.push(`<li class="${mis?'mism':''}"><div class="tk ok">✓</div><div style="flex:1;min-width:0"><div class="id">${TAGS[k%TAGS.length]}</div><div class="sub" style="color:${mis?'var(--info)':'var(--faint)'}">${mis?'off-shed · actual Gandhi 2':'video linked'}</div></div><div class="end"><div class="wt tnum">${(15+Math.random()*7).toFixed(1)}<small> kg</small></div><span class="mp acc">accepted</span></div></li>`);}
+    for(let k=0;k<Math.min(pd,2);k++)rows.push(`<li style="opacity:.6"><div class="tk">⋯</div><div style="flex:1"><div class="id">${TAGS[(k+3)%TAGS.length]}</div><div class="sub" style="color:var(--warn)">pending · still in shed</div></div><div class="end"><div class="wt" style="color:var(--faint)">—</div></div></li>`);
+    for(let k=0;k<Math.min(un,1);k++)rows.push(`<li style="opacity:.55"><div class="tk">🚑</div><div style="flex:1"><div class="id">${TAGS[(k+5)%TAGS.length]}</div><div class="sub" style="color:var(--purple)">unavailable · ICU</div></div><div class="end"><div class="wt" style="color:var(--faint)">—</div></div></li>`);
+    body=`<div class="card" style="margin-top:14px"><div class="ch"><span class="pill ${tone}">${stt}</span><span class="cat ind">Individual</span></div>
+      ${metric('ind',dn,pl-un,'kids',`<b>${dn}</b> weighed &nbsp;·&nbsp; <b>${pd}</b> pending &nbsp;·&nbsp; <b>${un}</b> unavailable`)}</div>
+      <div class="lt">Animal rows</div><ul class="slist">${rows.join('')||'<li style="opacity:.6"><div class="tk">⋯</div><div style="flex:1"><div class="sub">No captures yet</div></div></li>'}</ul>`;
+  }
+  document.getElementById('l-shed').innerHTML=body+`<button class="btn ghost" onclick="alert('Close pending with reason → reason code, actor, timestamp, affected count, snapshot.')">Close pending w/ reason</button>`;
+  leadSub('l-shed',n,stt+' · '+w.lbl);}
+/* wizard — one task per park per week */
+const PARKTASK={w29:['CPT'],w30:['CPT'],w31:['CPT'],w32:['CPT'],w33:[]};
+function hasTask(wk,park){return (PARKTASK[wk]||[]).includes(park);}
+function existingSel(wk){
+  const w=WEEKS.find(x=>x.id===wk);const o={};
+  (w.sheds||[]).forEach(s=>o[s[0]]=s[1]);return o;}
+let wz={step:0,park:'CPT',sel:{},mode:'new',base:{}};
+function startWiz(mode){
+  showRole('lead');
+  const w=WEEKS.find(x=>x.id===CUR);
+  const edit=mode==='edit'||(mode!=='new'&&hasTask(CUR,'CPT'));
+  if(edit){
+    const sel=existingSel(CUR);
+    wz={step:0,park:'CPT',sel:Object.assign({},sel),mode:'edit',base:sel,conflict:null};
+    renderWiz();leadSub('l-wiz','Edit task',w.lbl+' · CPT');
+  }else{
+    wz={step:0,park:null,sel:{},mode:'new',base:{},conflict:null};
+    renderWiz();leadSub('l-wiz','New task',w.lbl+' · '+w.dt);
+  }}
+function pickPark(p){
+  if(wz.mode==='new'&&hasTask(CUR,p)){wz.conflict=p;renderWiz();return;}
+  wz.park=p;wz.conflict=null;renderWiz();}
+function conflictEdit(){startWiz('edit');}
+function wzTog(n){if(wz.sel[n])delete wz.sel[n];else wz.sel[n]=ALLSHEDS.find(s=>s[0]===n)[2];renderWiz();}
+function wzCat(e,n,c){e.stopPropagation();wz.sel[n]=c;renderWiz();}
+function wzNext(){
+  if(wz.step<4){wz.step++;renderWiz();return;}
+  const n=Object.keys(wz.sel).length;
+  if(wz.mode==='edit'){
+    leadHome();
+    alert('Changes saved \u2713\nSame campaign kept \u2014 '+n+' sheds for '+CUR.toUpperCase()+' \u00b7 CPT.\nNo second task was created. Accepted captures preserved.');
+  }else{
+    if(!PARKTASK[CUR])PARKTASK[CUR]=[];
+    if(!PARKTASK[CUR].includes(wz.park))PARKTASK[CUR].push(wz.park);
+    leadHome();
+    alert('Task published \u2713\n'+n+' sheds assigned to Amit for '+wz.park+'.\nThis park now has a task for this week \u2014 further creates are blocked, edit only.');
+  }}
+function wzBack(){if(wz.step>0){wz.step--;renderWiz();}else leadHome();}
+function renderWiz(){
+  const w=WEEKS.find(x=>x.id===CUR);
+  const names=Object.keys(wz.sel);
+  const indN=names.filter(n=>wz.sel[n]==='ind'),lumpN=names.filter(n=>wz.sel[n]==='lump');
+  const kidsOf=ns=>ns.reduce((a,n)=>a+((ALLSHEDS.find(s=>s[0]===n)||[0,0])[1]),0);
+  const indKids=kidsOf(indN),lumpKids=kidsOf(lumpN);
+  const edit=wz.mode==='edit';
+  const box=document.getElementById('l-wiz');
+
+  /* duplicate blocked */
+  if(wz.conflict){
+    box.innerHTML=`<div class="lt" style="padding-top:14px">Already scheduled this week</div>
+      <div class="card" style="border-color:rgba(240,181,75,.4)">
+        <div class="ch"><span class="pill info">task already scheduled</span></div>
+        <h4>${wz.conflict} · ${w.lbl}</h4>
+        <div class="cs">This park already has work scheduled this week. You can still plan the sheds it did not cover — sheds another task already holds are locked on the row.</div>
+      </div>
+      <div class="fgrp"><div class="frow"><span class="fk">Most recent task</span><span class="fv">${w.lbl} · ${w.dt}</span></div>
+        <div class="frow"><span class="fk">Status</span><span class="fv"><span class="pill ${w.pill}">${w.state}</span></span></div>
+        <div class="frow"><span class="fk">Operator</span><span class="fv">${w.op||'Amit Kumar'}</span></div>
+        <div class="frow"><span class="fk">Sheds</span><span class="fv">${(w.sheds||[]).length}</span></div></div>
+      <div class="banner amber">Editing keeps the same campaign, its history and every accepted capture. It never creates a second task for ${wz.conflict}.</div>
+      <div class="btnrow"><button class="btn ghost" onclick="leadHome()">Cancel</button><button class="btn" onclick="conflictEdit()">Edit existing task</button></div>`;
+    return;
+  }
+
+  let b='';
+  if(wz.step===0)b=`<div class="wlab">Step 1 · Lane</div><h2 class="wtit">${edit?'Lane':'Confirm the lane'}</h2><p class="wsub">Kids weigh once a week over 3 days. Adults are monthly and never auto-scheduled here.</p>
+    <div class="opt sel"><span class="rb"></span><div><div class="ot">Weekly · Kids</div><div class="os">category is set per shed in step 3</div></div></div>
+    <div class="opt dis"><span class="rb"></span><div><div class="ot">Monthly · Adults</div><div class="os">excluded in v1</div></div></div>
+    ${edit?`<div class="banner" style="margin-top:16px">Editing <b>${w.lbl} · CPT</b>. The lane and park are fixed for an existing task.</div>`:''}`;
+  else if(wz.step===1){
+    const parks=[['CPT','CPT · Channapatna','Castro, Gandhi, Godel',516],['CBE','CBE · Coimbatore','Castro 1 / 2 / 3',286]];
+    b=`<div class="wlab">Step 2 · Park</div><h2 class="wtit">${edit?'Park':'Select one park'}</h2><p class="wsub">${edit?'The park cannot change on an existing task.':'A park may hold several tasks in one week; sheds another task already holds are locked.'}</p>
+    ${parks.map(([id,nm,sub,c])=>{
+      const taken=hasTask(CUR,id);
+      if(edit)return `<div class="opt ${wz.park===id?'sel':'dis'}"><span class="rb"></span><div><div class="ot">${nm}</div><div class="os">${wz.park===id?'current park · locked':sub}</div></div><span class="cnt">${wz.park===id?'🔒':c}</span></div>`;
+      return `<div class="opt ${wz.park===id?'sel':''}" onclick="pickPark('${id}')"><span class="rb"></span><div><div class="ot">${nm}</div><div class="os">${sub}</div></div>${taken?`<span class="badge" style="font-size:9px;font-weight:750;padding:3px 8px;border-radius:999px;background:var(--warnx);color:var(--warn);white-space:nowrap">Task exists</span>`:`<span class="cnt">${c}</span>`}</div>`;}).join('')}`;}
+  else if(wz.step===2)b=`<div class="wlab">Step 3 · Sheds</div><h2 class="wtit">Sheds &amp; category</h2><p class="wsub">Category decides the operator's capture screen and the required proof.</p>
+    ${ALLSHEDS.map(([n,c,def])=>{const on=!!wz.sel[n];const cat=wz.sel[n]||def;const was=!!wz.base[n];
+      return `<div class="opt ${on?'sel':''}" onclick="wzTog('${n}')" style="flex-direction:column;align-items:stretch">
+        <div style="display:flex;align-items:center;gap:13px"><span class="cb">✓</span><div><div class="ot">${n}</div><div class="os">${edit?(was?(on?'in this task':'will be removed'):(on?'will be added':'kid shed')):'kid shed'}</div></div><span class="cnt">${c}</span></div>
+        ${on?`<div class="catseg" onclick="event.stopPropagation()"><button class="${cat==='ind'?'on i':''}" onclick="wzCat(event,'${n}','ind')">Individual</button><button class="${cat==='lump'?'on l':''}" onclick="wzCat(event,'${n}','lump')">Lumpsum</button></div>`:''}</div>`;}).join('')}
+    <div class="tot"><div><div style="font-size:11px;color:var(--muted);font-weight:650">${indN.length} individual · ${lumpN.length} lumpsum</div></div>
+      <div style="text-align:right"><b class="tnum">${indKids}</b><div class="tl2">weighed individually</div></div></div>`;
+  else if(wz.step===3){
+    const added=names.filter(n=>!wz.base[n]);
+    const removed=Object.keys(wz.base).filter(n=>!wz.sel[n]);
+    const changed=names.filter(n=>wz.base[n]&&wz.base[n]!==wz.sel[n]);
+    const g=[['Day 1 · Wed',lumpN.slice(0,2)],['Day 2 · Thu',indN.slice(0,2)],['Day 3 · Fri',[...lumpN.slice(2),...indN.slice(2)]]];
+    b=`<div class="wlab">Step 4 · ${edit?'Changes':'Plan'}</div><h2 class="wtit">${edit?'Review changes':'3-day plan'}</h2><p class="wsub">Groups preserve shed atomicity. Unfinished work rolls forward.</p>
+    ${edit?`<div class="fgrp"><div class="frow"><span class="fk">Sheds added</span><span class="fv" style="color:${added.length?'var(--brand-d)':'var(--muted)'}">${added.length?added.join(', '):'none'}</span></div>
+      <div class="frow"><span class="fk">Sheds removed</span><span class="fv" style="color:${removed.length?'var(--warn)':'var(--muted)'}">${removed.length?removed.join(', '):'none'}</span></div>
+      <div class="frow"><span class="fk">Category changed</span><span class="fv" style="color:${changed.length?'var(--info)':'var(--muted)'}">${changed.length?changed.join(', '):'none'}</span></div></div>
+      <div class="banner">Accepted captures on kept sheds are preserved. Removing a shed only drops its <b>pending</b> work.</div>`:''}
+    ${g.filter(x=>x[1].length).map(([d,ns])=>`<div class="dayg"><div class="h">${d}<span class="n">${kidsOf(ns)} kids</span></div><div class="s">${ns.map(n=>`<span class="cat ${wz.sel[n]}">${n}</span>`).join('')}</div></div>`).join('')}`;}
+  else b=`<div class="wlab">Step 5 · Assign</div><h2 class="wtit">Assign operator</h2><p class="wsub">${edit?'Saving keeps the same campaign — no second task is created.':'Publishing creates open work. The campaign sits in <b>published</b> until Amit starts.'}</p>
+    <div class="opt sel"><span class="rb"></span><div style="flex:1"><div class="ot">Amit Kumar</div><div class="os">weighing.execute</div></div></div>
+    <div class="opt dis"><span class="rb"></span><div style="flex:1"><div class="ot">Dinakar</div><div class="os">planner / monitor only</div></div></div>
+    <div class="fgrp" style="margin-top:16px"><div class="frow"><span class="fk">Week</span><span class="fv">${w.lbl} · CPT</span></div>
+    <div class="frow"><span class="fk">Individual</span><span class="fv">${indN.length} sheds · ${indKids} kids</span></div>
+    <div class="frow"><span class="fk">Lumpsum</span><span class="fv">${lumpN.length} sheds · ${lumpKids} in scope</span></div></div>`;
+
+  const blockNext=(wz.step===1&&!wz.park)||(wz.step===2&&!names.length);
+  box.innerHTML=`<div class="stepper">${[0,1,2,3,4].map(i=>`<i class="${i<=wz.step?'on':''}"></i>`).join('')}</div>`+b+
+    `<div class="btnrow"><button class="btn ghost" onclick="wzBack()">${wz.step===0?'Cancel':'Back'}</button><button class="btn" ${blockNext?'disabled':''} onclick="wzNext()">${wz.step===4?(edit?'Save changes':'Publish'):'Continue'}</button></div>`;}
+
+/* ================= OPERATOR ================= */
+let curShed=null,rows=[],pend={},lumpState={};
+const RC=2*Math.PI*56;
+function opTab(v,t,e,btn){
+  document.querySelectorAll('#s-op .view').forEach(x=>x.classList.remove('on'));
+  document.getElementById(v).classList.add('on');
+  document.getElementById('oTitle').textContent=t;document.getElementById('oEb').textContent=e;
+  document.querySelector('#s-op .scr').classList.remove('drill');
+  document.getElementById('oLead').textContent='☰';
+  document.querySelectorAll('#s-op .tab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
+  document.getElementById('oScroll').scrollTop=0;closeDraw();}
+function opHome(){renderWork();opTab('o-work','My work','Weighing',document.querySelector('#s-op .tab'));}
+function opSub(v,t,e){
+  document.querySelectorAll('#s-op .view').forEach(x=>x.classList.remove('on'));
+  document.getElementById(v).classList.add('on');
+  document.getElementById('oTitle').textContent=t;document.getElementById('oEb').textContent=e;
+  document.querySelector('#s-op .scr').classList.add('drill');
+  document.getElementById('oLead').textContent='‹';
+  document.getElementById('oScroll').scrollTop=0;closeDraw();}
+function opCard(n){
+  const s=W31[n],cat=s.cat;let stt,tone,pct,cs;
+  if(cat==='lump'){stt=s.done?'completed':(s.day===29?'due now':'day '+(s.day-28));tone=s.done?'ok':(s.day===29?'warn':'mut');
+    pct=s.done?100:0;cs=`${s.kids} kids in scope · one shed video`;}
+  else{const t=s.kids-s.unav;stt=s.weighed>=t?'completed':(s.started?'in progress':(s.day===29?'due now':'day '+(s.day-28)));
+    tone=s.weighed>=t?'ok':(s.started?'info':'mut');pct=Math.round(s.weighed/t*100);cs=`${s.weighed} of ${t} kids · ${t-s.weighed} pending`;}
+  return `<div class="card tapc" onclick="openWork('${n}')">
+    <div class="ch"><span class="pill ${tone}">${stt}</span><span class="cat ${cat}">${catLabel(cat)}</span>${s.ts!=='—'?`<span class="sp"></span><span class="pill mut">${s.ts}</span>`:''}</div>
+    <h4>${n}</h4><div class="cs">${cs}</div>
+    <div class="mbar" style="margin-top:14px"><i class="${cat==='lump'?'b-lump':'b-ok'}" style="width:${pct}%"></i></div>
+    <div class="go">${cat==='lump'?(s.done?'View result':'Record shed result'):(s.weighed?'Continue scanning':'Start scanning')} →</div></div>`;}
+function renderWork(){
+  document.getElementById('oToday').innerHTML=['Castro 1','Castro 2'].map(opCard).join('');
+  document.getElementById('oUp').innerHTML=['Gandhi 1','Gandhi 2','Godel 2 · Part 1'].map(opCard).join('');}
+function openWork(n){
+  showRole('op');curShed=n;const s=W31[n];
+  if(s.cat==='lump'){renderLump(n);opSub('o-lump',n,'Lumpsum · shed scope');}
+  else{rows=[];const t=s.kids-s.unav;
+    document.getElementById('ringT').textContent='/'+t;document.getElementById('qPend').textContent=t;
+    resetScan();renderRoster();opSub('o-scan',n,'Individual · per kid');}}
+function renderLump(n){
+  const s=W31[n];
+  if(s.done){document.getElementById('o-lump').innerHTML=`<div class="lt" style="padding-top:14px">Submitted result</div>
+    <div class="fgrp"><div class="frow"><span class="fk">Status</span><span class="fv"><span class="pill ok">accepted</span></span></div>
+    <div class="frow"><span class="fk">Total weight</span><span class="fv">${s.total} kg</span></div>
+    <div class="frow"><span class="fk">Kids in scope</span><span class="fv">${s.kids}</span></div>
+    <div class="frow"><span class="fk">Shed video</span><span class="fv" style="color:var(--brand-d)">linked</span></div>
+    <div class="frow"><span class="fk">Individual weights</span><span class="fv" style="color:var(--muted)">none</span></div></div>
+    <button class="btn ghost" onclick="opHome()">Back to my work</button>`;return;}
+  lumpState={w:null,vid:false};
+  document.getElementById('o-lump').innerHTML=`<div class="lt" style="padding-top:14px">You record</div>
+    <div class="fgrp"><div class="frow"><span class="fk">Scope</span><span class="fv">${n}</span></div>
+      <div class="frow"><span class="fk">Kids in scope</span><span class="fv tnum">${s.kids}</span></div>
+      <div class="frow"><span class="fk">Total weight</span><span class="fv"><input id="lumpW" oninput="lumpChk()" type="number" step="0.1" placeholder="—" style="width:84px;background:var(--bg);border:1px solid var(--hair);border-radius:8px;color:var(--ink);font:inherit;font-weight:750;text-align:right;padding:7px 9px;outline:none"/> kg</span></div>
+      <div class="frow"><span class="fk">Operator</span><span class="fv">Amit Kumar</span></div></div>
+    <div class="lt">Required proof</div>
+    <div class="proofbox" id="lumpProof" onclick="lumpVid()"><div class="ic">🎥</div><b>Attach shed video</b><span>one continuous clip for this scope</span></div>
+    <button class="btn" id="lumpBtn" disabled onclick="lumpReview()">Submit shed result</button>
+    <div id="lumpBlock" class="blockmsg">Enter the total weight and attach the shed video.</div>`;}
+function lumpVid(){const p=document.getElementById('lumpProof');p.classList.add('read');
+  p.innerHTML='<div class="ic">✓</div><b>Shed video attached</b><span>00:42 · ready to submit</span>';lumpState.vid=true;lumpChk();}
+function lumpChk(){const v=document.getElementById('lumpW').value;lumpState.w=v?parseFloat(v):null;
+  const ok=lumpState.w>0&&lumpState.vid;document.getElementById('lumpBtn').disabled=!ok;
+  document.getElementById('lumpBlock').textContent=ok?'':(!lumpState.w?'Enter the total weight for this scope.':'Shed video is required.');}
+function lumpReview(){const s=W31[curShed];
+  document.getElementById('o-review').innerHTML=`<div class="lt" style="padding-top:14px">Will be submitted</div>
+    <div class="fgrp"><div class="frow"><span class="fk">Scope</span><span class="fv">${curShed}</span></div>
+    <div class="frow"><span class="fk">Total weight</span><span class="fv">${lumpState.w.toFixed(1)} kg</span></div>
+    <div class="frow"><span class="fk">Kids in scope</span><span class="fv">${s.kids}</span></div>
+    <div class="frow"><span class="fk">Shed video</span><span class="fv" style="color:var(--brand-d)">attached · 00:42</span></div>
+    <div class="frow"><span class="fk">Observation</span><span class="fv">per_shed_partition</span></div></div>
+    <div class="banner amber">This creates <b>one scope observation</b>. It will not create ${s.kids} individual weights and will not update any kid's latest trusted weight.</div>
+    <div class="btnrow"><button class="btn ghost" onclick="renderLump(curShed);opSub('o-lump',curShed,'Lumpsum · shed scope')">Back</button><button class="btn" onclick="lumpSubmit()">Confirm</button></div>`;
+  opSub('o-review','Review',curShed+' · lumpsum');}
+function lumpSubmit(){const s=W31[curShed];s.done=true;s.ts='today 13:26';s.total=lumpState.w.toFixed(1);
+  FEED.push({ic:'🎥',t:curShed+' shed video accepted',s:'scope observation recorded · '+s.total+' kg',tm:'today 13:26'});
+  showDone('Shed result submitted',`<b>${curShed}</b> recorded as one per_shed_partition observation with its shed video.`,
+    [['Scope',curShed],['Total weight',s.total+' kg'],['Shed video','accepted'],['Individual weights','none']],
+    'Leadership sees this scope flip to complete immediately.');}
+function resetScan(){
+  pend={rfid:null,wt:null,vid:false};
+  document.getElementById('capBox').className='capbox wait';
+  document.getElementById('capR').textContent='⣿ Waiting for reader';
+  document.getElementById('cs1').className='cstep on';document.getElementById('cs2').className='cstep';document.getElementById('cs3').className='cstep';
+  const w=document.getElementById('wgIn');w.value='';w.disabled=true;
+  const v=document.getElementById('vBtn');v.className='vbtn';v.textContent='🎥';v.disabled=true;
+  document.getElementById('saveBtn').disabled=true;
+  document.getElementById('tapTxt').innerHTML='Tap the reader to a kid to start';}
+function tapKid(tag){
+  const n=rows.length;pend.rfid=tag&&tag.trim()?tag.trim():TAGS[n%TAGS.length];pend.off=(n+1)%4===0;
+  document.getElementById('capBox').className='capbox';
+  document.getElementById('capR').textContent='✓ '+pend.rfid;
+  document.getElementById('cs1').className='cstep ok';document.getElementById('cs2').className='cstep on';
+  const w=document.getElementById('wgIn');w.disabled=false;w.focus();
+  document.getElementById('vBtn').disabled=false;
+  document.getElementById('tapTxt').innerHTML=pend.off?'<b style="color:var(--info)">Off-shed kid</b> — expected '+curShed+', found elsewhere':'Kid resolved — enter <b>weight</b>, then capture <b>video</b>';
+  chkSave();}
+function chkSave(){const v=document.getElementById('wgIn').value;pend.wt=v?parseFloat(v):null;
+  document.getElementById('cs2').className='cstep '+(pend.wt>0?'ok':'on');
+  document.getElementById('cs3').className='cstep '+(pend.vid?'ok':(pend.wt>0?'on':''));
+  document.getElementById('saveBtn').disabled=!(pend.rfid&&pend.wt>0);
+  document.getElementById('saveBtn').textContent=pend.vid?'Save kid':'Save kid (video pending)';}
+function capVid(){pend.vid=true;const v=document.getElementById('vBtn');v.className='vbtn done';v.textContent='✓';chkSave();}
+function saveKid(){if(!(pend.rfid&&pend.wt>0))return;
+  rows.unshift({rfid:pend.rfid,wt:pend.wt.toFixed(1),off:pend.off,vid:pend.vid,st:pend.vid?(rows.length%5===4?'up':'acc'):'pl'});
+  const s=W31[curShed];s.started=true;
+  const done=rows.filter(r=>r.st!=='pl').length;
+  s.weighed=done;s.pending=Math.max(s.kids-s.unav-done,0);s.off=rows.filter(r=>r.off).length;s.ts='today 13:0'+(rows.length%10);
+  if(rows.length===1)FEED.push({ic:'🚀',t:'Amit started '+curShed,s:'individual weighing · '+(s.kids-s.unav)+' kids expected',tm:'today 12:58'});
+  renderRoster();resetScan();}
+function renderRoster(){
+  const s=W31[curShed];const t=s.kids-s.unav;const done=rows.filter(r=>r.st!=='pl').length;
+  document.getElementById('ringN').textContent=done;
+  document.getElementById('rfg').style.strokeDashoffset=RC*(1-done/t);
+  document.getElementById('qDone').textContent=done;
+  document.getElementById('qPend').textContent=Math.max(t-done,0);
+  document.getElementById('qOff').textContent=rows.filter(r=>r.off).length;
+  const lbl={acc:'accepted',up:'uploading',pl:'needs video'};
+  document.getElementById('slist').innerHTML=rows.map(r=>`<li class="${r.off?'mism':''}">
+    <div class="tk ${r.st==='acc'?'ok':''}">${r.st==='acc'?'✓':r.st==='pl'?'!':'⚖️'}</div>
+    <div style="flex:1;min-width:0"><div class="id">${r.rfid}</div>
+    <div class="sub" style="color:${r.off?'var(--info)':'var(--muted)'}">${r.off?'off-shed · expected '+curShed:(r.vid?'video linked':'no video')}</div></div>
+    <div class="end"><div class="wt tnum">${r.wt}<small> kg</small></div><span class="mp ${r.st}">${lbl[r.st]}</span></div></li>`).join('')
+    ||'<li style="opacity:.55"><div class="tk">⋯</div><div style="flex:1"><div class="sub">No kids captured yet</div></div></li>';
+  const blocked=rows.filter(r=>r.st==='pl').length;
+  const sb=document.getElementById('subBtn');sb.disabled=!rows.length;
+  sb.textContent=rows.length?`Submit ${done} weighed kids`:'Submit weighed kids';
+  document.getElementById('blockNote').innerHTML=blocked?`<div class="blockmsg">${blocked} row${blocked>1?'s':''} blocked — per-animal video missing.</div>`:'';
+  rows.filter(r=>r.st==='up').forEach(r=>setTimeout(()=>{if(r.st==='up'){r.st='acc';renderRoster();}},1600));}
+function scanReview(){
+  const s=W31[curShed];const t=s.kids-s.unav;
+  const ok=rows.filter(r=>r.st!=='pl'),blocked=rows.filter(r=>r.st==='pl'),off=rows.filter(r=>r.off);
+  document.getElementById('o-review').innerHTML=`<div class="lt" style="padding-top:14px">Will be submitted</div>
+    <div class="fgrp"><div class="frow"><span class="fk">Kids weighed</span><span class="fv" style="color:var(--brand-d)">${ok.length}</span></div>
+    <div class="frow"><span class="fk">Each with weight + video</span><span class="fv">${ok.length} / ${ok.length}</span></div>
+    <div class="frow"><span class="fk">Off-shed included</span><span class="fv" style="color:${off.length?'var(--info)':'var(--muted)'}">${off.length}</span></div>
+    <div class="frow"><span class="fk">Still pending</span><span class="fv" style="color:var(--warn)">${Math.max(t-ok.length,0)}</span></div>
+    <div class="frow"><span class="fk">Observation</span><span class="fv">individual_animal</span></div></div>
+    ${blocked.length?`<div class="banner amber"><b>${blocked.length} row${blocked.length>1?'s':''} blocked</b> — no per-animal video: ${blocked.map(r=>r.rfid).join(', ')}. They stay local and are excluded.</div>`:''}
+    <div class="banner">Partial submit is allowed — the ${Math.max(t-ok.length,0)} pending kids roll forward. The shed is not complete while active expected kids remain.</div>
+    <div class="btnrow"><button class="btn ghost" onclick="opSub('o-scan',curShed,'Individual · per kid')">Back</button><button class="btn" ${ok.length?'':'disabled'} onclick="scanSubmit()">Confirm</button></div>`;
+  opSub('o-review','Review',curShed+' · individual');}
+function scanSubmit(){const s=W31[curShed];const t=s.kids-s.unav;const ok=rows.filter(r=>r.st!=='pl');
+  s.weighed=ok.length;s.pending=Math.max(t-ok.length,0);s.off=rows.filter(r=>r.off).length;s.ts='today 13:41';s.started=true;
+  FEED.push({ic:'⚖️',t:curShed+' · '+ok.length+' kids submitted',s:'individual weights + per-animal video accepted',tm:'today 13:41'});
+  showDone('Kids submitted',`<b>${ok.length}</b> individual rows accepted for <b>${curShed}</b>, each with its own weight and video.`,
+    [['Kids weighed',String(ok.length)],['Per-animal video',ok.length+' / '+ok.length],['Off-shed',String(s.off)],['Rolling forward',String(s.pending)]],
+    s.pending?`${s.pending} pending kids roll forward to the next business date.`:'Every expected kid is now weighed, unavailable, or closed.');}
+function showDone(title,sub,facts,foot){
+  document.getElementById('o-done').innerHTML=`<div class="succ"><div class="ic">✓</div><h2>${title}</h2><p>${sub}</p></div>
+    <div class="lt">Recorded</div>
+    <div class="fgrp">${facts.map(([k,v])=>`<div class="frow"><span class="fk">${k}</span><span class="fv">${v}</span></div>`).join('')}</div>
+    <div class="banner">${foot}</div>
+    <button class="btn" onclick="opHome()">Back to my work</button>
+    <button class="btn ghost" onclick="selWeek('w31')">See it on Leadership</button>`;
+  opSub('o-done','Submitted',curShed);}
+window.addEventListener('DOMContentLoaded',()=>{
+  syncW31();renderLead();renderWork();
+  document.getElementById('lFab').classList.add('on');
+  document.getElementById('vBtn').addEventListener('click',capVid);
+  document.getElementById('wgIn').addEventListener('input',chkSave);
+  document.getElementById('saveBtn').addEventListener('click',saveKid);
+  document.getElementById('subBtn').addEventListener('click',()=>{if(rows.length)scanReview();});
+  const s=document.getElementById('simIn');
+  s.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();tapKid(s.value);s.value='';}});
+});
+</script>
+</body>
+</html>

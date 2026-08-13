@@ -190,6 +190,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/workflows/{row_id}` | `workflow-record` | Workflow drilldown | `/vaccination/workflows/{row_id}` | Full chain record. |
 | `/vaccination` | `vaccination` | Preventive Care (PC) Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, park drive execution with shed/tag breakdowns, supplier warmup context. |
 | `/vaccination/execution/sheds/[shedId]` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | UI route uses the Next.js `[shedId]` segment; backend API uses `{shed_id}`. |
+| `/weighing` | `weighing` | Preventive Care (PC) Weighing | `/weighing/campaigns`, `/app/weighing/campaigns/...` | Admin-web surface intentionally hidden until product approval; mobile weighing and API endpoints remain active. |
 | `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into Preventive Care (PC) vaccination. |
 | `/procurement/source-entry/loads/{load_id}` | `source-load` | Source load detail | `/procurement/source-entry/loads/{load_id}` | Full source-entry journey. |
 | `/counts/herd` | `herd-register` | Herd Register | `/goats/search`, admin goat APIs | Vaccination trigger-closure entry point. |
@@ -197,7 +198,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/config` | `config` | Protocol Rules | `/protocols`, `/protocols/animal-stages` | Authority screen; category-driven. |
 | `/sops` | `sops` | SOP Library | `/admin/sops` | Vaccination SOP slice only. |
 | `/goats/{goat_id}` | `goat-passport` | Goat Passport | `/goats/{goat_id}`, `/goats/{goat_id}/passport` | Contextual drilldown. |
-| `/verification` | `verification-review` (not yet registered) | Verification — authority review | `/verification/queue` (real generated contract), `/admin/tasks/{task_id}` \| `/rework` \| `/assign` | New Admin/Data Ops authority screen (see verification-module-design.md §2.1); local literal copy until backend registers the page contract — see Explicit exceptions below. |
+| `/verify` | `verification-review` | Verify | `/verification/queue`, `/admin/tasks/{task_id}` \| `/rework` \| `/assign` | Cross-module verification evidence, filtered by backend-registered action type and status. `/actions` and `/verification` both redirect here for compatibility (renamed 2026-08-12). |
 
 ## Current Migration State
 
@@ -283,27 +284,20 @@ Explicit exceptions:
   remain as fallback text until the backend contract is extended with full copy keys. Escalation
   counting fix (P2b): now uses backend `escalation_state` or `status` field instead of
   `source === 'escalation'` alone.
-- `features/verification-review/*` (route `/verification`): a new Admin/Data Ops authority screen
-  (Head/Director/CEO act surface for the generic Verification vertical,
-  `context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`) built ahead of
-  its backend page contract. `backend/internal/adminui/app/service.go` has no `verification-review`
-  route_id yet, so `requireAdminWebPageContract` would throw on every request; the page/drawer render
-  from local literal copy in `features/verification-review/copy.ts` instead. The underlying DATA is
-  now fully real and backend-wired: `feat/verification-backend` merged to `main`, and
-  `GET /verification/queue` is a real generated `AppApiPaths` entry
-  (`packages/api-client/src/generated/app-api.ts`, `contracts/openapi/app-api.yaml`) —
-  `lib/api/server.ts` re-exports the generated `AppApiComponents["schemas"]["Verification*"]` types
-  (no more hand-typed shapes, no more `as keyof AppApiPaths & string` cast on the queue call) — plus
-  the EXISTING, already-generated `GET /admin/tasks/{task_id}`, `POST /admin/tasks/{task_id}/rework`,
-  and `POST /admin/tasks/{task_id}/assign` for the authority's rework/re-assign actions. Penalty note
-  has no backend contract at all anywhere in the codebase and ships permanently disabled with a
-  reason until one exists. Remaining TODO (page-contract only, not data): once
-  `backend/internal/adminui/app/service.go` registers `verification-review` (title/subtitle/table
-  columns/option groups/disabled reasons/a `park_id` query filter on `/verification/queue`), delete
-  `features/verification-review/copy.ts`, remove the `features/verification-review/` entry from
-  `apps/admin-web/scripts/check-ui-contract-literals.mjs` `SKIP_PATH_PARTS`, and switch the
-  page/drawer to `requireAdminWebPageContract("verification-review")` + `copy`/`tableLabels`/
-  `optionGroup`.
+- `features/weighing/*` (route `/weighing`): intentionally hidden from
+  admin-web until product approves the web planning/monitoring UX. The frontend
+  route redirects away, the shell strips any stale `/weighing` nav leaf, and
+  `backend/internal/adminui/app/service.go` must not publish a Weighing
+  admin-web nav item, route label, or page contract. This exception applies
+  only to the admin-web surface; mobile weighing and the weighing API endpoints
+  remain active.
+- `features/verification-review/*` now renders the backend-composed `/verify` authority screen.
+  `backend/internal/adminui/app/service.go` publishes the `verification-review` page contract and
+  top-level nav item immediately below Approvals; the frontend consumes its copy/table contract, while
+  `GET /verification/queue` publishes the complete registry-backed `action_types` and disjoint
+  Due/Approved/Rejected status options. Park and top-bar business date are server-side filters.
+  The drawer keeps same-page open/close behavior and exposes both inline playback and signed media
+  links. Penalty note remains disabled because no mutation API exists.
 
 - `features/ceo-ai/*` + `components/ceo-ai-chat.tsx` (leadership CEO/CXO floating assistant):
   the assistant is a leadership-only floating surface (bubble + streaming chat panel + conversation
@@ -332,8 +326,7 @@ Explicit exceptions:
   SERVER-SIDE: the backend `GET /ceo-ai/admin/trace/{request_id}` endpoint enforces the
   `ceo_internal` (superadmin) role + tenant scope and returns 403 to a non-admin; the admin-web proxy
   (`app/api/ceo-ai/admin/trace/[request_id]/route.ts`) adds no gating and reads no business data. It
-  is not in the backend-composed sidebar nav (same current state as `/verification` and
-  `/operations/dlq`) and has no `AdminWebPageContract`, so its labels are local literal copy — the
+  is not in the backend-composed sidebar nav and has no `AdminWebPageContract`, so its labels are local literal copy — the
   documented exception. Remaining TODO (contract-only): if this debug tool is ever promoted to a
   governed admin surface, register a page contract in
   `backend/internal/adminui/app/service.go`, fold the literals into it, and remove the
@@ -445,4 +438,4 @@ GET /admin-web/bootstrap available through generated client
 
 ## Full-screen drive detail route (2026-07-14)
 
-`/calendar/drive/[eventId]` is a new full-screen route (owner-directed replacement for the calendar drive drawer). It has no backend page contract yet, so its structural literals (breadcrumb crumbs, roster column headers) are local, matching the `/verification` new-route exception. It is allow-listed in `apps/admin-web/scripts/check-ui-contract-literals.mjs` (`app/(admin)/calendar/drive/`). Fold into a backend page contract when the detail surface stabilizes.
+`/calendar/drive/[eventId]` is a new full-screen route (owner-directed replacement for the calendar drive drawer). It has no backend page contract yet, so its structural literals (breadcrumb crumbs, roster column headers) remain a documented local exception. It is allow-listed in `apps/admin-web/scripts/check-ui-contract-literals.mjs` (`app/(admin)/calendar/drive/`). Fold into a backend page contract when the detail surface stabilizes.

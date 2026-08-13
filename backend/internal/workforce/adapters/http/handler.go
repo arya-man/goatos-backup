@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -241,14 +242,16 @@ func (h *Handler) AppMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.URL.Query().Get("device_id")
 	result, err := h.service.Bootstrap(
 		r.Context(),
 		tenantID(r),
 		actorID(r),
-		r.URL.Query().Get("device_id"),
+		deviceID,
 		httpmiddleware.LocaleTagFromRequest(r),
 		traceID(r),
 	)
+	h.logBootstrapOutcome(r, result, err, deviceID)
 	h.respond(w, r, result, err)
 }
 
@@ -262,7 +265,85 @@ func (h *Handler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		ActorID:  actorID(r),
 		Body:     body,
 	}, traceID(r))
+	if err != nil {
+		h.log.WarnContext(r.Context(), "app_device_register_failed",
+			slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+			slog.String("trace_id", traceID(r)),
+			slog.String("actor_id", actorID(r)),
+			slog.String("tenant_id", tenantID(r)),
+			slog.String("app_install_id", body.AppInstallID),
+			slog.String("app_version", body.AppVersion),
+			slog.String("error", err.Error()),
+		)
+	} else if result != nil {
+		h.log.InfoContext(r.Context(), "app_device_register_succeeded",
+			slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+			slog.String("trace_id", traceID(r)),
+			slog.String("actor_id", actorID(r)),
+			slog.String("tenant_id", tenantID(r)),
+			slog.String("operator_id", result.Device.OperatorID),
+			slog.String("device_id", result.Device.DeviceID),
+			slog.String("app_install_id", result.Device.AppInstallID),
+			slog.String("device_status", result.Device.Status),
+			slog.String("app_version", result.Device.AppVersion),
+		)
+	}
 	h.respond(w, r, result, err)
+}
+
+func (h *Handler) logBootstrapOutcome(r *http.Request, result *domain.BootstrapResponse, err error, deviceID string) {
+	args := []any{
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", traceID(r)),
+		slog.String("actor_id", actorID(r)),
+		slog.String("tenant_id", tenantID(r)),
+		slog.String("device_id", strings.TrimSpace(deviceID)),
+	}
+	if err != nil {
+		code := "internal_error"
+		status := http.StatusInternalServerError
+		var appErr *app.Error
+		if errors.As(err, &appErr) {
+			code = appErr.Code
+			status = appErr.HTTPStatus
+		}
+		args = append(args,
+			slog.Int("status", status),
+			slog.String("code", code),
+			slog.String("error", err.Error()),
+		)
+		h.log.WarnContext(r.Context(), "app_bootstrap_failed", args...)
+		return
+	}
+	if result != nil {
+		args = append(args,
+			slog.Int("status", http.StatusOK),
+			slog.String("operator_id", result.OperatorProfile.OperatorID),
+			slog.String("profile_status", result.OperatorProfile.Status),
+			slog.String("primary_role_hint", result.OperatorProfile.PrimaryRoleHint),
+			slog.Int("grant_count", len(result.RolesAndScopes)),
+			slog.String("roles", strings.Join(bootstrapRoles(result.RolesAndScopes), ",")),
+			slog.String("device_status", result.DeviceState.Status),
+			slog.Int("nav_count", len(result.VisibleNavigation)),
+			slog.Int("module_count", len(result.Modules)),
+			slog.String("nav_chrome", result.NavChrome),
+		)
+	}
+	h.log.InfoContext(r.Context(), "app_bootstrap_succeeded", args...)
+}
+
+func bootstrapRoles(grants []domain.GrantSummary) []string {
+	roles := make([]string, 0, len(grants))
+	seen := map[string]struct{}{}
+	for _, grant := range grants {
+		if _, ok := seen[grant.Role]; ok {
+			continue
+		}
+		seen[grant.Role] = struct{}{}
+		roles = append(roles, grant.Role)
+	}
+	sort.Strings(roles)
+	return roles
 }
 
 func (h *Handler) HeartbeatDevice(w http.ResponseWriter, r *http.Request) {

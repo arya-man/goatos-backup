@@ -19,6 +19,7 @@ import { copy, optionLabel, optionTone, table, tableLabels, type AdminUiPageCont
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ShedPassportLocalDrawer } from "./shed-passport-local-drawer";
+import { operationalLocationLabel } from "@/lib/operational-location";
 
 const ANIMAL_PAGE_SIZE = 100;
 type ShedStatus = VaccinationShedDetail["status"];
@@ -393,6 +394,13 @@ export async function VaccinationShedDetailPage({
 
   const statusTone = optionTone(pageContract, "shed_status_chips", detail.status) as Tone;
   const capacityTone = optionTone(pageContract, "capacity_chips", detail.capacity as VaccinationCapacityStatus) as Tone;
+  const shedDisplayName =
+    detail.operational_location_display ||
+    operationalLocationLabel({
+      shedName: detail.shedName,
+      partitionLabel: detail.partition_label,
+      sourceShedName: detail.source_shed_name,
+    });
 
   return (
     <div className="screen on">
@@ -402,11 +410,11 @@ export async function VaccinationShedDetailPage({
             <Link href={backHref} className="lk">
               {copy(pageContract, "crumb")}
             </Link>{" "}
-            · {detail.parkName} · <b>{detail.shedName}</b>
+            · {detail.parkName} · <b>{shedDisplayName}</b>
           </div>
           <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            {detail.parkName} · {detail.shedName}
+            {detail.parkName} · {shedDisplayName}
           </h1>
         </div>
         <div className="sp" style={{ flex: 1 }} />

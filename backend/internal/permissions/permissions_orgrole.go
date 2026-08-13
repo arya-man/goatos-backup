@@ -211,7 +211,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 	// Assistant Manager supervises ground execution. The separate Operator role
 	// owns RFID/camera capture and submit.
 	TierAssistantManager: {
-		GoatRead: {}, AppBootstrap: {},
+		GoatRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead:       {},
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead:    {},
@@ -219,11 +219,16 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		// Ground capture includes recording the three count-moving events from the phone
 		// (shifting/birth/death) -- see CountsWrite's doc comment in permissions.go.
 		CountsWrite: {},
+		// Approvals (maintainer decision 2026-07-21): all four org tiers approve/reject every
+		// request type -- birth, death, AND shifting -- on the admin-web Approvals page.
+		// AdminWebBootstrap above lets them load admin-web; CountsApproveAccess is the coarse route
+		// gate and Lifecycle/Shifting are the per-type decision authorities.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 	// Manager tier -- run the vertical's daily ops at a park, supervise AMs,
 	// manages the local roster without capturing.
 	TierManager: {
-		GoatRead: {}, AppBootstrap: {},
+		GoatRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead: {}, TaskAssign: {},
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead: {}, CalendarAction: {},
@@ -231,6 +236,8 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		RosterRead: {}, RosterManage: {},
 		ProcurementRead: {}, ProcurementWrite: {},
 		CountsWrite: {},
+		// Approvals (maintainer decision 2026-07-21): approve/reject birth, death, and shifting.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 	// Head (Ops-Head) tier -- park/vertical oversight + standards; act on
 	// verified items. No capture, no verify.
@@ -241,10 +248,16 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
-		CalendarRead: {}, CalendarAction: {},
+		// Oversight of vaccination execution, read-only and park-scoped: this tier supervises the
+		// ground it owns but never captures (no TaskExecute above), so it must not be
+		// operator-assignment scoped. See VaccinationOverseeExecution's doc comment.
+		VaccinationOverseeExecution: {},
+		CalendarRead:                {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationAct: {},
+		// Approvals (maintainer decision 2026-07-21): approve/reject birth, death, and shifting.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 	// Director tier -- owns the vertical: plan/logistics/oversee execution,
 	// set SOPs/protocols, act, penalise. No capture, no verify.
@@ -256,10 +269,14 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {},
 		ObligationRead: {}, VaccinationRead: {}, VaccinationCampaign: {},
-		CalendarRead: {}, CalendarAction: {},
+		// Same oversight capability as the Head tier: owns the vertical, never holds the scanner.
+		VaccinationOverseeExecution: {},
+		CalendarRead:                {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
+		// Approvals (maintainer decision 2026-07-21): approve/reject birth, death, and shifting.
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	},
 }
 
@@ -277,15 +294,38 @@ func init() {
 			continue
 		}
 		for _, vertical := range AllVerticals {
-			key := RoleKey(tier, vertical)
-			if _, exists := rolePermissions[key]; exists {
-				panic("permissions: composite org role key collides with an existing role: " + key)
-			}
 			set := make(map[string]struct{}, len(perms))
 			for permission := range perms {
 				set[permission] = struct{}{}
 			}
-			rolePermissions[key] = set
+			if vertical == VerticalHealth {
+				set[HealthRead] = struct{}{}
+				// Raising a sick-goat report is field work every health tier can do; the
+				// clinical course authoring above manager stays on health.diagnose
+				// (maintainer decision 2026-07-30).
+				set[HealthReport] = struct{}{}
+				if tier == TierManager || tier == TierHead || tier == TierDirector {
+					set[HealthDiagnose] = struct{}{}
+				}
+			}
+			// The feed vertical's oversight tiers read the feed dispatch sheet through the feed
+			// vertical's OWN permission. Before this they reached it only as a side effect of the
+			// tier-wide ProtocolRead -- the VACCINATION protocol read -- which rendered the Feed
+			// Direction tab for them while GET /feed-direction/preview (already on
+			// FeedDirectionRead) refused it: a tab that 403s on arrival. Scoped to VerticalFeed so
+			// the one-module-one-director split holds; no other vertical's director gains a feed
+			// read. Manager/AM are excluded because they hold no feed surface today.
+			if vertical == VerticalFeed && (tier == TierHead || tier == TierDirector) {
+				set[FeedDirectionRead] = struct{}{}
+			}
+			// registerRole panics on collision with a pre-existing role -- including the
+			// flat legacy roles declared in permissions.go. It replaces the previous
+			// hand-written collision check here AND closes the hole that check did not
+			// cover: a DIRECT `rolePermissions[role] = ...` assignment elsewhere in this
+			// init(), which is exactly how growth_director's WeighingOverseeOperators and
+			// then WeighingPlan were silently voided. Flat roles are declared once, in the
+			// rolePermissions literal; nothing here may re-declare one.
+			registerRole(RoleKey(tier, vertical), set)
 		}
 	}
 }

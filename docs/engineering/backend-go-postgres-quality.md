@@ -4,6 +4,14 @@ This is the backend implementation and review baseline for Goat OS. It applies
 to `backend/**/*.go`, `backend/internal/**/adapters/postgres/**`,
 `backend/migrations/postgres/**`, and `backend/sqlc.yaml`.
 
+Shared operational read models must follow
+`docs/architecture/operational-read-model-contract.md`. Backend changes that
+feed Calendar, Control Tower, Action Center, Protocol Adherence, Workflows,
+admin-web detail pages, Android execution/proof screens, reporting, or a new
+vertical/module must declare canonical write owner, row/summary grain, stable
+scope identity, bucket disjointness/overlap, whole-result summary behavior, and
+every consumer contract before implementation is complete.
+
 The repository stack is intentionally narrow:
 
 ```text
@@ -117,6 +125,15 @@ never make a required CI result depend on an unpinned `@latest` install.
 - Keep migrations sequential, reversible where the data contract permits, and
   replayable from an empty PostgreSQL 16 database. Never mutate an already
   applied migration.
+- Treat `000001_goatos_clean_slate_baseline.sql` as immutable once any shared
+  environment has applied it. If a column, index, constraint, seed contract, or
+  backfill was missed, add the next numbered forward migration instead of
+  editing the baseline. A changed applied file creates checksum drift and can
+  stop STG/production migration jobs before the real repair migration runs.
+- When repairing a schema gap found in STG, verify both facts before closing
+  the incident: the new migration version is recorded in
+  `public.goatos_schema_migrations`, and the live table shape/data matches the
+  new contract. Do not rely on a clean-slate local replay alone.
 - Add columns nullable/default-safe, backfill in resumable bounded chunks, then
   constrain in a later step. Set a bounded `lock_timeout` for production DDL.
 - Build hot-table indexes with `CREATE INDEX CONCURRENTLY` in a goose

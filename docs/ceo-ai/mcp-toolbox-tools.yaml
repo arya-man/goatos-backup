@@ -179,19 +179,28 @@ tools:
         next_due_date,
         manager_label,
         backup_label,
-        status
+        status,
+        partition_label
       FROM ceo_ai.vaccination_shed_status
       WHERE tenant_id = $1::uuid
         AND ($2::date IS NULL OR next_due_date <= $2)
         AND ($3::text IS NULL OR status = $3)
         AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
         AND ($5::text IS NULL OR shed_label ILIKE '%' || $5 || '%')
+        -- Partition match mirrors backend/internal/platform/oploc.SamePartition:
+        -- NULL/''/'whole' both sides mean "not partitioned", and 'Part 3' == '3'.
+        AND (
+          $7::text IS NULL
+          OR regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE($7, 'whole'))), '^part[[:space:]]+', '')
+        )
       ORDER BY
         CASE status WHEN 'overdue' THEN 0 WHEN 'due' THEN 1 ELSE 2 END,
         next_due_date NULLS LAST,
         due DESC,
         park_label,
-        shed_label
+        shed_label,
+        partition_label NULLS FIRST
       LIMIT LEAST($6::int, 50)
     parameters:
       - name: tenant_id
@@ -217,6 +226,16 @@ tools:
         type: integer
         description: Maximum shed rows.
         default: 10
+      - name: partition_label
+        type: string
+        description: |
+          Optional partition of the shed, e.g. "1", "Part 3" -- use when the
+          question names a specific pen ("Castro 1"), not just the shed
+          ("Castro"). Rows are returned for EVERY partition of a shed plus one
+          bare shed-total row when this is omitted; a shed with no partitions
+          only ever returns its bare row. Never sum rows for the same shed
+          across partitions -- that double counts the bare total.
+        required: false
 
   # ----------------------------------------------------------------------------
   # 3b. Vaccination OPERATOR status -> ceo_ai.vaccination_operator_status
@@ -309,13 +328,21 @@ tools:
         animals_overdue,
         owner_label,
         backup_label,
-        next_action
+        next_action,
+        partition_label
       FROM ceo_ai.vaccination_dose_pickup
       WHERE tenant_id = $1::uuid
         AND business_date = $2::date
         AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
         AND ($4::text IS NULL OR shed_label ILIKE '%' || $4 || '%')
-      ORDER BY animals_overdue DESC, doses_to_pick DESC, park_label, shed_label, vaccine_label
+        -- Partition match mirrors backend/internal/platform/oploc.SamePartition:
+        -- NULL/''/'whole' both sides mean "not partitioned", and 'Part 3' == '3'.
+        AND (
+          $6::text IS NULL
+          OR regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE($6, 'whole'))), '^part[[:space:]]+', '')
+        )
+      ORDER BY animals_overdue DESC, doses_to_pick DESC, park_label, shed_label, vaccine_label, partition_label NULLS FIRST
       LIMIT LEAST($5::int, 50)
     parameters:
       - name: tenant_id
@@ -336,6 +363,17 @@ tools:
         type: integer
         description: Maximum rows.
         default: 15
+      - name: partition_label
+        type: string
+        description: |
+          Optional partition of the shed, e.g. "1", "Part 3" -- use when the
+          question names a specific pen ("Castro 1"), not just the shed
+          ("Castro"). doses_to_pick is a whole-batch reservation and is the SAME
+          on every partition row of one shed/batch; only animals_due and
+          animals_overdue are scoped to the named partition. Never sum
+          doses_to_pick across partition rows for the same shed/batch -- that
+          double counts a single reservation.
+        required: false
 
   # ----------------------------------------------------------------------------
   # 4b. Pre-arrival vaccination history trust -> ceo_ai.vaccination_prearrival_history_review
@@ -703,17 +741,31 @@ tools:
     kind: postgres-sql
     source: mesha-postgres-readonly
     description: |
-      Proof / verification backlog by area and scope: pending, rejected,
-      accepted, oldest pending time, and owner. Use for "where are proof gaps",
-      "what is pending verification", "rejected proofs by shed".
+      Proof / verification backlog by area and scope: total live workload,
+      pending, rejected, accepted, oldest pending time, and owner. Use for
+      "where are proof gaps", "what is pending verification", "rejected proofs
+      by shed", "how many proofs were accepted".
+
+      pending + rejected + accepted = total. `total` deliberately EXCLUDES
+      withdrawn items -- a withdrawn submission was superseded (reopened and
+      resubmitted, or retired as a duplicate) and is not a verification outcome,
+      so it is reported separately rather than inflating the live backlog. Say
+      "superseded", not "rejected", when reporting withdrawn.
+
+      Until migration 000085 the `accepted` column filtered on status values
+      that the verification_items CHECK constraint does not permit and was
+      therefore ZERO on every row. Any accepted count read from this tool
+      against a database older than 000085 is meaningless, not empty.
     statement: |
       SELECT
         area,
         park_label,
         shed_label,
+        total,
         pending,
         rejected,
         accepted,
+        withdrawn,
         oldest_pending_at,
         owner_label
       FROM ceo_ai.verification_queue_status
@@ -737,6 +789,81 @@ tools:
       - name: limit
         type: integer
         description: Maximum scope rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
+  # 11b. Verifier video-review integrity -> ceo_ai.verifier_review_integrity
+  # ----------------------------------------------------------------------------
+  mesha_verifier_review_integrity:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Did a verifier actually WATCH a proof video before deciding, or rubber-stamp
+      it? Per verifier, per park/category/business-day: videos reviewed, median
+      and p90 time-to-verdict, median watch fraction, the count of verdicts
+      recorded BELOW the 90% watch-fraction threshold (the integrity signal --
+      "how many decisions were made without proving a full watch"), how many
+      verdicts sent no review telemetry at all, reject rate, and a reject-reason
+      breakdown. Use for "which verifiers are rubber-stamping proofs", "how fast
+      is verifier X deciding", "how many approvals had under 90% watch time",
+      "verifier reject rate and reasons".
+
+      below_watch_threshold_count and missing_review_telemetry_count are
+      DISTINCT and must not be summed as one number: the first is a KNOWN
+      watch fraction under the bar (a real integrity finding); the second is
+      absent telemetry (a client-wiring gap, not proof of skimming either way).
+      Report them separately when asked "how many rubber-stamped reviews" --
+      state both counts and what each means.
+
+      Business day is Asia/Kolkata, derived from the AUTHORITATIVE backend
+      verified_at timestamp (not client-reported timing). See migration 000114
+      (`ceo_ai.verifier_review_integrity`) for the full grain and derivation.
+    statement: |
+      SELECT
+        verifier_id,
+        park_label,
+        category,
+        business_day,
+        videos_reviewed,
+        median_time_to_verdict_seconds,
+        p90_time_to_verdict_seconds,
+        median_watch_fraction,
+        below_watch_threshold_count,
+        missing_review_telemetry_count,
+        rejected_count,
+        reject_rate,
+        reject_reason_breakdown
+      FROM ceo_ai.verifier_review_integrity
+      WHERE tenant_id = $1::uuid
+        AND ($2::uuid IS NULL OR verifier_id = $2::uuid)
+        AND ($3::text IS NULL OR category = $3)
+        AND ($4::date IS NULL OR business_day >= $4)
+        AND ($5::date IS NULL OR business_day <= $5)
+      ORDER BY business_day DESC, below_watch_threshold_count DESC, verifier_id
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: verifier_id
+        type: string
+        description: Optional single verifier id.
+        required: false
+      - name: category
+        type: string
+        description: Optional verification category (e.g. vaccination_proof).
+        required: false
+      - name: from_date
+        type: string
+        description: Optional inclusive start business date (YYYY-MM-DD, Asia/Kolkata).
+        required: false
+      - name: to_date
+        type: string
+        description: Optional inclusive end business date (YYYY-MM-DD, Asia/Kolkata).
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum rows.
         default: 20
 
   # ----------------------------------------------------------------------------
@@ -1008,6 +1135,7 @@ toolsets:
     - mesha_ops_exceptions
     - mesha_sop_execution
     - mesha_verification_queue
+    - mesha_verifier_review_integrity
     - mesha_inventory_stock
     - mesha_workforce_coverage
     - mesha_action_center

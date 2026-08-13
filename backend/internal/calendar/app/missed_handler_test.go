@@ -65,3 +65,65 @@ func (r *missedHandlerRepo) SweepEscalations(_ context.Context, in ports.SweepEs
 	r.last = in
 	return 1, nil
 }
+
+// recordingMissedNotifier captures the missed-work notification the handler must fire.
+type recordingMissedNotifier struct {
+	calls        int
+	tenantID     string
+	obligationID string
+	err          error
+}
+
+func (n *recordingMissedNotifier) NotifyObligationMissed(_ context.Context, tenantID, obligationID string) error {
+	n.calls++
+	n.tenantID = tenantID
+	n.obligationID = obligationID
+	return n.err
+}
+
+// TestObligationMissedHandlerNotifiesTheMiss is the BLOCKER-3 guard. Opening an escalation row is a
+// screen state, not a message: before this, a missed obligation -- the exact failure the operational
+// kernel exists to catch -- was the one lifecycle state that told nobody anything. The handler must
+// now also deliver the miss.
+func TestObligationMissedHandlerNotifiesTheMiss(t *testing.T) {
+	repo := &missedHandlerRepo{}
+	svc := NewService(repo)
+	svc.now = func() time.Time { return time.Date(2026, 6, 29, 9, 0, 0, 0, time.UTC) }
+	notifier := &recordingMissedNotifier{}
+	handler := NewObligationMissedHandler(svc).WithNotifier(notifier)
+
+	if err := handler.HandleEvent(context.Background(), eventbus.Event{
+		Type:     EventObligationMissed,
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Key:      "86000000-0000-4000-8000-000000000001",
+		Payload:  []byte(`{"status":"missed","obligation_id":"86000000-0000-4000-8000-000000000001"}`),
+	}); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if notifier.calls != 1 {
+		t.Fatalf("missed obligation produced %d notifications, want 1 — a missed obligation must tell someone", notifier.calls)
+	}
+	if notifier.tenantID != "00000000-0000-4000-8000-000000000001" ||
+		notifier.obligationID != "86000000-0000-4000-8000-000000000001" {
+		t.Fatalf("notified tenant/obligation = %q/%q", notifier.tenantID, notifier.obligationID)
+	}
+}
+
+// TestObligationMissedHandlerDoesNotNotifyOnNonMissedPayload keeps the notification on the missed
+// transition only.
+func TestObligationMissedHandlerDoesNotNotifyOnNonMissedPayload(t *testing.T) {
+	notifier := &recordingMissedNotifier{}
+	handler := NewObligationMissedHandler(NewService(&missedHandlerRepo{})).WithNotifier(notifier)
+
+	if err := handler.HandleEvent(context.Background(), eventbus.Event{
+		Type:     EventObligationMissed,
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Key:      "86000000-0000-4000-8000-000000000001",
+		Payload:  []byte(`{"status":"completed","obligation_id":"86000000-0000-4000-8000-000000000001"}`),
+	}); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if notifier.calls != 0 {
+		t.Fatalf("non-missed payload notified %d times, want 0", notifier.calls)
+	}
+}

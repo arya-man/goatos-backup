@@ -145,6 +145,7 @@ func cubeParams(params map[string]any) (dims []string, timeRange string, filters
 	if gb, ok := params["group_by"].(string); ok && gb != "" {
 		dims = append(dims, gb)
 	}
+	dims = expandOperationalLocationDims(dims)
 	if tr, ok := params["time_range"].(string); ok {
 		timeRange = tr
 	}
@@ -160,6 +161,24 @@ func cubeParams(params map[string]any) (dims []string, timeRange string, filters
 		}
 	}
 	return dims, timeRange, filters
+}
+
+func expandOperationalLocationDims(dims []string) []string {
+	out := make([]string, 0, len(dims)+1)
+	hasPartition := false
+	for _, dim := range dims {
+		if dim == "partition_label" {
+			hasPartition = true
+		}
+	}
+	for _, dim := range dims {
+		out = append(out, dim)
+		if (dim == "shed_label" || dim == "shed") && !hasPartition {
+			out = append(out, "partition_label")
+			hasPartition = true
+		}
+	}
+	return out
 }
 
 func splitCSV(s string) []string {

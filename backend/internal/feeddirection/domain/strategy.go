@@ -355,7 +355,7 @@ func (ExperimentPlanner) Workflow() string { return WorkflowExperiment }
 // Applies matches a shed that has hand-authored experiment rows. Their presence IS the selection
 // rule -- there is no separate "is experiment" flag to fall out of sync with the data.
 func (ExperimentPlanner) Applies(shed ShedInput, cfg ConfigSnapshot) bool {
-	return len(cfg.ExperimentByShedID[shed.ShedID]) > 0
+	return len(cfg.ExperimentByLocation[ExperimentLocationKey(shed.ShedID, shed.PartitionLabel)]) > 0
 }
 
 // SessionFeedItems returns nil: an experiment shed's items are NOT the park's session slots.
@@ -449,7 +449,7 @@ func describeGrains(grains []ShedGrain, cfg ConfigSnapshot, facet func(ShedGrain
 // experiment uses, so absence here means "not part of this experiment", unlike absence from the
 // ration grid which means "nobody said what to feed these animals".
 func (ExperimentPlanner) PlanDaily(shed ShedInput, cfg ConfigSnapshot) []DailyRow {
-	cells := cfg.ExperimentByShedID[shed.ShedID]
+	cells := cfg.ExperimentByLocation[ExperimentLocationKey(shed.ShedID, shed.PartitionLabel)]
 	if len(cells) == 0 {
 		return nil
 	}

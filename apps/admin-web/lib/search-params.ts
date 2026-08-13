@@ -96,7 +96,41 @@ export function hrefWithoutPagedCursor(pathname: string, params: RouteSearchPara
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-function all(params: RouteSearchParams, key: string): string[] {
+export function hrefWithParams(
+  pathname: string,
+  params: RouteSearchParams,
+  overrides: Record<string, string | string[] | null | undefined>,
+  omitKeys: string[] = [],
+) {
+  const omit = new Set(omitKeys);
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (omit.has(key) || key in overrides) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (Array.isArray(value)) {
+      for (const item of value) if (item) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
+/**
+ * Every value of a REPEATED search parameter (`?feed_item=a&feed_item=b`), blanks dropped.
+ *
+ * The counterpart to `one`, and the one to reach for whenever a filter is multi-valued: `one`
+ * returns only the first occurrence, so using it on a repeated parameter silently discards the rest
+ * — the filter chips say four items are applied while the request asked for one.
+ */
+export function all(params: RouteSearchParams, key: string): string[] {
   const value = params[key];
   if (!value) return [];
   return Array.isArray(value) ? value.filter(Boolean) : [value];

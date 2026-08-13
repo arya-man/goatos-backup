@@ -42,9 +42,16 @@ ON CONFLICT (tenant_id) DO NOTHING`, fdiTenant)
 VALUES ($2::uuid, $1::uuid, 'park', 'CBE', 'CBE', 'active')
 ON CONFLICT (location_id) DO NOTHING`, fdiTenant, fdiPark)
 	// A dispatch clock so the ScheduleReader has something to read.
-	exec(`INSERT INTO feed_schedule_config (tenant_id, park_id, workflow, direction_time, correction_time, transport_time)
-VALUES ($1::uuid, $2::uuid, 'normal', '07:00', '14:00', '15:45'),
-       ($1::uuid, $2::uuid, 'experiment', '14:00', '14:00', '15:45')`, fdiTenant, fdiPark)
+	// valid_from is PINNED, not defaulted. The column is `NOT NULL DEFAULT CURRENT_DATE` and the
+	// reader filters `valid_from <= <as-of>`, so leaving it to the default made this fixture invisible
+	// to every test reading a pinned PAST date -- TestScheduleReaderReadsTheDispatchClock asks for
+	// 2026-07-29 and got zero clocks on any run day after it. A time-dependent test that passes only
+	// while the wall clock happens to sit before its own fixture date is the defect AGENTS.md's
+	// pinned-clock rule exists to prevent: derive time-sensitive fixture fields from the same pinned
+	// anchor, never from SQL's idea of today.
+	exec(`INSERT INTO feed_schedule_config (tenant_id, park_id, workflow, direction_time, correction_time, transport_time, valid_from)
+VALUES ($1::uuid, $2::uuid, 'normal', '07:00', '14:00', '15:45', DATE '2026-01-01'),
+       ($1::uuid, $2::uuid, 'experiment', '14:00', '14:00', '15:45', DATE '2026-01-01')`, fdiTenant, fdiPark)
 	return NewRepository(pool, 10*time.Second), pool
 }
 

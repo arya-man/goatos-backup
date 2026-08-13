@@ -10,6 +10,12 @@ package sg.mesha.goatos.core.analytics
  */
 class AnalyticsContext(val flavor: String) {
     @Volatile
+    var appVersionName: String? = null
+
+    @Volatile
+    var appVersionCode: String? = null
+
+    @Volatile
     var role: String? = null
 
     @Volatile
@@ -18,4 +24,20 @@ class AnalyticsContext(val flavor: String) {
     /** Stable per-install device id, stamped onto every event by [FirebaseAnalyticsAdapter.track]. */
     @Volatile
     var deviceId: String? = null
+
+    /** Process/session marker used to correlate launch, bootstrap, scan, proof, and sync events. */
+    @Volatile
+    var journeyId: String? = null
+
+    @Volatile
+    var tenantId: String? = null
+
+    @Volatile
+    var actorId: String? = null
+
+    @Volatile
+    var email: String? = null
+
+    @Volatile
+    var parkId: String? = null
 }

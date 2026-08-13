@@ -56,6 +56,10 @@ firebasePerfPlugin = "2.0.2"
 # CLI login (or FIREBASE_TOKEN / a service account) at invoke time; nothing secret
 # is committed. 5.3.0 is latest at wiring.
 firebaseAppdistribution = "5.3.0"
+# Turbine: Flow testing library for collecting emissions in a deterministic test context
+# (no manual launch/collect loops). Enables assertion of state-emission order to catch
+# bugs like flashes, wedges, yanks, and stale-scope issues (item: state-sequence tests).
+turbine = "1.0.0"
 # Robolectric: JVM-shadowed Android framework so core-data's Room migration + cache
 # round-trip test (GoatDatabaseCacheTest) can build a real in-memory GoatDatabase under
 # `testDebugUnitTest` — Room's Android Context-based builder needs a real (shadowed)
@@ -80,6 +84,9 @@ cameraX = "1.4.2"
 # capture-only). 1.8.0 is the latest stable line compatible with minSdk 29 / compileSdk 36
 # at scaffold.
 media3 = "1.8.0"
+coil = "2.7.0"
+# Showkase: debug-only on-device Compose catalog for fast UI edge-case review.
+showkase = "1.0.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -90,6 +97,7 @@ androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", versi
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
@@ -149,6 +157,22 @@ androidx-camera-video = { group = "androidx.camera", name = "camera-video", vers
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+androidx-media3-transformer = { group = "androidx.media3", name = "media3-transformer", version.ref = "media3" }
+androidx-media3-effect = { group = "androidx.media3", name = "media3-effect", version.ref = "media3" }
+# media3's OkHttp DataSource. Without it media3 uses its OWN DefaultHttpDataSource, which bypasses
+# the app's OkHttp stack entirely — so a failed proof-video fetch never reaches TelemetryInterceptor
+# and produces ZERO logcat/Crashlytics/Analytics signal. Pinned to the SAME media3 version as
+# exoplayer/ui above (a second media3 version would be a runtime-incompatible split).
+androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
+# Compose image loading for PHOTO proofs (the feed-weight photo, 2026-08-11). The verifier screen was
+# video-only and had no image path at all. coil-compose gives AsyncImage; coil-okhttp routes fetches
+# through the app's OkHttp client for the same reason media3-datasource-okhttp exists -- a 403 on an
+# expired signed URL must be visible in logcat/Crashlytics, not silently blank.
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+showkase = { group = "com.airbnb.android", name = "showkase", version.ref = "showkase" }
+showkase-annotation = { group = "com.airbnb.android", name = "showkase-annotation", version.ref = "showkase" }
+showkase-processor = { group = "com.airbnb.android", name = "showkase-processor", version.ref = "showkase" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 
 [plugins]
 # AGP 9+ has built-in Kotlin: Android modules apply NO kotlin.android plugin.

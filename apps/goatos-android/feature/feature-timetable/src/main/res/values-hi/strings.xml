@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="timetable_title">समय-सारणी</string>
     <string name="timetable_subtitle">पारी रोस्टर — यह संचालन का स्रोत है कि कौन प्रत्येक दिन निष्पादन करता है।</string>

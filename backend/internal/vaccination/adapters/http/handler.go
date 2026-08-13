@@ -26,7 +26,7 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
-	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error)
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string, partitionLabel ...string) (domain.ShedCompletionSummary, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -336,6 +336,14 @@ type shedCompletionSummaryResponse struct {
 	SubmitEnabled    bool                                 `json:"submit_enabled"`
 	BlockingReason   *string                              `json:"blocking_reason"`
 	SubmitState      string                               `json:"submit_state"`
+	// RoundSubmitted is true only when a live/accepted submission trail exists for THIS shed's
+	// CURRENT round of eligible obligations. See domain.ShedCompletionSummary.RoundSubmitted.
+	RoundSubmitted bool `json:"round_submitted"`
+	// RoundID is a deterministic fingerprint of this shed's current obligation-round state; it
+	// changes value whenever an obligation in this shed submits or is reopened by a verifier
+	// rejection. See domain.ShedCompletionSummary.RoundID. Opaque to clients -- not a UUID, not
+	// stable across schema changes -- carried for round-identity comparisons only.
+	RoundID string `json:"round_id"`
 }
 
 // ShedCompletionSummary serves GET /app/tasks/{task_id}/shed-completion-summary — the read-only
@@ -355,7 +363,11 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
 		return
 	}
-	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID, shedID)
+	partitionLabel := strings.TrimSpace(r.URL.Query().Get("partition_label"))
+	if partitionLabel == "" {
+		partitionLabel = strings.TrimSpace(r.URL.Query().Get("partitionLabel"))
+	}
+	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID, shedID, partitionLabel)
 	if err != nil {
 		if errors.Is(err, vaccports.ErrNotFound) {
 			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
@@ -381,6 +393,8 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		SubmitEnabled:    summary.SubmitEnabled,
 		BlockingReason:   summary.BlockingReason,
 		SubmitState:      summary.SubmitState,
+		RoundSubmitted:   summary.RoundSubmitted,
+		RoundID:          summary.RoundID,
 	})
 }
 
@@ -399,9 +413,16 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = int32(n)
 	}
-	parkID := r.URL.Query().Get("park_id")
-	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+	// projection-review: the queue is park-scoped by the caller's GRANTS, not by an optional
+	// client filter. It previously defaulted to tenant-wide, so a park-bound park head who omitted
+	// park_id reviewed the other park's completions; park_id may now only narrow inside the grant.
+	requestedPark := r.URL.Query().Get("park_id")
+	if requestedPark != "" && !uuidutil.IsUUIDString(requestedPark) {
 		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requestedPark)
+	if !ok {
 		return
 	}
 	var cursor *domain.RecordedCompletionCursor
@@ -502,6 +523,20 @@ func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Re
 func (h *Handler) conflict(w http.ResponseWriter, r *http.Request, code, message string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 		errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, nil)
+}
+
+// authorizedParkID clamps a requested park to the caller's grant scope, mirroring the
+// vaccination-execution handler: a tenant-wide (or grant-less internal) caller keeps the
+// verbatim request, a park-scoped caller defaults to their own park and is refused 403 for any
+// other. Writes the error response itself and reports ok=false when access is denied.
+func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
+	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	if decision.Allowed {
+		return decision.ParkID, true
+	}
+	httpresponse.WriteError(w, r, h.log, decision.Status,
+		errorEnvelope{Code: decision.Code, Message: decision.Message, TraceID: traceID(r)}, nil)
+	return "", false
 }
 
 func tenantID(r *http.Request) string {

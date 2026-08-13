@@ -308,7 +308,11 @@ export async function FeedDirectionPage({
                   // render as a stated "nothing to feed", never as an empty hole in the table.
                   const nothingToFeed = isNothingToFeed(row.items);
                   const span = itemLineCount(visibleItems);
-                  const rowKey = `${row.shed_id}|${row.ration_group}|${row.breed}|${row.session_no}`;
+                  // The row's real identity: one operational location, one session, one workflow.
+                  // Keyed on the descriptive columns instead (`ration_group|breed`), two partitions of
+                  // one shed holding the same mix produced the SAME React key, and those columns are
+                  // now backend-joined summaries of a pen rather than the thing that separates rows.
+                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.workflow}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
@@ -321,7 +325,7 @@ export async function FeedDirectionPage({
                               adminui/app/service.go pages(). */}
                           <td rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>{row.shed_label}</span>
+                              <span style={{ fontWeight: 650 }}>{row.operational_location_display || row.shed_label}</span>
                               <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap" }}>
                                 <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                                 {row.overdue_pending ? <FeedOverdueShiftingChip pageContract={pageContract} /> : null}
@@ -402,7 +406,18 @@ export async function FeedDirectionPage({
                               {row.session_total_kg} {copy(pageContract, "label.kg_noun")}
                             </span>
                             {row.blocked ? (
-                              <span className="tag t-dng" title={copy(pageContract, "label.blocked_note")}>
+                              // One row now covers a whole pen, so "blocked" alone no longer says WHICH
+                              // part of it is unauthored — the backend names each gap and they are shown
+                              // here. The operator feeds what IS configured; this is how they see what
+                              // is missing and where to close it. Backend-owned wording, joined only.
+                              <span
+                                className="tag t-dng"
+                                title={
+                                  row.blocked_reasons?.length
+                                    ? row.blocked_reasons.map((reason) => reason?.detail ?? "").filter(Boolean).join("\n")
+                                    : copy(pageContract, "label.blocked_note")
+                                }
+                              >
                                 {copy(pageContract, "label.blocked_short")}
                               </span>
                             ) : null}

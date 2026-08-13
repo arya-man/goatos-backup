@@ -80,7 +80,7 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(input, families, familyErr)
+	resp := s.compile(ctx, input, families, familyErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -166,11 +166,17 @@ func (s *Service) evictCacheEntryLocked() {
 	}
 }
 
-func (s *Service) compile(input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
+func (s *Service) compile(ctx context.Context, input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
 	resp = applyConfigEntries(resp, families.UIConfig)
+	// The verifier-only workspace narrows the fully-compiled contract instead of building a
+	// parallel one, so /verify keeps the same controls/copy/options every other principal gets.
+	// It runs before familyHashes so the contract revision reflects what is actually served.
+	if isVerifierLensPrincipal(input) {
+		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
+	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes
 	resp.ContractRevision = hashStruct(hashes)
@@ -219,6 +225,8 @@ func (s *Service) loadFamilyRevisions(ctx context.Context, tenantID string) (map
 	}
 	revisions, err := repo.LoadContractFamilyRevisions(ctx, tenantID)
 	if err != nil {
+		// best-effort: load revision map for contract family matching; if unavailable, fall back to no revisions
+		// exception:exempt graceful fallback; the contract family matching is optional and doesn't block bootstrap
 		return nil, false
 	}
 	if revisions == nil {
@@ -769,11 +777,70 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = mergeOptionGroupReferences(out[i].OptionGroups, "feed_items", families.FeedItems, "")
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_parks", optionsFromReferences(families.Parks, "info"))
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
+		case "weighing-weights":
+			// Live park vocabulary, same injection path Feed uses. The contract declares
+			// the group empty; the parks themselves are tenant rows and must never be
+			// constants in contract code.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
 		case "dlq-center":
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
+		case "verification-review":
+			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
+		case "health-config":
+			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
+		case "counts-breakdown":
+			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 		}
 	}
 	return out
+}
+
+// compileHealthConfigControls splits /health/config by authority: HealthConfigRead reaches the
+// screen and reads the standing dosages; only HealthConfigWrite may change them.
+//
+// The four controls are declared here rather than left to the renderer so a read-only principal
+// gets a visibly DISABLED control carrying a reason, not a missing one. A missing button reads as
+// a broken page; a disabled button with "your role can read the protocols but cannot change them"
+// is an answer. This is the same shape compileConfigControls uses for protocol publish.
+func compileHealthConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps every control
+	// enabled, matching how compileConfigControls treats the same case.
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.HealthConfigWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "health_config.disabled_no_write", "Your current role can read the treatment protocols but cannot change them.")
+	}
+	for _, c := range []domain.Control{
+		{
+			ID:     "add_disease",
+			Label:  controlCopy(copy, "action.add_disease", "Add disease"),
+			Kind:   "primary_action",
+			Action: "POST /health-config/diseases",
+		},
+		{
+			ID:     "edit_protocol",
+			Label:  controlCopy(copy, "action.edit_protocol", "Edit"),
+			Kind:   "row_action",
+			Action: "POST /health-config/drafts",
+		},
+		{
+			ID:     "publish_protocol",
+			Label:  controlCopy(copy, "action.publish_protocol", "Publish"),
+			Kind:   "primary_action",
+			Action: "POST /health-config/protocols/{protocol_version_id}/publish",
+		},
+		{
+			ID:     "discard_draft",
+			Label:  controlCopy(copy, "action.discard_draft", "Discard draft"),
+			Kind:   "secondary_action",
+			Action: "POST /health-config/protocols/{protocol_version_id}/discard",
+		},
+	} {
+		c.Enabled = allowed
+		c.DisabledReason = reason
+		controls = upsertControl(controls, c)
+	}
+	return controls
 }
 
 func compileConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
@@ -793,6 +860,143 @@ func compileConfigControls(controls []domain.Control, input BootstrapInput, copy
 		DisabledReason: reason,
 		Action:         "POST /protocols/versions/{version_id}/publish",
 	})
+}
+
+// compileVerificationReviewControls splits /verify by duty (verifier-app-and-flow.md §Roles):
+// the VERIFIER records the verdict, the AUTHORITY acts on the source task. One page serves both
+// personas, so the backend contract -- not the renderer -- decides which half each principal gets.
+//
+// Boundary worth knowing: the rework/reassign controls are gated on verification.act because that
+// is the authority permission the doctrine names, but the routes behind them
+// (POST /admin/tasks/{task_id}/rework, /assign) require task.verify and task.assign. A verifier
+// holds task.verify, so hiding rework from her lens is a duty split at the contract layer, not a
+// hard backend lockout on that generic SOP route. Narrowing reworkTask itself would change every
+// other caller of a shared route and belongs in its own change.
+// compileCountsBreakdownControls declares the whole-pen stage-change action.
+//
+// The control is DECLARED for every principal who reaches the page and disabled with a reason for
+// those who may not use it, rather than omitted. A missing button reads as "this screen cannot do
+// that"; a disabled one carrying "Only the CEO can change a whole shed's stage" tells a park head
+// the truth, which is that the capability exists and is not theirs.
+//
+// Enablement follows permissions.GoatReclassifyShedStage -- held by ceo_internal alone -- and NOT
+// CountsWrite, which park_head and operator also hold. The routes require the same permission, so
+// a principal who defeats the disabled state still gets 403; the control is the honest label, not
+// the lock.
+func compileCountsBreakdownControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
+	// enabled, matching compileVerificationReviewControls and compileConfigControls.
+	ungated := len(input.Grants) == 0
+	mayChange := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.GoatReclassifyShedStage})
+
+	reason := ""
+	if !mayChange {
+		reason = controlCopy(copy, "stage_change.disabled_no_access", "Only the CEO can change a whole shed's stage.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "change_shed_stage",
+		Label:          controlCopy(copy, "stage_change.title", "Change stage"),
+		Kind:           "primary_action",
+		Enabled:        mayChange,
+		DisabledReason: reason,
+		Action:         "POST /admin/goats/shed-stage/commit",
+	})
+}
+
+func compileVerificationReviewControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps every control
+	// enabled, matching how compileConfigControls treats the same case.
+	ungated := len(input.Grants) == 0
+	// The VERDICT control follows verification.verdict, not verification.review: leadership reads
+	// the same queue but may not decide on it (maintainer decision 2026-08-03).
+	mayDecide := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationVerdict})
+	mayAct := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationAct})
+
+	reviewReason := ""
+	if !mayDecide {
+		reviewReason = controlCopy(copy, "verdict.disabled_no_access", "Recording a verdict is limited to the video verification team.")
+	}
+	actReason := ""
+	if !mayAct {
+		actReason = controlCopy(copy, "action.disabled_no_authority", "Acting on the source task is limited to the park head, director, or CEO.")
+	}
+
+	// The module chip row is OFFERED by default and withdrawn only for the verifier lens, whose
+	// sidebar already carries one leaf per evidence module (applyVerifierLens). Declaring it here
+	// keeps leadership -- who reach /verify from a single primary nav item and have no module
+	// leaves -- on the row they need to pick a module at all.
+	controls = upsertControl(controls, domain.Control{
+		ID:      "module_filter",
+		Label:   copy["filter.module"],
+		Kind:    "filter",
+		Enabled: true,
+	})
+
+	out := upsertControl(controls, domain.Control{
+		ID:             "record_verdict",
+		Label:          copy["verdict.title"],
+		Kind:           "primary_action",
+		Enabled:        mayDecide,
+		DisabledReason: reviewReason,
+		Action:         "POST /verification/items/{item_id}/verdict",
+	})
+	out = upsertControl(out, domain.Control{
+		ID:             "request_rework",
+		Label:          copy["rework.submit"],
+		Kind:           "action",
+		Enabled:        mayAct,
+		DisabledReason: actReason,
+		Action:         "POST /admin/tasks/{task_id}/rework",
+	})
+	out = upsertControl(out, domain.Control{
+		ID:             "reassign_task",
+		Label:          copy["reassign.submit"],
+		Kind:           "action",
+		Enabled:        mayAct,
+		DisabledReason: actReason,
+		Action:         "POST /admin/tasks/{task_id}/assign",
+	})
+	// oversight_filters gates the CROSS-MODULE oversight chrome on /verify (module chips, the
+	// capture-date range picker): see permissions.VerificationOversee. Incident (2026-08-12, STG):
+	// these filters were built for the CEO's oversight view but rendered for every role that can
+	// open /verify, including RoleVerifier, because the page is a single role-agnostic component.
+	// The renderer must gate on THIS control -- not on the caller's role, and not by inferring
+	// oversight from grant shape -- so the verifier's working queue (status chips, shed filter;
+	// both predate the oversight rollout) is unaffected. See
+	// docs/decisions/role-scoped-ui-is-capability-gated.md.
+	mayOversee := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationOversee})
+	oversightReason := ""
+	if !mayOversee {
+		oversightReason = controlCopy(copy, "oversight_filters.disabled_no_access", "Cross-module filters are limited to leadership oversight of verification.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "oversight_filters",
+		Label:          copy["filter.module"],
+		Kind:           "visibility",
+		Enabled:        mayOversee,
+		DisabledReason: oversightReason,
+		Action:         "",
+	})
+	// oversight_analytics gates the CEO/Director analytics section ABOVE the queue table on
+	// /verify: waiting count, per-module pending, per-verifier last-14d, watch-integrity. Same
+	// capability as oversight_filters (permissions.VerificationOversee) -- it is a second, distinct
+	// control rather than the renderer reusing oversight_filters for two different pieces of
+	// chrome, so a future change to one visibility rule cannot silently move the other.
+	return upsertControl(out, domain.Control{
+		ID:             "oversight_analytics",
+		Label:          controlCopy(copy, "oversight_analytics.title", "Verification oversight"),
+		Kind:           "visibility",
+		Enabled:        mayOversee,
+		DisabledReason: oversightReason,
+		Action:         "GET /verification/oversight-analytics",
+	})
+}
+
+func controlCopy(copy map[string]string, key, fallback string) string {
+	if value := strings.TrimSpace(copy[key]); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
@@ -1005,7 +1209,18 @@ func hasAnyRole(roles []string, targets ...string) bool {
 }
 
 func highestRole(roles []string) string {
-	for _, role := range []string{permissions.RoleCEOInternal, permissions.RolePCDirector, permissions.RoleParkHead, permissions.RoleVerifier, permissions.RoleOperator} {
+	// Director seats rank between CEO and Park Head. feed_director / health_director were absent,
+	// so a principal holding one fell through to roles[0] and was lensed by an arbitrary role.
+	for _, role := range []string{
+		permissions.RoleCEOInternal,
+		permissions.RolePCDirector,
+		permissions.RoleGrowthDirector,
+		permissions.RoleFeedDirector,
+		permissions.RoleHealthDirector,
+		permissions.RoleParkHead,
+		permissions.RoleVerifier,
+		permissions.RoleOperator,
+	} {
 		for _, got := range roles {
 			if got == role {
 				return role
@@ -1022,12 +1237,25 @@ func roleLensForRole(role string) domain.RoleLensContract {
 	switch role {
 	case permissions.RoleCEOInternal:
 		return domain.RoleLensContract{ID: "coo", Name: "CEO / CXO", AuditShort: "CXO", Scope: "all · deep", Description: "Central Command · all parks", FullAccess: true}
+	// pc_director is PREVENTIVE CARE, not Health. Labelling it "Health Director" conflated it
+	// with health_director, which the 2026-08-01 maintainer decision makes a separate role in a
+	// separate department -- a user-facing merge of exactly the two roles that must not merge.
 	case permissions.RolePCDirector:
-		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "PC / health governance view"}
+		return domain.RoleLensContract{ID: "pc-director", Name: "Preventive Care Director", AuditShort: "PC Dir", Scope: "preventive care · all parks", Description: "Vaccination governance view"}
+	case permissions.RoleGrowthDirector:
+		return domain.RoleLensContract{ID: "growth-director", Name: "Growth Director", AuditShort: "Growth Dir", Scope: "weighing · all parks", Description: "Weighing governance view"}
+	case permissions.RoleFeedDirector:
+		return domain.RoleLensContract{ID: "feed-director", Name: "Feed Director", AuditShort: "Feed Dir", Scope: "feed · all parks", Description: "Feed governance view"}
+	case permissions.RoleHealthDirector:
+		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health · all parks", Description: "Health / counts governance view"}
 	case permissions.RoleParkHead:
 		return domain.RoleLensContract{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"}
 	case permissions.RoleVerifier:
-		return domain.RoleLensContract{ID: "health-manager", Name: "Health Manager", AuditShort: "Health Mgr", Scope: "health vertical · assigned park", Description: "Assigned-park PC manager view"}
+		// The Verifier is the cross-vertical Video Verification Team (verifier-app-and-flow.md), not
+		// a health manager and not park-scoped. The old "Health Manager · health vertical · assigned
+		// park" label was invisible while the role had no admin-web access; it is the account chip on
+		// her own workspace now, so it has to say what she actually is.
+		return domain.RoleLensContract{ID: "verifier", Name: "Verifier", AuditShort: "Verifier", Scope: "video verification · all verticals", Description: "Independent proof review"}
 	case permissions.RoleOperator:
 		return domain.RoleLensContract{ID: "ground", Name: "Assist / Ground", AuditShort: "Assist", Scope: "tasks · assigned park", Description: "field execution queue"}
 	default:
@@ -1043,12 +1271,20 @@ func roleInitials(role string) string {
 	switch role {
 	case permissions.RoleCEOInternal:
 		return "CX"
+	// "HD" belongs to the Health Director; the PC Director gets his own initials for the same
+	// reason his lens name changed.
 	case permissions.RolePCDirector:
+		return "PC"
+	case permissions.RoleGrowthDirector:
+		return "GD"
+	case permissions.RoleFeedDirector:
+		return "FD"
+	case permissions.RoleHealthDirector:
 		return "HD"
 	case permissions.RoleParkHead:
 		return "PH"
 	case permissions.RoleVerifier:
-		return "HV"
+		return "VF"
 	case permissions.RoleOperator:
 		return "OP"
 	default:
@@ -1083,8 +1319,20 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}
 	case "procurement-source-entry":
 		return []string{permissions.ProcurementRead}
+	case "procurement-vendors":
+		// The dedicated register permission, NOT ProcurementRead. ProcurementRead is held by seven
+		// roles including operator and park_head because it gates the source-entry/intake screens
+		// they work; the register carries negotiated prices, contact numbers and banking
+		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
+		return []string{permissions.VendorRead}
 	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
+	case "weighing-weights":
+		// The MONITOR capability, matching /app/weighing/shed-weights. Weights is an
+		// oversight read-out, not a planning surface, so it must not gate on
+		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and
+		// would otherwise be locked out of the estate they are accountable for.
+		return []string{permissions.WeighingMonitor}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":
@@ -1093,6 +1341,18 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.ProtocolRead}
 	case "sop-library":
 		return []string{permissions.SOPRead}
+	case "approvals":
+		// Coarse surface gate for the Approvals page (maintainer decision 2026-07-21). Held by the
+		// four org tiers + admin + ceo_internal; park_head no longer holds it, so its nav item is
+		// disabled. Matches the /admin-web/counts/approvals route gate.
+		return []string{permissions.CountsApproveAccess}
+	case "verification-actions":
+		return []string{permissions.VerificationReview}
+	case "health-config":
+		// The READ permission, not the write one: a principal allowed to inspect the standing
+		// dosages should reach the screen and see it read-only. Whether the save/publish controls
+		// are offered is a separate decision made from HealthConfigWrite on the page contract.
+		return []string{permissions.HealthConfigRead}
 	default:
 		return nil
 	}

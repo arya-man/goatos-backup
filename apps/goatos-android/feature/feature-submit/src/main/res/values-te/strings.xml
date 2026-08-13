@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="submit_eyebrow">టీకా</string>
     <string name="submit_record_title">షెడ్ రికార్డు</string>
@@ -40,4 +43,14 @@
     <string name="submit_sync_load_failed">మీ టాస్క్‌ను లోడ్ చేయలేకపోయాం। మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>
     <string name="submit_sync_queue_failed">సమర్పణను క్యూలో ఉంచలేకపోయాం — మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>
     <string name="submit_sync_retry_failed">మళ్లీ ప్రయత్నించలేకపోయాం — మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>
+
+    <!-- Snackbar messages for submit outcomes -->
+    <string name="submit_snackbar_queued">సమర్పణ క్యూలో ఉంది — ఆన్‌లైన్‌లో ఉన్నప్పుడు సింక్ అవుతుంది</string>
+    <string name="submit_snackbar_succeeded">సమర్పణ సింక్ చేయబడింది · ఫైల్‌లో రికార్డ్</string>
+    <string name="submit_snackbar_conflict">సర్వర్ సమర్పణను తిరస్కరించింది</string>
+    <string name="submit_snackbar_dead_letter">సమర్పణ విఫలమైంది — ఆన్‌లైన్‌లో ఉన్నప్పుడు మళ్లీ ప్రయత్నిస్తుంది</string>
+    <string name="submit_confirm_title">ఈ షెడ్ పూర్తి చేయాలా?</string>
+    <string name="submit_confirm_body">ఈ షెడ్ వీడియో తనిఖీకి వెళ్తుంది. మీరే దీన్ని మళ్లీ తెరవలేరు — మేనేజర్ లేదా డైరెక్టర్ తెరవగలరు.</string>
+    <string name="submit_confirm_cancel">ఇప్పుడు కాదు</string>
+    <string name="submit_confirm_confirm">పూర్తి చేయి</string>
 </resources>

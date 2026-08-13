@@ -3,6 +3,7 @@ package sg.mesha.goatos.feature.calendar
 import androidx.compose.runtime.Immutable
 import sg.mesha.goatos.core.ui.CoverageBannerUiState
 
+// telemetry:exempt State data classes; telemetry tracked in CalendarViewModel and screens
 /**
  * Calendar screen state (TRD §14 dumb-renderer). Every visible label, status,
  * count, action, and drill target is a backend-provided FIELD — the screen never
@@ -38,6 +39,8 @@ data class CalendarWeekDay(
     val hasWork: Boolean,
     val isSelected: Boolean = false,
     val isToday: Boolean = false,
+    val bucketKey: String = "",
+    val bucketCount: Int = 0,
 )
 
 /**
@@ -48,22 +51,45 @@ data class CalendarWeekDay(
  */
 data class CalendarDriveSummary(
     val parkName: String = "",
+    val driveName: String = "",
+    val driveTotal: Int? = null,
     val dueDateLabel: String = "",
     val shedCount: Int = 0,
     val shedsCompleted: Int = 0,
+    val locations: List<CalendarDriveLocationSummary> = emptyList(),
     val vaccineLabels: List<String> = emptyList(),
     val totalCount: Int = 0,
     val completedCount: Int = 0,
+    val submittedCount: Int = 0,
     // Distinct-animal coverage (grain differs from the obligation counts above): a goat due for
     // several vaccines the same day is one animal, completed only when all its drive obligations are.
     // Nullable: absent on legacy cache / mixed-version responses -> card falls back to doses (CDR-R1).
     val totalAnimals: Int? = null,
     val completedAnimals: Int? = null,
+    val submittedAnimals: Int? = null,
     val remainingCount: Int = 0,
     val dueCount: Int = 0,
     val overdueCount: Int = 0,
     val deferredCount: Int = 0,
+    // Informational subset of dueCount/overdueCount (see DriveSummaryDto) — names WHY the
+    // progress numerator dropped after a verifier rejects proof, instead of an unexplained gap.
+    val rejectedCount: Int = 0,
+    // Backend-owned cross-surface progress (numerator + denominator + its grain + the rounded
+    // percentage). Rendered VERBATIM; the client must not compute its own numerator. Null only on
+    // legacy cache / older-backend responses, where the card falls back to the local derivation.
+    val progressBasis: String? = null,
+    val progressCompleted: Int? = null,
+    val progressTotal: Int? = null,
+    val progressPct: Int? = null,
     val ownerLabel: String = "",
+)
+
+data class CalendarDriveLocationSummary(
+    val shedId: String,
+    val shedName: String,
+    val partitionLabel: String?,
+    val operationalLocationDisplay: String,
+    val totalAnimals: Int,
 )
 
 /**
@@ -85,6 +111,7 @@ data class CalendarItem(
     val targetCount: Int = 0,
     val vaccineLabels: List<String> = emptyList(),
     val shedLabels: List<String> = emptyList(),
+    val shedPartitionLabels: List<String?> = emptyList(),
     val dateLabel: String = "",
     val dateKey: String? = null,
     val parkLabel: String = "",
@@ -215,7 +242,12 @@ sealed interface CalendarEvent {
      *  never drills into an empty open-work query. */
     data class OpenDay(val dateKey: String, val showCompletedHistory: Boolean = false) : CalendarEvent
 
-    data class TapItem(val itemId: String, val target: String? = null, val dateKey: String? = null) : CalendarEvent
+    data class TapItem(
+        val itemId: String,
+        val target: String? = null,
+        val dateKey: String? = null,
+        val parkId: String? = null,
+    ) : CalendarEvent
 
     data class ApplyMonthFilters(val filters: CalendarMonthFilters) : CalendarEvent
 

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Profile screen defaults and chrome -->
     <string name="profile_screen_title">ನೀವು</string>
@@ -52,4 +55,6 @@
     <string name="alerts_tone_info">ಮಾಹಿತಿ</string>
     <string name="alerts_tone_warn">ಎಚ್ಚರಿಕೆ</string>
     <string name="alerts_tone_critical">ಜರುরಿ</string>
+    <string name="alerts_title_default">ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="alerts_empty_default">ಇನ್ನೂ ಯಾವುದೇ ಎಚ್ಚರಿಕೆಗಳಿಲ್ಲ</string>
 </resources>

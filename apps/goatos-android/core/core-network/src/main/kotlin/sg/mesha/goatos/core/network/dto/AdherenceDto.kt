@@ -22,6 +22,8 @@ data class AdherenceSummaryDto(
 @Serializable
 data class AdherenceRowDto(
     @SerialName("row_id") val rowId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("expected") val expected: String = "",
     @SerialName("actual") val actual: String = "",
     @SerialName("gap") val gap: String = "",
@@ -30,8 +32,13 @@ data class AdherenceRowDto(
     @SerialName("next_action") val nextAction: String = "",
     @SerialName("evidence") val evidence: ProcessIntegrityEvidenceDto = ProcessIntegrityEvidenceDto(),
     @SerialName("work_state") val workState: String = "",
+    @SerialName("drive_capacity_state") val driveCapacityState: String? = null,
     @SerialName("drive_animals_required") val driveAnimalsRequired: Int = 0,
     @SerialName("drive_animals_assigned") val driveAnimalsAssigned: Int = 0,
+    @SerialName("drive_operator_cap") val driveOperatorCap: Int = 0,
+    @SerialName("drive_available_operators") val driveAvailableOperators: Int = 0,
+    @SerialName("drive_latest_safe_date") val driveLatestSafeDate: String? = null,
+    @SerialName("drive_medical_defer_reason") val driveMedicalDeferReason: String? = null,
 )
 
 @Serializable

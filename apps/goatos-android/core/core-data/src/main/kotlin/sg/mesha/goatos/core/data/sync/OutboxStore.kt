@@ -1,6 +1,8 @@
 package sg.mesha.goatos.core.data.sync
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 
@@ -20,6 +22,29 @@ interface OutboxStore {
     /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, non-conflict FAILED) — never includes
      *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance. */
     fun observeActive(): Flow<List<OutboxEntity>>
+
+    /** Bounded active writes for one ordering group and selected operation types. */
+    suspend fun findActiveForGroup(
+        groupKey: String,
+        opTypes: List<String>,
+        limit: Int,
+    ): List<OutboxEntity> = observeActive().first()
+        .asSequence()
+        .filter { it.groupKey == groupKey && it.opType in opTypes }
+        .take(limit)
+        .toList()
+
+    /** Bounded active writes for several ordering groups. Implementations should issue one
+     * batched query; the default keeps lightweight unit-test fakes source-compatible. */
+    suspend fun findActiveForGroups(
+        groupKeys: List<String>,
+        opTypes: List<String>,
+        limit: Int,
+    ): List<OutboxEntity> = observeActive().first()
+        .asSequence()
+        .filter { it.groupKey in groupKeys && it.opType in opTypes }
+        .take(limit)
+        .toList()
 
     /** Observes ONE row by id through every status incl. terminal (R50-030): lets a caller follow
      *  a specific item to completion even when it is older than the recent-terminal window. */
@@ -73,6 +98,16 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
+    override suspend fun findActiveForGroup(
+        groupKey: String,
+        opTypes: List<String>,
+        limit: Int,
+    ): List<OutboxEntity> = dao.findActiveForGroup(groupKey, opTypes, limit)
+    override suspend fun findActiveForGroups(
+        groupKeys: List<String>,
+        opTypes: List<String>,
+        limit: Int,
+    ): List<OutboxEntity> = if (groupKeys.isEmpty()) emptyList() else dao.findActiveForGroups(groupKeys, opTypes, limit)
     override fun observeById(id: String): Flow<OutboxEntity?> = dao.observeById(id)
     override suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity> = dao.observeRecentTerminals(recentLimit)
     override suspend fun pruneSucceeded(retentionMs: Long, now: Long): Int = dao.pruneSucceeded(cutoffTime = now - retentionMs)
@@ -104,6 +139,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
 fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     id = id,
     opType = opType,
+    idempotencyKey = idempotencyKey,
     groupKey = groupKey,
     status = SyncItemStatus.valueOf(status),
     attemptCount = attemptCount,
@@ -112,8 +148,22 @@ fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     createdAt = createdAt,
     updatedAt = updatedAt,
     lastError = lastError,
+    localFilePath = proofLocalFilePath(),
     resultJson = resultJson,
 )
+
+private fun OutboxEntity.proofLocalFilePath(): String? {
+    if (opType != sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD.name) return null
+    val path = try {
+        syncJson.decodeFromString<ProofUploadPayload>(payloadJson).localFilePath
+    } catch (error: IllegalArgumentException) { // exception:exempt malformed legacy outbox rows cannot expose a local proof path
+        Log.w(OUTBOX_STORE_TAG, "Ignoring malformed proof upload payload for outbox row $id", error)
+        return null
+    }
+    return path.takeIf { it.isNotBlank() }
+}
+
+private const val OUTBOX_STORE_TAG = "GoatOsOutboxStore"
 
 /** Active rows + bounded recent terminals -> the [SyncStatus] snapshot the UI renders.
  *  [activeRows] is QUEUED/IN_FLIGHT/non-conflict-FAILED (never SUCCEEDED).

@@ -61,10 +61,25 @@
   a[data-route-pending="true"]::after{content:"";position:absolute;inset:2px;border-radius:inherit;pointer-events:none;background:linear-gradient(100deg,transparent,color-mix(in srgb,var(--brand) 24%,transparent),transparent);opacity:.85;animation:route-pending-sheen .9s ease-in-out infinite;z-index:-1}
   a.nav[data-route-pending="true"],a.leaf[data-route-pending="true"],a.chip[data-route-pending="true"],a.btn[data-route-pending="true"],a.pm-item[data-route-pending="true"],a.celllink[data-route-pending="true"],a.pexr[data-route-pending="true"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 72%,var(--line)),0 0 0 3px var(--brand-soft)}
   @keyframes route-pending-sheen{0%,100%{opacity:.38;transform:scaleX(.94)}50%{opacity:.9;transform:scaleX(1)}}
+  /* Filter-bar busy ring. A filter apply is a same-PATH query change, which .routebar above
+     deliberately ignores (see the click handler in mesha-shell) — so until this existed, applying a
+     filter had NO loading affordance at all: the old rows sat there looking like nothing happened.
+     Drawn in CSS rather than shipped as a GIF so it inherits the theme tokens, stays crisp on any
+     display, costs no request, and can be stilled for reduced motion below. */
+  .wfspin{display:inline-block;flex:0 0 auto;width:13px;height:13px;border-radius:999px;border:2px solid color-mix(in srgb,var(--brand) 24%,transparent);border-top-color:var(--brand);animation:wfspin .68s linear infinite}
+  @keyframes wfspin{to{transform:rotate(360deg)}}
+  /* The rows the bar is replacing. They stay READABLE — the old answer is still true until the new
+     one lands, and blanking the table would throw away what the reader is comparing against — but
+     they are visibly held back and inert so a stale row cannot be clicked or misread as the result. */
+  .wfbusy{opacity:.55;transition:opacity .12s ease-in-out;pointer-events:none}
   @media(prefers-reduced-motion:reduce){
     .routebar.on span{animation:none;transform:none;width:100%}
     .skel{animation:none}
     a[data-route-pending="true"]::after{animation:none}
+    /* Still, but still VISIBLE: the ring keeps its brand-coloured top edge, so "busy" is carried by
+       contrast rather than by motion. */
+    .wfspin{animation:none}
+    .wfbusy{transition:none}
   }
   .parkpick{display:flex;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}
   .scopechips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 18px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel) 60%,transparent)}.schip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--muted)}.schip.on{border-color:var(--brand);color:var(--brand)}
@@ -110,8 +125,53 @@
   .pscope{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
   .pscope:hover{border-color:var(--brand)}
   .pscope b{color:var(--brand-d)}
-  .pscope.date-scope{cursor:default}
+  .top-date-picker{position:relative;flex:none}
+  .top-date-picker summary{list-style:none}
+  .top-date-picker summary::-webkit-details-marker{display:none}
+  .pscope.date-scope{cursor:pointer;gap:7px;padding:5px 8px}
+  .date-scope-copy{display:flex;align-items:baseline;gap:6px}
+  .date-scope-label{font-size:10.5px;color:var(--muted);font-weight:700;white-space:nowrap}
+  .date-scope-value{font-size:12.5px;color:var(--ink);font-weight:800;white-space:nowrap}
+  .date-scope-chevron{width:13px;transition:transform .18s ease}
+  .top-date-picker[open] .date-scope-chevron{transform:rotate(180deg)}
+  .top-date-picker[open] .date-scope{border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 12%,transparent)}
+  .top-date-popover{position:absolute;z-index:80;top:calc(100% + 8px);right:0;width:306px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:13px;box-shadow:0 18px 46px rgba(15,23,42,.22)}
+  .top-date-head{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;margin-bottom:9px;text-align:center}
+  .top-date-head b{font-size:13px;color:var(--ink)}
+  .top-date-arrow{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .top-date-arrow:hover{border-color:var(--brand);color:var(--brand)}
+  .top-date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+  .top-date-weekday{display:grid;place-items:center;height:24px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}
+  .top-date-day{display:grid;place-items:center;aspect-ratio:1;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer}
+  .top-date-day:hover{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,transparent);color:var(--brand-d)}
+  .top-date-day.outside{color:var(--muted);opacity:.48}
+  .top-date-day.today{border-color:color-mix(in srgb,var(--brand) 48%,var(--line))}
+  .top-date-day.on{border-color:var(--brand);background:var(--brand);color:#fff;box-shadow:0 4px 10px color-mix(in srgb,var(--brand) 28%,transparent)}
+  .top-date-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+  .top-date-footer button{border:0;background:transparent;color:var(--brand);font-size:12px;font-weight:800;cursor:pointer}
   .pscope.date-scope.stale{border-color:color-mix(in srgb,var(--warn) 48%,var(--line));background:color-mix(in srgb,var(--warn) 9%,var(--bg))}
+  /* Page-body variant of the same calendar (Actions board capture-date filter). The top-bar copy
+     hangs off the right edge of the shell; a filter row grows left-to-right, so the popover
+     anchors to the control's left edge instead. */
+  .top-date-picker.inline .top-date-popover{left:0;right:auto}
+  /* Undoes the generic `.card{overflow:hidden}` for THIS card only. That clip keeps table corners
+     inside the radius, but it also amputated the capture-date popover: with an empty board the card
+     is ~350px tall and the calendar ~416px, so the last two weeks and the Today button were cut off
+     at the card's edge. Two class names on purpose — `.card` and `.vr-board` are equally specific
+     and `.card` is declared LATER in this file, so a single-class rule loses and the clip survives
+     (which is exactly how the first attempt at this fix failed). Nothing else in the board needs the
+     clip; the wide table scrolls inside its own overflow-x container. */
+  .card.vr-board{overflow:visible}
+  .top-date-modes{display:flex;gap:4px;margin-bottom:10px;padding:3px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+  .top-date-mode{flex:1;padding:5px 8px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:11.5px;font-weight:800;cursor:pointer}
+  .top-date-mode:hover{color:var(--brand)}
+  .top-date-mode.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
+     the eye lands on — those are the dates the verifier actually chose. */
+  .top-date-day.in-range{border-color:transparent;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand-d);border-radius:4px}
+  .top-date-day:disabled{opacity:.32;cursor:not-allowed}
+  .top-date-day:disabled:hover{border-color:transparent;background:transparent;color:var(--ink)}
+  .top-date-hint{margin-right:auto;color:var(--muted);font-size:11px;font-weight:650}
   .scope-reset{display:inline-flex;align-items:center;min-height:24px;margin-left:4px;padding:1px 7px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--info);font-weight:800;font-size:11px;text-decoration:none}
   .scope-reset:hover{border-color:var(--info);text-decoration:none}
   #pscopeMenu{position:fixed;top:auto;right:auto}
@@ -430,6 +490,15 @@
   .btn.sm{padding:6px 10px;font-size:12.5px}
   .btn.icon{width:32px;height:32px;min-height:32px;padding:0;justify-content:center;flex:0 0 auto}
   .btn.gh{background:transparent;border-color:transparent;color:var(--brand-d)}
+  /* Destructive action button (e.g. Reject request). Red fill so a reject reads as destructive
+     next to the green Approve, and disables to the same neutral chrome the primary button uses. */
+  .btn.dng{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.dng:hover{background:color-mix(in srgb,var(--danger) 82%,#000);border-color:color-mix(in srgb,var(--danger) 82%,#000)}
+  .btn.dng:disabled,.btn.dng[aria-disabled="true"]{background:var(--panel);border-color:var(--line);color:var(--muted);opacity:.68}
+  .btn.dng:disabled:hover,.btn.dng[aria-disabled="true"]:hover{background:var(--panel);border-color:var(--line)}
+  /* "or" separator between the Approve and Reject actions in the approval decision block. */
+  .decision-or{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:2px 0}
+  .decision-or::before,.decision-or::after{content:"";flex:1;height:1px;background:var(--line)}
   /* Light theme: green fill is darker (--brand #54A02C), so near-black text reads muddy.
      Use white text on the green highlight (active nav + primary button) in light theme only.
      Dark theme keeps #08130B on the brighter green. */
@@ -452,13 +521,183 @@
   .card .hd{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line2)}
   .card .hd h3{margin:0;font-size:14px}.card .hd .sp{flex:1}
   .card .bd{padding:14px 16px}
+
+  /* ===== verification-review board anatomy (ported from mock/verifier-web-mock.html
+     .board/.bt/.frow/.fld/.sel/.selbtn/.legend/.lg/.secthd) — layout/CSS only, no visible copy.
+     th/td values below are the mock's real tokens, confirmed against the live console at
+     127.0.0.1:13300: th 12px/700, NO uppercase, NO letter-spacing; td 11.5px, padding 11px 12px. ===== */
+  /* overflow:visible undoes the generic `.card{overflow:hidden}` for THIS card only. That clip is
+     there to keep table corners inside the radius, but it also amputated the capture-date popover:
+     with an empty board the card is ~350px tall and the calendar is ~416px, so the bottom third —
+     the last two weeks and the Today button — was cut off at the card's edge. Nothing else in this
+     board relies on the clip; the wide table scrolls inside its own overflow-x container. */
+  .vr-board{padding:13px 16px;margin-bottom:16px}
+  .vr-board>.bt{font-size:14px;font-weight:400;margin:0 0 14px}
+  .vr-frow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
+  /* Clear filters is a SECONDARY action beside a primary button. It inherited `.lk`'s blue
+     --info, off-palette in this green system and louder than the control next to it. */
+  .screen .vr-frow .lk{color:var(--muted)}
+  .screen .vr-frow .lk:hover{color:var(--brand)}
+  /* `.screen` qualifies these because the markup carries BOTH `vr-fld` and `fld`, and the generic
+     `.fld` rules (~1333 and ~1902) are declared LATER at equal specificity, so they won. That
+     stacked the label ABOVE the select instead of beside it -- which pushed "Apply filters" out of
+     line with the select it belongs to -- and rendered the label 10.5px/650 UPPERCASE with +0.5px
+     tracking instead of the spec's 12px/400 sentence case (SPEC section 4). */
+  .screen .vr-fld{display:flex;align-items:center;gap:9px}
+  .screen .vr-fld>label{font-size:12px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:normal;margin-bottom:0;display:inline-block}
+  .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
+  .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
+  .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .vr-lg{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
+  .vr-lg:hover{border-color:var(--brand);color:var(--ink)}
+  .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
+  .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
+  .vr-lg .n{font-size:11.5px;font-weight:700;color:var(--faint)}
+  /* Verification oversight (CEO/director analytics above the queue). The section is a real mock
+     `card` — `.hd` header rule + padded `.bd` — because the previous build dropped a bare title and
+     inline-styled divs into a padding-less `.card`, which is why every label sat flush on the card
+     edge with no breathing room. Spacing rhythm below is one scale: 18px between blocks, 10px
+     between a block heading and its content. */
+  /* The analytics drawer is wider than the record drawer (498px): it carries a KPI strip, a module
+     grid and a six-column table, and squeezing those into a record-sized panel is what made the
+     numbers unreadable in the first place. */
+  aside.drawer.vr-analytics-drawer{width:min(940px,96vw)}
+  .vr-analytics-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
+  .vr-analytics-btn .ic{width:16px;height:16px}
+  .vr-oversight{margin:0}
+  /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
+     viewport media query would keep five columns in a 900px panel. */
+  .vr-okpis{grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:11px;margin-bottom:18px}
+  .vr-okpis .kpi{padding:13px 15px}
+  /* Two of these five labels wrap to a second line ("Videos waiting for review", "Est. days to clear
+     backlog"), which pushed their numbers a line lower than the rest and broke the strip's baseline.
+     A two-line label box keeps every value on the same line without truncating any label. */
+  .vr-okpis .kpi{display:flex;flex-direction:column}
+  .vr-okpis .kpi .lab{font-size:11px;line-height:1.35;align-items:flex-start;min-height:2.7em}
+  .vr-okpis .kpi .val{font-size:23px;margin-top:4px}
+  .vr-okpis .kpi .dl{font-size:11px;margin-top:5px;line-height:1.35;font-weight:550}
+  .vr-osec+.vr-osec{margin-top:18px;padding-top:18px;border-top:1px solid var(--line2)}
+  .vr-osec-hd{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px}
+  /* One ranked row per module: the widest bar is the bottleneck. A wrapping chip row of raw counts
+     (what this replaced) gave a number with nothing to compare it against. */
+  .vr-omods{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+  .vr-omod{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .vr-omod .t{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+  .vr-omod .t .n{font-size:12.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vr-omod .t b{margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .vr-omod .m{margin-top:8px;font-size:11px;color:var(--faint);font-weight:600}
+  /* A backlog row is a link to that module's queue. It must LOOK reachable before the pointer is on
+     it -- the "go" line is the affordance, the border/lift is the confirmation. */
+  a.vr-omod-link{display:block;color:inherit;text-decoration:none;position:relative}
+  a.vr-omod-link .go{display:block;margin-top:7px;font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--brand-d);opacity:.85}
+  a.vr-omod-link:hover{border-color:var(--brand);background:var(--panel)}
+  a.vr-omod-link:hover .go{opacity:1}
+  a.vr-omod-link:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  /* Backlog age shape: ONE stacked bar, youngest left, so the red tail's width is the share of the
+     backlog that has waited more than a week. */
+  .vr-agebar{display:flex;height:12px;border-radius:7px;overflow:hidden;background:var(--line2);margin-bottom:10px}
+  .vr-agebar>span{display:block;height:100%}
+  .vr-agelegend{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .vr-agelegend>span{display:flex;align-items:center;gap:6px}
+  .vr-agelegend i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
+  .vr-agelegend b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-trendaxis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);font-weight:600;margin-top:2px}
+  .vr-trendfoot{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:8px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .vr-trendfoot .k{display:flex;align-items:center;gap:6px}
+  .vr-trendfoot i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
+  .vr-trendfoot b{margin-left:auto;font-size:12px;color:var(--ink)}
+  .vr-trendfoot b.bad{color:var(--danger)}
+  .vr-trendfoot b.good{color:var(--ok)}
+  .vr-otable td.num{font-variant-numeric:tabular-nums;font-weight:650}
+  .vr-owatch{display:flex;flex-wrap:wrap;gap:6px}
+  .vr-owatch span{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:2px 9px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .vr-owatch span b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-owatch span.bad{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
+  .vr-owatch span.bad b{color:var(--danger)}
+  .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
+  .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
+  .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
+  /* `.screen th` (line ~1091) has the SAME specificity as a bare `.vr-table th` and is declared
+     LATER, so it silently won: the verifier's column headers rendered 11px UPPERCASE with +0.4px
+     letter-spacing instead of the 12px, normal-case, normal-tracking headers the locked spec
+     measures off the real page (SPEC section 4: `th` 12px / 700, no uppercase, letter-spacing
+     normal). All-caps cramped headers are what made this table read as dated. `.screen` here
+     raises specificity so the intended rule actually applies -- do not drop it back to
+     `.vr-table th`, that is the bug. */
+  .screen .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+  .vr-table tr:last-child td{border-bottom:0}
+  /* "In queue" column age tone: amber past 4h, red past 7d (see IN_QUEUE_AMBER_MS/IN_QUEUE_RED_MS
+     in verification-review-page.tsx). Applied only to a still-pending row's age span. */
+  .vr-age-amber{color:var(--amber);font-weight:650}
+  .vr-age-red{color:var(--danger);font-weight:650}
+
+  /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
+     .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
+  .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#E9F1EA;flex:none;position:relative;border:1px solid var(--line)}
+  .vr-thumb .ic{width:18px;height:18px}
+  .vr-thumb .n{position:absolute;bottom:4px;right:5px;font-size:10px;font-weight:750;background:rgba(0,0,0,.62);color:#fff;border-radius:5px;padding:0 5px}
+  .vr-player{background:#0a0f0c;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
+  /* position:absolute + inset:0 is what actually pins the video TO the stage. With plain
+     width/height:100% the height does not resolve against an aspect-ratio parent, so the element
+     fell back to the clip's intrinsic ratio -- a 720x1280 portrait proof rendered 852x1515 and
+     overflowed the 44vh stage, which is what read as a giant black rectangle. Pinned, portrait
+     letterboxes with bars left and right and landscape fills the rectangle. */
+  .vr-player video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+  .vr-image-link{position:absolute;inset:0;display:grid;place-items:center;background:#000}
+  .vr-image-proof{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+  .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;border-radius:0;border:0}
+  .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
+  .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
+  .vr-fsbtn:hover{background:rgba(0,0,0,.72)}
+  .vr-fsbtn .ic{width:15px;height:15px}
+  .vr-proofstrip{display:flex;gap:9px;flex-wrap:wrap}
+  .vr-pthumb{border:1px solid var(--line);background:var(--panel-2);border-radius:24px;padding:9px 16px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .vr-pthumb .ic{width:14px;height:14px}
+  .vr-pthumb.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+
+  /* Verifier queue rows are clickable end to end (the mock has no Details column): every cell wraps
+     its content in the overlay link, so the link must fill the cell and inherit the row's type. */
+  /* Same override trap: `.screen td{padding:11px 12px}` (~1099) is declared later and beat this,
+     so every cell paid the generic padding AND the row-link's own 11px 12px inside it -- doubling
+     the vertical space and inflating a one-line row past 150px. */
+  .screen .vr-row td{padding:0}
+  .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
+  .vr-row:hover td{background:var(--bg)}
+  .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
+  /* Subject cell: the queue's densest column. subject_label arrives as a "·"-joined string whose
+     segments mean different things per module (a shed part, a goat count, an RFID tag, a weight, a
+     feed session), so a single run-on line reads as noise. Split it: the operational location leads
+     in the row's own weight, the quantitative segments become typed chips (count / weight / tag),
+     and the operator trails as muted context. */
+  .vr-subj{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .vr-subj .t{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vr-subj .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--faint);font-size:11.5px;white-space:nowrap}
+  .vr-subj .chip{border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5}
+  .vr-subj .chip.count{background:var(--okx);color:var(--ok)}
+  .vr-subj .chip.kg{background:var(--infox);color:var(--info)}
+  .vr-subj .chip.tag{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
+  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+  .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
+  .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}
   .grid{display:grid;gap:14px}
   /* Let grid items shrink below their content's min-content so a wide child (e.g. a multi-column table in a
      .card .bd overflow-x:auto region) scrolls INSIDE its container instead of forcing the track — and the
      card — past the viewport edge on narrow widths. Only ALLOWS shrinking; items still fill their track. */
   .grid>*{min-width:0}
   .g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
-  @media(max-width:1080px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}}
+  /* Six-across KPI row, as the mock lays out a compact metric strip. Steps down rather
+     than reflowing into a ragged row with an empty slot. */
+  .g6{grid-template-columns:repeat(6,minmax(0,1fr))}
+  /* Same responsive ladder as .g6, one column narrower — the weighing headline row dropped its
+     duplicated gain card and the remaining five share that width. */
+  .g5{grid-template-columns:repeat(5,minmax(0,1fr))}
+  @media(max-width:1400px){.g5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:1080px){.g5{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:640px){.g5{grid-template-columns:1fr}}
+  @media(max-width:1400px){.g6{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:1080px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}.g6{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:640px){.g6{grid-template-columns:1fr}}
   /* Sidebar+main two-column layout (e.g. Audit: span-of-control rail + activity trail). Fixed rail on
      desktop, STACKS on narrow so the wide table never gets pushed offscreen (an inline 288px/1fr style
      would override the responsive stack — use this class instead). */
@@ -534,7 +773,11 @@
   .tsearch{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;color:var(--muted);min-width:200px;flex:1;max-width:300px}
   .tsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%}
   .tcount{font-size:12px;color:var(--faint);font-weight:600;white-space:nowrap}
-  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink)}
+  /* max-width: a native <select> sizes itself to its WIDEST OPTION, so one long
+     option (e.g. "Mandela 2 - Part 10 . Coimbatore" once partition + park
+     disambiguation landed) stretched the Shed control to 436px and wrapped the
+     whole filter bar onto a second row. Option text must never drive layout. */
+  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .tfoot{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line2)}
   .trange{font-size:12px;color:var(--muted);font-weight:600}
   .pager{display:flex;gap:5px}
@@ -553,7 +796,8 @@
   .table-fixed th,.table-fixed td{min-width:0}
   .main table.adherence-table{min-width:1180px}
   .main table.adherence-table th:nth-child(3),.main table.adherence-table td:nth-child(3){min-width:160px}
-  .main table.adherence-table td:nth-child(3) .celllink{width:max-content;max-width:none;white-space:normal;overflow-wrap:normal;word-break:normal}
+  .main table.adherence-table td:nth-child(3) .celllink{width:100%;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:4px;white-space:normal;overflow:hidden;overflow-wrap:normal;word-break:normal}
+  .main table.adherence-table .gap-detail{display:block;max-width:100%;margin-top:0;line-height:1.25;overflow-wrap:normal;word-break:normal}
   .main table.control-tower-gaps-table{min-width:920px}
   .main table.control-tower-gaps-table th:nth-child(1),.main table.control-tower-gaps-table td:nth-child(1),.main table.control-tower-gaps-table th:nth-child(2),.main table.control-tower-gaps-table td:nth-child(2){min-width:132px}
   .main table.herd-register-table{min-width:1600px}
@@ -587,6 +831,209 @@
   .main table.feed-table{min-width:900px}
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
+  /* Sortable column header. The mock has no sortable table, so this is a deliberate, minimal
+     addition rather than a ported element: the header keeps its exact resting typography and the
+     button is a bare inline trigger, so an unsorted table looks identical to the mock. The
+     indicator sits at the mock's muted tone until a sort is active, when it takes the brand colour
+     so the ordered column is obvious at a glance. */
+  .main th .thsort{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
+  .main th .thsort:hover{color:var(--brand-d)}
+  .main th .thsort:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
+  .main th .thsort-ind{font-size:9px;line-height:1;opacity:.55}
+  .main th[aria-sort="ascending"] .thsort,.main th[aria-sort="descending"] .thsort{color:var(--brand-d)}
+  .main th[aria-sort="ascending"] .thsort-ind,.main th[aria-sort="descending"] .thsort-ind{opacity:1}
+  /* Vaccination Command Board */
+  .cbm-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+  .cbm-filter-note{font-size:11.5px;color:var(--warn)}
+  @media(max-width:1200px){.cbm-kpi-row{grid-template-columns:repeat(2,1fr)}}
+  .kpi{position:relative;overflow:hidden}.kpi .stripe{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .kpi.ok .stripe{background:var(--ok)}.kpi.warn .stripe{background:var(--warn)}.kpi.danger .stripe{background:var(--danger)}.kpi.info .stripe{background:var(--info)}.kpi.mut .stripe{background:var(--faint)}
+  .kpi .val{color:var(--ink)}.kpi.ok .val{color:var(--ok)}.kpi.warn .val{color:var(--warn)}.kpi.danger .val{color:var(--danger)}.kpi.info .val{color:var(--info)}
+  .kpi .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .kpi .val{font-size:26px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi .dl{font-size:11.5px;margin-top:3px;color:var(--muted)}
+  .cbm-section-head{display:flex;align-items:baseline;gap:8px;margin-bottom:14px}
+  .cbm-section-head h3{margin:0;font-size:13px;font-weight:650}
+  .cbm-section-head .cbm-meta{margin-left:auto;font-size:11.5px;color:var(--muted)}
+  .cbm-hm{overflow-x:auto}
+  /* Shed x Vaccine roll-up. Fixed layout with equal columns so the whole vaccine catalogue fits one
+     screen without horizontal scrolling -- the dose-qualified matrix below scrolls sideways because
+     it must carry per-dose numbers, and that scroll is exactly what made "is anything red" an
+     unanswerable question at a glance. Cells carry a dot, never a number: a count here invites
+     reconciliation against the dose matrix, which uses a different grain. */
+  .cbm-sv-heat{table-layout:fixed}
+  .cbm-sv-heat td.cbm-sv-shed{width:150px;text-align:left;font-size:12.5px;color:var(--ink);padding:6px 8px;white-space:nowrap}
+  .cbm-sv-cell{text-align:center;padding:8px 4px;border-radius:6px}
+  /* Clean and unplanned cells are DELIBERATELY quiet. A bright dot on every clean cell turned an
+     11x6 grid into a wall of green that competed with the red for attention -- the reader had to
+     hunt for the one thing worth finding, and the dot itself carried nothing actionable. The tick
+     still distinguishes "checked, nothing behind" from "no data", which a blank cell would not. */
+  .cbm-sv-cell .cbm-sv-tick{display:inline-block;font-size:12px;line-height:13px;color:color-mix(in srgb,var(--ok) 55%,transparent)}
+  .cbm-sv-cell .cbm-sv-none{display:inline-block;font-size:12px;line-height:13px;color:var(--faint)}
+  .cbm-sv-cell .cbm-sv-dot{display:inline-block;width:13px;height:13px;border-radius:50%}
+  /* Legend swatches are coloured by CLASS, and these selectors carry an extra `.cbm` so they
+     outrank the POSITIONAL legend rules further down this stylesheet
+     (`.cbm .cbm-legend span:nth-child(n) i`, which paint swatch 1 green, 2 amber, 3 red for the
+     dose matrix's legend). Without it those positional rules win on specificity and this legend
+     renders a GREEN swatch against the word "Behind" and a RED one against "Not planned" -- a
+     legend stating the exact opposite of the grid it explains, which is worse than none. */
+  .cbm-sv-behind .cbm-sv-dot{background:var(--danger)}
+  .cbm-sv-ok .cbm-sv-dot{background:var(--ok)}
+  .cbm-sv-not_planned .cbm-sv-dot{background:var(--faint)}
+  /* Legend swatches are coloured by CLASS. The competing POSITIONAL rules further down this
+     stylesheet (`.cbm .cbm-legend span:nth-child(n) i`, which paint swatch 1 green, 2 amber, 3 red
+     for the dose matrix) score the SAME specificity, and they appear later, so a tie loses on source
+     order -- which is how this legend first shipped rendering a GREEN swatch against "Behind" and a
+     RED one against "Not planned", stating the exact opposite of the grid it explains. Matching
+     BOTH classes on the container raises specificity above the positional rules so the tie cannot
+     recur, rather than relying on where the block sits in the file. */
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-behind i{background:var(--danger)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-ok i{background:var(--ok)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-not_planned i{background:var(--faint)}
+  /* A behind cell is where the CEO's question STARTS, not ends: "Sumathi 1 is red" is only useful
+     if the next click names the animals. Behind cells are therefore real buttons and look it. */
+  /* A clean or unplanned cell has nothing to open, so it must not LOOK clickable. The surrounding
+     shed-row rule sets cursor:pointer for the dose matrix, which made ~85 of this matrix's 108
+     cells invite a click that did nothing. Only cells that actually open a drawer get the pointer. */
+  td.cbm-sv-cell{cursor:default}
+  td.cbm-sv-cell[role="button"]{cursor:pointer}
+  td.cbm-sv-behind[role="button"]:hover,td.cbm-sv-behind[role="button"]:focus-visible{outline:1px solid var(--danger);outline-offset:-1px}
+  td.cbm-sv-verifying[role="button"]:hover,td.cbm-sv-verifying[role="button"]:focus-visible{outline:1px solid var(--warn);outline-offset:-1px}
+  .cbm-sv-shed-park{color:var(--muted);font-size:11px;margin-left:6px}
+  /* The behind cell shows its NUMBER; green and grey stay dots. "How many are missing, each
+     vaccine, shed wise" is half the ask, and a bare colour forces a second question before the row
+     is actionable -- but a count on a clean cell is the "other information" the ask ruled out. */
+  /* The red cell answers the question in words as well as digits: "76" alone left a reader asking
+     "76 what -- goats, doses, days?", and that second question is exactly what this matrix exists to
+     remove. */
+  .cbm-sv-cell .cbm-sv-count{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:15px;font-weight:700;color:var(--danger);line-height:1}
+  /* Amber, deliberately NOT red: the goats were dosed, the wait is on a person at a desk. Making it
+     red put a herd emergency and a paperwork backlog in the same colour. */
+  .cbm-sv-cell .cbm-sv-verifying{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:15px;font-weight:700;color:var(--warn);line-height:1}
+  .cbm-sv-cell .cbm-sv-verifying i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:color-mix(in srgb,var(--warn) 80%,transparent)}
+  td.cbm-sv-verifying{background:color-mix(in srgb,var(--warn) 18%,transparent)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-verifying i{background:var(--warn)}
+  .cbm-sv-cell .cbm-sv-count i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:color-mix(in srgb,var(--danger) 80%,transparent)}
+  /* The red cell gets a tinted background as well as a red dot. Colour alone at 13px is a weak
+     signal across a wide table, and this row is read from across a room. */
+  td.cbm-sv-behind{background:color-mix(in srgb,var(--danger) 22%,transparent)}
+  /* The clean tint drops to a whisper for the same reason the dot went: it is context, not signal. */
+  td.cbm-sv-ok{background:color-mix(in srgb,var(--ok) 4%,transparent)}
+  .cbm-heat{border-collapse:separate;border-spacing:3px;width:100%}
+  .cbm-heat th{font-size:10.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;text-align:center;white-space:nowrap}
+  .cbm-heat th.cbm-rowh{text-align:left;color:var(--muted);text-transform:none;font-size:12px;letter-spacing:0}
+  .cbm-cell{min-width:86px;height:38px;border-radius:6px;text-align:center;font-size:11.5px;color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums;padding:2px 6px;position:relative}
+  .cbm-cell small{display:block;font-size:9.5px;color:rgba(232,240,234,.75)}
+  .cbm-cell:hover{outline:1px solid var(--line2)}
+  .cbm-cell.cbm-na{background:var(--panel-2);color:var(--muted)}
+  .cbm-cell.cbm-verified{background:#22633c}.cbm-cell.cbm-verified small{color:#a7e3bd}
+  .cbm-cell.cbm-awaiting{background:#5c4514;color:#ffe9b3}.cbm-cell.cbm-awaiting small{color:#e8c877}
+  .cbm-cell.cbm-overdue{background:#5b2320;color:#ffd9d6}.cbm-cell.cbm-overdue small{color:#f8a9a4}
+  .cbm-cell.cbm-scheduled{background:#1c2a42;color:#b9d1f5}.cbm-cell.cbm-scheduled small{color:#7fa4dd}
+  .cbm-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .cbm-legend span{display:inline-flex;align-items:center;gap:6px}
+  .cbm-legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .cbm-chartbox{position:relative;overflow-x:auto}
+  /* The svg carries intrinsic width/height attributes so it renders at its natural
+     size instead of stretching to the card; a CSS height with width:auto collapses
+     an svg to zero. max-width keeps it responsive on narrow viewports. */
+  .cbm-chart{max-width:100%;height:auto;display:block}
+  /* Cohort matrix reuses the heatmap grid: pending reads red, verified reads green,
+     and zero/zero cells stay neutral rather than pretending work was completed. */
+  .cbm-cohort-heat .cbm-cell{min-width:74px;height:34px;font-size:13px;font-weight:600}
+  /* Live stages nested under a ladder rung: same grid, quieter and indented. */
+  .cbm-cohort-sub .cbm-cell{height:28px;font-size:11.5px;font-weight:500;opacity:.9}
+  .cbm-rowh-sub{padding-left:20px !important;font-size:11.5px !important;color:var(--faint) !important}
+  .cbm-cell.cbm-pending{background:#5b2320;color:#ffd9d6}
+  /* Field work DONE, verifier review outstanding. Distinct from red (operator still owes work)
+     and from green (closed), so a fully submitted park never reads as untouched. */
+  .cbm-cell.cbm-awaiting{background:#5a4a1c;color:#f6e6b8}
+  .cbm-cell.cbm-clear{background:#22633c;color:#d6f1e0}
+  /* Cohort cell carries three disjoint counts plus the real administration date span, so it is
+     taller than the shed heat cell and reads top-down: headline, counts, date. */
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell{min-width:146px;height:auto;padding:8px 10px;text-align:left;line-height:1.3}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-head{display:block;font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell small{display:block;font-size:10.5px;font-weight:500;opacity:.88;white-space:nowrap}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-date{opacity:.72;font-variant-numeric:tabular-nums}
+  /* An exception rides ON TOP of the state colour: a clean cohort and a cohort with animals whose
+     earlier dose was never accepted must never read as the same block of green. */
+  .cbm-cell-exception-chip{display:inline-block;margin-top:4px;padding:1px 7px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;white-space:nowrap}
+  .cbm-cell.cbm-cell-exception{box-shadow:inset 0 0 0 1.5px var(--danger)}
+  .cbm-cell.cbm-cell-on{outline:2px solid var(--brand);outline-offset:-2px}
+  .cbm-rowh-note{display:block;font-size:10px;font-weight:500;color:var(--faint);letter-spacing:0;text-transform:none;margin-top:2px}
+  /* First column stays readable while the vaccine columns scroll horizontally. */
+  .cbm-cohort-heat th.cbm-rowh{position:sticky;left:0;z-index:2;background:var(--panel)}
+  .cbm-daylist,.cbm-goatlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  .cbm-daylist li{display:flex;align-items:baseline;gap:8px;font-size:12.5px}
+  .cbm-daylist .d{color:var(--muted);min-width:96px}
+  .cbm-daylist .n{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .cbm-daylist .u{color:var(--faint);font-size:11px}
+  .cbm-goatlist{flex-direction:row;flex-wrap:wrap;gap:6px}
+  .cbm-goatlist li{border:1px solid var(--line2);border-radius:8px;padding:2px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
+  .cbm-goatlist .t{color:var(--faint);margin-left:6px}
+  .cbm-cohort-detail-exception-count{display:block;font-size:20px;font-weight:700;color:var(--danger);margin-bottom:6px}
+  .cbm-cohort-detail-muted{color:var(--faint);font-size:11.5px}
+  /* Drilldown sections inside the record drawer. The inline panel's block styles were removed
+     with the panel, but the drawer still renders these sections -- without them the heading ran
+     straight into its own body text. */
+  .drawer .cbm-drawer-section{margin-top:14px}
+  .drawer .cbm-drawer-section>b{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;margin-bottom:6px}
+  .drawer .metagrid{margin-bottom:4px}
+  /* Closed, No Dose tile is an entry point when it has animals behind it, and visibly inert when
+     it does not — the affordance must never promise a list that is empty. */
+  .kpi.kpi-clickable{cursor:pointer}
+  .kpi.kpi-clickable:hover{outline:1px solid var(--line2)}
+  .kpi[aria-disabled="true"]{cursor:default}
+  .cbm-closed-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .cbm-closed-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cbm-closed-table td{padding:8px;border-bottom:1px solid #182219;vertical-align:top}
+  /* The verification drawer carries five columns inside a 498px panel. Laid out as a normal table
+     it overflowed and put ANIMAL -- the only column that identifies the goat -- off the left edge
+     behind a horizontal scrollbar, leaving five visible rows of identical text. Each row is
+     therefore a two-line CARD: identity on top, facts beneath, nothing to scroll sideways for. */
+  .cbm-verify-table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+  .cbm-verify-table td{padding:11px 14px;border-bottom:1px solid #182219;vertical-align:top;word-break:break-word}
+  /* Both ear tags sit side by side, monospaced and tabular so a 15-digit RFID can be scanned down
+     the column digit by digit -- the way someone actually matches a number to the tag in their hand.
+     Proportional digits made every row look the same length and the eye had nothing to lock onto. */
+  .cbm-verify-who{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+  .cbm-verify-who b{font-size:13.5px;font-weight:650;letter-spacing:.02em;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .cbm-verify-who b + b{color:var(--muted);font-weight:500}
+  /* ONE muted line, one weight, one colour. The previous row mixed 13px bold white, 10.5px grey,
+     11px amber bold and 11px faint across four fragments, so nothing led and the eye had no anchor.
+     Identity is the only thing that varies row to row, so identity is the only thing emphasised. */
+  .cbm-verify-meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin-top:5px;font-size:11px;line-height:1.45;color:var(--muted)}
+  /* The PEN is the one fact that sends a person to a physical place, so it gets the only accent in
+     the row rather than the state, which is identical on all 76 rows. */
+  .cbm-verify-pen{padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn);font-weight:600;font-size:10.5px}
+  .cbm-verify-videos{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;padding:8px 14px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+  .cbm-verify-videos a{color:var(--info);text-decoration:underline}
+  .cbm-verify-novideo{color:var(--faint)}
+  .cbm-closed-tag{display:block;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+  .cbm-closed-tag2{display:block;font-weight:600;font-variant-numeric:tabular-nums}
+  .cbm-closed-park{display:block;color:var(--faint);font-size:11px}
+  .cbm-cohort-hint{color:var(--faint)}
+  .cbm-cohort-note{margin:2px 0 10px;font-size:11.5px;color:var(--muted)}
+  .cbm-cohort-detail-table{width:100%;border-collapse:collapse;font-size:12px}
+  .cbm-cohort-detail-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cbm-cohort-detail-table td{padding:6px 8px;border-bottom:1px solid #182219;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .cbm-queue-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .cbm-queue-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted);white-space:nowrap}
+  .cbm-queue-table td:first-child{color:var(--ink)}
+  .cbm-celllink{cursor:pointer}.cbm-celllink:hover{color:var(--brand)}
+  .cbm-pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600}
+  .cbm-pill-warn{background:rgba(251,191,36,.14);color:var(--warn)}
+  .cbm-pill-ok{background:rgba(74,222,128,.14);color:var(--ok)}
+  .cbm-aging{color:var(--danger);font-weight:600}
+  .cbm-queue-num{font-variant-numeric:tabular-nums}
+  .cbm-cohort-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .cbm-cohort-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .cbm-cohort-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted)}
+  .cbm-cohort-table td:first-child{color:var(--ink)}
+  .cbm-cohort-num{font-variant-numeric:tabular-nums;text-align:right}.cbm-cohort-num.cbm-cohort-pending{color:var(--danger);font-weight:600}
+  .cbm-cohort-title{margin:0 0 14px;font-size:13px;font-weight:650}
+  .cbm-loading,.cbm-unavailable{padding:26px;text-align:center;color:var(--muted);font-size:12.5px}
   /* A shed's item lines are one visual block: the shed-level cells span them, so the group needs a
      boundary rule rather than a rule between every item line. */
   .main table.feed-table td[rowspan]{border-right:1px solid var(--line2)}
@@ -655,9 +1102,20 @@
      card renders 20px rows at ~6px). Show whichever scale matches the container. */
   .main .svgbars-wide{display:block}
   .main .svgbars-narrow{display:none}
+  /* Ten bars stand in the card; the rest scroll (maintainer, 2026-08-12).
+     The window is sized by ASPECT RATIO rather than a pixel height because the SVG carries no
+     height attribute — it is scaled by its viewBox, so its rendered height is
+     `containerWidth × viewBoxHeight / viewBoxWidth`. A fixed max-height would hold ten rows at one
+     card width and six at another. 1100 : 264 is WIDE_VIEW_WIDTH : barsViewHeight(10) from
+     components/svg-bars.tsx, and svg-bars.test.mjs fails if the two ever disagree.
+     scrollbar-gutter keeps the bars from reflowing by a scrollbar's width when the window appears. */
+  .main .svgbars-scroll{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;aspect-ratio:1100 / 264}
   @media(max-width:1080px){
     .main .svgbars-wide{display:none}
     .main .svgbars-narrow{display:block}
+    /* The narrow scale draws the same ten rows in a 280-wide viewBox, so the window needs its own
+       ratio — reusing the wide one here would show three bars on a phone. */
+    .main .svgbars-scroll{aspect-ratio:280 / 264}
   }
   @media(max-width:600px){
     .main .counts-breakdown-kpis .kpi .kpiic{display:none}
@@ -902,6 +1360,9 @@
   .celllink{display:block;box-sizing:border-box;margin:-11px -12px;padding:11px 12px;color:inherit;text-decoration:none;min-height:42px;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
   .celllink:hover{text-decoration:none}
   .celllink .lk{color:var(--info)}
+  .evidence-media{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+  .evidence-media .tag{display:inline-flex;align-items:center;gap:5px;max-width:100%;white-space:nowrap;text-decoration:none}
+  .evidence-media .tag .ic{width:12px;flex:0 0 auto}
   tr:last-child td{border-bottom:0}
   tbody tr:hover{background:var(--bg)}
   .gid{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:var(--brand-d);background:var(--brand-soft);padding:2px 7px;border-radius:6px}
@@ -1026,20 +1487,17 @@
   .orow{display:flex;gap:8px;align-items:center}
   .ocell{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:600}
   .ocell .c{color:var(--faint);font-weight:600;font-size:11px}
-  .scrim{position:fixed;inset:0;background:rgba(6,12,9,.55);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:.2s;z-index:210}
-  .scrim.on{opacity:1;pointer-events:auto}
-  html:has(.drawer.on),body:has(.drawer.on){overflow:hidden}
-	  .drawer{position:fixed;top:0;right:0;height:100vh;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4);transform:translateX(100%);transition:.26s cubic-bezier(.4,.0,.2,1);z-index:220;display:flex;flex-direction:column}
-	  .drawer.on{transform:none}
-	  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(3px);z-index:219;touch-action:none}
-	  .drawer .dh{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line2);background:var(--panel)}
-	  .drawer .dh h2{margin:0;font-size:17px;line-height:1.2}
-	  .drawer .dc{padding:18px 20px;overflow:auto;flex:1;overscroll-behavior:contain}
+  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(3px);z-index:219;touch-action:none}
+	  .drawer .dh h2{margin:0;font-size:18px;font-weight:640;line-height:1.2}
+	  .drawer .dh .sb{font-size:12.5px;color:var(--faint);font-weight:600;margin-top:3px}
+	  .drawer .dh .x{margin-left:auto;cursor:pointer;color:var(--muted);width:34px;height:34px;display:grid;place-items:center;border-radius:9px;font-size:21px}
+	  .drawer .dh .x:hover{background:var(--bg)}
+	  .drawer .dc{flex:1;min-height:0;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px}
 	  /* Footer action row WRAPS (never clips a button) with consistent button sizing — fixes the mock's own
      overflow defect where a long primary label wrapped tall and the last action was cut off. */
-  .drawer .df{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 20px;border-top:1px solid var(--line2);background:var(--panel)}
+  .drawer .df{padding:16px 22px;border-top:1px solid var(--line);background:var(--panel-2);display:flex;gap:11px;align-items:center}
+  .drawer .df .pos{margin-right:auto;font-size:13px;color:var(--faint);font-weight:650}
   .drawer .df .btn{flex:0 0 auto;white-space:nowrap;min-height:38px}
-  .drawer .df form{display:inline-flex}
   .dhd{display:flex;align-items:center;gap:11px;padding:16px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
   .dhd .x{margin-left:auto;cursor:pointer;color:var(--muted);width:32px;height:32px;display:grid;place-items:center;border-radius:8px}
   .dhd .x:hover{background:var(--bg)}
@@ -1218,13 +1676,20 @@
   .ev:hover{border-color:var(--brand);transform:translateY(-1px)}
   .ev.celllink{text-decoration:none;color:inherit;display:block}
   .drivelink{display:block;width:fit-content;max-width:100%;text-decoration:none;color:inherit;margin-bottom:8px}
-  .drive-card{min-width:min(100%,360px);padding:9px 12px;gap:8px}
-  .drive-card .dhd{padding-bottom:8px;border-bottom:1px solid var(--line2)}
+  .drive-card{min-width:min(100%,360px);padding:10px 12px;gap:8px}
+  .drive-card .dhd{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--line2)}
+  .drive-card .dhd b{min-width:0;overflow-wrap:anywhere;line-height:1.25}
+  .drive-card .dhd span{white-space:nowrap}
   .drive-card .prow{display:grid;grid-template-columns:48px minmax(0,1fr);gap:12px;margin-top:0}
   .drive-card .dring{width:48px;height:48px}
-  .drive-card .ptx{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
-  .drive-card .ptx > div:first-child{grid-column:1/-1}
-  .drive-card .chips{margin-top:0;padding-top:7px;border-top:1px solid var(--line2)}
+  .drive-card .ptx{display:flex;min-width:0;flex-direction:column;gap:5px;align-items:flex-start}
+  .drive-card .ptx > div:first-child{min-width:0;max-width:100%;white-space:nowrap}
+  .drive-card .submitted-strip{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:11.5px;font-weight:800;line-height:1;color:var(--warn)}
+  .drive-card .submitted-strip span{display:inline-flex;align-items:center;min-height:20px;padding:3px 7px;border:1px solid color-mix(in srgb,var(--warn) 34%,var(--line));border-radius:6px;background:var(--warnx)}
+  .drive-card .vaccine-chip-row{display:flex;flex-wrap:wrap;gap:5px;max-width:100%;min-width:0;margin-top:0;padding-top:7px;border-top:1px solid var(--line2)}
+  .drive-card .vaccine-chip{display:inline-flex;align-items:center;max-width:140px;min-height:20px;padding:3px 7px;border:1px solid var(--line2);border-radius:6px;background:#1e2822;color:var(--muted);font-size:10.5px;font-weight:800;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .drive-card .vaccine-chip-more{max-width:none;color:var(--brand-d);background:var(--brand-soft);border-color:color-mix(in srgb,var(--brand) 34%,var(--line2))}
+  .drive-card .chips{margin-top:0;padding-top:0;border-top:0}
   .drive-card .dft{margin-top:0;padding-top:7px}
   .dhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dhd b{font-size:14px}
@@ -1378,6 +1843,97 @@
   .cond-note{max-width:340px;text-align:right}
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
   .btn.ghost:hover{background:var(--brand-soft)}
+
+  .weighing-page{display:grid;gap:16px}
+  .weighing-role-switch{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  .weighing-hero .ic,.weighing-page .ic{width:16px;height:16px;flex:0 0 auto}
+  .weighing-hero-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.75fr);gap:16px;align-items:stretch}
+  .weighing-hero-grid>*{min-width:0}
+  .weighing-week-row{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px}
+  .weighing-week{display:flex;align-items:center;gap:9px;min-width:138px;border:1px solid var(--line);background:var(--panel-2);border-radius:12px;padding:10px 12px;text-decoration:none;color:var(--ink);font-size:12.5px;font-weight:700}
+  .weighing-week.on{border-color:color-mix(in srgb,var(--brand) 62%,var(--line));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
+  .weighing-week .tag{margin-left:auto}
+  .weighing-meta{margin-top:2px}
+  .weighing-command-panel{border:1px solid var(--line2);background:var(--bg);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .weighing-command-title{display:flex;align-items:center;gap:8px;font-weight:750;font-size:14px}
+  .weighing-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+  .weighing-actions .btn{justify-content:center}
+  .weighing-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  .weighing-metric .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:750}
+  .weighing-metric .v{font-size:28px;font-weight:820;letter-spacing:-.9px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .weighing-metric .v span{font-size:13px;color:var(--muted);font-weight:650;margin-left:2px}
+  .weighing-bar{height:8px;border-radius:999px;background:var(--panel-2);margin:11px 0 9px;overflow:hidden}
+  .weighing-bar i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+  .weighing-bar.pur i{background:#a98bf5}
+  .weighing-attention{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+  .main table.weighing-table{min-width:980px}
+  .main table.weighing-table.compact{min-width:620px}
+  .main table.weighing-table th,.main table.weighing-table td{vertical-align:middle}
+  .main table.weighing-table .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .blockish{display:block;margin-top:3px;line-height:1.35}
+  .weighing-review-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .weighing-planner>.bd{padding:16px}
+  .weighing-plan-form{display:grid;gap:16px}
+  .weighing-wizard-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:16px;align-items:end}
+  .weighing-wizard-head h2{margin:4px 0 7px;font-size:28px;letter-spacing:-.7px}
+  .weighing-step-bars{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .weighing-step-bars i{height:5px;border-radius:999px;background:var(--brand)}
+  .weighing-builder-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+  .weighing-builder-grid.muted{opacity:.42}
+  .weighing-builder-step{border:1px solid var(--line);background:var(--bg);border-radius:16px;padding:16px;display:grid;gap:12px;min-width:0}
+  .weighing-duplicate-grid{display:grid;gap:14px;max-width:680px}
+  .weighing-duplicate-card{border:1px solid color-mix(in srgb,var(--warn) 42%,var(--line));background:color-mix(in srgb,var(--warn) 6%,var(--panel));border-radius:16px;padding:18px}
+  .weighing-duplicate-card h3{margin:16px 0 8px;font-size:22px;letter-spacing:-.45px}
+  .weighing-duplicate-card p{margin:0;color:var(--muted);font-size:14px;line-height:1.6}
+  .weighing-existing-task{display:grid;grid-template-columns:minmax(0,1fr) auto;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
+  .weighing-existing-task span,.weighing-existing-task b{padding:15px 18px;border-bottom:1px solid var(--line2);display:flex;align-items:center}
+  .weighing-existing-task span:nth-last-child(-n+2),.weighing-existing-task b:nth-last-child(-n+2){border-bottom:0}
+  .weighing-existing-task span{color:var(--muted);font-weight:650}
+  .weighing-existing-task b{justify-content:flex-end;font-size:15px;text-align:right}
+  .weighing-duplicate-note{border:1px solid color-mix(in srgb,var(--warn) 42%,var(--line));border-radius:16px;background:color-mix(in srgb,var(--warn) 5%,var(--panel));color:var(--muted);padding:16px 18px;line-height:1.65}
+  .weighing-shed-step{grid-row:span 2}
+  .weighing-step-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--brand-d);font-weight:850}
+  .weighing-builder-step h3{margin:0;font-size:22px;letter-spacing:-.45px}
+  .weighing-choice,.weighing-shed-choice{display:flex;align-items:center;gap:13px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:14px 16px;min-width:0}
+  .weighing-choice.on,.weighing-shed-choice.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--panel));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
+  .weighing-choice.disabled{opacity:.38}
+  .weighing-choice b,.weighing-shed-choice b{display:block;font-size:15px;line-height:1.25}
+  .weighing-choice small,.weighing-shed-choice small{display:block;color:var(--muted);font-size:12.5px;margin-top:4px}
+  .weighing-choice strong,.weighing-shed-choice strong{margin-left:auto;color:var(--brand-d);font-size:18px;font-variant-numeric:tabular-nums}
+  .weighing-radio{width:20px;height:20px;border-radius:999px;border:2px solid var(--line);box-shadow:inset 0 0 0 5px var(--panel);flex:0 0 auto}
+  .weighing-choice.on .weighing-radio{border-color:var(--brand);background:var(--brand)}
+  .weighing-check{width:28px;height:28px;border-radius:9px;border:2px solid var(--line);display:grid;place-items:center;color:#08130B;background:transparent;font-weight:900;flex:0 0 auto}
+  .weighing-shed-choice.on .weighing-check{background:var(--brand);border-color:var(--brand)}
+  .weighing-shed-main{min-width:0;flex:1}
+  .weighing-segment{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:12px;padding:4px;margin-top:12px;background:var(--bg);gap:4px}
+  .weighing-segment span{border-radius:9px;text-align:center;padding:8px;color:var(--muted);font-size:12.5px;font-weight:800}
+  .weighing-segment span.on.individual{background:color-mix(in srgb,var(--info) 18%,var(--panel));color:#79b7ff}
+  .weighing-segment span.on.lumpsum{background:color-mix(in srgb,var(--purple) 22%,var(--panel));color:#c6b4ff}
+  .weighing-total-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:end;background:var(--panel-2);border-radius:14px;padding:16px;margin-top:2px}
+  .weighing-total-card span{color:var(--muted);font-size:13px;font-weight:750}
+  .weighing-total-card b{font-size:28px;letter-spacing:-.7px}
+  .weighing-total-card small{grid-column:2;color:var(--muted);font-size:12.5px;font-weight:750}
+  .weighing-assign-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .weighing-assign-summary span,.weighing-assign-summary b{padding:12px 14px;border-bottom:1px solid var(--line2)}
+  .weighing-assign-summary span:nth-last-child(-n+2),.weighing-assign-summary b:nth-last-child(-n+2){border-bottom:0}
+  .weighing-assign-summary span{color:var(--muted)}
+  .weighing-planner-actions{display:flex;gap:12px;justify-content:flex-end}
+  .weighing-planner-actions .btn{min-width:140px;justify-content:center}
+
+  @media(max-width:1040px){
+    .weighing-hero-grid,.weighing-metrics,.weighing-review-grid,.weighing-wizard-head,.weighing-builder-grid{grid-template-columns:1fr}
+    .weighing-role-switch{justify-content:flex-start}
+  }
+
+  @media(max-width:640px){
+    .weighing-week{min-width:128px}
+    .weighing-hero>.bd{overflow-x:visible}
+    .weighing-command-panel{padding:12px}
+    .weighing-actions .btn{flex:1 1 92px;padding-inline:9px}
+    .weighing-builder-step{padding:14px}
+    .weighing-planner-actions{flex-direction:column}
+    .weighing-planner-actions .btn{width:100%}
+  }
   .warn-note{border-color:var(--danger)}
   /* operator preview (right column) */
   .pvform{display:flex;flex-direction:column;gap:11px}
@@ -1526,6 +2082,50 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .lvempty { color: var(--faint); font-size: 12.5px; padding: 10px 0; }
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: center; justify-content: center; z-index: 150; }
 .scrim.on { display: flex; }
+/* Verification review modal — centered overlay, never dims sidebar */
+.vr-modal-scrim { position: fixed; inset: 0; background: rgba(4, 9, 7, .76); opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 210; display: grid; place-items: center; padding: 26px; }
+.vr-modal-scrim.on { opacity: 1; pointer-events: auto; }
+html:has(.vr-modal.on), body:has(.vr-modal.on) { overflow: hidden; }
+.vr-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, calc(-50% - 10px)) scale(.985); opacity: 0; will-change: transform, opacity; width: 900px; max-width: 96vw; max-height: 92vh; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; transition: transform .19s cubic-bezier(.2,.8,.2,1), opacity .16s ease; z-index: 220; }
+.vr-modal-scrim.on .vr-modal, .vr-modal.on { transform: translate(-50%, -50%); opacity: 1; }
+/* The shell replays its `fade` entry animation on every RSC re-render, and changing `vi_row`
+   (opening the modal, Prev/Next) is exactly that — so the whole page flashed on each step and read
+   as "stuck". While a review modal is open the page underneath must hold still. */
+.screen:has(.vr-modal-scrim.on) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .vr-modal-scrim, .vr-modal { transition: none; }
+}
+.vr-modal-hd { display: flex; align-items: center; gap: 13px; padding: 17px 22px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.vr-modal-hd h2 { margin: 0; font-size: 18px; font-weight: 640; line-height: 1.2; }
+.vr-modal-hd .sb { font-size: 12.5px; color: var(--faint); font-weight: 600; margin-top: 3px; }
+.vr-modal-hd .x { margin-left: auto; cursor: pointer; color: var(--muted); width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; font-size: 21px; }
+.vr-modal-hd .x:hover { background: var(--bg); }
+.vr-modal-bd { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+/* The body is a flex COLUMN that scrolls, so by default every child shrinks below its own content
+   to fit -- which silently sliced the bottom off each section: the facts strip lost all four
+   values, Rework lost its input, Re-assign lost its picker, Penalty note lost its field. Children
+   must keep their natural height and let the BODY scroll instead. This belongs on the container,
+   not on one element: patching only .vr-facts fixed the strip and left every other card clipped. */
+.vr-modal-bd > * { flex-shrink: 0; }
+.vr-modal-ft { padding: 16px 22px; border-top: 1px solid var(--line); background: var(--panel-2); display: flex; gap: 11px; align-items: center; flex-wrap: wrap; }
+.vr-modal-ft .pos { margin-right: auto; font-size: 13px; color: var(--faint); font-weight: 650; }
+.vr-modal-ft .btn { flex: 0 0 auto; white-space: nowrap; min-height: 38px; }
+button.scrim{
+  display:block;
+  align-items:normal;
+  justify-content:normal;
+  z-index:210;
+  border:0;
+  padding:0;
+  background:rgba(6,12,9,.42);
+  backdrop-filter:none;
+  opacity:0;
+  pointer-events:none;
+  cursor:default;
+}
+button.scrim.on{display:block;opacity:1;pointer-events:auto}
+aside.drawer{z-index:220;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4)}
+aside.drawer.on{transform:none}
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: min(440px, 92vw); overflow: hidden; }
 .modal .mh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .modal .mh .av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px solid var(--brand); font-size: 12px; }
@@ -1590,3 +2190,313 @@ select:disabled { opacity: .45; }
 #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel); border: 1px solid var(--brand); border-left: 3px solid var(--brand); color: var(--ink); padding: 12px 16px; border-radius: 10px; box-shadow: var(--shadow); font-size: 12.5px; opacity: 0; pointer-events: none; transition: .2s; max-width: 460px; z-index: 200; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.err { border-color: var(--danger); border-left-color: var(--danger); }
+/* Command Board */
+.card.cbm { margin-bottom: 24px; }
+.cbm-loading { padding: 16px; color: var(--muted); }
+.cbm-unavailable { padding: 16px; color: var(--faint); }
+.cbm-kpi-row { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.cbm-kpi-row .kpi { flex: 1; min-width: 120px; }
+.cbm-kpi-verified .val { color: var(--ok); }
+.cbm-kpi-awaiting .val { color: var(--warn); }
+.cbm-kpi-overdue .val { color: var(--danger); }
+/* Cohort Matrix */
+.cbm-cohort-section { margin-bottom: 24px; }
+.cbm-cohort-title { margin-bottom: 12px; font-size: 14px; font-weight: 600; }
+.cbm-cohort-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.cbm-cohort-table th { padding: 8px; text-align: left; border-bottom: 1px solid var(--line); background-color: var(--panel-2); }
+.cbm-cohort-table td { padding: 8px; border-bottom: 1px solid var(--line2); }
+.cbm-cohort-table th:nth-child(3),
+.cbm-cohort-table th:nth-child(5),
+.cbm-cohort-table td:nth-child(3),
+.cbm-cohort-table td:nth-child(5) { text-align: right; }
+.cbm-cohort-number { text-align: right; }
+.cbm-cohort-pending-active { color: var(--warn); }
+.cbm-cohort-pending-none { color: var(--faint); }
+/* Verification Queue */
+.cbm-queue-section { }
+.cbm-queue-title { margin-bottom: 12px; font-size: 14px; font-weight: 600; }
+.cbm-queue-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.cbm-queue-table th { padding: 8px; text-align: left; border-bottom: 1px solid var(--line); background-color: var(--panel-2); }
+.cbm-queue-table td { padding: 8px; border-bottom: 1px solid var(--line2); }
+.cbm-queue-table th:nth-child(3),
+.cbm-queue-table th:nth-child(4),
+.cbm-queue-table th:nth-child(5),
+.cbm-queue-table td:nth-child(3),
+.cbm-queue-table td:nth-child(4),
+.cbm-queue-table td:nth-child(5) { text-align: right; }
+.cbm-queue-awaiting { color: var(--warn); text-align: right; }
+.cbm-queue-number { text-align: right; }
+
+/* Vaccination command board — filter bar + section rhythm */
+.cbm-filters { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 18px; }
+.cbm-filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.cbm-filter-label { font-size: 12px; color: var(--muted); }
+.cbm-select { background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 18px; padding: 7px 12px; font-size: 12.5px; height: 34px; cursor: pointer; }
+.cbm-select:hover { border-color: var(--line2); }
+/* Drive labels carry vaccine + window + status, so they need more room than a vaccine name. */
+.cbm-select-wide { max-width: 320px; }
+.cbm-select:disabled { opacity: .55; cursor: not-allowed; }
+.cbm-chip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 18px; border: 1px solid transparent; background: var(--panel); color: var(--muted); font-size: 12.5px; cursor: pointer; opacity: .5; }
+.cbm-chip.cbm-chip-on { opacity: 1; color: var(--ink); border-color: var(--line); }
+.cbm-chip i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; background: var(--faint); }
+.cbm-chip-verified i { background: var(--ok); }
+.cbm-chip-awaiting i { background: var(--amber); }
+.cbm-chip-overdue i { background: var(--danger); }
+.cbm-chip-scheduled i { background: var(--info); }
+.cbm .cbm-shed-section, .cbm .cbm-cohort-section, .cbm .cbm-queue-section { margin-top: 26px; }
+.cbm .cbm-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.cbm .cbm-section-head h3, .cbm .cbm-cohort-title { margin: 0 0 12px; font-size: 14px; }
+.cbm .cbm-section-head h3 { margin-bottom: 0; }
+.cbm .cbm-section-head .cbm-meta { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+.cbm .cbm-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 11.5px; color: var(--muted); align-items: center; }
+.cbm .cbm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cbm .cbm-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; background: var(--faint); }
+.cbm .cbm-legend span:nth-child(1) i { background: var(--ok); }
+.cbm .cbm-legend span:nth-child(2) i { background: var(--amber); }
+.cbm .cbm-legend span:nth-child(3) i { background: var(--danger); }
+.cbm .cbm-legend span:nth-child(4) i { background: var(--info); }
+.cbm .cbm-kpi-row { margin-bottom: 4px; }
+.cbm-future-section { margin-top: 22px; }
+.cbm-future-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.cbm-future-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cbm-future-table th { padding: 10px 12px; text-align: left; color: var(--muted); background: var(--panel-2); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cbm-future-table td { padding: 11px 12px; border-bottom: 1px solid var(--line2); vertical-align: top; }
+.cbm-future-table tbody tr:last-child td { border-bottom: 0; }
+.cbm-future-table tbody tr.is-selected { background: var(--infox); }
+.cbm-future-table th:last-child, .cbm-future-table td:last-child { text-align: right; white-space: nowrap; }
+.cbm-future-table .cbm-campaign-cell { min-width: 220px; vertical-align: middle; border-right: 1px solid var(--line2); }
+.cbm-future-table .cbm-campaign-cell small { display: block; margin-top: 4px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+
+/* Farmwise cohort matrix: one block per farm so two farms never merge into one row set. */
+.cbm-farm-block { margin-top: 14px; }
+.cbm-farm-name { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 6px; }
+.cbm-cohort-heat .cbm-cell small { display: block; font-size: 9.5px; font-weight: 500; opacity: .8; }
+
+/* Weights page bar lists. Fixed height + internal scroll, so a chart with forty
+   rows takes the same page space as one with four, and half-width cards keep
+   their labels at a readable size instead of scaling down like an SVG would. */
+.wbars{list-style:none;margin:0;padding:0 8px 0 0;display:flex;flex-direction:column;gap:6px;overflow-y:auto}
+.wbars-tall{height:300px}
+.wbars-short{height:150px}
+.wbars::-webkit-scrollbar{width:8px}
+.wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px}
+/* Full-width cards can afford a real label column. 132px is sized for the half-width
+   charts and clips a load's supplier name to "131 · Krishnamorrth…", which defeats the
+   point of putting the supplier on the label. */
+.wbars-wide .wbar{grid-template-columns:250px minmax(0,1fr) 68px}
+.wbar .wbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600}
+.wbar .wbt{background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden;position:relative}
+.wbar .wbt i{display:block;height:100%;border-radius:5px;background:var(--brand)}
+/* A loss is red and sits left of the zero rule, so it reads as going backwards
+   rather than as a short green bar. */
+.wbar .wbt i.neg{background:var(--danger)}
+.wbar .wbzero{position:absolute;top:0;bottom:0;width:1px;background:var(--muted);opacity:.65}
+.wbar .wbv.neg{color:var(--danger)}
+.wbar .wbv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:900px){.wbar{grid-template-columns:96px minmax(0,1fr) 62px}}
+
+/* Per-chart metric toggle. Links, not buttons, so the page stays a server
+   component and each chart's choice survives a reload and a shared URL. */
+.metricseg{display:inline-flex;gap:2px;margin-left:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+.metricseg a{padding:3px 9px;border-radius:6px;font-size:11.5px;font-weight:650;color:var(--muted);text-decoration:none;white-space:nowrap}
+.metricseg a:hover{color:var(--brand-d)}
+.metricseg a.on{background:var(--panel);color:var(--brand-d)}
+.card .h{display:flex;align-items:center;gap:8px}
+.wbars-empty{display:grid;place-items:center;text-align:center;padding:0 14px}
+
+/* The Weights metric strip. The default 12px grid gap made six cards read as one
+   slab; these are separate figures and want visible air between them. */
+.kpi-row{gap:16px}
+.kpi-row .kpi{padding:14px 16px}
+@media(max-width:1080px){.kpi-row{gap:12px}}
+
+/* The Weights page owns its own vertical rhythm. `.wrap` is block layout with no
+   gap and its children carry no margins, so without this every section — the two
+   metric rows included — sits flush against the next with a literal 0px between
+   them. Scoped to this page so the shared container is untouched. */
+.weights-page{display:flex;flex-direction:column;gap:16px}
+/* Chart cards carry their own inset. `.card` on this page resolves to 0 padding, so the
+   title, caption, bars and footnote all sat 1px off the border — the bar labels and the
+   "N sheds are not counted" line read as touching the frame. Scoped to the chart cards
+   by class rather than applied to every `.card`, because the shed and losing-kid TABLES
+   in the same page are deliberately full-bleed and would be inset away from their own
+   header row. */
+.wchart{padding:14px 16px}
+/* The bar list keeps its own right gutter for the scrollbar, so the card's own right
+   padding would otherwise read as double. */
+.wchart .wbars{padding-right:2px}
+/* Air between a chart's header block and its bars. The title row (`.h`) and the
+   caption under it sat directly on the first bar, so the heading read as part of the
+   series rather than above it. Applied to the bar list itself — not to the heading —
+   so a chart with no caption (sex, stage) gets the same gap as one with a caption
+   (shed, breed, load), and the empty state keeps the same box position as the
+   populated list so toggling weight/gain never shifts the card. */
+.wchart .wbars,
+.wchart .wbars-empty{margin-top:12px}
+/* Footnote under a chart ("N sheds are not counted here…") — it butted straight up
+   against the bars above it. */
+.wchart .wbars + .muted,
+.wchart .wbars-empty + .muted{margin-top:10px}
+/* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
+   their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the
+   top border and the pager touching the bottom-left corner.
+   The inset is deliberately NOT put on the card: the TABLE stays full-bleed so its header rule and
+   row separators still run edge to edge, which is the mock's table anatomy and the reason these
+   cards were left unpadded in the first place. So the card gets vertical padding only, and every
+   direct child EXCEPT the table wrapper gets the horizontal inset. `:not(.tablewrap)` rather than a
+   list of child classes, so a future row added to these cards is inset by default instead of
+   silently reintroducing the defect. */
+.wtable{padding:14px 0}
+.wtable > :not(.tablewrap){padding-left:16px;padding-right:16px}
+/* The table needs air from the caption above it and the pager below it, which the card's own
+   padding no longer provides now that the wrapper is excluded from it. */
+.wtable > .tablewrap{margin:12px 0}
+/* Line the outer columns up with the card's own text (17px from the frame). The cells' default
+   12px left them 4px adrift of the title and the pager, which reads as a wobble down the left edge
+   of the card. Padding on the CELL, never a margin or inset on the table: the header rule and row
+   separators must still reach the frame. */
+.wtable table.tbl th:first-child,
+.wtable table.tbl td:first-child{padding-left:16px}
+.wtable table.tbl th:last-child,
+.wtable table.tbl td:last-child{padding-right:16px}
+
+/* ============================================================================
+   /vaccination/live-tracker — ported verbatim from
+   mock/vaccination-live-tracker-mock.html.
+   Every rule is scoped under `.lt-page` (or an `lt-` prefixed class) on purpose:
+   the mock reuses generic names — .feed, .frow, .legend, .num — that this
+   stylesheet already binds to OTHER screens, and letting them collide would
+   restyle the Feed board and the calendar legend as a side effect of shipping
+   this page.
+   ========================================================================== */
+.lt-page .lt-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px}
+.lt-page .kpi.lt-kpi{border-left:3px solid var(--line);border-radius:10px;padding:11px 13px;overflow:visible}
+.lt-page .kpi.lt-kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px;font-variant-numeric:tabular-nums}
+.lt-page .kpi.lt-kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.lt-page .kpi.lt-kpi .dl{font-size:11px;color:var(--muted);margin-top:2px}
+.lt-page .kpi.k-ok{border-left-color:var(--ok)}.lt-page .kpi.k-ok .val{color:var(--ok)}
+.lt-page .kpi.k-warn{border-left-color:var(--warn)}.lt-page .kpi.k-warn .val{color:var(--warn)}
+.lt-page .kpi.k-info{border-left-color:var(--info)}.lt-page .kpi.k-info .val{color:var(--info)}
+.lt-page .kpi.k-purple{border-left-color:var(--purple)}.lt-page .kpi.k-purple .val{color:var(--purple)}
+.lt-page .kpi.k-dng{border-left-color:var(--danger)}.lt-page .kpi.k-dng .val{color:var(--danger)}
+/* The mock's tick is hidden by default and flashes only when a tile value actually bumps
+   (mock: `.kpi .tick{opacity:0}` / `.kpi .tick.on{opacity:1}`). A permanently visible tick
+   asserts liveness that is not being observed — including on a PAUSED board. */
+.lt-page .lt-tick{display:inline-block;margin-left:5px;font-size:10px;font-weight:700;color:var(--ok);opacity:0;transition:opacity .3s}
+.lt-page .lt-tick.on{opacity:1}
+@media (prefers-reduced-motion: reduce){.lt-page .lt-tick{transition:none}}
+
+.lt-page .lt-grid{display:grid;grid-template-columns:1fr 330px;gap:14px;align-items:start}
+@media(max-width:1080px){.lt-page .lt-grid{grid-template-columns:1fr}}
+.lt-page .lt-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.lt-page .card.lt-card{margin-top:0;overflow:hidden}
+.lt-page .card.lt-card .bd{padding:13px 15px}
+.lt-page .lt-tablewrap{padding:0;overflow-x:auto}
+.lt-page .lt-empty{display:flex;align-items:center;gap:12px;padding:18px 16px;flex-wrap:wrap}
+.lt-page .lt-emptynote{margin-bottom:14px}
+
+/* Page head: the mock's own top bar collapses into the page head, since brand,
+   park/date scope and theme are the app shell's job. */
+.lt-page .lt-phead{align-items:flex-start;flex-wrap:wrap;margin:4px 0 14px}
+.lt-page .lt-headactions{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.lt-page .lt-headbtns{display:flex;gap:8px;flex-wrap:wrap}
+.lt-page .lt-scopenote{flex-basis:100%;margin-top:4px}
+.lt-page .lt-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.lt-page .lt-livebadge{display:inline-flex;align-items:center;gap:7px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font:inherit;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
+.lt-page .lt-livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite}
+.lt-page .lt-livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
+.lt-page .lt-livebadge.paused .lt-livedot{background:var(--faint);animation:none}
+@keyframes lt-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
+.lt-page .lt-refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
+.lt-page .lt-refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
+.lt-page .lt-intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+.lt-page .lt-intervalpick button{border:0;background:transparent;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
+.lt-page .lt-intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
+.lt-page .lt-stale{display:inline-flex;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650}
+
+/* Persistent filter bar */
+.lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+.lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
+.lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
+.lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
+.lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
+.lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+.lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}
+
+/* Tables. Both dense boards pin every cell to a single line so a long shed or
+   operator name cannot silently re-wrap the row into two. */
+.lt-page table{width:100%;border-collapse:collapse}
+.lt-page thead th{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.lt-page tbody td{padding:9px 12px;border-bottom:1px solid var(--line2);font-size:12.5px;vertical-align:middle}
+.lt-page th.num,.lt-page td.num{font-variant-numeric:tabular-nums;text-align:right}
+.lt-page table.lt-operator-table th,.lt-page table.lt-operator-table td,.lt-page table.lt-operator-table td .celllink,
+.lt-page table.lt-shed-table th,.lt-page table.lt-shed-table td,.lt-page table.lt-shed-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+.lt-page table.lt-operator-table{min-width:960px}
+.lt-page table.lt-shed-table{min-width:940px}
+.lt-page table.lt-shed-table td:first-child{min-width:180px}
+.lt-page table.lt-operator-table td:first-child{min-width:190px}
+.lt-page tbody tr.lt-shed-row:hover{background:var(--bg)}
+
+.lt-page .lt-pbar{height:6px;background:var(--line2);border-radius:4px;overflow:hidden;min-width:90px;flex:1}
+.lt-page .lt-pbar i{display:block;height:100%;background:var(--brand);border-radius:4px;transition:width .6s ease}
+.lt-page .lt-pbar i.warn{background:var(--warn)}
+.lt-page .lt-pbar i.dng{background:var(--danger)}
+.lt-page .lt-pcell{display:flex;align-items:center;gap:9px}
+.lt-page .lt-pcell .pct{font-size:11px;font-weight:700;color:var(--muted);min-width:56px;text-align:right;font-variant-numeric:tabular-nums}
+
+.lt-page .lt-opname{display:flex;align-items:center;gap:9px;font-weight:650}
+.lt-page .lt-avx{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:10.5px;flex:none;background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--line)}
+.lt-page .lt-code{display:block;margin-left:35px;font-size:10.5px}
+.lt-page .lt-shedlbl{font-weight:650}
+.lt-page .lt-shedlbl small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
+.lt-page .lt-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center}
+.lt-page .lt-legend span{display:inline-flex;align-items:center;gap:5px}
+.lt-page .lt-swatch{width:9px;height:9px;border-radius:3px;font-style:normal;display:inline-block;padding:0}
+.lt-page .lt-swatch.t-ok{background:var(--ok)}
+.lt-page .lt-swatch.t-live{background:var(--brand)}
+.lt-page .lt-swatch.t-warn{background:var(--warn)}
+.lt-page .lt-swatch.t-dng{background:var(--danger)}
+.lt-page .lt-swatch.t-mut{background:var(--line)}
+
+/* `t-live` is this page's own tone: a pulsing dot inside the pill, which is how
+   the mock distinguishes "happening right now" from a static ok/warn state. */
+.lt-page .tag.t-live{display:inline-flex;align-items:center;gap:5px;background:var(--dangerx);color:var(--danger);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+.lt-page .tag.t-live i{width:6px;height:6px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite;font-style:normal;display:inline-block}
+
+.lt-page .lt-combo-chip{display:inline-flex;align-items:center;gap:4px;background:var(--purplex);color:var(--purple);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:800}
+.lt-page .lt-comborow{display:grid;grid-template-columns:auto 1fr auto minmax(0,1.4fr);gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
+.lt-page .lt-comborow:last-child{border-bottom:0}
+.lt-page .lt-comborow-head{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.lt-page .lt-dosecell{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.lt-page .lt-goatid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:700;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--ink);text-decoration:none;display:inline-block}
+.lt-page .lt-goatid:hover{border-color:var(--brand);color:var(--brand-d)}
+
+/* Live activity feed */
+.lt-page .lt-feed{max-height:560px;overflow:auto;padding:4px 0}
+.lt-page .lt-frow{display:flex;align-items:flex-start;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line2)}
+.lt-page .lt-frow:last-child{border-bottom:0}
+.lt-page .lt-fdot{width:9px;height:9px;border-radius:50%;margin-top:4px;flex:none;background:var(--brand)}
+.lt-page .lt-fdot.f-ok{background:var(--brand)}
+.lt-page .lt-fdot.f-warn{background:var(--amber,var(--warn))}
+.lt-page .lt-fdot.f-info{background:var(--info)}
+.lt-page .lt-fdot.f-pur{background:var(--purple)}
+.lt-page .lt-fdot.f-dng{background:var(--danger)}
+.lt-page .lt-fdot.f-mut{background:var(--faint)}
+.lt-page .lt-ftx{flex:1;min-width:0;font-size:12.5px}
+.lt-page .lt-ftx b{font-weight:680}
+.lt-page .lt-fmeta{color:var(--muted);font-size:11px;margin-top:1px;overflow-wrap:anywhere}
+.lt-page .lt-ftime{color:var(--faint);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+
+/* A disabled stand-in must LOOK disabled. `cursor:not-allowed` alone left the three unbacked
+   attention chips at full enabled appearance, with the reason reachable only by hover — invisible
+   on touch. 0.45 is the opacity every other disabled stand-in in this codebase uses. */
+.lt-page [aria-disabled="true"]{cursor:not-allowed}
+.lt-page .chip[aria-disabled="true"],.lt-page span.btn[aria-disabled="true"]{opacity:.45}
+/* Truncation and other "why is this incomplete" notes: they exist to be read, not hovered. */
+.lt-page .lt-truncnote{display:block;margin-top:8px;font-size:11.5px;line-height:1.5;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){
+  .lt-page .lt-livedot,.lt-page .tag.t-live i{animation:none}
+  .lt-page .lt-pbar i{transition:none}
+}

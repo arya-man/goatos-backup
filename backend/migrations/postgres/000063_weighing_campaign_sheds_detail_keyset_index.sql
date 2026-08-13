@@ -1,0 +1,42 @@
+-- +goose Up
+-- +goose NO TRANSACTION
+-- Weighing task-detail bucket keyset index.
+--
+-- The task DETAIL screen previously had no read of its own: it rendered the
+-- buckets that the task LIST embedded in every campaign row. A park holds 76+
+-- sheds, so a 20-task list page carried 1,500+ bucket rows to draw cards that
+-- show a handful. ListCampaignSheds is the detail's own keyset page:
+--
+--   WHERE  tenant_id = $1 AND campaign_id = $2
+--     AND  ($3 IS NULL OR operator_user_id = $3)
+--     AND  (display_name, campaign_shed_id) > ($4, $5)
+--   ORDER BY display_name, campaign_shed_id
+--   LIMIT  $6
+--
+-- No committed index served that shape. The three pre-existing indexes are
+-- weighing_campaign_sheds_campaign_location_uidx (campaign_id, location_id —
+-- ordered by location, not display name), weighing_campaign_sheds_operator_status_idx
+-- (operator/status), and weighing_campaign_sheds_open_date_idx (partial, on the
+-- open-claim date). None of them can yield rows already ordered by
+-- (display_name, campaign_shed_id) within one campaign, so without this index the
+-- planner reads the whole campaign's buckets and sorts them on every page — which
+-- would have moved the over-fetch from the wire into the database rather than
+-- removing it.
+--
+-- Column order mirrors the predicate exactly: the two equality columns first,
+-- then the two ordering columns in ASC keyset order. operator_user_id is
+-- deliberately NOT in the key: it is an optional filter, it is far less selective
+-- than (tenant_id, campaign_id), and putting it before the ordering columns would
+-- stop the index yielding sorted rows for the unfiltered read the detail screen
+-- actually issues.
+--
+-- Lock-safe: CREATE INDEX CONCURRENTLY runs outside a transaction and takes only
+-- SHARE UPDATE EXCLUSIVE, so planner writes and operator submits are not blocked
+-- while it builds. Additive only — no column, constraint, or data change, and it
+-- does not touch any already-applied migration.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_detail_keyset_idx
+ON public.weighing_campaign_sheds (tenant_id, campaign_id, display_name, campaign_shed_id);
+
+-- +goose Down
+-- +goose NO TRANSACTION
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_detail_keyset_idx;

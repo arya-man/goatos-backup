@@ -12,6 +12,16 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!-- Proof video sound. Until 2026-08-08 the in-app recorder produced SILENT clips — not
+         muted, no audio track at all (344 in-app STG proofs had `soun`=0/`mp4a`=0, while the 17
+         gallery-imported ones carried AAC because the phone's own camera app recorded them). A
+         verifier reviewing a proof clip needs what the operator says on it, so audio is now
+         mandatory on the in-app recorder (InAppVideoRecorder.withAudioEnabled) and the mic sits
+         in the blocking capture-permission set (CaptureAccessGate.kt). Audio on a
+         gallery-imported video stays OPTIONAL (maintainer decision 2026-08-08) — nothing on the
+         upload path validates for an audio track. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Obligation/escalation alert notifications rendered from FCM
          (docs/mobile/trd-operator-mobile.md §8), AND the MOB-002 background upload progress
          notification (docs/mobile/proof-capture-sync-and-e2e.md §3, UploadForegroundService).
@@ -37,9 +47,10 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
+    <!-- Mandatory proof-capture GPS stamp. Also satisfies pre-Android-12 Bluetooth scan location
+         requirements for the RFID readiness path above. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
@@ -67,10 +78,28 @@
              FCM token registers after this. -->
         <meta-data android:name="firebase_performance_collection_enabled" android:value="false" />
         <meta-data android:name="firebase_performance_collection_deactivated" android:value="true" />
+        <!-- android:configChanges — the V1 RFID reader is a Bluetooth HID KEYBOARD (logcat:
+             EventHub "New device ... name='IDT RHLS-3', classes=KEYBOARD | ALPHAKEY | CURSOR |
+             EXTERNAL"). Every reader connect AND every disconnect therefore changes
+             Configuration.keyboard / hardKeyboardHidden / navigation. Without declaring those
+             configs here the platform DESTROYS AND RELAUNCHES this Activity on each edge —
+             proven on a POCO X5 Pro 5G: reader drop at 01:46:19.930 → "finishDrawing of
+             relaunch" + "Screen frozen for +283ms" at 01:46:20.2, then "Bootstrap loaded" from
+             scratch. The relaunch tears down the Activity-scoped BootstrapViewModel, so the shell
+             recomposes on a fresh NavHost at the operator's landing route (/vaccination = the
+             sheds list) and the operator is thrown out of the scan screen mid-drive — on every
+             reader reconnect.
+
+             Handling these in-process is the fix, not a workaround: nothing in this app renders
+             off the keyboard/navigation config, orientation is locked portrait, and the reader
+             already observes connect/disconnect itself (KeyboardWedgeRfidReader, via
+             InputManager.InputDeviceListener + BluetoothDevice.ACTION_ACL_*), so the RFID banner
+             still flips without an Activity relaunch. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|navigation"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.GoatOs">
@@ -113,6 +142,21 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/push_notification_accent" />
+        <!-- FileProvider for the leadership weighing-CSV export (see WeighingExportFileWriter):
+             the export is written under app-private cacheDir/exports and shared to whatever the
+             viewer opens it with (Files, Sheets, email, Drive) via a content:// Uri rather than a
+             file:// one, which the platform has forbidden granting to other apps since N. Never
+             exported directly: grantUriPermissions is how the OS lets a share-sheet target read
+             ONE file without this provider being reachable generally. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- Disable WorkManager's default on-startup initializer: GoatOsApplication implements
              Configuration.Provider to supply a Hilt HiltWorkerFactory (on-demand init), so the
              default initializer must NOT run first with a factory that can't build @HiltWorker. -->

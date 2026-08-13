@@ -5,6 +5,7 @@ visibility, generated clients, offline sync, media capture, or app adapters.
 
 Canonical docs:
 
+- `docs/architecture/operational-read-model-contract.md`
 - `context/frontend/current-admin-web-scope.md`
 - `context/frontend/vaccination-process-integrity-frontend-handoff.md`
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
@@ -15,11 +16,46 @@ Canonical docs:
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
 - `docs/mobile/rfid-keyboard-reader.md`
+- `docs/decisions/mobile-data-fetch-anti-patterns.md`
 - `docs/preventive-care-vaccination/PRD.md`
 - `docs/preventive-care-vaccination/TRD.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/obligation-engine.md`
 - `docs/protocol-engine/state-machines.md`
+
+Operational read-model authority: admin-web and Android are renderers of
+backend-owned operational contracts. For Calendar, Control Tower, Action Center,
+Protocol Adherence, Workflows, admin-web detail pages, Android execution/proof
+screens, and future vertical surfaces, first identify the canonical write owner,
+row/summary grain, stable scope identity, bucket disjointness/overlap, and
+whole-result summary contract. Do not repair mismatched numbers by adding
+frontend/mobile precedence rules while the backend contract is ambiguous or
+stale. See `docs/architecture/operational-read-model-contract.md`.
+
+Android row-action scope: repeated mobile cards with row-level actions must use
+row/animal-scoped in-flight state. Do not wire a per-row Save/Update/Retry
+through screen-wide `actionInFlight`/`busy` unless the operation truly locks the
+whole screen. For individual weighing free-flow, animal A's pending save must
+not disable or ignore animal B. Required guard: `make
+android-row-action-scope-guard` (also in `make mobile-guard` and local CI).
+
+Android Compose list identity: repeated rows must use the full operational
+grain as the Compose key. `campaignShedId` alone is not unique once one
+shed/campaign can appear as separate category, period, partition, or leadership
+evidence rows. Vaccination proof-needed rows are one row per obligation, so
+`goatId` alone is not unique when the same goat has multiple due vaccines or
+proof obligations; key by `obligationId` first and use goat/vaccine/tag only as
+a fallback composite. Use `WeighingAssignmentUiRow.uiKey` or another
+field-complete UI identity, and add a failing fixture/test before changing
+LazyColumn/LazyRow keys. If a ViewModel groups backend rows into rendered cards,
+the grouping key must be the exact rendered row key (or contain exactly the same
+discriminators). Never group by version/metadata fields such as
+`sopVersionId`/`taskRowVersion` and then render a `ShedRow.id`/`uiKey` that omits
+them: BT+SP / split-row schedules can then create two rendered rows with the
+same LazyColumn key. This applies equally to vaccination sheds, weighing
+assignments, feed tasks, and any future grouped mobile list. Regression guards:
+`WeighingRouteIdentityTest`, `ScanProofIdentityTest`,
+`ShedsExecutionIdentityTest`, and `make android-compose-lists-guard`.
 
 ## Current Admin-Web Build
 
@@ -121,6 +157,18 @@ Calendar or dashboard label.
 - `mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of truth.
 - Port the mock's layout, table shapes, empty states, icon system, spacing,
   density, and interaction model.
+- User-facing copy firewall: Android and admin-web screens are for CEO,
+  director, and operator workflows, not for exposing implementation mechanics.
+  Do not render internal/debug/test/roadmap words in visible UI, including
+  screenshots, empty states, loading/error states, snackbars/toasts, cards,
+  chips, bottom sheets, drawers, action buttons, camera/proof panels, or alerts.
+  Banned visible examples: `V1`, `V2`, `debug`, `mock`, `fixture`, `Paparazzi`,
+  `Room`, `outbox`, `idempotency`, `groupKey`, `payload`, `backend`,
+  `frontend`, `API`, `route`, `PRD`, `TRD`, `TODO`, `local`, and `localhost`,
+  unless the screen is explicitly a developer/admin diagnostics tool. Use
+  operator/business language instead: "Proof uploads in background", "Waiting
+  for network", "Already scanned", "Needs proof", "Wrong shed", "Try again",
+  "Cannot submit yet", "No assigned work", and similar product copy.
 - Backend-driven UI contract is mandatory. Frontend must not invent product
   truth. Visible navigation, page titles, section/table labels, column labels,
   filter/sort/page-size semantics, chips/tabs, row-click params, drawer/action
@@ -162,6 +210,20 @@ Calendar or dashboard label.
   mapping, and intentional default skeletons for missing optional UI config rows.
 - Do not reuse or recolor old admin-web UI, old `admin-primitives`, old chart
   components, old layout components, or old dashboard routes.
+- Admin-web pages are ROLE-AGNOSTIC single components (one `/verify` component
+  serves both a verifier and CEO/director oversight via `?scope_mode=company`).
+  Role differences MUST come ONLY from (a) permission-gated endpoints and
+  (b) capability-driven page contracts (`controlEnabled(pageContract,
+  "control_id", false)` compiled off named permission constants in
+  `backend/internal/permissions/permissions.go`, in a per-page compiler
+  function in `backend/internal/adminui/app/compiler.go`). NEVER a
+  role-string or permission-string conditional inside a component, and NEVER
+  a per-role page copy. When asking an agent for role-scoped UI, name BOTH
+  halves — the contract control AND the endpoint enforcement — in one
+  prompt; a pixel-only ask reproduces the STG 2026-08-12 incident where the
+  CEO's `/verify` oversight filters rendered for every role, including the
+  verifier. See `docs/decisions/role-scoped-ui-is-capability-gated.md` and
+  `make role-scoped-ui-contract-guard`.
 - Run `npm --prefix apps/admin-web run check:mock-fidelity` before frontend
   handoff.
 - Run lint/typecheck/build, and run `smoke:visual:live` when local backend and
@@ -179,6 +241,21 @@ Calendar or dashboard label.
   outside-click/back close, close-button behavior, and whether drilldown pages
   show only the scoped real records for the clicked row. Do not claim a UI fix
   from code inspection alone.
+- Before handoff for Android/admin-web UI work, grep changed production strings
+  and screenshot fixtures for leaked internal words from the copy firewall. A
+  screenshot that contains implementation terms is a failed UI review even when
+  the build and tests pass.
+- Android proof-video capture, compression, burned overlay, upload queue,
+  original-upload fallback, and Firebase step telemetry must follow
+  `docs/mobile/proof-video-processing-pipeline.md`. Reuse the shared pipeline for
+  weighing, vaccination, feed, shifting, and future camera-proof modules; do not
+  create per-screen compression/upload implementations. Camera proof creation is
+  operator-only and must block until precise location is available. If Android
+  can still show the runtime prompt, ask again from the blocked permission gate;
+  if the operator selected "Don't ask again", open the app's Android Settings
+  page for manual enablement. Operator UI may show product states like
+  "Compressing proof..." and "Uploading proof...", but never codec, Room, outbox,
+  Media3, GCS, idempotency, signed URL, or bitrate.
 
 For Next.js, React, TypeScript, Node, TanStack Query, Playwright, accessibility,
 visual review, and CI practice, follow

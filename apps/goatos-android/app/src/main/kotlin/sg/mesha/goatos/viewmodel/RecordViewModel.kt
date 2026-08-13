@@ -12,11 +12,13 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordTone
 import sg.mesha.goatos.feature.record.RecordUiState
@@ -49,10 +51,15 @@ class RecordViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
+    private val partitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
+
+    // Fires funnel_vaccination_capture_completed at most once per shed session, the first time
+    // the drilldown reports the shed's vaccination work as fully done — see [toRecordUiState].
+    private var captureCompletedTracked = false
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionShedDrilldownDto>> =
-        (if (shedId != null) repo.observeShed(shedId) else flowOf(Resource(data = null))).stateIn(
+        (if (shedId != null) repo.observeShed(shedId, partitionLabel = partitionLabel) else flowOf(Resource(data = null))).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             Resource(data = null)
@@ -88,6 +95,10 @@ class RecordViewModel @Inject constructor(
                 AnalyticsEvents.VACCINATION_RECORD_OPENED,
                 mapOf(AnalyticsEvents.Params.SHED_ID to it),
             )
+            // Answers: did this operator actually start looking at the shed's vaccination
+            // capture, or did the screen never really open (distinguishes that from a scan that
+            // starts but the record view is never reached).
+            AnalyticsFunnels.trackVaccinationCaptureStarted(analytics, it)
         }
         refresh()
     }
@@ -98,7 +109,7 @@ class RecordViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
         if (shedId != null) {
-            val result = repo.refreshShed(shedId)
+            val result = repo.refreshShed(shedId, partitionLabel = partitionLabel)
             _isRefreshing.value = false
             _isOffline.value = result.isFailure
             result.exceptionOrNull()?.let {
@@ -111,7 +122,17 @@ class RecordViewModel @Inject constructor(
 
     fun onEvent(event: RecordEvent) {
         when (event) {
-            RecordEvent.Close -> Unit // navigation — handled by the nav host.
+            RecordEvent.Close -> {
+                // Track abandonment: if the vaccination capture was not marked as complete,
+                // the user is leaving with work still pending.
+                val dto = observedResource.value.data
+                val complete = dto?.summary?.let { it.total > 0 && it.completed >= it.total } ?: false
+                if (!complete && shedId != null && !captureCompletedTracked) {
+                    captureCompletedTracked = true
+                    AnalyticsFunnels.trackVaccinationCaptureCompleted(analytics, shedId, "abandon")
+                }
+            }
+            RecordEvent.Refresh -> refresh()
         }
     }
 
@@ -126,6 +147,12 @@ class RecordViewModel @Inject constructor(
             )
         }
         val complete = summary.total > 0 && summary.completed >= summary.total
+        // Answers: did the vaccination-capture stage for this shed actually finish, vs. the
+        // operator leaving the record screen with work still pending — fires once per session.
+        if (complete && !captureCompletedTracked && shedId != null) {
+            captureCompletedTracked = true
+            AnalyticsFunnels.trackVaccinationCaptureCompleted(analytics, shedId, "done")
+        }
 
         // BUG-001: Detect shed with due work but no scannable task (all rows have blank sopTaskId).
         // In this case, show an explicit "awaiting task assignment" message instead of a silent dead-end.
@@ -133,8 +160,18 @@ class RecordViewModel @Inject constructor(
         val allRowsLackTaskId = rows.isNotEmpty() && rows.all { it.sopTaskId.isNullOrBlank() }
         val hasNoScannableTask = hasWorkDue && allRowsLackTaskId
 
+        // Operational location. Prefer the BACKEND-COMPOSED display so this screen cannot drift
+        // from every other surface. The legacy `partition` field is deliberately NOT read: it
+        // carries the 'whole' sentinel, which is a matching key and never user copy (its own DTO
+        // comment says so). `partitionLabel` is the sanctioned raw field and is only used as a
+        // fallback for older API responses that predate the composed value.
+        val firstRow = rows.firstOrNull()
+        val locationLabel = operationalLocationDisplay
+            .ifBlank { firstRow?.operationalLocationDisplay.orEmpty() }
+            .ifBlank { operationalLocationLabel(shedName, partitionLabel ?: firstRow?.partitionLabel) }
+            .ifBlank { shedName }
         return base.copy(
-            title = "$shedName · record",
+            title = "$locationLabel · record",
             subtitle = "${summary.completed} / ${summary.total} done",
             // Real drives only — a shed with no drives renders empty, never the sample rows.
             groups = groups,

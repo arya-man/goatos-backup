@@ -34,6 +34,8 @@ data class VerificationSourceRef(
 @Serializable
 data class VerificationMediaItem(
     @SerialName("proof_id") val proofId: String = "",
+    @SerialName("label") val label: String? = null,
+    @SerialName("answer") val answer: String? = null,
     @SerialName("download_url") val downloadUrl: String = "",
     @SerialName("mime_type") val mimeType: String? = null,
     @SerialName("duration_ms") val durationMs: Long? = null,
@@ -53,6 +55,15 @@ data class VerificationQueueItem(
     @SerialName("module") val module: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("subject_label") val subjectLabel: String? = null,
+    /** The raiser's own note about this work item (e.g. why a movement was requested). */
+    @SerialName("subject_note") val subjectNote: String? = null,
+    /**
+     * What the reviewed work was EXPECTED to be -- for a feed packing proof, the frozen ration for
+     * that pen-session. Backend-composed label/value pairs in the producer's order, rendered
+     * VERBATIM: never parsed, reordered or re-labelled, and never switched on by label, because a
+     * producer may add rows at any time. Defaulted so an older payload still decodes.
+     */
+    @SerialName("context_rows") val contextRows: List<VerificationContextRowDto> = emptyList(),
     @SerialName("status") val status: String = "",
     @SerialName("captured_at") val capturedAt: String = "",
     @SerialName("row_version") val rowVersion: Int = 1,
@@ -62,10 +73,15 @@ data class VerificationQueueItem(
     @SerialName("operator_id") val operatorId: String? = null,
     @SerialName("operator_name") val operatorName: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    // Render THIS verbatim -- the backend composes it (shed + partition). Reading shedLabel
+    // instead is what kept a partitioned shed reading bare "Godel 1" after the wire was fixed.
+    @SerialName("operational_location_display") val operationalLocationDisplay: String? = null,
     @SerialName("shed_label") val shedLabel: String? = null,
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("park_label") val parkLabel: String? = null,
     @SerialName("verified_by") val verifiedBy: String? = null,
+    @SerialName("verified_by_name") val verifiedByName: String? = null,
     @SerialName("verified_at") val verifiedAt: String? = null,
     @SerialName("closed_by") val closedBy: String? = null,
     @SerialName("closed_at") val closedAt: String? = null,
@@ -89,14 +105,38 @@ data class VerificationQueueResponseDto(
 
 @Serializable
 data class VerificationFilterOptionsDto(
+    @SerialName("module_key") val moduleKey: String = "",
+    @SerialName("module_label") val moduleLabel: String = "",
+    @SerialName("pages") val pages: List<VerificationPageOptionDto> = emptyList(),
+    @SerialName("statuses") val statuses: List<VerificationStatusOptionDto> = emptyList(),
     @SerialName("parks") val parks: List<VerificationLocationOptionDto>? = null,
     @SerialName("sheds") val sheds: List<VerificationLocationOptionDto>? = null,
+    @SerialName("selected_business_date") val selectedBusinessDate: String? = null,
+    @SerialName("business_timezone") val businessTimezone: String = "Asia/Kolkata",
+    @SerialName("missed_only") val missedOnly: Boolean = false,
+    @SerialName("has_missed") val hasMissed: Boolean = false,
+)
+
+@Serializable
+data class VerificationPageOptionDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("category") val category: String = "",
+)
+
+@Serializable
+data class VerificationStatusOptionDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("status") val status: String = "",
 )
 
 @Serializable
 data class VerificationLocationOptionDto(
     @SerialName("id") val id: String = "",
     @SerialName("label") val label: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String? = null,
 )
 
 @Serializable
@@ -119,6 +159,12 @@ data class VerificationDriveClosureDto(
     @SerialName("pending_videos") val pendingVideos: Int = 0,
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("ready") val ready: Boolean = false,
+    /** True once the drive has been closed. Closed drives are STILL returned so the card can show a
+     *  read-only "Closed" state instead of vanishing -- a card that disappears on success gives
+     *  leadership no confirmation the close happened, and nothing at all after an app relaunch. */
+    @SerialName("closed") val closed: Boolean = false,
+    /** Backend-formatted Asia/Kolkata date the drive was closed (e.g. "08 Aug 2026"). */
+    @SerialName("closed_at") val closedAt: String? = null,
 )
 
 /** Request body for POST /verification/items/{item_id}/verdict. [reason] is mandatory for a
@@ -160,3 +206,10 @@ object VerificationStatus {
     const val APPROVED = "approved"
     const val REJECTED = "rejected"
 }
+
+/** One backend-composed "what was expected" line on a verification item. */
+@Serializable
+data class VerificationContextRowDto(
+    @SerialName("label") val label: String = "",
+    @SerialName("value") val value: String = "",
+)

@@ -1,0 +1,7 @@
+{
+  "name": "exception-guard-ratchet-v2",
+  "command": ["python3", "tools/exception-guard/exception-guard.py", "--all", "--json", "--only-kinds", "cancellation_swallowed,bare_exempt_marker"],
+  "key_fields": ["file", "kind"],
+  "severity_filter": "FAIL",
+  "baseline_path": "tools/exception-guard/baseline-v2.json"
+}

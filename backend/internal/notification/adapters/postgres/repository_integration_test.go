@@ -636,6 +636,149 @@ WHERE tenant_id = $1::uuid
   AND payload ->> 'trace_id' = $3`, 1, testTenantID, requestID, requestTraceID)
 }
 
+func TestNotificationRepositorySuppressInvalidRecipientOverwritesStaleFailureReason(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 7, 25, 15, 30, 0, 0, time.UTC)
+	token := "dead-fcm-token-review"
+	reason := "invalid FCM recipient: NotRegistered"
+	var requestID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
+  recipient_ref, title, body, status, idempotency_key, request_fingerprint, context,
+  delivery_attempts, failure_reason, next_attempt_at, trace_id, requested_at
+) VALUES (
+  $1::uuid, 'verification:item-1', 'verification_item', NULL, 'verification_pending', 'push_fcm',
+  $2, 'Video verification waiting', '12 goats vaccinated; video is waiting for verification.',
+  'failed', 'invalid-recipient-overwrite', 'invalid-recipient-overwrite:fingerprint', '{}'::jsonb,
+  1, 'previous transient timeout', $3::timestamptz, 'trace-invalid-recipient-overwrite',
+  TIMESTAMPTZ '2026-07-25 15:00:00+00'
+)
+RETURNING notification_request_id::text`, testTenantID, token, now.Add(time.Minute)).Scan(&requestID); err != nil {
+		t.Fatalf("seed push notification: %v", err)
+	}
+
+	suppressed, err := repo.SuppressInvalidRecipient(ctx, testTenantID, token, reason, now)
+	if err != nil {
+		t.Fatalf("SuppressInvalidRecipient: %v", err)
+	}
+	if suppressed != 1 {
+		t.Fatalf("suppressed rows=%d want 1", suppressed)
+	}
+	var status, failureReason string
+	var nextAttemptCleared bool
+	if err := pool.QueryRow(ctx, `
+SELECT status, COALESCE(failure_reason, ''), next_attempt_at IS NULL
+FROM notification_requests
+WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
+		testTenantID, requestID).Scan(&status, &failureReason, &nextAttemptCleared); err != nil {
+		t.Fatalf("query suppressed notification: %v", err)
+	}
+	if status != "suppressed" || failureReason != reason || !nextAttemptCleared {
+		t.Fatalf("suppressed notification status=%q failure=%q nextCleared=%t, want suppressed/%q/true",
+			status, failureReason, nextAttemptCleared, reason)
+	}
+}
+
+// TestNotificationRepositorySuppressInvalidRecipientClearsTokenWithoutRevokingDevice is the
+// regression test for the P0 device-lockout bug: SuppressInvalidRecipient must clear ONLY the dead
+// fcm_token. It must NEVER touch status/revoked_at/revoked_by -- those columns gate the device's
+// ability to authenticate and bootstrap, and flipping them here (the old behavior) meant a single
+// bad push (or a payload bug masquerading as a dead-recipient signal) could brick every addressed
+// phone's login with no self-heal path.
+func TestNotificationRepositorySuppressInvalidRecipientClearsTokenWithoutRevokingDevice(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 7, 25, 15, 30, 0, 0, time.UTC)
+	token := "fQJhrzTJTyCkz4T5dZAyLZ:APA91bHmCYIQTBYjnnoEWX2EXd88YMQlSKtoU"
+	reason := "FCM: UNREGISTERED"
+
+	// Seed a device with an active token
+	var deviceID, tenantID, memberID string
+	tenantID = testTenantID
+	memberID = "11111111-1111-4000-8000-111111111111"
+	if err := pool.QueryRow(ctx, `
+INSERT INTO workforce_members (tenant_id, workforce_member_id, display_code, display_name, status)
+VALUES ($1::uuid, $2::uuid, 'FCM-PRUNE-1', 'FCM Prune Fixture', 'active')
+RETURNING workforce_member_id::text`, tenantID, memberID).Scan(&memberID); err != nil {
+		t.Fatalf("seed workforce member: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO workforce_member_devices (
+  tenant_id, workforce_member_id, platform, app_install_id, fcm_token, app_version, os_version, status
+) VALUES (
+  $1::uuid, $2::uuid, 'android', 'app-install-1', $3, '1.0.0', '14', 'active'
+)
+RETURNING device_id::text`, tenantID, memberID, token).Scan(&deviceID); err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+
+	// Suppress the invalid FCM token
+	suppressed, err := repo.SuppressInvalidRecipient(ctx, tenantID, token, reason, now)
+	if err != nil {
+		t.Fatalf("SuppressInvalidRecipient: %v", err)
+	}
+	if suppressed != 0 {
+		t.Fatalf("suppressed notification requests=%d want 0", suppressed)
+	}
+
+	// Verify the token is cleared but the device stays active and able to authenticate.
+	var deviceStatus, invalidatedReason string
+	var deviceToken *string
+	var revokedAt *time.Time
+	var revokedBy *string
+	if err := pool.QueryRow(ctx, `
+SELECT status, fcm_token, revoked_at, revoked_by, COALESCE(metadata->>'fcm_invalidated_reason', '')
+FROM workforce_member_devices
+WHERE device_id = $1::uuid`, deviceID).Scan(&deviceStatus, &deviceToken, &revokedAt, &revokedBy, &invalidatedReason); err != nil {
+		t.Fatalf("query device: %v", err)
+	}
+
+	if deviceStatus != "active" {
+		t.Errorf("device status=%q want active (a push delivery failure must never revoke login)", deviceStatus)
+	}
+	if deviceToken != nil {
+		t.Errorf("fcm_token=%v want NULL", *deviceToken)
+	}
+	if revokedAt != nil {
+		t.Errorf("revoked_at=%v want NULL (this is not an admin revocation)", *revokedAt)
+	}
+	if revokedBy != nil {
+		t.Errorf("revoked_by=%v want NULL", *revokedBy)
+	}
+	if invalidatedReason != reason {
+		t.Errorf("metadata.fcm_invalidated_reason=%q want %q", invalidatedReason, reason)
+	}
+
+	// Verify idempotency: second call should be a no-op (token already cleared, nothing matches).
+	suppressed2, err := repo.SuppressInvalidRecipient(ctx, tenantID, token, reason, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("SuppressInvalidRecipient (second call): %v", err)
+	}
+	if suppressed2 != 0 {
+		t.Errorf("second suppress affected=%d want 0 (idempotent)", suppressed2)
+	}
+
+	// Verify device row is untouched by the idempotent replay.
+	var statusAfterSecond string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM workforce_member_devices
+WHERE device_id = $1::uuid`, deviceID).Scan(&statusAfterSecond); err != nil {
+		t.Fatalf("query device after second suppress: %v", err)
+	}
+	if statusAfterSecond != "active" {
+		t.Errorf("status after second suppress=%q want active (unchanged)", statusAfterSecond)
+	}
+}
+
 // seedCalendarEvent is a deliberate no-op now: calendar_event_projections and the
 // calendar_event_identities identity table its trigger fed (and the notification_requests/
 // calendar_snoozes FKs that validated against calendar_event_identities) are all retired by the
@@ -700,6 +843,348 @@ func assertCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, q
 		t.Fatalf("%s count=%d want %d", label, got, want)
 	}
 }
+
+// TestNotificationRepositoryRequeueExhausted proves the two live-DB claims required for this fix:
+// (a) an exhausted row can be requeued and becomes claimable by ClaimDue again, and (b)
+// ListExhausted is the visibility surface that shows it before that happens. It also proves the
+// two guardrails: a second identical requeue call is a no-op (idempotent), and a row whose
+// verification_item has since moved past 'rejected' is skipped (relevance).
+func TestNotificationRepositoryRequeueExhausted(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 8, 4, 9, 0, 0, 0, time.UTC)
+
+	// Row 1: exhausted 'rework' push, target_type='cohort' (no relevance check available) -- must
+	// requeue on scope alone.
+	exhaustedID := seedNotification(t, ctx, pool, testEventID, "notification-requeue-exhausted", "exhausted", 1, nil)
+
+	// Row 2: exhausted 'rework' push, target_type='verification_item' pointing at an item whose
+	// verifier verdict is STILL 'rejected' (un-actioned) -- must requeue. This is the exact live
+	// shape of the defect (operator's proof rejected, push exhausted on ErrChannelNotConfigured).
+	reworkItemID := seedVerificationItem(t, ctx, pool, "rejected")
+	reworkStillRelevantID := seedNotificationWithTarget(t, ctx, pool, testEventID, "notification-requeue-rework-relevant", "exhausted", "rework", "verification_item", reworkItemID)
+
+	// Row 3: exhausted 'rework' push, target_type='verification_item' pointing at an item that has
+	// since moved on (a fresh submission was approved, closing this item) -- must be SKIPPED.
+	reworkClosedItemID := seedVerificationItem(t, ctx, pool, "approved")
+	reworkStaleID := seedNotificationWithTarget(t, ctx, pool, testEventID, "notification-requeue-rework-stale", "exhausted", "rework", "verification_item", reworkClosedItemID)
+
+	// Row 4: exhausted 'verification_pending' push, item still 'pending' (verifier has not acted
+	// yet) -- must requeue: the verifier genuinely still owes a decision.
+	pendingItemID := seedVerificationItem(t, ctx, pool, "pending")
+	pendingStillRelevantID := seedNotificationWithTarget(t, ctx, pool, testEventID, "notification-requeue-pending-relevant", "exhausted", "verification_pending", "verification_item", pendingItemID)
+
+	// Row 5: exhausted 'verification_pending' push, but the item was approved before the operator
+	// got around to requeuing -- resurrecting "you have a review pending" would be actively wrong.
+	pendingApprovedItemID := seedVerificationItem(t, ctx, pool, "approved")
+	pendingStaleID := seedNotificationWithTarget(t, ctx, pool, testEventID, "notification-requeue-pending-stale", "exhausted", "verification_pending", "verification_item", pendingApprovedItemID)
+
+	// Visibility: all five are visible via ListExhausted before any requeue (no type filter).
+	before, err := repo.ListExhausted(ctx, ports.ExhaustedQuery{TenantID: testTenantID, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListExhausted before: %v", err)
+	}
+	if len(before) != 5 {
+		t.Fatalf("ListExhausted before=%d want 5", len(before))
+	}
+
+	reworkResult, err := repo.RequeueExhausted(ctx, ports.RequeueParams{
+		TenantID:         testTenantID,
+		NotificationType: "rework",
+		RequeuedBy:       "test-operator",
+		Now:              now,
+	})
+	if err != nil {
+		t.Fatalf("RequeueExhausted rework: %v", err)
+	}
+	if reworkResult.Requeued != 1 {
+		t.Fatalf("RequeueExhausted rework requeued=%d want 1 (reworkStillRelevantID only, reworkStaleID skipped)", reworkResult.Requeued)
+	}
+
+	pendingResult, err := repo.RequeueExhausted(ctx, ports.RequeueParams{
+		TenantID:         testTenantID,
+		NotificationType: "verification_pending",
+		RequeuedBy:       "test-operator",
+		Now:              now,
+	})
+	if err != nil {
+		t.Fatalf("RequeueExhausted verification_pending: %v", err)
+	}
+	if pendingResult.Requeued != 1 {
+		t.Fatalf("RequeueExhausted verification_pending requeued=%d want 1 (pendingStillRelevantID only, pendingStaleID skipped)", pendingResult.Requeued)
+	}
+
+	// exhaustedID (type='reminder') was never in scope of either call above -- prove it is
+	// untouched by a scoped requeue for a DIFFERENT type, then requeue it explicitly.
+	assertNotificationState(t, ctx, pool, exhaustedID, "exhausted", 1, false)
+	reminderResult, err := repo.RequeueExhausted(ctx, ports.RequeueParams{TenantID: testTenantID, NotificationType: "reminder", RequeuedBy: "test-operator", Now: now})
+	if err != nil {
+		t.Fatalf("RequeueExhausted reminder: %v", err)
+	}
+	if reminderResult.Requeued != 1 {
+		t.Fatalf("RequeueExhausted reminder requeued=%d want 1", reminderResult.Requeued)
+	}
+
+	assertNotificationState(t, ctx, pool, exhaustedID, "queued", 0, true)
+	assertNotificationState(t, ctx, pool, reworkStillRelevantID, "queued", 0, true)
+	assertNotificationState(t, ctx, pool, pendingStillRelevantID, "queued", 0, true)
+	assertNotificationState(t, ctx, pool, reworkStaleID, "exhausted", 1, false)
+	assertNotificationState(t, ctx, pool, pendingStaleID, "exhausted", 1, false)
+
+	// (a) the requeued rows are now claimable by ClaimDue; the stale rows are NOT.
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{TenantID: testTenantID, Limit: 10, MaxAttempts: 5, Now: now.Add(time.Second)})
+	if err != nil {
+		t.Fatalf("ClaimDue after requeue: %v", err)
+	}
+	claimedIDs := map[string]bool{}
+	for _, c := range claimed {
+		claimedIDs[c.NotificationRequestID] = true
+	}
+	if !claimedIDs[exhaustedID] || !claimedIDs[reworkStillRelevantID] || !claimedIDs[pendingStillRelevantID] {
+		t.Fatalf("ClaimDue after requeue = %#v, want all three requeued rows claimable", claimed)
+	}
+	if claimedIDs[reworkStaleID] || claimedIDs[pendingStaleID] {
+		t.Fatalf("ClaimDue after requeue unexpectedly claimed a stale row")
+	}
+
+	// Idempotency: running the identical requeue again touches nothing (the row is already
+	// 'sending' from the ClaimDue above, no longer 'exhausted').
+	again, err := repo.RequeueExhausted(ctx, ports.RequeueParams{TenantID: testTenantID, NotificationType: "rework", RequeuedBy: "test-operator", Now: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatalf("RequeueExhausted again: %v", err)
+	}
+	if again.Requeued != 0 {
+		t.Fatalf("RequeueExhausted again requeued=%d want 0 (idempotent)", again.Requeued)
+	}
+
+	var requeueCount int
+	if err := pool.QueryRow(ctx, `SELECT requeue_count FROM notification_requests WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`, testTenantID, reworkStillRelevantID).Scan(&requeueCount); err != nil {
+		t.Fatalf("query requeue_count: %v", err)
+	}
+	if requeueCount != 1 {
+		t.Fatalf("requeue_count=%d want 1", requeueCount)
+	}
+}
+
+func seedVerificationItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string) string {
+	t.Helper()
+	var verdictReason *string
+	if status == "rejected" {
+		reason := "proof video unreadable"
+		verdictReason = &reason
+	}
+	var itemID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO verification_items (
+  tenant_id, vertical, module, category, source_module, source_ref_type, source_ref_id,
+  status, verdict_reason, captured_at, idempotency_key
+) VALUES (
+  $1::uuid, 'vaccination', 'vaccination', 'proof', 'vaccination', 'vaccination_goat', gen_random_uuid(),
+  $2, $3, now(), $4
+)
+RETURNING item_id::text`, testTenantID, status, verdictReason, "verification-item-"+status+"-"+fmt.Sprint(time.Now().UnixNano())).Scan(&itemID); err != nil {
+		t.Fatalf("seed verification item: %v", err)
+	}
+	return itemID
+}
+
+func seedNotificationWithTarget(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, key, status, notificationType, targetType, targetID string) string {
+	t.Helper()
+	var requestID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context,
+  delivery_attempts, next_attempt_at, trace_id, requested_at
+) VALUES (
+  $1::uuid, $2, $3, $4::uuid, $5, 'push_fcm',
+  'Notification repo test', 'Notification repo body', $6, $7, $8, '{}'::jsonb,
+  1, NULL, $9,
+  TIMESTAMPTZ '2026-06-01 00:00:00+00'
+)
+RETURNING notification_request_id::text`,
+		testTenantID, eventID, targetType, targetID, notificationType, status, key, key+":fingerprint", "trace-"+key).Scan(&requestID); err != nil {
+		t.Fatalf("seed notification with target: %v", err)
+	}
+	return requestID
+}
+
+// TestNotificationRepositoryClaimDueResolvesRecipientFromCurrentActiveDevice is the regression
+// test for the stale-recipient-snapshot defect found live in the `rework` channel (6 exhausted
+// rows all addressed at FCM tokens no device holds anymore, because recipient_ref freezes the
+// token AT CREATION TIME and the device's app was reinstalled since). It proves ClaimDue re-
+// resolves the recipient live at claim time from the member's CURRENT active device rather than
+// trusting the stored snapshot, and that the stored recipient_ref column is left untouched
+// (audit trail of what the request was originally addressed to survives the claim).
+func TestNotificationRepositoryClaimDueResolvesRecipientFromCurrentActiveDevice(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	memberID := "22222222-2222-4000-8000-222222222201"
+	seedWorkforceMember(t, ctx, pool, memberID, "STALE-TOKEN-1")
+
+	staleToken := "stale-rotated-token-no-device-holds-this-anymore-0000000000000000"
+	currentToken := "fresh-current-active-device-token-00000000000000000000000000000000"
+	seedDevice(t, ctx, pool, memberID, "install-old", staleToken, "active", now.Add(-48*time.Hour), boolPtr(true))
+	// The device that used to hold staleToken re-registered with currentToken after a reinstall
+	// (the exact live scenario: app data cleared/reinstalled, a fresh registerToken call
+	// upserts a new fcm_token on the SAME device row). staleToken no longer exists on ANY row.
+	if _, err := pool.Exec(ctx, `
+UPDATE workforce_member_devices SET fcm_token = $2, last_seen_at = $3::timestamptz
+WHERE tenant_id = $4::uuid AND workforce_member_id = $1::uuid AND app_install_id = 'install-old'`,
+		memberID, currentToken, now.Add(-time.Hour), testTenantID); err != nil {
+		t.Fatalf("rotate device token: %v", err)
+	}
+
+	requestID := seedPushNotificationForMember(t, ctx, pool, testEventID, "rework-stale", memberID, staleToken)
+
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{TenantID: testTenantID, Limit: 10, MaxAttempts: 5, Now: now})
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID {
+		t.Fatalf("claimed=%#v want one leased request", claimed)
+	}
+	if claimed[0].RecipientRef != currentToken {
+		t.Fatalf("resolved recipient_ref=%q want the member's CURRENT active device token %q (not the stale creation-time snapshot)",
+			claimed[0].RecipientRef, currentToken)
+	}
+
+	// The stored column must stay the original audit snapshot -- ClaimDue resolves live only in
+	// what it RETURNS, it never rewrites the persisted recipient_ref.
+	var storedRef string
+	if err := pool.QueryRow(ctx, `SELECT recipient_ref FROM notification_requests WHERE notification_request_id = $1::uuid`, requestID).Scan(&storedRef); err != nil {
+		t.Fatalf("query stored recipient_ref: %v", err)
+	}
+	if storedRef != staleToken {
+		t.Fatalf("stored recipient_ref=%q want unchanged original snapshot %q (audit trail)", storedRef, staleToken)
+	}
+}
+
+// TestNotificationRepositoryClaimDuePicksMostRecentlyActiveDeviceDeterministically is the
+// multi-device regression: a member with several active, reachable devices (e.g. reinstalled
+// without signing out elsewhere, or a second phone) must resolve to exactly ONE deterministic
+// device -- the most recently active -- never an arbitrary row from an untied ORDER BY.
+func TestNotificationRepositoryClaimDuePicksMostRecentlyActiveDeviceDeterministically(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	memberID := "22222222-2222-4000-8000-222222222202"
+	seedWorkforceMember(t, ctx, pool, memberID, "MULTI-DEVICE-1")
+
+	olderToken := "older-active-device-token-00000000000000000000000000000000000000"
+	newerToken := "newer-active-device-token-00000000000000000000000000000000000000"
+	seedDevice(t, ctx, pool, memberID, "install-a", olderToken, "active", now.Add(-3*time.Hour), boolPtr(true))
+	seedDevice(t, ctx, pool, memberID, "install-b", newerToken, "active", now.Add(-1*time.Hour), boolPtr(true))
+
+	requestID := seedPushNotificationForMember(t, ctx, pool, testEventID, "multi-device-1", memberID, "irrelevant-stored-snapshot-000000000000000000000000000000000000000")
+
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{TenantID: testTenantID, Limit: 10, MaxAttempts: 5, Now: now})
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID {
+		t.Fatalf("claimed=%#v want one leased request", claimed)
+	}
+	if claimed[0].RecipientRef != newerToken {
+		t.Fatalf("resolved recipient_ref=%q want the MOST RECENTLY active device token %q (deterministic tiebreak, not an arbitrary row)",
+			claimed[0].RecipientRef, newerToken)
+	}
+}
+
+// TestNotificationRepositoryClaimDueNoActiveDeviceFailsHonestlyNotSilently is the "member has no
+// reachable device" case: it must resolve to a distinct sentinel the gateway reports as
+// ports.ErrRecipientNoActiveDevice, never as a silent success and never conflated with the
+// generic ErrRecipientUnusable "not a device token" wording used for malformed refs/role names.
+func TestNotificationRepositoryClaimDueNoActiveDeviceFailsHonestlyNotSilently(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	memberID := "22222222-2222-4000-8000-222222222203"
+	seedWorkforceMember(t, ctx, pool, memberID, "NO-DEVICE-1")
+	// Only a revoked device on file -- nothing reachable.
+	seedDevice(t, ctx, pool, memberID, "install-revoked", "revoked-device-token-000000000000000000000000000000000000000000", "revoked", now.Add(-time.Hour), boolPtr(true))
+
+	requestID := seedPushNotificationForMember(t, ctx, pool, testEventID, "no-device-1", memberID, "stale-snapshot-0000000000000000000000000000000000000000000000000")
+
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{TenantID: testTenantID, Limit: 10, MaxAttempts: 5, Now: now})
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID {
+		t.Fatalf("claimed=%#v want one leased request", claimed)
+	}
+	wantSentinel := "no-active-device:" + memberID
+	if claimed[0].RecipientRef != wantSentinel {
+		t.Fatalf("resolved recipient_ref=%q want honest no-device sentinel %q", claimed[0].RecipientRef, wantSentinel)
+	}
+}
+
+func seedWorkforceMember(t *testing.T, ctx context.Context, pool *pgxpool.Pool, memberID, displayCode string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (tenant_id, workforce_member_id, display_code, display_name, status)
+VALUES ($1::uuid, $2::uuid, $3, $3, 'active')
+ON CONFLICT (workforce_member_id) DO NOTHING`,
+		testTenantID, memberID, displayCode); err != nil {
+		t.Fatalf("seed workforce member: %v", err)
+	}
+}
+
+func seedDevice(t *testing.T, ctx context.Context, pool *pgxpool.Pool, memberID, appInstallID, fcmToken, status string, lastSeenAt time.Time, notificationsEnabled *bool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_devices (
+  tenant_id, workforce_member_id, platform, app_install_id, fcm_token, app_version, os_version, status, last_seen_at, notifications_enabled
+) VALUES (
+  $1::uuid, $2::uuid, 'android', $3, $4, '1.0.0', '14', $5, $6::timestamptz, $7
+)`,
+		testTenantID, memberID, appInstallID, fcmToken, status, lastSeenAt, notificationsEnabled); err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+}
+
+func seedPushNotificationForMember(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, key, memberID, staleRecipientRef string) string {
+	t.Helper()
+	var requestID string
+	contextJSON := fmt.Sprintf(`{"member_id":"%s"}`, memberID)
+	if err := pool.QueryRow(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, target_id, notification_type, channel, recipient_ref,
+  title, body, status, idempotency_key, request_fingerprint, context,
+  delivery_attempts, next_attempt_at, trace_id, requested_at
+) VALUES (
+  $1::uuid, $2, 'workforce_member', NULL, 'rework', 'push_fcm', $3,
+  'Notification repo test', 'Notification repo body', 'queued', $4, $5, $6::jsonb,
+  0, NULL, $7,
+  TIMESTAMPTZ '2026-06-01 00:00:00+00'
+)
+RETURNING notification_request_id::text`,
+		testTenantID, eventID, staleRecipientRef, key, key+":fingerprint", contextJSON, "trace-"+key).Scan(&requestID); err != nil {
+		t.Fatalf("seed push notification for member: %v", err)
+	}
+	return requestID
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 func assertNotificationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID, wantStatus string, wantAttempts int, wantFailure bool) {
 	t.Helper()

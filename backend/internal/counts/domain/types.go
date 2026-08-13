@@ -9,6 +9,8 @@ const (
 	EventProjectionExceptionOpened  = "counts.projection_exception.opened"
 	EventProjectionExceptionUpdated = "counts.projection_exception.updated"
 	EventProjectionExceptionClosed  = "counts.projection_exception.closed"
+	EventDeathReported              = "counts.death.reported"
+	EventDeathRejected              = "counts.death.rejected"
 	SourceContractVersionV1         = "counts-shifting-v1"
 )
 
@@ -41,28 +43,37 @@ type BaseCountAnchor struct {
 
 // ShiftingEvent is the append-only movement header used by count projections.
 type ShiftingEvent struct {
-	TenantID                string
-	LogicalShiftingEventKey string
-	Priority                string
-	Category                string
-	SourceParkID            *string
-	SourceShedID            *string
-	DestinationParkID       string
-	DestinationShedID       string
-	RaisedAt                time.Time
-	EffectiveAt             time.Time
-	AuthorizedAt            *time.Time
-	AuthorizedBy            *string
-	AuthorizationState      string
-	VerificationState       string
-	EventStatus             string
-	SourceSystem            string
-	SourceRef               string
-	ProofRef                *string
-	PayloadHash             string
-	IdempotencyKey          string
-	RequestFingerprint      string
-	Impacts                 []ShiftingEventImpact
+	TenantID                  string
+	LogicalShiftingEventKey   string
+	Priority                  string
+	Category                  string
+	SourceParkID              *string
+	SourceShedID              *string
+	SourcePartitionLabel      *string
+	DestinationParkID         string
+	DestinationShedID         string
+	DestinationPartitionLabel *string
+	ManagementStageMode       string
+	TargetManagementStage     string
+	RaisedAt                  time.Time
+	EffectiveAt               time.Time
+	AuthorizedAt              *time.Time
+	AuthorizedBy              *string
+	AuthorizationState        string
+	VerificationState         string
+	EventStatus               string
+	SourceSystem              string
+	SourceRef                 string
+	ProofRef                  *string
+	// RaiseComment is the raiser's optional free-text note on WHY the animals are moving. It is
+	// operator intent, never a business rule: nothing downstream branches on it. It is carried to
+	// the park head deciding the approval and to the verifier reviewing the evidence, so both read
+	// the same words the operator wrote. nil means no note; it is never defaulted to a placeholder.
+	RaiseComment       *string
+	PayloadHash        string
+	IdempotencyKey     string
+	RequestFingerprint string
+	Impacts            []ShiftingEventImpact
 }
 
 // ShiftingEventImpact is the structured cohort/stage effect of one movement.
@@ -212,6 +223,9 @@ type ProjectionRow struct {
 	BreedID                      *string
 	BreedKey                     string
 	BreedLabel                   string
+	// PartitionLabel is the raw stored partition label for ShedID ("2", "Part 3"), or "" when the
+	// shed is not partitioned. Never the "whole" sentinel -- see internal/platform/oploc.
+	PartitionLabel               string
 	StageTag                     *string
 	AgeClass                     *string
 	Sex                          *string
@@ -228,8 +242,10 @@ type ProjectionRow struct {
 // ProjectionShedBreedTotal summarizes the returned projection page at the
 // aggregate shed + breed grain Feed Direction needs for generation review.
 type ProjectionShedBreedTotal struct {
-	ParkID                       string
-	ShedID                       string
+	ParkID string
+	ShedID string
+	// PartitionLabel is the raw stored partition label, or "" when ShedID is not partitioned.
+	PartitionLabel               string
 	BreedKey                     string
 	BreedLabel                   string
 	HeadCount                    int32
@@ -425,14 +441,22 @@ type HerdRegisterSummaryQuery struct {
 // are reported as distinct rows on purpose — collapsing them here would hide a real data
 // quality problem that count_dimension_aliases exists to fix at the source.
 type CountsBreakdownRow struct {
-	ParkID          *string `json:"park_id"`
-	ParkLabel       string  `json:"park_label"`
-	ShedID          *string `json:"shed_id"`
-	ShedLabel       string  `json:"shed_label"`
-	ManagementStage string  `json:"management_stage"`
-	Breed           string  `json:"breed"`
-	Sex             string  `json:"sex"`
-	Count           int64   `json:"count"`
+	ParkID    *string `json:"park_id"`
+	ParkLabel string  `json:"park_label"`
+	ShedID    *string `json:"shed_id"`
+	ShedLabel string  `json:"shed_label"`
+	// PartitionLabel is the raw stored partition label ("2", "Part 3"), or "" for a
+	// non-partitioned shed / a shed-less row. Never the "whole" sentinel -- see
+	// internal/platform/oploc.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is oploc.OperationalLocation{ShedName: ShedLabel,
+	// PartitionLabel: PartitionLabel}.Display(): "Castro 2" for a partition, bare "Yashoda" for a
+	// non-partitioned shed, never a synthetic "Yashoda whole".
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	ManagementStage            string `json:"management_stage"`
+	Breed                      string `json:"breed"`
+	Sex                        string `json:"sex"`
+	Count                      int64  `json:"count"`
 }
 
 // CountsBreakdownSeriesPoint is one chart bar or one filter facet value.
@@ -462,11 +486,21 @@ type CountsBreakdownCharts struct {
 // and ParkID is carried as its own field rather than smuggled into Label, so the client never
 // has to parse a display string to recover an identifier.
 type CountsBreakdownShedFacet struct {
+	// Key is the parent shed UUID for the whole-shed aggregate option, or "<shed_uuid>#<partition
+	// key>" (oploc.OperationalLocation.Key() convention) for a specific-partition option.
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Count int64  `json:"count"`
 	// ParkID is the park these animals are in, empty only for animals with no park assigned.
 	ParkID string `json:"park_id"`
+	// ShedID is the PARENT physical shed uuid, handed over explicitly so a client never has to
+	// parse it back out of the composite Key.
+	ShedID string `json:"shed_id"`
+	// PartitionLabel is the raw partition label ("2", "Part 3") for a specific-partition option,
+	// and "" for the parent-shed aggregate option. Never the 'whole' sentinel.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the user-facing label for this option.
+	OperationalLocationDisplay string `json:"operational_location_display"`
 }
 
 // CountsBreakdownFacets reports the values actually present in the unfiltered tenant herd so a
@@ -510,6 +544,9 @@ type CountsBreakdownQuery struct {
 	LifecycleStatus *string
 	ParkID          *string
 	ShedID          *string
+	// PartitionLabel narrows to ONE partition of ShedID. Empty/nil means the whole shed (the parent
+	// aggregate), never "the non-partitioned animals".
+	PartitionLabel  *string
 	ManagementStage *string
 	Breed           *string
 	Sex             *string
@@ -533,7 +570,8 @@ type CountsBreakdownQuery struct {
 // This is a bounded CONFIG CATALOG (2 parks, ~154 sheds for the current tenant), not a feed: it is
 // fetched whole, cached on-device, and never paginated. See the guard annotations on the query.
 type ShiftingDestinationCatalog struct {
-	Parks []ShiftingDestinationPark
+	Parks            []ShiftingDestinationPark
+	ManagementStages []string
 }
 
 // ShiftingDestinationPark is one park and the sheds that belong to it.
@@ -546,10 +584,27 @@ type ShiftingDestinationPark struct {
 	Sheds  []ShiftingDestinationShed
 }
 
-// ShiftingDestinationShed is one selectable destination shed.
+// ShiftingDestinationShed is one selectable operational-location destination: a physical parent
+// shed, OR one of that shed's real partitions.
+//
+// A partitioned shed (Castro, Gandhi, Godel...) appears MULTIPLE times in the flat Sheds list of its
+// park, once per distinct partition_label actually in use on that shed's animals -- never as a
+// single "whole shed" entry synthesized from thin air. A non-partitioned shed appears exactly once,
+// with PartitionLabel nil. See backend/internal/platform/oploc for the shared normalization/display
+// rules this mirrors.
 type ShiftingDestinationShed struct {
-	ShedID string
-	Name   string
+	ShedID           string
+	Name             string
+	ManagementStages []string
+
+	// PartitionLabel is nil for the bare-shed (non-partitioned) destination entry, or the raw stored
+	// partition label ('1', 'Part 3') for a partition destination entry. Never "whole": that sentinel
+	// is a matching key, not a real label, and must never reach this field or the API surface.
+	PartitionLabel *string
+
+	// Display is the operator-facing operational-location label (oploc.OperationalLocation.Display):
+	// "Yashoda" for a non-partitioned shed, "Castro 2" / "Godel 1 - Part 3" for a partition.
+	Display string
 }
 
 // GoatShiftingFact is the narrow set of canonical goat attributes needed to DERIVE a shifting
@@ -559,6 +614,12 @@ type ShiftingDestinationShed struct {
 // ShiftingEventImpact, so the single-animal path stays a cheap indexed lookup.
 type GoatShiftingFact struct {
 	GoatID string
+	// LifecycleStatus / ExitedAt distinguish an existing but terminal animal from a goat id that
+	// genuinely does not resolve. Only lifecycle_status='alive' with no exit stamp may shift;
+	// health states such as sick/quarantine remain separate facts and do not make a live goat
+	// ineligible for an intra-park shed move.
+	LifecycleStatus string
+	ExitedAt        *time.Time
 	// BreedID is the canonical breed FK when the animal has one; nil when the goat carries only a
 	// free-text breed or none at all.
 	BreedID *string
@@ -580,4 +641,10 @@ type GoatShiftingFact struct {
 	// and leave the source absent rather than storing an empty string.
 	ParkID *string
 	ShedID *string
+
+	// ShedPartitionLabel is the animal's CURRENT partition within ShedID, when it sits inside a
+	// partitioned shed (goat_shed_partitions.partition_label). Nil for a non-partitioned placement or
+	// a goat with no goat_shed_partitions row. Used the same way ShedID is: to backfill the source
+	// half of a shifting event's operational location when the operator did not send one.
+	ShedPartitionLabel *string
 }

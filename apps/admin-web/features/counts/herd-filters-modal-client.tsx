@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { HerdFiltersModal } from "./herd-filters-modal";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -25,7 +25,10 @@ export function HerdFiltersModalClient({
 }) {
   const router = useRouter();
   const routerSearchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const [isOpen, setIsOpen] = useState(false);
+  const current = routerSearchParams?.toString() ?? "";
+  const [optimisticPageSize, setOptimisticPageSize] = useState<{ from: string; value: string } | null>(null);
 
   const params: RouteSearchParams = {};
   routerSearchParams?.forEach((value, key) => {
@@ -55,19 +58,32 @@ export function HerdFiltersModalClient({
   function onSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    router.replace(paramsWith({ q: String(data.get("q") ?? "").trim() || null }), { scroll: false });
+    startTransition(() => {
+      router.replace(paramsWith({ q: String(data.get("q") ?? "").trim() || null }), { scroll: false });
+    });
   }
 
   function onPageSize(event: React.ChangeEvent<HTMLSelectElement>) {
-    router.replace(paramsWith({ limit: event.target.value }), { scroll: false });
+    setOptimisticPageSize({ from: current, value: event.target.value });
+    startTransition(() => {
+      router.replace(paramsWith({ limit: event.target.value }), { scroll: false });
+    });
   }
+
+  const selectedPageSize = optimisticPageSize?.from === current ? optimisticPageSize.value : String(pageSize ?? pageSizeOptions[0]);
 
   return (
     <>
       <div className="tbar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}>
         <form onSubmit={onSearch} className="tsearch" style={{ margin: 0, minWidth: 260, flex: "1 1 280px" }}>
           <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-          <input name="q" defaultValue={searchValue} placeholder={copy(pageContract, "filter.toolbar_placeholder")} aria-label={copy(pageContract, "filter.toolbar_aria")} />
+          <input
+            name="q"
+            defaultValue={searchValue}
+            disabled={isPending}
+            placeholder={copy(pageContract, "filter.toolbar_placeholder")}
+            aria-label={copy(pageContract, "filter.toolbar_aria")}
+          />
         </form>
         <button type="button" className="btn" onClick={() => setIsOpen(true)}>
           <Search className="ic" style={{ width: 14 }} aria-hidden="true" />
@@ -79,7 +95,14 @@ export function HerdFiltersModalClient({
           ) : null}
         </button>
         <span className="muted small">{rowCount ?? 0} {copy(pageContract, "label.rows")}</span>
-        <select className="tsize" value={pageSize ?? pageSizeOptions[0]} onChange={onPageSize} aria-label={copy(pageContract, "filter.rows_per_page_aria")}>
+        <select
+          className="tsize"
+          value={selectedPageSize}
+          onChange={onPageSize}
+          aria-label={copy(pageContract, "filter.rows_per_page_aria")}
+          aria-busy={isPending}
+          title={isPending ? copy(pageContract, "state.loading") : undefined}
+        >
           {pageSizeOptions.map((size) => (
             <option key={size} value={size}>{size} / {copy(pageContract, "pager.page")}</option>
           ))}

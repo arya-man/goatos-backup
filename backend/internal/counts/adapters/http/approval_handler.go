@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -36,20 +37,63 @@ const (
 
 	appApprovalApproveCommand = "counts.app.approval_approve"
 	appApprovalRejectCommand  = "counts.app.approval_reject"
+
+	// The admin-web Approvals page is served by the SAME approval service and handler logic as the
+	// phone; only the route prefix and the caller's session differ. Both surfaces are live: the
+	// mobile Approvals module returned on 2026-08-05, superseding the 2026-07-21 decision that had
+	// made admin-web the only approval surface. One permission, one service, two prefixes -- which
+	// is why granting the per-person counts_approver role lights up BOTH at once.
+	//
+	// Authority is still enforced against the request's stored TYPE via
+	// permissions.DecidableApprovalRequestTypes, and the coarse route gate is still
+	// CountsApproveAccess -- held by the four org tiers + admin + ceo_internal + counts_approver,
+	// not park_head.
+	adminWebApprovalsRoute       = "/admin-web/counts/approvals"
+	adminWebApprovalApproveRoute = "/admin-web/counts/approvals/{request_id}/approve"
+	adminWebApprovalRejectRoute  = "/admin-web/counts/approvals/{request_id}/reject"
+
+	adminWebApprovalApproveCommand = "counts.adminweb.approval_approve"
+	adminWebApprovalRejectCommand  = "counts.adminweb.approval_reject"
 )
 
 // ApprovalWorkflow is the slice of counts/app.ApprovalService this handler needs.
 type ApprovalWorkflow interface {
 	SubmitRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error)
+	SubmitBirthRequest(ctx context.Context, in domain.ApprovalRequestSubmission, children []identityports.CreateAdminGoatCommand) (domain.BirthSubmissionResult, error)
 	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, callerParkID string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
 }
 
-// RegisterApprovals wires the approval decision surface.
+// RegisterApprovals wires the mobile/app approval decision surface.
 func RegisterApprovals(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appApprovalsRoute, h.ListApprovals)
 	mux.HandleFunc("POST "+appApprovalApproveRoute, h.ApproveRequest)
 	mux.HandleFunc("POST "+appApprovalRejectRoute, h.RejectRequest)
+}
+
+func approvalPageSize(w http.ResponseWriter, r *http.Request, h *AppWriteHandler) (int, bool) {
+	pageSize := domain.MaxApprovalPageSize
+	if raw := strings.TrimSpace(r.URL.Query().Get("page_size")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_page_size", "page_size must be a positive integer", nil)
+			return 0, false
+		}
+		if parsed < pageSize {
+			pageSize = parsed
+		}
+	}
+	return pageSize, true
+}
+
+// RegisterAdminWebApprovals wires the admin-web Approvals page onto the SAME approval service and
+// list/decide logic under the /admin-web/* prefix. The handler reads tenant, roles, and park scope
+// from the request context, so it is identical whether the caller arrived via the app or admin-web
+// session middleware; only the telemetry route/command labels differ.
+func RegisterAdminWebApprovals(mux *http.ServeMux, h *AppWriteHandler) {
+	mux.HandleFunc("GET "+adminWebApprovalsRoute, h.ListApprovals)
+	mux.HandleFunc("POST "+adminWebApprovalApproveRoute, h.ApproveRequestAdminWeb)
+	mux.HandleFunc("POST "+adminWebApprovalRejectRoute, h.RejectRequestAdminWeb)
 }
 
 // ---------------------------------------------------------------------------
@@ -62,17 +106,32 @@ type appApprovalListResponse struct {
 }
 
 type appApprovalListItem struct {
-	ApprovalRequestID string          `json:"approval_request_id"`
-	RequestType       string          `json:"request_type"`
-	Status            string          `json:"status"`
-	RaisedByUserID    string          `json:"raised_by_user_id"`
-	RaisedAt          time.Time       `json:"raised_at"`
-	ShiftingEventID   *string         `json:"shifting_event_id,omitempty"`
-	SubjectGoatID     *string         `json:"subject_goat_id,omitempty"`
-	Summary           json.RawMessage `json:"summary"`
-	DecidedByUserID   *string         `json:"decided_by_user_id,omitempty"`
-	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
-	DecisionReason    *string         `json:"decision_reason,omitempty"`
+	ApprovalRequestID string    `json:"approval_request_id"`
+	RequestType       string    `json:"request_type"`
+	Status            string    `json:"status"`
+	RaisedByUserID    string    `json:"raised_by_user_id"`
+	RaisedAt          time.Time `json:"raised_at"`
+	// RaisedByName and SummaryLine are BACKEND-OWNED DISPLAY COPY (golden frontend rule,
+	// AGENTS.md). Clients render them verbatim and must not compose their own line from the raw
+	// ids above -- that is exactly what the Android screen used to do, and with no name source on
+	// the phone it printed "Raised by 7f3a91c2-4d18-..." and "to shed 0b4e-...".
+	//
+	// Both are omitempty and both may legitimately be absent: a raiser with no roster row, or a
+	// payload with nothing nameable in it. A client MUST tolerate that by dropping the line, never
+	// by falling back to the id.
+	RaisedByName    *string `json:"raised_by_name,omitempty"`
+	SummaryLine     *string `json:"summary_line,omitempty"`
+	ShiftingEventID *string `json:"shifting_event_id,omitempty"`
+	SubjectGoatID   *string `json:"subject_goat_id,omitempty"`
+	// SubjectAnimalLocation is the same animal-location fact already folded into SummaryLine for a
+	// death row, exposed separately so a structured renderer (the admin-web drawer) can show it as
+	// its own field instead of parsing it back out of the composed line. See
+	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
+	SubjectAnimalLocation *string         `json:"subject_animal_location,omitempty"`
+	Summary               json.RawMessage `json:"summary"`
+	DecidedByUserID       *string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt             *time.Time      `json:"decided_at,omitempty"`
+	DecisionReason        *string         `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -98,16 +157,9 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 
 	// Page size is capped server-side at MaxApprovalPageSize: this queue is read from a phone, and
 	// a client asking for 500 rows must get one screen of work, not the whole backlog.
-	pageSize := domain.MaxApprovalPageSize
-	if raw := strings.TrimSpace(r.URL.Query().Get("page_size")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 {
-			h.writeError(w, r, http.StatusBadRequest, "invalid_page_size", "page_size must be a positive integer", nil)
-			return
-		}
-		if parsed < pageSize {
-			pageSize = parsed
-		}
+	pageSize, ok := approvalPageSize(w, r, h)
+	if !ok {
+		return
 	}
 
 	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkID, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
@@ -116,9 +168,15 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Names for the WHOLE page in one batched call per entity kind, before the render loop.
+	// Resolving inside the loop would be the banned N+1 fan-out: this page is capped at 20 rows,
+	// each naming a raiser and up to two sheds, so per-row lookups would turn one phone screen
+	// into dozens of serial reads (docs/decisions/scale-anti-patterns.md).
+	names := h.approvalNames(r.Context(), tenantID, page.Items)
+
 	items := make([]appApprovalListItem, 0, len(page.Items))
 	for _, item := range page.Items {
-		items = append(items, appApprovalListItem{
+		row := appApprovalListItem{
 			ApprovalRequestID: item.ApprovalRequestID,
 			RequestType:       item.RequestType,
 			Status:            item.Status,
@@ -130,9 +188,65 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 			DecidedByUserID:   item.DecidedByUserID,
 			DecidedAt:         item.DecidedAt,
 			DecisionReason:    item.DecisionReason,
-		})
+		}
+		if name := names.PersonName(item.RaisedByUserID); name != "" {
+			row.RaisedByName = &name
+		}
+		subjectGoatID := ""
+		if item.SubjectGoatID != nil {
+			subjectGoatID = *item.SubjectGoatID
+		}
+		if line := domain.ApprovalSummaryLine(item.RequestType, item.Summary, subjectGoatID, names); line != "" {
+			row.SummaryLine = &line
+		}
+		if loc := names.AnimalLocation(subjectGoatID); loc != "" {
+			row.SubjectAnimalLocation = &loc
+		}
+		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
+}
+
+// approvalNames resolves every id one page of the queue needs, in a bounded number of batched
+// queries.
+//
+// Name enrichment is DECORATION, never a precondition: with no resolver wired, or on a lookup
+// error, this returns empty maps and the rows render without those clauses. An approver seeing a
+// slightly shorter line is a far better failure than a queue that will not load -- and it means
+// existing construction paths that never wire a resolver keep working unchanged.
+func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, rows []domain.ApprovalRequestSummary) domain.ApprovalNameLookup {
+	empty := domain.ApprovalNameLookup{
+		Locations:       map[string]string{},
+		People:          map[string]string{},
+		AnimalLocations: map[string]string{},
+	}
+	if h.approvalNameResolver == nil || len(rows) == 0 {
+		return empty
+	}
+	locationIDs := make([]string, 0, len(rows)*2)
+	userIDs := make([]string, 0, len(rows))
+	goatIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		locationIDs = append(locationIDs, domain.ApprovalSummaryLocationIDs(row.RequestType, row.Summary)...)
+		userIDs = append(userIDs, row.RaisedByUserID)
+		subjectGoatID := ""
+		if row.SubjectGoatID != nil {
+			subjectGoatID = *row.SubjectGoatID
+		}
+		goatIDs = append(goatIDs, domain.ApprovalSummaryGoatIDs(row.RequestType, subjectGoatID)...)
+	}
+	resolved, err := h.approvalNameResolver.ResolveApprovalNames(ctx, tenantID, locationIDs, userIDs, goatIDs)
+	if err != nil {
+		// Logged, not returned: see the doc comment above on why this degrades instead of failing.
+		h.log.WarnContext(ctx, "approval name resolution failed; rendering rows without names",
+			"error", err, "tenant_id", tenantID, "rows", len(rows))
+		return empty
+	}
+	return domain.ApprovalNameLookup{
+		Locations:       resolved.Locations,
+		People:          resolved.People,
+		AnimalLocations: resolved.AnimalLocations,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +277,17 @@ func (h *AppWriteHandler) ApproveRequest(w http.ResponseWriter, r *http.Request)
 // RejectRequest rejects a pending request. A reason is required, and NO effect is applied.
 func (h *AppWriteHandler) RejectRequest(w http.ResponseWriter, r *http.Request) {
 	h.decide(w, r, false, appApprovalRejectCommand, appApprovalRejectRoute)
+}
+
+// ApproveRequestAdminWeb is the admin-web counterpart of ApproveRequest: identical decision logic,
+// distinct telemetry route/command labels so app and admin-web decisions are separable in traces.
+func (h *AppWriteHandler) ApproveRequestAdminWeb(w http.ResponseWriter, r *http.Request) {
+	h.decide(w, r, true, adminWebApprovalApproveCommand, adminWebApprovalApproveRoute)
+}
+
+// RejectRequestAdminWeb is the admin-web counterpart of RejectRequest.
+func (h *AppWriteHandler) RejectRequestAdminWeb(w http.ResponseWriter, r *http.Request) {
+	h.decide(w, r, false, adminWebApprovalRejectCommand, adminWebApprovalRejectRoute)
 }
 
 func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve bool, command, route string) {
@@ -300,6 +425,18 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 			"approval request has already been decided", err)
 	case errors.Is(err, ports.ErrApprovalEffectIncomplete):
 		h.writeError(w, r, http.StatusConflict, "approval_effect_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrDeathEvidenceIncomplete):
+		h.writeError(w, r, http.StatusConflict, "death_evidence_incomplete",
+			"both death videos must be uploaded before approval", err)
+	// A birth names its destination PEN, and the identity create validates it against
+	// shed_partitions inside the create transaction -- so this identity sentinel surfaces on the
+	// APPROVAL submit path, not on identity's own error path. Mapped here because that is where the
+	// birth route actually reports: a live run on 2026-08-06 correctly refused a bad pen and
+	// correctly rolled back, but the operator saw "internal server error" instead of being told
+	// which field was wrong. Bad operator input is a 400, never a 5xx.
+	case errors.Is(err, identityports.ErrPartitionNotInShed):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_partition_label",
+			"that partition does not exist in the selected shed", err)
 	case errors.Is(err, countsapp.ErrApprovalInvalidStoredPayload):
 		h.writeError(w, r, http.StatusConflict, "approval_payload_not_applicable",
 			"the stored request can no longer be applied", err)

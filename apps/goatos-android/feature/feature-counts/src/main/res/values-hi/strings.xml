@@ -35,9 +35,18 @@
     <string name="counts_mode_death">मृत्यु</string>
     <string name="counts_submit_birth">जन्म दर्ज करें</string>
     <string name="counts_submit_death">मृत्यु दर्ज करें</string>
+    <string name="counts_record_another_birth">एक और जन्म दर्ज करें</string>
+    <string name="counts_record_another_death">एक और मृत्यु दर्ज करें</string>
     <string name="counts_death_guardrail_note">मृत्यु को सुरक्षित मृत्यु पथ के माध्यम से दर्ज किया जाता है और यह पशु के खुले टीकाकरण कार्य को अपने आप रद्द कर देता है।</string>
 
     <!-- Shifting screen -->
+    <string name="counts_shifting_actions_title">स्थानांतरण</string>
+    <string name="counts_shifting_actions_subtitle">कार्रवाइयाँ</string>
+    <string name="counts_shifting_previous_actions_open">पिछली तारीखों की स्थानांतरण कार्रवाइयाँ दिखाएँ</string>
+    <string name="counts_shifting_previous_actions_title">पिछले दिनों की स्थानांतरण कार्रवाइयाँ</string>
+    <string name="counts_shifting_previous_actions_count">%1$d स्थानांतरण कार्रवाइयाँ</string>
+    <string name="counts_shifting_previous_actions_empty">पिछले दिनों की कोई स्थानांतरण कार्रवाई नहीं है।</string>
+    <string name="counts_shifting_raise">स्थानांतरण दर्ज करें</string>
     <string name="counts_shifting_title">स्थानांतरण दर्ज करें</string>
     <string name="counts_shifting_subtitle">एक पशु को दूसरे शेड में ले जाएँ</string>
     <string name="counts_submit_shifting">स्थानांतरण बनाएँ</string>
@@ -80,28 +89,49 @@
     <string name="counts_group_current_location">वर्तमान स्थान</string>
     <string name="counts_group_priority">प्राथमिकता</string>
     <string name="counts_group_category">श्रेणी</string>
+    <string name="counts_group_comment">टिप्पणी</string>
+    <string name="counts_field_comment">यह पशु क्यों ले जाया जा रहा है?</string>
+    <string name="counts_hint_comment">वैकल्पिक। इस बदलाव को मंज़ूरी देने वाले फ़ार्म प्रमुख और आपका वीडियो जाँचने वाला समीक्षक इसे पढ़ेंगे।</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">पशु पहचानकर्ता 1</string>
-    <string name="counts_field_tag2">पशु पहचानकर्ता 2</string>
+    <string name="counts_field_tag2">पशु पहचानकर्ता 2 (वैकल्पिक)</string>
+    <string name="counts_hint_tag2">दूसरा स्थायी RFID। यदि नवजात के पास केवल एक टैग है तो खाली छोड़ें।</string>
+    <string name="counts_field_temp_tag">अस्थायी टैग</string>
+    <!-- Bluetooth RFID scan toggle on the permanent-identifier fields -->
+    <string name="counts_rfid_scan_start">ब्लूटूथ रीडर से यह RFID स्कैन करें</string>
+    <string name="counts_rfid_scan_stop">स्कैन करना रोकें</string>
+    <string name="counts_rfid_scan_listening">स्कैन हो रहा है… रीडर को टैग के पास ले जाएँ, या रोकने के लिए टैप करें</string>
+    <string name="counts_rfid_promote_scan_hint">ब्लूटूथ रीडर से स्थायी कान का टैग स्कैन करें, या टाइप करें।</string>
+    <string name="counts_id_kind_permanent">स्थायी RFID</string>
+    <string name="counts_id_kind_temporary">अस्थायी टैग</string>
     <string name="counts_field_breed">नस्ल</string>
+    <string name="counts_field_breed_required">नस्ल *</string>
     <string name="counts_field_dob">जन्म तिथि (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">प्रवेश तिथि (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">प्रविष्टि तिथि (YYYY-MM-DD)</string>
     <string name="counts_field_park">पार्क</string>
     <string name="counts_field_farm">फ़ार्म</string>
     <string name="counts_field_current_location">वर्तमान स्थान</string>
     <string name="counts_field_shed">शेड</string>
     <string name="counts_field_dam">माता</string>
     <string name="counts_field_dam_optional">माता (वैकल्पिक)</string>
+    <string name="counts_field_mother_rfid">माता का RFID</string>
+    <string name="counts_mother_rfid_hint">माता का स्थायी RFID स्कैन करें या टाइप करें।</string>
+    <string name="counts_field_litter_size">कितने बच्चे जन्मे? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">जुड़वाँ</string>
+    <string name="counts_litter_triplets">तीन बच्चे</string>
     <string name="counts_field_sex">लिंग</string>
     <string name="counts_field_status">स्थिति</string>
     <string name="counts_field_goat">बकरी</string>
-    <string name="counts_field_row_version">रिकॉर्ड संस्करण</string>
     <string name="counts_field_reason">कारण</string>
     <string name="counts_field_animal_lookup">RFID से खोजें</string>
     <string name="counts_select_farm">एक फ़ार्म चुनें</string>
     <string name="counts_select_farm_first">पहले एक फ़ार्म चुनें</string>
+    <string name="counts_select_animal_first">पहले एक पशु चुनें</string>
+    <string name="counts_shifting_farm_locked">पशु के वर्तमान स्थान से अपने आप चुना गया</string>
     <string name="counts_select_shed">एक शेड चुनें</string>
+    <string name="counts_select_breed">एक नस्ल चुनें</string>
     <string name="counts_location_unknown">दर्ज नहीं</string>
 
     <!-- Animal picker (shifting) -->
@@ -116,8 +146,7 @@
     <string name="counts_sex_male">नर</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">प्रवेश तिथि के बाद की नहीं होनी चाहिए।</string>
-    <string name="counts_hint_row_version">पशु का वर्तमान रिकॉर्ड संस्करण।</string>
+    <string name="counts_hint_dob">भविष्य की तिथि नहीं हो सकती।</string>
     <string name="counts_hint_reason">3 से 500 वर्णों के बीच।</string>
     <string name="counts_hint_animal_lookup">इस स्थानांतरण को स्वीकृत करने पर ठीक वही पशु स्थानांतरित होता है जिसे आप यहाँ चुनते हैं।</string>
     <string name="counts_hint_death_lookup">मृत्यु दर्ज करने पर ठीक वही पशु बाहर होता है जिसे आप यहाँ चुनते हैं।</string>
@@ -137,4 +166,60 @@
     <string name="counts_shifting_from">से</string>
     <string name="counts_shifting_to">तक</string>
     <string name="counts_more_fields">अधिक विवरण</string>
+
+    <!-- Birth / Death workflow module -->
+    <string name="counts_workflow_birth_title">जन्म</string>
+    <string name="counts_workflow_death_title">मृत्यु</string>
+    <string name="counts_workflow_colostrum_title">खीस</string>
+    <string name="counts_workflow_open_fmt">%1$d खुले</string>
+    <string name="counts_workflow_add_birth">जन्म जोड़ें</string>
+    <string name="counts_workflow_add_death">मृत्यु जोड़ें</string>
+    <string name="counts_workflow_today">आज</string>
+    <string name="counts_workflow_past_note">पिछला दिन दिखाया जा रहा है। पूरा हुआ काम केवल-पढ़ने योग्य है।</string>
+    <string name="counts_workflow_group_overdue">समय बीत चुका</string>
+    <string name="counts_workflow_group_due">आज देय</string>
+    <string name="counts_workflow_group_in_review">समीक्षा में</string>
+    <string name="counts_workflow_group_completed">पूर्ण</string>
+    <string name="counts_workflow_submitted">जमा किया गया</string>
+    <string name="counts_birth_pending_header">स्वीकृति लंबित</string>
+    <string name="counts_workflow_chip_all">सभी</string>
+    <string name="counts_workflow_chip_overdue">समय बीत चुका</string>
+    <string name="counts_workflow_previous_overdue_open">पिछले दिनों के विलंबित कार्य दिखाएँ</string>
+    <string name="counts_workflow_previous_overdue_title">पिछले दिनों से विलंबित</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d लंबित कार्य</string>
+    <string name="counts_workflow_previous_overdue_empty">पिछले दिनों का कोई विलंबित कार्य नहीं है।</string>
+    <string name="counts_workflow_chip_due">देय</string>
+    <string name="counts_workflow_chip_completed">पूर्ण</string>
+    <string name="counts_workflow_chip_awaiting_video">वीडियो प्रतीक्षित</string>
+    <string name="counts_workflow_empty">इस दिन के लिए कोई फ़ॉलो-अप नहीं।</string>
+    <string name="counts_workflow_empty_offline">कार्य सूची लोड नहीं हो सकी। ऑनलाइन होते ही दिखेगी।</string>
+    <string name="counts_workflow_detail_title">कार्रवाइयाँ</string>
+    <string name="counts_workflow_not_found">यह रिकॉर्ड उपलब्ध नहीं है। वापस जाकर सूची ताज़ा करें।</string>
+    <string name="counts_workflow_progress_fmt">%1$d / %2$d पूर्ण</string>
+    <string name="counts_workflow_sect_overdue">समय बीत चुका</string>
+    <string name="counts_workflow_sect_scheduled">निर्धारित</string>
+    <string name="counts_workflow_sect_completed">पूर्ण</string>
+    <string name="counts_workflow_sect_verification">सत्यापन</string>
+    <string name="counts_workflow_sect_sessions">कोलोस्ट्रम सत्र</string>
+    <string name="counts_workflow_tag_video">वीडियो</string>
+    <string name="counts_workflow_answered_fmt">उत्तर %1$s</string>
+    <string name="counts_workflow_record_video">वीडियो रिकॉर्ड करें</string>
+    <string name="counts_workflow_recording">रिकॉर्ड हो रहा है…</string>
+    <string name="counts_workflow_pick_video">अपलोड</string>
+    <string name="counts_workflow_mark_done">पूर्ण करें</string>
+    <string name="counts_workflow_submit">जमा करें</string>
+    <string name="counts_add_birth_subtitle">नवजात दर्ज करें</string>
+    <string name="counts_group_born">जन्म</string>
+    <string name="counts_add_birth_tag_note">बच्चे को अपने आप एक अस्थायी टैग मिलता है। स्थायी RFID बाद में \"बच्चे को टैग करें\" चरण से लगाएँ।</string>
+    <string name="counts_add_birth_more">＋ विवरण जोड़ें (नस्ल)</string>
+    <string name="counts_field_time_of_birth">जन्म का समय (HH:MM)</string>
+    <string name="counts_add_birth_dob_hint">जन्म तिथि — आज। जन्म होते ही दर्ज किए जाते हैं।</string>
+    <string name="counts_add_birth_time_hint">अभी के समय से भरा गया — बदलने के लिए टैप करें।</string>
+    <string name="counts_add_birth_workflow_note">सबमिट करते ही हर बच्चा अपने जन्म कार्यों के साथ बन जाता है। वेब अनुमोदन केवल बच्चों को झुंड की गिनती में जोड़ता है।</string>
+    <string name="counts_add_death_subtitle">मृत पशु खोजें</string>
+    <string name="counts_workflow_recorded">रिकॉर्ड किया गया</string>
+    <string name="counts_workflow_rerecord_video">वीडियो फिर रिकॉर्ड करें</string>
+    <string name="counts_workflow_weight_kg">वजन (किग्रा)</string>
+    <string name="counts_workflow_weight_continue">वीडियो रिकॉर्ड करने के लिए आगे बढ़ें</string>
+    <string name="counts_shifting_videos_label">रिकॉर्ड किए गए वीडियो</string>
 </resources>

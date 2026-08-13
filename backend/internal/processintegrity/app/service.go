@@ -8,13 +8,16 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
+	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
 type Service struct {
-	repo ports.Repository
-	now  func() time.Time
+	repo  ports.Repository
+	now   func() time.Time
+	media verificationports.MediaResolver
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -28,12 +31,18 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	return s
 }
 
+func (s *Service) WithMediaResolver(media verificationports.MediaResolver) *Service {
+	s.media = media
+	return s
+}
+
 func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
 	q = s.defaults(q)
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ActionCenterResponse{}, err
 	}
+	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 	return domain.ActionCenterResponse{
 		Source:            domain.SourceAPI,
 		Items:             result.Rows,
@@ -60,40 +69,43 @@ func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domai
 
 func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
 	q = s.defaults(q)
+	category := domain.CategoryVaccination
+	q.Category = &category
 	q.IncludeCompleted = true
 	q.IncludeAdherenceSummary = true
+	q.ScopeLatestDrive = true
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ProtocolAdherenceResponse{}, err
 	}
+	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
-	summary := result.AdherenceSummary
 	for _, row := range result.Rows {
 		rows = append(rows, domain.AdherenceRow{
-			RowID:                   row.RowID,
-			Expected:                expectedText(row),
-			Actual:                  actualText(row),
-			Gap:                     gapText(row),
-			Severity:                row.Severity,
-			Owner:                   row.Owner,
-			NextAction:              row.NextAction,
-			Evidence:                row.Evidence,
-			WorkState:               row.WorkState,
-			DriveCapacityState:      row.DriveCapacityState,
-			DriveAnimalsRequired:    row.DriveAnimalsRequired,
-			DriveAnimalsAssigned:    row.DriveAnimalsAssigned,
-			DriveOperatorCap:        row.DriveOperatorCap,
-			DriveAvailableOperators: row.DriveAvailableOperators,
-			DriveLatestSafeDate:     row.DriveLatestSafeDate,
-			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
+			RowID:                      row.RowID,
+			ShedName:                   row.ShedName,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			Expected:                   expectedText(row),
+			Actual:                     actualText(row),
+			Gap:                        gapText(row),
+			Severity:                   row.Severity,
+			Owner:                      row.Owner,
+			NextAction:                 row.NextAction,
+			Evidence:                   row.Evidence,
+			WorkState:                  row.WorkState,
+			DriveCapacityState:         row.DriveCapacityState,
+			DriveAnimalsRequired:       row.DriveAnimalsRequired,
+			DriveAnimalsAssigned:       row.DriveAnimalsAssigned,
+			DriveOperatorCap:           row.DriveOperatorCap,
+			DriveAvailableOperators:    row.DriveAvailableOperators,
+			DriveLatestSafeDate:        row.DriveLatestSafeDate,
+			DriveMedicalDeferReason:    row.DriveMedicalDeferReason,
 		})
-	}
-	if summary.ExpectedCount > 0 {
-		summary.AdherencePercent = float64(summary.CompletedCount) / float64(summary.ExpectedCount) * 100
 	}
 	return domain.ProtocolAdherenceResponse{
 		Source:     domain.SourceAPI,
-		Summary:    summary,
+		Summary:    result.AdherenceSummary,
 		Rows:       rows,
 		TotalCount: result.TotalCount,
 		NextCursor: result.NextCursor,
@@ -113,6 +125,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	if err != nil {
 		return domain.ControlTowerResponse{}, err
 	}
+	result.Rows = s.withEvidenceMedia(ctx, q.TenantID, result.Rows)
 
 	summaryCounts := result.CountsByWorkState
 	if !controlTowerCanReuseAlertCounts(q) {
@@ -148,27 +161,34 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	alerts := make([]domain.ControlTowerAlert, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		alerts = append(alerts, domain.ControlTowerAlert{
-			RowID:                   row.RowID,
-			Severity:                row.Severity,
-			WorkState:               row.WorkState,
-			Title:                   alertTitle(row),
-			Detail:                  alertDetail(row),
-			ParkID:                  row.ParkID,
-			ParkName:                row.ParkName,
-			ShedID:                  row.ShedID,
-			ShedName:                row.ShedName,
-			DriveName:               row.DriveName,
-			Owner:                   row.Owner,
-			NextAction:              row.NextAction,
-			EvidenceLink:            workflowLink(row),
-			DriveCapacityState:      row.DriveCapacityState,
-			DriveAnimalsRequired:    row.DriveAnimalsRequired,
-			DriveAnimalsAssigned:    row.DriveAnimalsAssigned,
-			DriveOperatorCap:        row.DriveOperatorCap,
-			DriveAvailableOperators: row.DriveAvailableOperators,
-			DriveLatestSafeDate:     row.DriveLatestSafeDate,
-			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
-			ObligationID:            row.ObligationID,
+			RowID:                      row.RowID,
+			Severity:                   row.Severity,
+			WorkState:                  row.WorkState,
+			Title:                      alertTitle(row),
+			Detail:                     alertDetail(row),
+			ScopeLabel:                 scopeLabel(row),
+			EvidenceSummary:            evidenceSummary(row),
+			ProofSummary:               proofSummary(row),
+			ProofState:                 row.ProofState,
+			VerificationState:          row.VerificationState,
+			ParkID:                     row.ParkID,
+			ParkName:                   row.ParkName,
+			ShedID:                     row.ShedID,
+			ShedName:                   row.ShedName,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			DriveName:                  row.DriveName,
+			Owner:                      row.Owner,
+			NextAction:                 row.NextAction,
+			EvidenceLink:               workflowLink(row),
+			DriveCapacityState:         row.DriveCapacityState,
+			DriveAnimalsRequired:       row.DriveAnimalsRequired,
+			DriveAnimalsAssigned:       row.DriveAnimalsAssigned,
+			DriveOperatorCap:           row.DriveOperatorCap,
+			DriveAvailableOperators:    row.DriveAvailableOperators,
+			DriveLatestSafeDate:        row.DriveLatestSafeDate,
+			DriveMedicalDeferReason:    row.DriveMedicalDeferReason,
+			ObligationID:               row.ObligationID,
 		})
 	}
 	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor, Projection: result.Projection}, nil
@@ -188,6 +208,7 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 	if err != nil || !found {
 		return domain.WorkflowDrilldownResponse{}, found, err
 	}
+	row = s.withEvidenceMedia(ctx, q.TenantID, []domain.Row{row})[0]
 	if row.Category == domain.CategoryFeedDirection {
 		return domain.WorkflowDrilldownResponse{Source: domain.SourceAPI, Row: row, Nodes: feedDirectionExceptionNodes(row)}, true, nil
 	}
@@ -202,6 +223,64 @@ func (s *Service) WorkflowDrilldown(ctx context.Context, q domain.Query, rowID s
 		{Key: "next_due", Label: "Booster / next dose basis", State: nextDueState(row), Timestamp: nil},
 	}
 	return domain.WorkflowDrilldownResponse{Source: domain.SourceAPI, Row: row, Nodes: nodes}, true, nil
+}
+
+func (s *Service) withEvidenceMedia(ctx context.Context, tenantID string, rows []domain.Row) []domain.Row {
+	if s.media == nil || tenantID == "" || len(rows) == 0 {
+		return rows
+	}
+	proofIDs := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, row := range rows {
+		for _, id := range row.Evidence.ProofIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			proofIDs = append(proofIDs, id)
+		}
+	}
+	if len(proofIDs) == 0 {
+		return rows
+	}
+	resolved, err := s.media.ResolveMedia(ctx, tenantID, proofIDs)
+	if err != nil {
+		msg := "proof media lookup failed"
+		for i := range rows {
+			if len(rows[i].Evidence.ProofIDs) > 0 {
+				rows[i].Evidence.MediaResolutionError = &msg
+			}
+		}
+		return rows
+	}
+	byID := make(map[string]domain.MediaItem, len(resolved))
+	for _, item := range resolved {
+		byID[item.ProofID] = domain.MediaItem{
+			ProofID:     item.ProofID,
+			DownloadURL: item.DownloadURL,
+			MimeType:    item.MimeType,
+			DurationMS:  item.DurationMS,
+		}
+	}
+	for i := range rows {
+		if len(rows[i].Evidence.ProofIDs) == 0 {
+			continue
+		}
+		media := make([]domain.MediaItem, 0, len(rows[i].Evidence.ProofIDs))
+		for _, id := range rows[i].Evidence.ProofIDs {
+			if item, ok := byID[id]; ok {
+				media = append(media, item)
+			}
+		}
+		if len(media) > 0 {
+			rows[i].Evidence.Media = media
+		}
+	}
+	return rows
 }
 
 func workflowLink(row domain.Row) string {
@@ -250,7 +329,14 @@ func expectedText(row domain.Row) string {
 func actualText(row domain.Row) string {
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
-		return fmt.Sprintf("%d assigned against %d operator slots; finish over cap", row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap)
+		slots := row.DriveAvailableOperators * row.DriveOperatorCap
+		if slots > 0 && row.DriveAnimalsAssigned <= slots {
+			return fmt.Sprintf("%d assigned within %d planned operator slots", row.DriveAnimalsAssigned, slots)
+		}
+		if slots > 0 {
+			return fmt.Sprintf("%d assigned against %d planned operator slots; add capacity or split the drive", row.DriveAnimalsAssigned, slots)
+		}
+		return fmt.Sprintf("%d assigned with no planned operator capacity", row.DriveAnimalsAssigned)
 	case domain.DriveCapacityStateMedicalDefer:
 		if row.DriveMedicalDeferReason != nil && *row.DriveMedicalDeferReason != "" {
 			return "medically deferred: " + *row.DriveMedicalDeferReason
@@ -284,7 +370,11 @@ func actualText(row domain.Row) string {
 func gapText(row domain.Row) string {
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
-		return "over_cap_required"
+		slots := row.DriveAvailableOperators * row.DriveOperatorCap
+		if slots > 0 && row.DriveAnimalsAssigned <= slots {
+			return "none"
+		}
+		return "capacity_shortfall"
 	case domain.DriveCapacityStateMedicalDefer:
 		return "medical_defer"
 	case domain.DriveCapacityStateTerminalAnimalClosed:
@@ -304,13 +394,22 @@ func gapText(row domain.Row) string {
 
 func alertTitle(row domain.Row) string {
 	if row.DriveName != nil && *row.DriveName != "" {
-		return *row.DriveName
+		if title := humanAlertTitle(*row.DriveName); title != "" {
+			return title
+		}
 	}
-	return strings.TrimSpace(row.ProtocolName + " " + row.DoseCode)
+	return humanAlertTitle(strings.TrimSpace(row.ProtocolName + " " + row.DoseCode))
+}
+
+func humanAlertTitle(raw string) string {
+	title := strings.TrimSpace(raw)
+	title = strings.TrimPrefix(title, "Preventive Care Vaccination Matrix -")
+	title = strings.TrimPrefix(title, "Preventive Care Vaccination Matrix")
+	return strings.TrimSpace(title)
 }
 
 func alertDetail(row domain.Row) string {
-	base := fmt.Sprintf("%s / %s", row.ParkName, row.ShedName)
+	base := scopeLabel(row)
 	switch row.DriveCapacityState {
 	case domain.DriveCapacityStateOverCapRequired:
 		return fmt.Sprintf("%s: %d animals assigned over %d operator slots; latest safe %s", base, row.DriveAnimalsAssigned, row.DriveAvailableOperators*row.DriveOperatorCap, latestSafeOrDue(row))
@@ -323,7 +422,95 @@ func alertDetail(row domain.Row) string {
 	if row.BlockerReason != nil && *row.BlockerReason != "" {
 		return base + ": " + *row.BlockerReason
 	}
-	return base + ": " + row.GapType
+	return base + ": " + humanGap(row.GapType, row.WorkState)
+}
+
+func evidenceSummary(row domain.Row) string {
+	if row.Evidence.EvidenceCount > 0 {
+		return fmt.Sprintf("%d evidence item(s) attached", row.Evidence.EvidenceCount)
+	}
+	switch row.ProofState {
+	case domain.ProofStateNotRequired:
+		return "No proof required"
+	case domain.ProofStateUploaded, domain.ProofStateAccepted:
+		return "Mobile proof submitted"
+	case domain.ProofStateRejected:
+		return "Submitted proof was rejected"
+	default:
+		return "Mobile proof not submitted"
+	}
+}
+
+func proofSummary(row domain.Row) string {
+	switch row.VerificationState {
+	case domain.VerificationStatePending:
+		return "Awaiting verifier review"
+	case domain.VerificationStateAccepted:
+		return "Verifier accepted proof"
+	case domain.VerificationStateRejected:
+		if row.Evidence.LatestRejectionReason != nil && strings.TrimSpace(*row.Evidence.LatestRejectionReason) != "" {
+			return "Verifier rejected proof: " + strings.TrimSpace(*row.Evidence.LatestRejectionReason)
+		}
+		return "Verifier rejected proof"
+	default:
+		switch row.ProofState {
+		case domain.ProofStateNotRequired:
+			return "Proof not required"
+		case domain.ProofStateMissing:
+			return "Proof missing"
+		default:
+			return strings.ReplaceAll(string(row.ProofState), "_", " ")
+		}
+	}
+}
+
+func scopeLabel(row domain.Row) string {
+	location := strings.TrimSpace(row.OperationalLocationDisplay)
+	if location == "" {
+		partition := ""
+		if row.PartitionLabel != nil {
+			partition = *row.PartitionLabel
+		}
+		location = (oploc.OperationalLocation{
+			ShedName:       strings.TrimSpace(row.ShedName),
+			PartitionLabel: partition,
+		}).Display()
+	}
+	parts := []string{strings.TrimSpace(row.ParkName), location}
+	return strings.Join(parts, " / ")
+}
+
+func humanGap(gap string, state domain.WorkState) string {
+	switch strings.TrimSpace(gap) {
+	case "verification_pending":
+		return "proof submitted; awaiting verifier review"
+	case "proof_pending":
+		return "proof not submitted yet"
+	case "missed":
+		return "deadline missed"
+	case "overdue":
+		return "past due"
+	case "blocked":
+		return "blocked"
+	case "rejected":
+		return "proof rejected"
+	case "":
+		switch state {
+		case domain.WorkStateVerificationPending:
+			return "proof submitted; awaiting verifier review"
+		case domain.WorkStateProofPending:
+			return "proof not submitted yet"
+		case domain.WorkStateMissed:
+			return "deadline missed"
+		case domain.WorkStateOverdue:
+			return "past due"
+		case domain.WorkStateBlocked:
+			return "blocked"
+		case domain.WorkStateRejected:
+			return "proof rejected"
+		}
+	}
+	return strings.ReplaceAll(gap, "_", " ")
 }
 
 func latestSafeOrDue(row domain.Row) string {

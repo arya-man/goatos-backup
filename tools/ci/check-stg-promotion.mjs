@@ -151,6 +151,7 @@ function verifyRepositoryWiring() {
   const read = (relative) => fs.readFileSync(path.join(repo, relative), "utf8");
 
   const deploy = read(".github/workflows/stg-deploy.yml");
+  const release = read("tools/deploy/stg-clouddeploy-release.sh");
   assert.match(deploy, /pull-requests:\s*read/, "stg-deploy must have pull request read permission");
   assert.match(
     deploy,
@@ -166,6 +167,9 @@ function verifyRepositoryWiring() {
     assert.match(read(hookConfig), /check-stg-promotion\.mjs[^\n]*--agent-hook/, `${hookConfig} must block agent stg pushes`);
   }
   assert.match(read("Makefile"), /install-stg-push-guard\.sh/, "ai-setup must install the local pre-push guard");
+  assert.match(release, /git fetch origin main --quiet/, "local staging release must refresh origin/main before building images");
+  assert.match(release, /refusing staging release from non-main commit/, "local staging release must block non-main commits");
+  assert.match(release, /GOATOS_ALLOW_NON_MAIN_STG_RELEASE/, "local staging release break-glass must be explicit and searchable");
   assert.match(read("AGENTS.md"), /Never push any local ref[\s\S]{0,240}remote `stg`/, "AGENTS.md must prohibit direct stg pushes");
   assert.match(
     read(".agents/skills/goatos-build/SKILL.md"),

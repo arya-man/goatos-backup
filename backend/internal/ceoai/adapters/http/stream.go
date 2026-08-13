@@ -149,7 +149,7 @@ func (h *StreamHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	q := domain.Question{
 		Actor:          actor,
 		ConversationID: strings.TrimSpace(req.ConversationID),
-		Text:           question,
+		Text:           questionWithPageScope(question, req.PageScope),
 		AsOf:           biztime.BusinessDayStart(time.Now()),
 	}
 	requestID := httpmiddleware.RequestIDFromContext(ctx)

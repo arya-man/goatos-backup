@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export function CalendarMonthPicker({
@@ -17,9 +17,16 @@ export function CalendarMonthPicker({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const rootRef = useRef<HTMLDetailsElement | null>(null);
+
+  const replaceHref = useCallback((href: string) => {
+    startTransition(() => {
+      router.replace(href, { scroll: false });
+    });
+  }, [router]);
 
   useEffect(() => {
     function onDown(event: MouseEvent) {
@@ -30,7 +37,7 @@ export function CalendarMonthPicker({
       root.open = false;
       const currentHref = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
       if (closeHref !== currentHref) {
-        router.replace(closeHref, { scroll: false });
+        replaceHref(closeHref);
       }
     }
     function onKey(event: KeyboardEvent) {
@@ -38,7 +45,7 @@ export function CalendarMonthPicker({
       rootRef.current.open = false;
       const currentHref = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
       if (closeHref !== currentHref) {
-        router.replace(closeHref, { scroll: false });
+        replaceHref(closeHref);
       }
     }
     document.addEventListener("mousedown", onDown);
@@ -47,7 +54,7 @@ export function CalendarMonthPicker({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [closeHref, pathname, router, searchParams]);
+  }, [closeHref, pathname, replaceHref, searchParams]);
 
   return (
     <details ref={rootRef} className="calpicker" open={open}>
@@ -59,11 +66,11 @@ export function CalendarMonthPicker({
             rootRef.current.open = false;
             const currentHref = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
             if (closeHref !== currentHref) {
-              router.replace(closeHref, { scroll: false });
+              replaceHref(closeHref);
             }
             return;
           }
-          router.replace(openHref, { scroll: false });
+          replaceHref(openHref);
         }}
       >
         {label}

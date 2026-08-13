@@ -5,6 +5,12 @@ TypeScript packages it imports. Product/IA truth remains in
 `context/frontend/**`, `apps/admin-web/AGENTS.md`, and the dashboard mock; this
 document owns framework, runtime, testing, accessibility, and CI practice.
 
+Shared operational read models must follow
+`docs/architecture/operational-read-model-contract.md`. Admin-web renders
+backend-owned facts for Calendar, Control Tower, Action Center, Protocol
+Adherence, Workflows, and detail pages; it must not invent local grain semantics
+or hide mismatched backend/mobile/reporting numbers with a screen-only rule.
+
 ## Source Policy
 
 Use current primary documentation, then confirm the committed versions and
@@ -96,6 +102,30 @@ backend contract owns business truth, RBAC, labels, options, and commands.
   and field/global error state. Double-submit protection does not replace
   backend idempotency.
 
+### URL-Driven Filters
+
+URL-backed filters are allowed only when the URL is the shareable/readable source
+of truth for the server read. They still must feel local to the operator.
+
+- Prefer the shared `WorklistFilters` component for server-filtered worklists.
+- A native `<select>` that writes `router.push`/`router.replace` from
+  `useSearchParams` must use `useTransition` and render an optimistic selected
+  value immediately. Never let a select keep showing the previous server prop
+  while the route refresh is pending.
+- A filter change resets only the relevant page/cursor parameter and preserves
+  scope/date/park params. It must not trigger unrelated fanout or overlay
+  navigation.
+- Multi-select and comparison filters stage local draft state and commit the
+  complete query in one navigation. Do not send half-complete comparison params
+  or one server render per checkbox tick.
+- Search inputs may submit on Enter/Apply, but page-size and single-select
+  filters must update their visible value synchronously.
+
+`make frontend-foundations-guard` enforces the URL-writing select rule with an
+adversarial stale-select fixture. This guard exists because the Feed Config
+filter bar reached staging showing `All` after an operator selected
+`Non-Pregnant` while the server-rendered page was still refreshing.
+
 ## TypeScript And Node
 
 - `strict`, `noEmit`, and `isolatedModules` stay enabled. Do not weaken the
@@ -151,6 +181,18 @@ drawer, modal, table, form, and navigation surface:
   a search parameter. `make admin-web-local-overlay-guard` enforces a zero
   baseline for route-driven overlay open/close controls across the whole feature
   tree and requires its adversarial self-test. Never add a legacy allowance;
+
+- an overlay whose open state lives in the URL re-renders the page on every step,
+  so a page-level entry animation replays underneath it and the overlay reads as
+  janky rather than smooth. This bit the verifier review modal on 2026-08-06 —
+  `.screen { animation: fade .25s ease }` replayed on every `vi_row` change, so
+  opening the modal and each Prev/Next flashed the whole page. Suppress the page
+  animation while an overlay is open, e.g.
+  `.screen:has(.vr-modal-scrim.on) { animation: none; }`.
+  `make overlay-motion-guard` enforces this and ships the regression itself as a
+  self-test fixture. No unit test can see this class of bug: nothing throws, and
+  the defect is the interaction between an entry animation and URL-held overlay
+  state;
 
 - compare rendered desktop and narrow screenshots to
   `mock/goatos-dashboard-mock.html`; verify alignment, spacing, card/table

@@ -3,7 +3,7 @@
 import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ElementType } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -18,10 +18,13 @@ import {
   HeartPulse,
   Menu,
   MapPin,
+  Milk,
   Moon,
+  Stethoscope,
   Sun,
   TowerControl,
   Truck,
+  Wheat,
   Workflow,
   Zap,
 } from "lucide-react";
@@ -41,8 +44,18 @@ const iconByToken: Record<string, ElementType> = {
   "clipboard-check": ClipboardCheck,
   "edit-3": Edit3,
   "heart-pulse": HeartPulse,
+  // Milk is its own vertical in the backend nav contract; without this token the group would
+  // silently fall back to the Control Tower icon (the same defect `wheat` hit below).
+  milk: Milk,
+  // Health is a DISTINCT vertical from Preventive Care, so it gets its own icon rather than
+  // sharing heart-pulse. It must never use the syringe/injection token, which belongs to the
+  // Vaccination module under Preventive Care.
+  stethoscope: Stethoscope,
   "tower-control": TowerControl,
   truck: Truck,
+  // `wheat` is the Feed vertical's declared icon in the backend nav contract and was missing
+  // here, so Feed silently fell back to the Control Tower icon.
+  wheat: Wheat,
   workflow: Workflow,
   zap: Zap,
 };
@@ -75,6 +88,44 @@ function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
     ...contract.navigation.primary.filter((item) => item.enabled),
     ...contract.navigation.groups.flatMap((group) => group.leaves.filter((item) => item.enabled)),
   ].map((item) => item.href);
+}
+
+function contractRoutePaths(contract: AdminWebBootstrapResponse): Set<string> {
+  return new Set(contract.pages.map((page) => hrefPathname(page.href)));
+}
+
+function navItemHasRoute(item: NavItem, routePaths: Set<string>): boolean {
+  const path = hrefPathname(item.href);
+  return routePaths.has(path) || routePaths.has(path.replace(/\/[^/]+$/g, "/{param}"));
+}
+
+function contractRoutedNavItems(items: NavItem[], routePaths: Set<string>): NavItem[] {
+  return items.filter((item) => navItemHasRoute(item, routePaths));
+}
+
+/**
+ * Query keys that tell apart nav entries sharing one route, keyed by href.
+ *
+ * A route with a single nav entry is absent from the map and keeps plain pathname matching, so this
+ * cannot regress an existing leaf that carries `extra` purely as a landing default (e.g. Config's
+ * `?category=vaccination`, which must still highlight on a bare `/config`).
+ */
+function sharedNavKeys(contract: AdminWebBootstrapResponse): Map<string, string[]> {
+  const byHref = new Map<string, { count: number; keys: Set<string> }>();
+  for (const item of [
+    ...contract.navigation.primary.filter((entry) => entry.enabled),
+    ...contract.navigation.groups.flatMap((group) => group.leaves.filter((entry) => entry.enabled)),
+  ]) {
+    const bucket = byHref.get(item.href) ?? { count: 0, keys: new Set<string>() };
+    bucket.count += 1;
+    for (const key of Object.keys(item.extra ?? {})) bucket.keys.add(key);
+    byHref.set(item.href, bucket);
+  }
+  const out = new Map<string, string[]>();
+  for (const [href, bucket] of byHref) {
+    if (bucket.count > 1 && bucket.keys.size > 0) out.set(href, [...bucket.keys]);
+  }
+  return out;
 }
 
 // A route can prefix-match several nav hrefs; only the longest (most specific) match highlights.
@@ -139,14 +190,19 @@ export function MeshaShell({
   const router = useRouter();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
-  const primary = contract.navigation.primary;
-  const groups = contract.navigation.groups;
+  const routePaths = useMemo(() => contractRoutePaths(contract), [contract]);
+  const primary = useMemo(() => contractRoutedNavItems(contract.navigation.primary, routePaths), [contract, routePaths]);
+  const groups = useMemo(() => contract.navigation.groups.map((group) => ({
+    ...group,
+    leaves: contractRoutedNavItems(group.leaves, routePaths),
+  })), [contract, routePaths]);
   // Nav chrome is 100% backend-owned. The frontend NEVER counts modules, checks
   // role, or computes chrome — it renders the enum only. Fail open:
   // anything other than an explicit "minimal" keeps the sidebar, so a contract
   // hiccup or an unknown future value never blanks a leader's navigation.
   const showSidebar = contract.nav_chrome !== "minimal";
   const active = activeHref(pathname, contract);
+  const sharedNavKeysByHref = useMemo(() => sharedNavKeys(contract), [contract]);
   // Single top-bar scope contract: parse the URL scope params (scope_mode/park/range/as_of) once and render
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
   // params, so the bar can never disagree with a page body.
@@ -162,6 +218,7 @@ export function MeshaShell({
   const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
+
   const [isLight, setIsLight] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
@@ -178,6 +235,25 @@ export function MeshaShell({
     }
     return init;
   });
+  // Collapsed rail: the group's leaves are hidden, so toggling one open would be a click that
+  // visibly does nothing. In rail mode the icon navigates to that group's first leaf instead;
+  // expanded, it keeps the normal open/close behaviour.
+  const activateGroup = useCallback(
+    (group: { id: string; leaves?: { href: string }[] }): void => {
+      if (rail) {
+        const first = group.leaves?.[0]?.href;
+        if (first) {
+          router.push(first);
+          return;
+        }
+      }
+      // Inlined rather than calling toggleGroup(): that helper is declared ~200 lines below and
+      // relying on hoisting trips no-use-before-define, while moving this hook down would put it
+      // after an early return and break the rules of hooks.
+      setOpenGroups((prev) => ({ ...prev, [group.id]: !prev[group.id] }));
+    },
+    [rail, router],
+  );
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
   const pcBadge = visibleBadge(navCounts.pc);
@@ -275,6 +351,11 @@ export function MeshaShell({
       const nextUrl = new URL(anchor.href, window.location.href);
       if (nextUrl.origin !== window.location.origin) return;
       if (nextUrl.pathname === window.location.pathname && nextUrl.search === window.location.search) return;
+      // Same-page query updates drive local controls such as filters, tabs, and pagers. They already
+      // keep the old page visible while the RSC payload swaps in, so the global route-busy affordance
+      // reads as a stuck full-page navigation when the payload finishes before React reports a route
+      // change. Reserve it for actual path changes.
+      if (nextUrl.pathname === window.location.pathname) return;
       startRoutePending(anchor);
       if (anchor.closest(".navback")) return;
 
@@ -366,14 +447,45 @@ export function MeshaShell({
     const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
     return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
+  const warmNavHrefs = useMemo(
+    () => [
+      ...primary.map((item) => navHref(item)),
+      ...groups.flatMap((group) => group.leaves.filter((item) => item.enabled).map((item) => navHref(item))),
+    ],
+    [groups, primary, renderedScope, searchKey],
+  );
+  useEffect(() => {
+    for (const href of warmNavHrefs) router.prefetch(href);
+  }, [router, warmNavHrefs]);
   function navActive(leaf: NavItem): boolean {
-    return active === leaf.href;
+    if (active !== leaf.href) return false;
+    // Most routes have exactly one nav entry, so pathname alone decides. The verifier workspace is
+    // the exception: every evidence module points at /actions and is told apart only by its
+    // `category` param, so without this the whole sidebar would highlight at once. Discriminating
+    // keys are compared for ALL leaves on a shared route — including the one with no `extra` (the
+    // "All evidence" landing), which must highlight only when no category is selected.
+    const keys = sharedNavKeysByHref.get(leaf.href);
+    if (!keys) return true;
+    for (const key of keys) {
+      if ((searchParams?.get(key) ?? "") !== (leaf.extra?.[key] ?? "")) return false;
+    }
+    return true;
   }
   function currentScopeHref(
     overrides: Parameters<typeof scopeHref>[2] = {},
     extra: Record<string, string | undefined> = {},
   ): string {
-    return scopeHref(pathname, scope, overrides, { ...preserveVaccinationSchedule, ...extra });
+    // A top-bar scope change must not erase the current page's filters. Strip only
+    // the scope keys rebuilt by scopeHref and local-overlay row selectors, then
+    // carry the remaining page query through unchanged.
+    const pageFilters = Object.fromEntries(searchParams?.entries() ?? []);
+    for (const key of ["scope_mode", "park", "range", "as_of", "date_from", "date_to", "domain", "from"]) {
+      delete pageFilters[key];
+    }
+    for (const key of Object.keys(pageFilters)) {
+      if (key.endsWith("_row")) delete pageFilters[key];
+    }
+    return scopeHref(pathname, scope, overrides, { ...pageFilters, ...preserveVaccinationSchedule, ...extra });
   }
 
   return (
@@ -551,15 +663,16 @@ export function MeshaShell({
               <div key={g.id}>
                 <div
                   className={`ggrp ${open ? "open" : ""}`}
-                  onClick={() => toggleGroup(g.id)}
+                  onClick={() => activateGroup(g)}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
-                    toggleGroup(g.id);
+                    activateGroup(g);
                   }}
                   role="button"
                   tabIndex={0}
                   aria-expanded={open}
+                  title={rail ? g.label : undefined}
                 >
                   <GroupIcon className="ic" />
                   {g.label}

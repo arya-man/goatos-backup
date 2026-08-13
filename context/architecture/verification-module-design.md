@@ -30,13 +30,18 @@ must model it the same way.
 - **Backend:** a standalone `verification` bounded context (its own service +
   ports), NOT inside vaccination. Modules feed it; it knows nothing about any
   specific vertical.
-- **Frontend (admin-web):** a top-level **Admin / Data Ops** command screen
-  (`/verification`), category/vertical-filtered — same authority tier as Config
-  and SOP Library. It is cross-module, so it lives at Admin Ops, not under any one
-  vertical (consistent with the command-lens rule in AGENTS.md).
-- **Mobile:** a **standalone Verifier section** (role-gated). A verifier opens the
-  app and sees a media queue by category — nothing else. It is separate from the
-  operator Capture section; the two never mix on one screen.
+- **Frontend (admin-web):** a top-level cross-module command screen (`/verify`),
+  positioned immediately below **Approvals** and above the vertical/module
+  groups. It is filtered by backend-registered action type, disjoint
+  Due/Approved/Rejected status, and the shared top-bar business date. It is not
+  nested under Admin / Data Ops or any one operating vertical. `/verification`
+  is a compatibility redirect only.
+- **Mobile:** a verifier-only evidence workspace (permission-gated). The backend
+  composes Vaccination, Weighing, Counts, Feed, and Health drawer modules; each
+  opens the same reusable media queue with backend-defined page tabs. It is
+  separate from operator Capture; the two never mix on one screen. This supersedes
+  the old synthetic standalone Verification module and the Android-only two-module
+  rewrite (maintainer decision 2026-07-30).
 
 ### 2.2 Generic model (module-agnostic)
 A single `verification_item` shape, independent of the producing module:
@@ -59,10 +64,20 @@ No producer-specific columns.
 
 ### 2.3 Plug-and-play registry (the RT-registry analog)
 A **verification type registry**: each module registers a verifiable task type —
-`{ vertical, module, category, expected_media[], form_ref, sla }`. Registering an
-entry is all a NEW vertical/module needs to appear in the verifier queue,
-admin-web screen, and mobile section. No verification code is touched per module.
+`{ vertical, module, category, expected_media[], form_ref, sla,
+navigation_module, page_key, page_label, page_order }`. Registering an entry is
+all a NEW page/category needs to appear in the correct verifier module and top-tab
+set, including while its queue is empty. No verification renderer is copied per
+module.
 This mirrors the Slack `Workflow Type Registry (RT-001..011)`.
+
+Every registered page also renders the backend-owned secondary status contract:
+`Due -> pending`, `Approved -> approved`, `Rejected -> rejected`. A selected
+Asia/Kolkata capture date scopes all three tabs. Historical approved/rejected
+items keep immutable verdict history and playable proof media. `missed=true`
+means pending items captured before today's India business-day start; it cannot
+be combined with a date or non-pending status. The response's `has_missed` is a
+whole-filter backend boolean used for the bell indicator.
 
 ### 2.4 Roles (introduce a Verifier role)
 Three distinct responsibilities — do NOT collapse them:
@@ -82,8 +97,9 @@ Flow: `operator captures → verification_item (pending) → Verifier approves/r
 + reason → authority (park head/director/ceo) acts`.
 
 ### 2.5 Scale + extensibility (hard requirements)
-- Queue is **keyset-paginated**, filtered by category/vertical/park; never a
-  full-table scan (1–5M scale). Media is served via **signed URLs streamed**, not
+- Queue is **keyset-paginated**, filtered by category/vertical/park/status and
+  bounded capture-time range; never a full-table scan. Current release proof is
+  the 5k–50k envelope, with future 1–5M certification retained separately. Media is served via **signed URLs streamed**, not
   proxied through the API.
 - Verifier throughput matters: assign-by-category, bounded pages (~20), prefetch.
 - Plug-play: adding a vertical/module = one registry row + emitting the event.
@@ -92,12 +108,14 @@ Flow: `operator captures → verification_item (pending) → Verifier approves/r
 
 ## 3. Current vaccination slice
 - Vaccination operator screens capture/upload only; other roles can view.
-- The standalone mobile Verifier section owns approve/reject. Its Vaccination
-  tab is active; future categories register into the same module.
+- The verifier-only mobile workspace owns approve/reject. Vaccination is one of
+  five backend-composed drawer modules; each registered category is a disjoint
+  page tab inside its owning module.
 - Leadership sees only submissions where every goat item is approved and closes
   the drive atomically. Rejection reopens only that goat for rework.
 
 ## 4. Scope note
-Vaccination is the first active category. Counts, Feed Direction, Diagnosis,
-Death Report, Breeding, and other modules remain category registrations and
-producer integrations, not separate verification implementations.
+Vaccination, Counts, and Feed have active producer categories. Weighing and
+Health pages are registry-declared but remain empty until their producers enqueue
+generic verification items. They are navigation/page declarations, not separate
+verification implementations and not fabricated queue rows.

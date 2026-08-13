@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
+<!--
   Calendar (v-calendar) chrome strings. Segment labels, empty states, hints, and
   accessibility descriptions for the Calendar screen (universal landing for all roles).
   Most labels (title, eyebrow, segment labels, counts, status/category pills) come from
@@ -64,6 +67,7 @@
     <string name="calendar_drive_title">Vaccination drive · %1$s</string>
     <!-- "{completed} of {total} sheds done" — completion-ring anatomy (option A). -->
     <string name="calendar_drive_sheds_done">%1$d of %2$d sheds done</string>
+    <string name="calendar_drive_total_animals">%1$d animals in this drive</string>
     <!-- Owner-chosen over "Doses": the ring card counts animals, not doses. -->
     <!-- Subtitle under the header: "{n} vaccines" — the full vaccine list lives in the
          drill target (sheds), not the card. -->
@@ -73,7 +77,9 @@
     <string name="calendar_drive_open">Open drive</string>
     <!-- Status chips (redesigned card): colored dot + label + count for each nonzero bucket -->
     <string name="calendar_drive_done">%1$d done</string>
+    <string name="calendar_drive_submitted">%1$d submitted</string>
     <string name="calendar_drive_due">%1$d due</string>
     <string name="calendar_drive_overdue">%1$d overdue</string>
     <string name="calendar_drive_deferred">%1$d deferred</string>
+    <string name="calendar_drive_rejected">%1$d rejected</string>
 </resources>

@@ -724,7 +724,10 @@ Use `Asia/Kolkata` business dates and versioned schedule policy. Store:
 - escalation policy;
 - emergency bridge window.
 
-Observed legacy trigger times live only in migration parity configuration.
+Accepted source clocks are Day N 09:00 direction, 13:30 cutoff,
+13:30-13:45 Diff, 15:00 packing/loading/Transport staging outside sheds, and published
+09:00/15:00 default serving slots. Legacy installer times that do not match this
+chain live only in migration parity configuration.
 Scheduler requests are idempotent by tenant + target date + run kind + policy
 version. A watchdog detects missing runs and enqueues the same logical key; it
 does not create accumulating one-shot triggers.
@@ -948,8 +951,9 @@ Operational retirement and analytics migration are separate gates.
 ## 17. Implementation order
 
 1. Correct stale Feed docs so an experiment absolute-kg allocation is never an exclusion.
-2. Ratify product decisions: stages, deadlines, roles, tolerances, proof and
-   inventory boundary.
+2. Materialize the accepted stage clocks with no assumed lateness grace; ratify
+   route lead time, roles, pre-warning/post-breach contact offsets, tolerances, proof and inventory
+   boundary.
 3. Add protocol-owned experiment absolute-kg allocation child contracts, enforce
    the sole protocol publish gate and reject cross-version generation.
 4. Add generation run/row persistence and deterministic replay/supersession.

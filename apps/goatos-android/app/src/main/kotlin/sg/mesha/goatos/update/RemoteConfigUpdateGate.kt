@@ -6,6 +6,7 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
+import java.util.concurrent.TimeUnit
 
 /**
  * Firebase Remote Config adapter for [UpdateGate].
@@ -39,7 +40,7 @@ class RemoteConfigUpdateGate(
             val settings = FirebaseRemoteConfigSettings.Builder()
                 .setMinimumFetchIntervalInSeconds(minFetchIntervalSeconds)
                 .build()
-            Tasks.await(rc.setConfigSettingsAsync(settings))
+            Tasks.await(rc.setConfigSettingsAsync(settings), CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             Tasks.await(
                 rc.setDefaultsAsync(
                     mapOf(
@@ -47,12 +48,14 @@ class RemoteConfigUpdateGate(
                         KEY_UPDATE_URL to DEFAULT_UPDATE_URL,
                     ),
                 ),
+                CHECK_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS,
             )
 
             // Best-effort refresh. On failure we still read the last activated (or in-app
             // default) values below, so an offline launch degrades to the remembered floor
             // rather than an exception.
-            runCatching { Tasks.await(rc.fetchAndActivate()) }
+            runCatching { Tasks.await(rc.fetchAndActivate(), CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
 
             decideUpdate(
                 currentVersionCode = currentVersionCode,
@@ -75,5 +78,6 @@ class RemoteConfigUpdateGate(
          * The 12h SDK default is far too slow for a blocking gate.
          */
         const val DEFAULT_MIN_FETCH_INTERVAL_SECONDS = 1_800L
+        const val CHECK_TIMEOUT_SECONDS = 5L
     }
 }

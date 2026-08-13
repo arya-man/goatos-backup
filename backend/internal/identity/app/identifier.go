@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	addGoatIdentifierCommand    = "addGoatIdentifier"
-	retireGoatIdentifierCommand = "retireGoatIdentifier"
+	addGoatIdentifierCommand          = "addGoatIdentifier"
+	retireGoatIdentifierCommand       = "retireGoatIdentifier"
+	promoteTemporaryIdentifierCommand = "promoteTemporaryIdentifier"
 )
 
 type AddGoatIdentifierInput struct {
@@ -70,7 +71,7 @@ func (s *Service) AddGoatIdentifier(ctx context.Context, input AddGoatIdentifier
 	route := fmt.Sprintf("/admin/goats/%s/identifiers", goatID)
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, addGoatIdentifierCommand, route, goatID, input.RawBody)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("add goat identifier: canonical request hash failed: %w", err)
 	}
 	isPrimary := false
 	if body.IsPrimaryForGoat != nil {
@@ -125,7 +126,7 @@ func (s *Service) RetireGoatIdentifier(ctx context.Context, input RetireGoatIden
 	subjectID := goatID + ":" + identifierID
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, retireGoatIdentifierCommand, route, subjectID, input.RawBody)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("retire goat identifier: canonical request hash failed: %w", err)
 	}
 	storedKey := fmt.Sprintf("%s:%s:%s:%s:%s", tenantID, retireGoatIdentifierCommand, goatID, identifierID, clientKey)
 	result, err := s.repo.RetireGoatIdentifier(ctx, ports.RetireGoatIdentifierCommand{
@@ -147,6 +148,112 @@ func (s *Service) RetireGoatIdentifier(ctx context.Context, input RetireGoatIden
 	}
 	return adminGoatResponse(result, clientKey, input.TraceID), nil
 }
+
+type PromoteTemporaryIdentifierInput struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	GoatID         string
+	RawBody        []byte
+}
+
+type promoteTemporaryIdentifierBody struct {
+	PermanentIdentifier string  `json:"permanent_identifier"`
+	AnimalIdentifier2   *string `json:"animal_identifier_2,omitempty"`
+	RowVersion          *int    `json:"row_version"`
+}
+
+// PromoteTemporaryIdentifier assigns a permanent RFID (animal_identifier_1) to a goat that currently
+// carries a temporary tag, atomically retiring the temp. Operator-facing: evidence is auto-derived
+// from the idempotency key (the source_record pattern the birth flow uses), so the phone posts only
+// the goat, the RFID, and the goat's row_version.
+func (s *Service) PromoteTemporaryIdentifier(ctx context.Context, input PromoteTemporaryIdentifierInput) (*domain.AdminGoatResponse, error) {
+	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	goatID := strings.TrimSpace(input.GoatID)
+	if !uuidPattern.MatchString(goatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a valid UUID")
+	}
+	body, err := decodePromoteTemporaryIdentifier(input.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	body.PermanentIdentifier = strings.TrimSpace(body.PermanentIdentifier)
+	if body.PermanentIdentifier == "" || len(body.PermanentIdentifier) > 200 {
+		return nil, BadRequest("invalid_permanent_identifier", "permanent_identifier must be between 1 and 200 characters")
+	}
+	if body.RowVersion == nil || *body.RowVersion < 1 {
+		return nil, BadRequest("invalid_row_version", "row_version must be at least 1")
+	}
+	// Optional second permanent RFID (animal_identifier_2), exactly like the birth flow. Absent or
+	// blank means only the primary is attached; when present it must be a valid distinct value.
+	secondaryValue := ""
+	secondaryNormalized := ""
+	if body.AnimalIdentifier2 != nil {
+		secondaryValue = strings.TrimSpace(*body.AnimalIdentifier2)
+		if secondaryValue != "" {
+			if len(secondaryValue) > 200 {
+				return nil, BadRequest("invalid_animal_identifier_2", "animal_identifier_2 must be between 1 and 200 characters")
+			}
+			if secondaryValue == body.PermanentIdentifier {
+				return nil, BadRequest("duplicate_animal_identifier_2", "animal_identifier_2 must differ from the primary RFID")
+			}
+			secondaryNormalized = normalizeIdentifier("animal_identifier_2", secondaryValue)
+		}
+	}
+	route := fmt.Sprintf("/app/counts/goats/%s/promote-identifier", goatID)
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, promoteTemporaryIdentifierCommand, route, goatID, input.RawBody)
+	if err != nil {
+		return nil, fmt.Errorf("promote temporary identifier: canonical request hash failed: %w", err)
+	}
+	// Evidence is the operator's own submission: a source_record whose id is the stable idempotency
+	// key, so the mutation is traceable to the exact phone submission across retries.
+	evidence := []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: clientKey, SourceSystem: ptrString("goatos_android")}}
+	storedKey := fmt.Sprintf("%s:%s:%s:%s", tenantID, promoteTemporaryIdentifierCommand, goatID, clientKey)
+	result, err := s.repo.PromoteTemporaryIdentifier(ctx, ports.PromoteTemporaryIdentifierCommand{
+		TenantID:             tenantID,
+		ActorID:              actorID,
+		ClientIdempotencyKey: clientKey,
+		StoredIdempotencyKey: storedKey,
+		IdempotencyScope:     promoteTemporaryIdentifierCommand,
+		RequestHash:          requestHash,
+		TraceID:              input.TraceID,
+		GoatID:               goatID,
+		PermanentValue:       body.PermanentIdentifier,
+		NormalizedValue:      normalizeIdentifier("animal_identifier_1", body.PermanentIdentifier),
+		SecondaryValue:       secondaryValue,
+		SecondaryNormalized:  secondaryNormalized,
+		EvidenceRefs:         evidence,
+		RowVersion:           *body.RowVersion,
+		Reason:               "Operator promoted a temporary tag to a permanent RFID.",
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return adminGoatResponse(result, clientKey, input.TraceID), nil
+}
+
+func decodePromoteTemporaryIdentifier(raw []byte) (*promoteTemporaryIdentifierBody, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body promoteTemporaryIdentifierBody
+	if err := decoder.Decode(&body); err != nil {
+		return nil, BadRequest("invalid_json", "request body must match PromoteTemporaryIdentifierRequest")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return &body, nil
+}
+
+func ptrString(v string) *string { return &v }
 
 func validateWriteHeaders(rawTenantID, rawActorID, rawClientKey string) (tenantID, actorID, clientKey string, err error) {
 	tenantID = strings.TrimSpace(rawTenantID)

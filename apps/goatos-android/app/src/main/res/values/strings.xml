@@ -1,12 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="proof_camera_title">Record vaccination proof</string>
-    <string name="proof_camera_instruction">Keep the shed and vaccination work clearly visible</string>
-    <string name="proof_camera_recording_time">Recording · %1$d s</string>
+    <string name="proof_camera_title">Record video proof</string>
+    <string name="proof_camera_instruction">Keep the subject and work clearly visible</string>
+    <string name="proof_camera_birth_title">Record birth video</string>
+    <string name="proof_camera_birth_instruction">Keep the animal and birth-care work clearly visible</string>
+    <string name="proof_camera_death_title">Record death video</string>
+    <string name="proof_camera_death_instruction">Keep the animal and ear tag clearly visible</string>
+    <string name="proof_camera_post_mortem_title">Record post-mortem video</string>
+    <string name="proof_camera_post_mortem_instruction">Keep the animal and post-mortem work clearly visible</string>
+    <string name="proof_camera_shifting_title">Record shifting video</string>
+    <string name="proof_camera_shifting_instruction">Keep the animals and destination shed clearly visible</string>
+    <string name="proof_camera_shifting_feed_given_title">Record feed being given</string>
+    <string name="proof_camera_shifting_feed_given_instruction">Keep the configured feed and the moved animals clearly visible while feeding</string>
+    <string name="proof_camera_feed_distribution_title">Record feed distribution</string>
+    <string name="proof_camera_feed_distribution_instruction">Keep the feed distribution work clearly visible</string>
+    <string name="proof_camera_water_distribution_title">Record water distribution</string>
+    <string name="proof_camera_water_distribution_instruction">Keep the water distribution work clearly visible</string>
+    <string name="proof_camera_feed_packing_title">Record feed packing</string>
+    <string name="proof_camera_feed_packing_instruction">Keep the feed packing work clearly visible</string>
+    <string name="proof_camera_milk_preparation_title">Record milk preparation step</string>
+    <string name="proof_camera_milk_preparation_instruction">Keep this preparation step and its measurement clearly visible</string>
+    <string name="proof_camera_recording_title">Record proof video</string>
+    <string name="proof_camera_auto_opened">Camera opened automatically for live proof</string>
+    <string name="proof_camera_live_proof">Live proof</string>
+    <string name="proof_camera_rec">REC</string>
+    <string name="proof_camera_stop_label">Stop recording</string>
+    <string name="proof_camera_start_label">Start recording</string>
+    <string name="proof_camera_recording_time">Recording · %1$s</string>
+    <string name="proof_camera_upload_background">Proof uploads in background</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>
     <string name="proof_camera_start_recording">Start proof recording</string>
     <string name="proof_camera_stop_recording">Stop and save proof recording</string>
     <string name="proof_camera_state_ready">Ready to record</string>
     <string name="proof_camera_state_recording">Recording</string>
+    <string name="proof_photo_title">Take proof photo</string>
+    <string name="proof_photo_instruction">Keep the proof subject clearly visible</string>
+    <string name="proof_photo_feed_weight_title">Take feed weight photo</string>
+    <string name="proof_photo_feed_weight_instruction">Keep the weighed feed clearly visible before it is given out</string>
+    <string name="proof_photo_take">Take photo</string>
+    <string name="proof_photo_cancel">Cancel photo capture</string>
+    <string name="submit_shed_success_toast">Shed proof submitted for review</string>
+    <string name="proof_camera_feed_transport_title">Feed transport video</string>
+    <string name="proof_camera_feed_transport_instruction">Record the feed being transported to this shed in real time.</string>
+    <string name="weighing_action_view_result">View result →</string>
+    <string name="weighing_action_record_shed">Record shed result →</string>
+    <string name="bootstrap_error_auth_session_expired">Your session ended. Please sign in again to continue.</string>
+    <string name="bootstrap_error_connectivity">Couldn\'t reach the server. Check your connection and try again.</string>
+    <string name="bootstrap_action_sign_in_again">Sign in again</string>
+    <string name="bootstrap_action_retry">Retry</string>
+    <string name="bootstrap_error_access_not_provisioned">Your access is not set up yet. Ask your manager to add you, then try again.</string>
+    <!-- Shown when an operator taps a shed whose work is already submitted (still awaiting
+         verification, or already accepted/closed): the shed stays visible until its drive
+         closes, but must not re-open the scan screen. See ShedRow.opensRecordOnly. -->
+    <string name="sheds_toast_already_submitted_fmt">%1$s is already submitted for verification</string>
 </resources>

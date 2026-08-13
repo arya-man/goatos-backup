@@ -74,6 +74,7 @@ type ObligationWriter interface {
 	// recovery date that the database did not apply.
 	DeferOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	ReopenDeferredObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error)
+	RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
@@ -584,7 +585,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		return res, err
 	}
 	runOpts := baseOpts
-	runOpts.campaignDueByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
+	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
 	}
@@ -843,10 +844,11 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 }
 
 type generationOptions struct {
-	ManualCampaignID  string
-	RunIDempotencyKey string
-	RunRequestHash    string
-	campaignDueByGoat map[string]time.Time
+	ManualCampaignID            string
+	RunIDempotencyKey           string
+	RunRequestHash              string
+	campaignDueByGoat           map[string]time.Time
+	cohortAlignedCampaignByGoat map[string]bool
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
@@ -858,6 +860,10 @@ type generationOptions struct {
 
 func campaignDueGoatKey(versionID, ruleID, goatID string) string {
 	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
+}
+
+func adultCampaignCohortKey(versionID, parkID, vaccineCode string) string {
+	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(parkID) + "\x00" + strings.ToLower(strings.TrimSpace(vaccineCode))
 }
 
 func adultCampaignStart(asOf time.Time) time.Time {
@@ -873,43 +879,55 @@ func isAdultCampaignRule(rule protodomain.Rule) bool {
 	return strings.Contains(doseCode, "_adult_") || strings.HasSuffix(doseCode, "_adult")
 }
 
-func hasPhysicalCampaignPartition(g domain.EligibleGoat) bool {
-	return strings.TrimSpace(g.ParkID) != "" && strings.TrimSpace(g.ShedID) != "" && strings.TrimSpace(g.PartitionLabel) != ""
+func isRecurringCampaignRule(rule protodomain.Rule) bool {
+	switch strings.ToLower(strings.TrimSpace(rule.Repeat)) {
+	case "every_n_days", "yearly":
+		return true
+	default:
+		return false
+	}
 }
 
-func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHistoryByGoat map[string][]domain.RecentVaccineAdministration) (map[string]time.Time, error) {
-	type candidate struct {
-		goatKey string
+func hasPhysicalCampaignPlacement(g domain.EligibleGoat) bool {
+	// The physical shed is the indivisible scheduling boundary. Partition metadata is optional:
+	// a goat placed in a real park/shed must not disappear from the normal adult campaign merely
+	// because the source did not divide that shed into named partitions.
+	return strings.TrimSpace(g.ParkID) != "" && strings.TrimSpace(g.ShedID) != ""
+}
+
+func hasPhysicalCampaignPartition(g domain.EligibleGoat) bool {
+	return hasPhysicalCampaignPlacement(g) && strings.TrimSpace(g.PartitionLabel) != ""
+}
+
+func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHistoryByGoat map[string][]domain.RecentVaccineAdministration) (map[string]time.Time, map[string]bool, error) {
+	type cohortWindow struct {
+		readyAt     time.Time
+		safeThrough time.Time
 	}
+	type candidate struct {
+		goatKey   string
+		cohortKey string
+	}
+	type cohortMember struct {
+		goatKey   string
+		cohortKey string
+	}
+	campaignStart := adultCampaignStart(asOf)
+	cohortWindows := make(map[string][]cohortWindow)
+	var cohortMembers []cohortMember
 	var candidates []candidate
 	for _, plan := range plans {
-		path := schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf, vaccineHistoryByGoat[plan.goat.GoatID])
+		history := vaccineHistoryByGoat[plan.goat.GoatID]
+		path := schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf, history)
 		for _, rule := range plan.rules {
-			triggerType := strings.TrimSpace(rule.TriggerType)
-			if !strings.EqualFold(triggerType, "post_arrival") && !strings.EqualFold(triggerType, "manual_campaign") {
-				continue
-			}
-			if !isAdultCampaignRule(rule) {
-				continue
-			}
-			if !hasPhysicalCampaignPartition(plan.goat) {
-				continue
-			}
-			ruleEligibility, _, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
+			ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if !goatMatchesEligibility(plan.goat, ruleEligibility, plan.policies.Pregnancy, asOf) {
 				continue
 			}
 			if !ruleMatchesSchedulePath(rule, path) {
-				continue
-			}
-			_, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
-			if err != nil {
-				return nil, err
-			}
-			if hasVaccineAdministrationHistory(ruleVaccine, vaccineHistoryByGoat[plan.goat.GoatID]) {
 				continue
 			}
 			rowDeferStates := ruleEligibility.DeferStates
@@ -919,20 +937,101 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if deferredReason(plan.goat, rowDeferStates) != "" || policyDeferReason(plan.goat, plan.policies, asOf) != "" {
 				continue
 			}
+
+			// Adults without accepted history belong to the next compatible normal drive for
+			// this vaccine and park. Derive that drive from the intersection of the existing
+			// repeat cohort's readiness/safety windows; verifier/director workflow time is not
+			// involved because the history reader exposes the medical administered_at instant.
+			if path == schedulePathAdultProcurement && hasPhysicalCampaignPlacement(plan.goat) &&
+				strings.EqualFold(strings.TrimSpace(rule.TriggerType), "after_previous_completion") &&
+				isRecurringCampaignRule(rule) {
+				wait, err := repeatMustWaitForPrimaryCourse(rule, ruleVaccine, plan.rules, plan.eligibility, plan.vaccineProfile, path, history)
+				if err != nil {
+					return nil, nil, err
+				}
+				if !wait {
+					if due, found := dueAfterPreviousCompletion(rule, ruleVaccine, history); found {
+						safeThrough := due
+						if rule.DueWindowDays > 0 {
+							safeThrough = businessDayStart(due).AddDate(0, 0, int(rule.DueWindowDays))
+						}
+						if due.Before(campaignStart) {
+							due = campaignStart
+						}
+						cohortKey := adultCampaignCohortKey(plan.versionID, plan.goat.ParkID, ruleVaccine.Code)
+						cohortWindows[cohortKey] = append(cohortWindows[cohortKey], cohortWindow{readyAt: due, safeThrough: safeThrough})
+						cohortMembers = append(cohortMembers, cohortMember{
+							goatKey:   campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
+							cohortKey: cohortKey,
+						})
+					}
+				}
+			}
+
+			triggerType := strings.TrimSpace(rule.TriggerType)
+			if !strings.EqualFold(triggerType, "post_arrival") && !strings.EqualFold(triggerType, "manual_campaign") {
+				continue
+			}
+			if !isAdultCampaignRule(rule) {
+				continue
+			}
+			if strings.EqualFold(triggerType, "manual_campaign") {
+				if !hasPhysicalCampaignPlacement(plan.goat) {
+					continue
+				}
+			} else if !hasPhysicalCampaignPartition(plan.goat) {
+				continue
+			}
+			if hasVaccineAdministrationHistory(ruleVaccine, history) {
+				continue
+			}
 			candidates = append(candidates, candidate{
-				goatKey: campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
+				goatKey:   campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
+				cohortKey: adultCampaignCohortKey(plan.versionID, plan.goat.ParkID, ruleVaccine.Code),
 			})
 		}
 	}
-	if len(candidates) == 0 {
-		return nil, nil
+	if len(candidates) == 0 && len(cohortMembers) == 0 {
+		return nil, nil, nil
 	}
-	campaignDate := adultCampaignStart(asOf)
-	out := make(map[string]time.Time, len(candidates))
+	cohortDates := make(map[string]time.Time, len(cohortWindows))
+	for cohortKey, windows := range cohortWindows {
+		if len(windows) == 0 {
+			continue
+		}
+		latestReady := windows[0].readyAt
+		earliestSafe := windows[0].safeThrough
+		for _, window := range windows[1:] {
+			if window.readyAt.After(latestReady) {
+				latestReady = window.readyAt
+			}
+			if window.safeThrough.Before(earliestSafe) {
+				earliestSafe = window.safeThrough
+			}
+		}
+		if !latestReady.After(earliestSafe) {
+			cohortDates[cohortKey] = latestReady
+		}
+	}
+	out := make(map[string]time.Time, len(candidates)+len(cohortMembers))
+	aligned := make(map[string]bool, len(candidates)+len(cohortMembers))
+	for _, member := range cohortMembers {
+		if cohortDate, found := cohortDates[member.cohortKey]; found {
+			out[member.goatKey] = cohortDate
+			aligned[member.goatKey] = true
+		}
+	}
 	for _, c := range candidates {
+		campaignDate := campaignStart
+		// Missing-history adults follow the established normal drive for this
+		// vaccine and park. They do not form an earlier offset-based micro-drive.
+		if cohortDate, found := cohortDates[c.cohortKey]; found {
+			campaignDate = cohortDate
+			aligned[c.goatKey] = true
+		}
 		out[c.goatKey] = campaignDate
 	}
-	return out, nil
+	return out, aligned, nil
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
@@ -1033,7 +1132,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		return res, err
 	}
 	runOpts := opts
-	runOpts.campaignDueByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
+	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
 	}
@@ -1153,7 +1252,7 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 			if !ruleMatchesSchedulePath(rule, schedulePathForGoat(plan.goat, plan.policies.Procurement, asOf, vaccineHistoryByGoat[plan.goat.GoatID])) {
 				continue
 			}
-			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts, plan.policies)
+			due, ok, skip := dueAt(plan.versionID, rule, plan.goat, asOf, plan.opts, plan.policies)
 			if skip {
 				// A missing DOB/entry date cannot erase accepted history. Non-repeat
 				// evidence matching does not use the candidate due date, so include a
@@ -1286,6 +1385,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// must still be scheduled from its own anchor (VACC-REV-06).
 		if isPrimaryCourseRule(rule) && hasSameDoseAdministration(rule, ruleVaccine, vaccineHistory) {
 			res.SuppressedByTrustedHistory++
+			// A normal adult blank-history campaign uses a stable key so a later drive-date
+			// recalculation cannot duplicate it. If accepted medical history arrives on a later
+			// verification pass, that same stable row must be retired before the repeat course is
+			// generated; verifier/director delay never makes the already-administered primary due.
+			if stableKey := stableAdultCampaignObligationKey(tenantID, versionID, rule, g); stableKey != "" {
+				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, stableKey, "vaccine_history_outranks_adult_campaign", asOf); err != nil {
+					return err
+				}
+			}
 			// Supersede any stale no-anchor catch-up placeholder for THIS dose from an earlier pass so
 			// history + a later DOB fix never leave a duplicate of the already-given dose behind.
 			if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
@@ -1303,7 +1411,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			baseDue = courseDue
 			ok = true
 		} else {
-			baseDue, ok, skip = dueAt(rule, g, asOf, opts, policies)
+			baseDue, ok, skip = dueAt(versionID, rule, g, asOf, opts, policies)
 		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
@@ -1410,7 +1518,29 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		if override, found := opts.campaignDueByGoat[campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)]; found {
+		supersededCampaignKey := ""
+		campaignKey := campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)
+		cohortCampaignRealignment := false
+		if override, found := opts.campaignDueByGoat[campaignKey]; found {
+			cohortCampaignRealignment = opts.cohortAlignedCampaignByGoat[campaignKey] && isStableAdultCampaignObligationKey(rule, g)
+			if !baseDue.Equal(override) && !isStableAdultCampaignObligationKey(rule, g) {
+				legacyBaseDue := baseDue
+				if isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+					campaignStart := adultCampaignStart(asOf)
+					if legacyBaseDue.Before(campaignStart) {
+						legacyBaseDue = campaignStart
+					}
+				}
+				supersededCampaignKey = obligationKey(
+					tenantID,
+					versionID,
+					rule.RuleID,
+					"goat",
+					g.GoatID,
+					obligationKeyDue(rule, legacyBaseDue, legacyBaseDue).UTC().Format(time.RFC3339),
+					strconv.Itoa(int(rule.Sequence)),
+				)
+			}
 			baseDue = override
 		}
 		if isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
@@ -1516,6 +1646,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if err != nil {
 			return err
 		}
+		if supersededCampaignKey != "" && supersededCampaignKey != key {
+			if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, supersededCampaignKey, "adult_campaign_date_realigned", asOf); err != nil {
+				return err
+			}
+		}
 		if !applied {
 			// R2-01: reconcile this obligation's persisted state FIRST (missing-key cancel, then
 			// defer or recovery-reopen), and only THEN append it to `pending` for co-due cross-vaccine
@@ -1528,6 +1663,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			var reschedule *obldomain.RecoveryReschedule
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
+					return err
+				}
+			}
+			if cohortCampaignRealignment && !deferred {
+				if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, key, due, newObligation.WindowEnd, asOf); err != nil {
 					return err
 				}
 			}
@@ -1976,7 +2116,22 @@ func isStableAdultCampaignObligationKey(rule protodomain.Rule, g domain.Eligible
 	if repeat != "" && !strings.EqualFold(repeat, "none") {
 		return false
 	}
-	return isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g)
+	return isAdultCampaignRule(rule) && hasPhysicalCampaignPlacement(g)
+}
+
+func stableAdultCampaignObligationKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat) string {
+	if !isStableAdultCampaignObligationKey(rule, g) {
+		return ""
+	}
+	return obligationKey(
+		tenantID,
+		versionID,
+		rule.RuleID,
+		"goat",
+		g.GoatID,
+		"adult_campaign",
+		strconv.Itoa(int(rule.Sequence)),
+	)
 }
 
 func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
@@ -2177,7 +2332,7 @@ func obligationWindowEnd(rule protodomain.Rule, due time.Time) *time.Time {
 	return &end
 }
 
-func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies) (due time.Time, ok bool, skip bool) {
+func dueAt(versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies) (due time.Time, ok bool, skip bool) {
 	switch rule.TriggerType {
 	case "birth_age":
 		if g.DOB == nil {
@@ -2193,6 +2348,13 @@ func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts ge
 		return businessDayStart(asOf).AddDate(0, 0, int(rule.OffsetDays)), true, false
 	case "manual_campaign":
 		if opts.ManualCampaignID == "" {
+			// Adult blank-history rows are normal schedule work. campaignDueOverrides has already
+			// admitted only eligible adults with a real physical-shed placement and no accepted
+			// same-vaccine history, so materialize them during ordinary generation. The explicit
+			// manual-campaign command remains available for non-adult/manual-only rule rows.
+			if campaignDue, found := opts.campaignDueByGoat[campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)]; found {
+				return campaignDue, true, false
+			}
 			return time.Time{}, false, false
 		}
 		return businessDayStart(asOf).AddDate(0, 0, int(rule.OffsetDays)), true, false

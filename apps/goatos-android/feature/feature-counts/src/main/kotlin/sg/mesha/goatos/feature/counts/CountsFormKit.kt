@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DatePicker
@@ -108,6 +109,14 @@ internal fun CountsTextField(
     /** True for a picker-backed field (e.g. [CountsDateField]): blocks the keyboard so the only
      * way to change the value is the picker, while still rendering/tapping like every other field. */
     readOnly: Boolean = false,
+    /** Optional end-slot control (e.g. the RFID scan toggle in [CountsRfidField]). */
+    trailingIcon: @Composable (() -> Unit)? = null,
+    /**
+     * False for a free-text note that should wrap and grow instead of scrolling sideways in a
+     * one-line box. Every identifier/quantity field stays single-line, which is why that is the
+     * default.
+     */
+    singleLine: Boolean = true,
 ) {
     // Modernized to a tonal filled field (no hairline border) matching the mock's coherent
     // form chrome; behavior/params are unchanged so every screen benefits without call-site edits.
@@ -117,12 +126,17 @@ internal fun CountsTextField(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 54.dp),
-        singleLine = true,
+        singleLine = singleLine,
+        // Bounded on both ends: tall enough that a note does not feel like a one-line box, capped
+        // so a long note scrolls inside the field instead of pushing Submit off the form.
+        minLines = if (singleLine) 1 else 3,
+        maxLines = if (singleLine) 1 else 6,
         readOnly = readOnly,
         isError = isError,
         shape = RoundedCornerShape(14.dp),
         label = { Text(if (required) "$label *" else label) },
         supportingText = supporting?.let { { Text(it) } },
+        trailingIcon = trailingIcon,
         keyboardOptions = KeyboardOptions(
             keyboardType = if (numeric) KeyboardType.Number else KeyboardType.Text,
         ),
@@ -139,6 +153,82 @@ internal fun CountsTextField(
             cursorColor = MeshaColors.Brand,
         ),
     )
+}
+
+/**
+ * A permanent-RFID field: the ordinary [CountsTextField] plus a Bluetooth scan toggle, so an
+ * operator attaching an ear tag can SCAN the identifier instead of reading 15 digits off a tag and
+ * typing them into a phone in a shed.
+ *
+ * The reader is the V1 Bluetooth HID keyboard-wedge scanner
+ * (`docs/mobile/rfid-keyboard-reader.md`): Android owns the HID connection, and the owning
+ * ViewModel toggles capture through `ScanSource` — exactly the port the Submit recording form's
+ * `goat_scan` field already uses. This composable stays presentational: it renders [scanning] and
+ * reports taps, and never imports Bluetooth/InputManager itself (the device-port boundary).
+ *
+ * Typing stays available. The scanner is an input convenience, not a gate — a dead reader battery
+ * must never block a birth record, so the field is never read-only.
+ */
+@Composable
+internal fun CountsRfidField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    scanning: Boolean,
+    onToggleScan: () -> Unit,
+    modifier: Modifier = Modifier,
+    required: Boolean = false,
+    supporting: String? = null,
+    isError: Boolean = false,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        CountsTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label,
+            required = required,
+            supporting = supporting,
+            isError = isError,
+            trailingIcon = {
+                // 48dp touch target around a 38dp chip: an operator taps this wearing gloves, and
+                // the a11y minimum is the TOUCH area, not the painted one.
+                Box(
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(onClick = onToggleScan),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(if (scanning) MeshaColors.Brand else MeshaColors.BrandTint),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = MeshaIcons.Bluetooth,
+                            contentDescription = stringResource(
+                                if (scanning) R.string.counts_rfid_scan_stop else R.string.counts_rfid_scan_start,
+                            ),
+                            tint = if (scanning) MeshaColors.OnBrand else MeshaColors.Brand,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            },
+        )
+        if (scanning) {
+            Text(
+                text = stringResource(R.string.counts_rfid_scan_listening),
+                color = MeshaColors.Brand,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.W700,
+                modifier = Modifier.padding(start = 14.dp, top = 2.dp),
+            )
+        }
+    }
 }
 
 /**
@@ -162,16 +252,29 @@ internal fun CountsDateField(
     isError: Boolean = false,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
-    CountsTextField(
-        value = value,
-        onValueChange = {}, // read-only: the picker is the only way to change this field
-        label = label,
-        modifier = modifier.clickable { pickerOpen = true },
-        required = required,
-        supporting = supporting,
-        isError = isError,
-        readOnly = true,
-    )
+    // A read-only OutlinedTextField still consumes the tap for focus, so a `.clickable` on the
+    // field's own modifier never fires and the picker never opens. Overlay a transparent, top-most
+    // click target (matchParentSize, no ripple) that reliably captures the tap and opens the picker.
+    Box(modifier = modifier.fillMaxWidth()) {
+        CountsTextField(
+            value = value,
+            onValueChange = {}, // read-only: the picker is the only way to change this field
+            label = label,
+            modifier = Modifier.fillMaxWidth(),
+            required = required,
+            supporting = supporting,
+            isError = isError,
+            readOnly = true,
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { pickerOpen = true },
+        )
+    }
     if (pickerOpen) {
         val initialMillis = value.toEpochMillisOrNull()
             ?: Instant.now().toEpochMilli()

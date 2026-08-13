@@ -146,6 +146,8 @@ CI guard itself checks.
 | `NoopCrashReporter` | `CrashReporter.kt` | DI fallback, same gating as `NoopAnalytics`. |
 | `FirebaseCrashReporter` | `FirebaseCrashReporter.kt` | Real `CrashReporter` backed by `com.google.firebase.crashlytics.FirebaseCrashlytics`, bound via `di/TelemetryModule.kt`. |
 | `recordException` | any call site | The actual non-fatal-report invocation the guard looks for. |
+| `FailureReportingNetworkTelemetryReporter` | `FailureReportingNetworkTelemetryReporter.kt`, bound in `di/TelemetryModule.kt` | **Structural** API-failure coverage. Decorates the `NetworkTelemetryReporter` seam that `TelemetryInterceptor` already invokes for every OkHttp call, and on `status >= 400` (or `-1`, meaning the call threw before any response) emits: a logcat WARN, a Crashlytics breadcrumb, an `AnalyticsEvents.API_CALL_FAILURE` event, and a Crashlytics non-fatal throttled to one per `(method, route, status)` per minute. Because it sits at the interceptor, a new screen that forgets its own `recordException` still produces API-failure signal. Only the Firebase **Performance** delegate is gated on `TELEMETRY_ENABLED` — the failure half runs on every flavor, so logcat is never silent during a retry storm. |
+| `FailureReportingOutboxTelemetryReporter` | `FailureReportingOutboxTelemetryReporter.kt`, bound in `di/AppModule.kt` | **Structural** coverage for writes that never reach the network at all — the half the row above explicitly cannot see. Implements the `OutboxTelemetryReporter` port (`:core:core-common`), which `SyncRepository.enqueue` and `SyncEngine.processItem`/`recordFailure` emit from, so every queued write announces `ENQUEUED`, `ATTEMPT_STARTED`, `ATTEMPT_FAILED`, `RETRY_SCHEDULED` and `TERMINAL`. Every phase produces a logcat WARN (tag `GoatOsOutbox`) and a Crashlytics breadcrumb; `ATTEMPT_FAILED` also emits `AnalyticsEvents.SYNC_WRITE_ATTEMPT_FAILED`; `TERMINAL` — data that will never be sent — emits `AnalyticsEvents.SYNC_WRITE_DEAD` plus a Crashlytics non-fatal throttled to one per `(opType, terminalReason, failureClass)` per minute. Runs on every flavor: before this, a proof upload could retry for minutes with zero device-side evidence and could only be diagnosed from the server log and Postgres. Never carries a payload, the server's error copy, a token, or an Authorization header. |
 
 **Android — funnel steps (`AnalyticsFunnels` helper):**
 
@@ -167,6 +169,8 @@ CI guard itself checks.
 |---|---|---|
 | Feature call sites for `AnalyticsFunnels` | **TODO** | `AnalyticsFunnels.kt`'s own docstring is explicit that feature-calendar (drive-open), feature-scan (`ScanViewModel`), feature-record (`RecordViewModel`), and feature-submit call sites are **not** wired by that file — they are owned by the parallel mobile-feature session. Until each feature calls the matching `AnalyticsFunnels.track*` helper, that funnel stage has no signal even though the helper exists. |
 | Per-route Faro custom events on admin-web | **TODO** | Crash/error coverage is global (§2.2, §3.1), but individual `page.tsx` routes mostly do not yet call `faro.api.pushEvent`/`trackEvent` for their primary user action. This is why `admin_web` stays `mode: "warn"` in the guard config — see §2.2. |
+| Writes that never reach the network produce no signal | **CLOSED** | Previously: the OkHttp seam only sees calls that were actually made, so a write stuck in the durable outbox — queue stalled, group head failing, attempts exhausted — emitted nothing at all. Closed by `FailureReportingOutboxTelemetryReporter` (§3.1) on the client and by the `outbox_message_dead_lettered` / `outbox_message_permanently_failed` / `outbox_messages_dead_lettered_on_claim` ERROR logs in `backend/internal/outbox/app/service.go` on the server, where abandoned domain events had previously been recorded only as metric counters. |
+| ExoPlayer media requests bypass every network seam | **TODO** | `VerifyDetailScreen.kt` and `WeighingLeadershipVideosScreen.kt` build players with `ExoPlayer.Builder(context).build()`, which uses media3's `DefaultHttpDataSource` — **not** the app's OkHttp client. Proof-video fetches therefore never reach `TelemetryInterceptor`, so neither Firebase Perf's OkHttp instrumentation nor `FailureReportingNetworkTelemetryReporter` sees them. A burst of HTTP 500s on a proof object surfaces on the client only if media3 gives up entirely and raises `onPlayerError` (→ `VERIFY_VIDEO_PLAYBACK_ERROR`); retries below that threshold are invisible on-device, and the server log is the only evidence. Fix requires adding the `androidx.media3:media3-datasource-okhttp` dependency and passing an `OkHttpDataSource.Factory` built from the injected client — a dependency addition, deliberately not bundled into the guardrail change that documented it. |
 | `apps/goatos-android/docs/TELEMETRY.md` | **TODO (other lane)** | Referenced by several Android source docstrings as the call-site-level reference doc; does not exist in this repo yet. Owned by the mobile analytics lane, not this guardrail lane — this doc intentionally does not create it (see the top of §3). |
 
 ### 3.3 Marker list used by the guard
@@ -281,6 +285,34 @@ above, not missing crash coverage.
 
 ## 6. How the CI guard works
 
+### 6.0 What the guard CANNOT see (read this before trusting a PASS)
+
+The guard is a **substring-presence check over a git diff**. It proves a
+marker string appears; it can never prove telemetry works. Specifically it
+cannot see:
+
+- **Whether the call is on the path that actually runs.** A file containing
+  `analytics.track(...)` in a branch nothing reaches passes.
+- **Sibling contamination.** `sibling_lookup: true` means a marker in ANY
+  `.kt` in the same directory satisfies every `Screen.kt`/`ViewModel.kt` in
+  that directory. One instrumented file can carry a whole package.
+- **Whether the port is a real vendor impl or a `Noop`.** `NoopAnalytics` /
+  `NoopCrashReporter` are bound for any flavor without `TELEMETRY_ENABLED`,
+  and they are silent — no logcat, no local echo. A PASS says nothing about
+  whether an event leaves the device.
+- **Anything outside the diff.** Untouched screens are never re-checked, so
+  the guard reports no backlog; use `make telemetry-guard-audit` (`--all`)
+  for that.
+- **Non-OkHttp network paths.** See §3.2's ExoPlayer row.
+- **The backend entirely.** There is no guard on backend log coverage; the
+  `http_4xx`/`http_5xx` lines in `platform/httpresponse` are covered by unit
+  tests, not by this script.
+
+Treat a PASS as "nobody removed the markers", not as "this failure will be
+visible".
+
+### 6.1 Mechanics
+
 Local CI script: `tools/telemetry-guard/telemetry-guard.py` (Python 3,
 stdlib only). Config: `tools/telemetry-guard/config.json`. Tests:
 `tools/telemetry-guard/test_telemetry_guard.py`. Full usage in
@@ -332,9 +364,322 @@ platform availability.
 Running `make telemetry-guard-audit` against the current tree surfaces real,
 pre-existing gaps (most admin-web routes have no per-route Faro event call
 yet; several Android screens predate this rule and predate the
-`CrashReporter`/`AnalyticsFunnels` seams). That is expected — the guard is
-**diff-scoped by default** so it only blocks *new or changed* surfaces going
-forward; it does not retroactively fail the whole repo. Closing the backlog
-(wiring per-route Faro events, wiring `AnalyticsFunnels`/`CrashReporter` into
-the remaining feature call sites) is tracked via §3.2's TODO list, not by
-making the guard stricter before the underlying SDK wiring exists.
+`CrashReporter`/`AnalyticsFunnels` seams). That is expected — `telemetry-guard`
+itself is **diff-scoped by default** so it only blocks *new or changed*
+surfaces going forward; it does not retroactively fail the whole repo on its
+own. The pre-existing backlog is **not**, however, left unenforced: a
+separate whole-tree shrink-only ratchet (`make telemetry-guard-ratchet`, IS
+wired into `make ci-local` via `guardrails`) fails if that backlog grows or if
+the checked-in baseline goes stale. See §9 and
+`docs/observability/GUARDRAIL_RATCHET.md` for the mechanism. Closing the
+backlog (wiring per-route Faro events, wiring
+`AnalyticsFunnels`/`CrashReporter` into the remaining feature call sites) is
+tracked via §3.2's TODO list; each fix should also shrink the ratchet
+baseline (`make telemetry-guard-ratchet-regenerate`).
+
+## 8. Companion rule: never swallow an exception (`exception-guard`)
+
+> Status: **enforced** (local CI, `make ci-local`) · Owner: platform/observability
+> Tool: `tools/exception-guard/exception_guard.py` (+ `exception-guard.py` CLI
+> entrypoint, `config.json`). Same diff-scoping machinery as §6, a distinct
+> escape-hatch marker, and a separate CI target — kept as a sibling guard
+> rather than folded into `telemetry-guard` because it checks control-flow
+> shapes (catch bodies, `if err != nil` blocks) instead of file-level marker
+> presence.
+
+**The maintainer's golden rule:** *"Never swallow any exception. Always
+either dump it into Firebase non-fatal errors (mobile) or backend logs
+(server)."*
+
+This is narrower than §1–§7 above (which govern user-facing *screens/routes*
+having analytics+crash+funnel wiring) and applies to **every** catch block or
+Go error check touched by a diff, screen or not: if code catches an
+exception or checks an `err`, it must either do something with it (record it,
+log it, wrap and return it) or explicitly mark why not.
+
+- **Mobile (Kotlin):** every caught exception must reach
+  `CrashReporter.recordException(throwable, message)` (or an equivalent
+  crash/analytics recording call — see the marker list in
+  `tools/exception-guard/config.json`), not just a `Log.x(...)`/`println`
+  call or a bare `return`/`emit(...)`.
+- **Backend (Go):** every checked `err != nil` must be logged
+  (`slog.Error`/`logger.Error`/…) or returned wrapped (`fmt.Errorf("...: %w",
+  err)`), not silently discarded (`_ = err`) or converted to an explicit
+  `return nil` success without a trace.
+
+### 8.1 Compliant vs non-compliant examples
+
+**Kotlin — non-compliant (swallowed):**
+
+```kotlin
+try {
+    syncRepository.push(item)
+} catch (e: IOException) {
+    // nothing — or just a log line
+    Log.e(TAG, "sync failed", e)
+}
+```
+
+**Kotlin — compliant:**
+
+```kotlin
+try {
+    syncRepository.push(item)
+} catch (e: IOException) {
+    CrashReporter.recordException(e, "sync push failed for ${item.id}")
+}
+```
+
+**Go — non-compliant (swallowed):**
+
+```go
+err := writeAuditRow(ctx, tx, evt)
+if err != nil {
+    return nil // error silently discarded, caller sees success
+}
+```
+
+**Go — compliant:**
+
+```go
+if err := writeAuditRow(ctx, tx, evt); err != nil {
+    return fmt.Errorf("write audit row: %w", err)
+}
+```
+
+### 8.2 Escape hatch
+
+A `// exception:exempt <reason>` comment (deliberately a **different marker**
+from `// telemetry:exempt <reason>` in §4, so the two guards' findings never
+get confused, but the same convention family — one comment style, one
+required freeform reason) inside or immediately preceding the catch/error
+block exempts it.
+
+### 8.3 Scope: diff-added lines only, never whole-repo
+
+Like `telemetry-guard`, this guard is **diff-scoped by default**
+(`origin/main...HEAD`, falling back to `HEAD~1...HEAD`) — but it goes one
+step further and only looks at **lines the diff actually added**, not whole
+changed files, because a changed file's *other*, untouched catch blocks are
+legacy debt this guard does not (and should not) retroactively fail. A commit
+that doesn't add or touch a swallowing catch/err-check passes instantly, even
+if the file it's in has other, older violations. `exception-guard-audit`
+(`--all`, full-tree scan) exists for a raw, unratcheted whole-tree listing.
+
+That legacy backlog is not left unenforced, though — see §9: a whole-tree
+shrink-only ratchet (`make exception-guard-ratchet`) IS wired into `make
+ci-local` and fails if the backlog grows past a checked-in baseline, or if
+the baseline goes stale relative to fixes.
+
+### 8.4 Deliberately NOT detected
+
+Tuned hard against false positives — when in doubt, this guard does **not**
+flag:
+
+- Multi-line catch bodies or `if err != nil` blocks with control flow beyond
+  a simple empty/log-only/bare-return/explicit-nil-return shape (best-effort
+  brace matching, not a real parser).
+- An error wrapped in a custom type and returned up the stack without a local
+  log call — that's a legitimate "log once, at the top layer" pattern; this
+  guard only flags a block that references `err` **nowhere at all**.
+- `if err != nil { return }` with a **bare** `return` (no value) — a common
+  Go guard-clause idiom ("bail out of this optional/logging helper, the
+  error was already handled by the caller or elsewhere"). Only an
+  **explicit** `return nil` (or `return ..., nil`) is flagged, because that
+  shape means the code affirmatively turned a real error into a reported
+  success. This narrowing exists because the guard's first run against this
+  repo's real (uncommitted) working-tree diff flagged two legitimate
+  success-only-logging guard clauses —
+  `backend/internal/sop/adapters/http/handler.go`'s `logSubmitOutcome` and
+  `backend/internal/weighing/adapters/http/handler.go`'s `logScanOutcome` —
+  as false positives; both bail out on error because the error was already
+  logged with full context by the caller's `respond`/`WriteError` path.
+- `_ = err` (or `_ = resp.Close()`-style discards) immediately after or on
+  the same line as a `.Close(`/`.Rollback(` call — conventionally safe to
+  discard in Go and not worth flagging.
+- Generic `Result<T>`/`Either`-style monadic error handling.
+- Test files: `*Test.kt`, `*_test.go`, and test directories are excluded
+  entirely (see `config.json`'s `exclude_globs`).
+
+### 8.5 Running it
+
+```bash
+python3 tools/exception-guard/exception-guard.py --self-test   # fixture suite
+python3 tools/exception-guard/exception-guard.py                # diff vs origin/main
+python3 tools/exception-guard/exception-guard.py --staged        # diff vs the index
+python3 tools/exception-guard/exception-guard.py --all           # whole-repo audit (visibility only)
+```
+
+`make exception-guard` runs the self-test then the diff-scoped check, and is
+chained into `make ci-local` the same way `make telemetry-guard` is. `make
+exception-guard-audit` runs the `--all` full-tree scan.
+
+## 9. Whole-tree enforcement: the shrink-only ratchet
+
+> Full mechanism, key format, and rationale: `docs/observability/GUARDRAIL_RATCHET.md`.
+> Driver: `tools/ci/ratchet-guard.py`. Wired in: `make ci-local` (via the
+> `guardrails` Makefile target) → `make exception-guard-ratchet` +
+> `make telemetry-guard-ratchet`.
+
+**The lesson this section exists to prevent recurring:** a diff-scoped guard
+(§6, §8.3) silently permits **unlimited pre-existing debt**. `telemetry-guard`
+and `exception-guard` only ever inspect lines a diff touches — that is
+correct and deliberate (day-one adoption without failing on legacy code) —
+but it means the `--all` whole-tree variants (`telemetry-guard-audit`,
+`exception-guard-audit`) were, for a long stretch of this repo's history,
+**not wired into anything**. An adversarial whole-tree audit found on the order of 150 `exception-guard`
+FAILs (Go + Kotlin combined) and 51 `telemetry-guard` FAILs (+24 WARNs)
+sitting in the tree with a permanently green `make ci-local`; the exact count
+moves as debt gets fixed (see the baseline files for the current number). A
+guard
+that cannot fail is documentation, not enforcement — and a diff-scoped-only
+guard, by construction, never fails on anything that was already there
+before the diff.
+
+The fix is **not** `--all` wired in directly (that would fail CI immediately
+and get someone to switch it off under time pressure). It is a **shrink-only
+ratchet**:
+
+1. Today's known violations are frozen into a committed baseline
+   (`tools/exception-guard/baseline.json`, `tools/telemetry-guard/baseline.json`),
+   keyed by **file + rule-kind, never line number** (line numbers churn on
+   unrelated edits and would desync the baseline).
+2. `make exception-guard-ratchet` / `make telemetry-guard-ratchet` run the
+   `--all --json` whole-tree scan and fail if any FAIL finding is **not** in
+   the baseline (new debt) — this is what actually blocks new swallowed
+   exceptions / missing telemetry anywhere in the tree, not just on touched
+   lines.
+3. They also fail if the baseline is **stale-high** — contains an entry that
+   no longer reproduces, meaning debt was fixed but the baseline was never
+   shrunk down. Without this, fixed debt would silently free up "budget" to
+   reintroduce an equivalent violation elsewhere without ever tripping the
+   ratchet.
+4. Every run prints the outstanding debt count, so it stays visible instead
+   of forgotten.
+
+**Regenerating the baseline is for shrinking it after a real fix** (`make
+exception-guard-ratchet-regenerate` / `make telemetry-guard-ratchet-regenerate`).
+**Adding a new entry to a baseline file to land code that trips the ratchet
+is not an accepted way to land new code** — if the ratchet fails on your
+change, fix the violation (add the recording/telemetry call, or a genuine
+`// exception:exempt <reason>` / `// telemetry:exempt <reason>`), don't widen
+the baseline.
+
+## Instrument the INTENT, not only the OUTCOME
+
+**A control that does nothing emits nothing.** Every event on a primary
+control in this app — video play, verdict submit, scan submit, shed close —
+used to hang off an async OUTCOME callback: a player listener, a repository
+result, a ViewModel side effect. That is a structural blind spot: if the
+callback never fires (a stuck ExoPlayer at `STATE_ENDED`/`STATE_IDLE` where
+`play()` is a silent no-op, a coroutine that swallows its own failure, a dead
+outbox write), there is no code path left to record anything. "The operator
+tapped it and nothing happened" becomes indistinguishable from "the operator
+never tapped it at all" — exactly the failure a verifier hit on real hardware
+tapping play on a finished proof video (2026-08-04).
+
+**The rule going forward:** a tap on a primary control must produce a
+telemetry record synchronously, at the click site, before the control can
+possibly no-op. The matching outcome — if there is one worth waiting for —
+gets a bounded timeout: if it doesn't land, that is itself a reportable event
+plus a non-fatal, not silence.
+
+### The pattern: `DeadControlWatchdog`
+
+`core/core-analytics/src/main/kotlin/sg/mesha/goatos/core/analytics/
+TelemetryWatchdog.kt` — one reusable class, not copy-pasted per feature:
+
+```kotlin
+val watchdog = DeadControlWatchdog(analytics, crashReporter, scope, intentEvent, deadControlEvent)
+
+// at the click site, BEFORE calling the control's action:
+watchdog.armIntent(contextProps, timeoutMs)
+
+// the moment the real outcome callback lands:
+watchdog.disarm()
+
+// on screen/ViewModel teardown, so leaving is never mistaken for a dead control:
+watchdog.cancel()
+```
+
+- `armIntent` fires the INTENT event immediately and starts one timer. A
+  second tap before the first resolves cancels-and-replaces the timer, so a
+  user mashing a genuinely dead button shows up as **repeated INTENT
+  events** (real signal) rather than a pile of overlapping dead-control
+  reports for one tap (noise).
+- If `disarm()` never arrives within `timeoutMs`, the watchdog fires BOTH a
+  distinct dead-control analytics event and a `CrashReporter.recordException`
+  non-fatal — never one without the other, and never swallowed.
+- `contextProps` must carry enough to act on the report without re-deriving
+  it: the relevant item/proof/task id, plus whatever state existed at tap
+  time (player state, armed/prepared, pending count).
+
+Event names for both halves follow the existing `snake_case` convention and
+are checked against Firebase's reserved-name list by inspection before
+landing (`session_start` was rejected outright and had to become
+`app_session_start` — see above); `AnalyticsFunnels` constants are the single
+source, never an inline string at a call site.
+
+### Applied so far
+
+| Control | Intent event | Dead-control event | Timeout | Why that window |
+|---|---|---|---|---|
+| Verify proof-video play/pause (inline + fullscreen) | `verify_video_play_intent` | `verify_video_play_dead` | 1500ms | Proof clips are seconds long and already buffered/streamed; a healthy tap responds in well under a second even from a cold decoder spin-up (`player.prepare()` on first tap). 1500ms absorbs that spin-up and a brief network stall without false-positiving, while staying short enough that a report is still useful — see `AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS`. |
+
+Owned by `VerifyDetailViewModel` (`app/src/main/kotlin/sg/mesha/goatos/
+viewmodel/VerifyDetailViewModel.kt`), one watchdog per proof id
+(`playWatchdogFor`), cancelled in `onCleared()`. The Composable
+(`feature/feature-verify/.../VerifyDetailScreen.kt`) stays a pure renderer —
+it only forwards `VerifyDetailEvent.VideoPlayback(action = PLAY_INTENT)`
+synchronously at the tap (before `player.play()`/`pause()`) and
+`PLAY_OUTCOME` synchronously from the player listener's
+`onIsPlayingChanged` (either direction) — the ViewModel decides what to do
+with those two signals.
+
+**Reviewed and deliberately NOT wired with a watchdog in this pass:**
+
+- **Approve/Reject verdict submit** (`VerifyDetailViewModel.submitVerdict`):
+  already emits `VERIFY_VERDICT_ATTEMPTED` synchronously at the tap, before
+  the outbox enqueue call — the INTENT half already exists. The OUTCOME half
+  (`VERIFY_VERDICT_SUCCEEDED`/`VERIFY_VERDICT_FAILED`) is driven by
+  `syncRepo.enqueueVerificationVerdict`'s direct `AppResult` return, not an
+  async callback that can be silently dropped — the coroutine that calls it
+  cannot "return nothing" the way a player listener can "never fire". Lower
+  risk; left as a follow-up rather than blocking this pass.
+- **Scan submit** (`feature-scan`) and **shed close/ack**
+  (`feature-verify`'s drive-close path): both are owned by parallel
+  workstreams per `AnalyticsFunnels.kt`'s existing "not wired here, see
+  `docs/TELEMETRY.md`" notes for `feature-scan`/`feature-record`, and were
+  out of scope for this pass to avoid colliding with in-flight changes to
+  those files. They are real candidates for the same pattern — the
+  dead-control class is intentionally reusable and takes no
+  verify-specific dependency — and should adopt `DeadControlWatchdog` the
+  next time those screens are touched, rather than reimplementing a
+  bespoke intent/timeout scheme.
+
+### Can the guard catch a missing INTENT event automatically?
+
+**Not reliably, and this doc says so rather than pretending otherwise.**
+`telemetry-guard.py` is a coarse, file-level check: "does this changed file
+contain at least one recognized tracking/funnel call". It has no notion of
+Compose click-handler bodies, no AST-level pairing of an `onClick =` lambda
+with the analytics call inside it, and no cross-file tracing from a
+Composable's `onClick` through an event/callback into the ViewModel that
+actually calls `AnalyticsFunnels.*` (exactly the shape used here — the intent
+event is one hop away from the click, in `VerifyDetailViewModel`, not inlined
+in the Composable). Building that would need a real Kotlin/Compose AST parser
+that understands lambda bodies and cross-function event flow — a
+meaningfully bigger tool than the current line/regex-based guard, and prone
+to false positives on any indirection (which is most of this codebase's
+architecture, by design: `feature-*` modules stay analytics-free per the
+"telemetry:exempt: pure stateless renderer" convention used throughout
+`feature-verify`).
+
+What the guard **can** and should keep doing: flag a changed
+user-facing-surface file with **zero** telemetry calls of any kind (today's
+check), and — as a possible future addition — flag a new `DeadControlWatchdog(`
+construction whose paired `armIntent(`/`disarm(` calls don't both appear
+in the same diff, since that pairing IS a simple textual co-occurrence check
+unlike inferring intent-at-click-site from scratch. That extension is not
+implemented in this pass; this paragraph exists so it isn't silently
+forgotten either.

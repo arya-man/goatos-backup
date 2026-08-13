@@ -87,6 +87,28 @@ func (s *Service) AcceptSubmissionItemVerification(ctx context.Context, tenantID
 	return mapRepoErr(s.repo.AcceptSubmissionItemVerification(ctx, tenantID, submissionID, goatID, actorID))
 }
 
+// ReopenTaskForRework mirrors AcceptSubmissionItemVerification's roll-up for the opposite verdict:
+// a verifier REJECTION reopens the per-goat/per-animal obligation (owning vertical's job), but the
+// parent sop_tasks row was left permanently stuck in the terminal 'accepted' state -- SubmitTask's
+// write path hard-refuses any submission against an 'accepted' task (write_conflict), so a shed
+// with genuinely outstanding rework became permanently unsubmittable. sop_tasks_state_check has
+// always allowed 'rework_requested' as an explicit pre-submit state (see the SubmitTask UPDATE's
+// WHERE state IN (...) list), but nothing ever transitioned a task into it. The repository owns the
+// atomic, idempotent, only-from-'accepted' guard; the composition-layer event bridge calls this
+// only after the owning vertical has applied its canonical rejection.
+func (s *Service) ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return err
+	}
+	if !uuidutil.IsUUIDString(strings.TrimSpace(submissionID)) {
+		return BadRequest("invalid_submission_id", "submission_id must be a UUID")
+	}
+	if !uuidutil.IsUUIDString(strings.TrimSpace(goatID)) {
+		return BadRequest("invalid_goat_id", "goat_id must be a UUID")
+	}
+	return mapRepoErr(s.repo.ReopenTaskForRework(ctx, tenantID, submissionID, goatID, actorID))
+}
+
 func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, traceID string) (*domain.SOPListResponse, error) {
 	if err := validateTenant(params.TenantID); err != nil {
 		return nil, err
@@ -447,24 +469,27 @@ func (s *Service) RetrySubmissionFanouts(ctx context.Context, tenantID string, l
 		return 0, mapRepoErr(err)
 	}
 	applied := 0
+	var errs []error
 	for _, attempt := range attempts {
 		task, _, submissions, err := s.repo.GetTask(ctx, tenantID, attempt.TaskID)
 		if err != nil {
-			return applied, mapRepoErr(err)
+			errs = append(errs, mapRepoErr(err))
+			continue
 		}
 		submission, ok := findSubmission(submissions, attempt.SubmissionID)
 		if !ok || !submissionFanoutNeeded(task) {
 			if err := s.repo.RecordSubmissionFanoutStatus(ctx, skippedSubmissionFanoutStatus(tenantID, attempt, task)); err != nil {
-				return applied, mapRepoErr(err)
+				errs = append(errs, mapRepoErr(err))
 			}
 			continue
 		}
 		if err := s.applySubmissionFanout(ctx, tenantID, task, submission, true); err != nil {
-			return applied, err
+			errs = append(errs, err)
+			continue
 		}
 		applied++
 	}
-	return applied, nil
+	return applied, errors.Join(errs...)
 }
 
 func (s *Service) ListAgedFailedSubmissionFanouts(ctx context.Context, tenantID string, olderThanMinutes, limit int, traceID string) (*domain.FailedSubmissionFanoutsResponse, error) {
@@ -497,9 +522,6 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
 		return nil, err
 	}
-	if !uuidutil.IsUUIDString(cmd.Body.SOPVersionID) {
-		return nil, BadRequest("invalid_sop_version_id", "sop_version_id must be a UUID")
-	}
 	cmd.Body.IdempotencyKey = strings.TrimSpace(cmd.Body.IdempotencyKey)
 	if cmd.Body.IdempotencyKey == "" {
 		return nil, BadRequest("invalid_idempotency_key", "idempotency_key is required")
@@ -507,6 +529,13 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	task, version, _, err := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
 	if err != nil {
 		return nil, mapRepoErr(err)
+	}
+	cmd.Body.SOPVersionID = strings.TrimSpace(cmd.Body.SOPVersionID)
+	if cmd.Body.SOPVersionID == "" {
+		cmd.Body.SOPVersionID = task.SOPVersionID
+	}
+	if !uuidutil.IsUUIDString(cmd.Body.SOPVersionID) {
+		return nil, BadRequest("invalid_sop_version_id", "sop_version_id must be a UUID")
 	}
 	if task.SOPVersionID != cmd.Body.SOPVersionID {
 		return nil, Conflict("stale_sop_version", "task requires a different pinned SOP version")
@@ -528,7 +557,11 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
 		if err != nil {
-			return nil, BadRequest("invalid_proof_refs", "proof_refs must reference server-issued proof records for this tenant")
+			// Typed on purpose: callers switch on the CODE. Wrapping this into a plain
+			// fmt.wrapError erased invalid_proof_refs and turned a 400 into a 500, which is
+			// what TestSubmitRejectsForgedProofRefsBeforeRepoWrite exists to catch. The cause
+			// still travels in the detail rather than being dropped.
+			return nil, BadRequest("invalid_proof_refs", fmt.Sprintf("proof_refs must reference server-issued proof records for this tenant: %v", err))
 		}
 		cmd.Body.ProofRefs = proofRefs
 	}
@@ -536,7 +569,21 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	proofPolicy := version.ProofPolicy
 	if submissionFanoutNeeded(task) {
 		gate := vaccinationCompletionProofGate(version.ProofPolicy)
-		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, submittedShedProofSubjectID(cmd.Body.ProofRefs), gate.MinimumCount, gate.MaximumCount)
+		shedProofSubjectID := submittedShedProofSubjectID(cmd.Body.ProofRefs)
+		if shedProofSubjectID == "" {
+			shedProofSubjectID = shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
+		}
+		if gate.SubjectType == "shed" && len(cmd.Body.ProofRefs) == 0 {
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel)
+			if err != nil {
+				return nil, mapRepoErr(err)
+			}
+			if len(proofRefs) == 1 {
+				cmd.Body.ProofRefs = proofRefs
+				shedProofSubjectID = submittedShedProofSubjectID(cmd.Body.ProofRefs)
+			}
+		}
+		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel, gate.MinimumCount, gate.MaximumCount)
 		if err != nil {
 			return nil, mapRepoErr(err)
 		}
@@ -553,7 +600,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		// attachment here.
 		proofPolicy = map[string]any{"required": false, "subject_scope": "task", "types": []any{"video"}, "minimum_count": 0}
 		if len(cmd.Body.ProofRefs) == 0 {
-			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType)
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel)
 			if err != nil {
 				return nil, mapRepoErr(err)
 			}
@@ -604,6 +651,16 @@ func submittedShedProofSubjectID(refs []domain.ProofReference) string {
 		}
 		if shedID := strings.TrimSpace(*ref.SubjectID); shedID != "" {
 			return shedID
+		}
+	}
+	return ""
+}
+
+func shedScopeFromSubmissionKey(key string) string {
+	parts := strings.Split(strings.TrimSpace(key), ":")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "scope" && uuidutil.IsUUIDString(parts[i+1]) {
+			return parts[i+1]
 		}
 	}
 	return ""
@@ -1317,7 +1374,8 @@ func repeatSourceField(formDSL map[string]any) string {
 	case map[string]any:
 		return stringValue(repeat, "source_field")
 	case nil:
-		return ""
+		// Newer form DSLs mark the repeated goat scan on the field itself instead of
+		// using the older top-level repeat_for_each_goat wrapper.
 	}
 	fields, _ := formDSL["fields"].([]any)
 	for _, raw := range fields {
@@ -2475,13 +2533,13 @@ func mapRepoErr(err error) error {
 	case errors.Is(err, ports.ErrNotFound):
 		return NotFound("not_found", "resource not found")
 	case errors.Is(err, ports.ErrConflict):
-		return Conflict("write_conflict", "resource changed or violates constraints")
+		return RetryableConflict("write_conflict", "resource changed or violates constraints")
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict", "idempotency key was reused for a different submission")
 	case errors.Is(err, ports.ErrDenied):
 		return Forbidden("permission_denied", "operation is not allowed")
 	case errors.Is(err, ports.ErrInvalidFilter):
-		return BadRequest("invalid_filter", "filter is invalid")
+		return RetryableConflict("stale_scan_roster", "scan roster changed; refresh and retry")
 	default:
 		return err
 	}

@@ -19,9 +19,26 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
+export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
+export type WeightDemographicBucket = AppApiComponents["schemas"]["WeighingWeightDemographicBucket"];
+export type WeightDemographicsResponse = AppApiComponents["schemas"]["WeighingWeightDemographicsResponse"];
+export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
+export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowthADGResponse"];
+export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
+export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
+export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
+export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
+export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
-export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"];
+export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"] & {
+  // The Go producer (processintegrity/domain.Row) emits BOTH of these; the generated client
+  // has not been regenerated since the schema gained them. Narrow extension rather than `any`
+  // so the call sites are type-checked today and need no edit when the client is regenerated.
+  // Both are optional here precisely because the generated type cannot yet prove them.
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+};
 export type ActionCenterResponse = AppApiComponents["schemas"]["ActionCenterResponse"];
 export type VaccinationQueueItem = AppApiComponents["schemas"]["VaccinationQueueItem"];
 export type VaccinationQueueResponse = AppApiComponents["schemas"]["VaccinationQueueResponse"];
@@ -37,7 +54,9 @@ export type ProcessIntegrityProofState = AppApiComponents["schemas"]["ProcessInt
 export type ProcessIntegrityVerificationState = AppApiComponents["schemas"]["ProcessIntegrityVerificationState"];
 export type CountByWorkState = AppApiComponents["schemas"]["CountByWorkState"];
 export type AdherenceSummary = AppApiComponents["schemas"]["AdherenceSummary"];
-export type AdherenceRow = AppApiComponents["schemas"]["AdherenceRow"];
+export type AdherenceRow = AppApiComponents["schemas"]["AdherenceRow"] & {
+  source_shed_name?: string | null;
+};
 export type ProtocolAdherenceResponse = AppApiComponents["schemas"]["ProtocolAdherenceResponse"];
 export type ControlTowerSummary = AppApiComponents["schemas"]["ControlTowerSummary"];
 export type ControlTowerAlert = AppApiComponents["schemas"]["ControlTowerAlert"];
@@ -59,13 +78,20 @@ export type ProofResponse = AppApiComponents["schemas"]["ProofResponse"];
 export type SubmissionResponse = AppApiComponents["schemas"]["SubmissionResponse"];
 
 export type VaccinationExecutionResponse = AppApiComponents["schemas"]["VaccinationExecutionResponse"];
-export type VaccinationExecutionRow = AppApiComponents["schemas"]["VaccinationExecutionRow"];
+export type VaccinationExecutionRow = AppApiComponents["schemas"]["VaccinationExecutionRow"] & {
+  operational_location_display?: string;
+};
 export type VaccinationOperationsResponse = AppApiComponents["schemas"]["VaccinationOperationsResponse"];
-export type VaccinationOperationsCohort = AppApiComponents["schemas"]["VaccinationOperationsCohort"];
+export type VaccinationOperationsCohort = AppApiComponents["schemas"]["VaccinationOperationsCohort"] & {
+  partitionLabel?: string;
+  operationalLocationDisplay?: string;
+};
 export type VaccinationOperationsProtocol = AppApiComponents["schemas"]["VaccinationOperationsProtocol"];
 export type VaccinationOperationsCell = AppApiComponents["schemas"]["VaccinationOperationsCell"];
 export type VaccinationOperationsCounts = AppApiComponents["schemas"]["VaccinationOperationsCounts"];
-export type VaccinationExecutionShedDrilldown = AppApiComponents["schemas"]["VaccinationExecutionShedDrilldown"];
+export type VaccinationExecutionShedDrilldown = AppApiComponents["schemas"]["VaccinationExecutionShedDrilldown"] & {
+  operationalLocationDisplay?: string;
+};
 export type VaccinationExecutionWorkState = AppApiComponents["schemas"]["VaccinationExecutionWorkState"];
 export type VaccinationExecutionSeverity = AppApiComponents["schemas"]["VaccinationExecutionSeverity"];
 export type VaccinationExecutionSOPStatus = AppApiComponents["schemas"]["VaccinationExecutionSOPStatus"];
@@ -74,8 +100,17 @@ export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]
 
 // Shed-wise vaccination read model (the main /vaccination table + shed detail + capacity planner).
 export type VaccinationShedSummaryResponse = AppApiComponents["schemas"]["VaccinationShedSummaryResponse"];
-export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"];
-export type VaccinationShedDetail = AppApiComponents["schemas"]["VaccinationShedDetail"];
+export type VaccinationLiveTrackerResponse = AppApiComponents["schemas"]["VaccinationLiveTrackerResponse"];
+export type VaccinationLiveTrackerStatus = NonNullable<
+  AppApiPaths["/vaccination/live-tracker"]["get"]["parameters"]["query"]
+>["status"];
+export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"] & {
+  partitionLabel?: string;
+  operationalLocationDisplay?: string;
+};
+export type VaccinationShedDetail = AppApiComponents["schemas"]["VaccinationShedDetail"] & {
+  source_shed_name?: string | null;
+};
 export type VaccinationShedVaccineRow = AppApiComponents["schemas"]["VaccinationShedVaccineRow"];
 export type VaccinationShedAnimalPage = AppApiComponents["schemas"]["VaccinationShedAnimalPage"];
 export type VaccinationShedAnimalRow = AppApiComponents["schemas"]["VaccinationShedAnimalRow"];
@@ -93,6 +128,14 @@ export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
 
+// CEO vaccination command board read model.
+export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
+export type VaccinationCommandBoardKPI = AppApiComponents["schemas"]["VaccinationCommandBoardKPI"];
+export type VaccinationCommandBoardCohortCell = AppApiComponents["schemas"]["VaccinationCommandBoardCohortCell"];
+export type ShedDoseMatrixCell = AppApiComponents["schemas"]["ShedDoseMatrixCell"];
+export type WeeklyGivenRow = AppApiComponents["schemas"]["WeeklyGivenRow"];
+export type VerificationQueueRow = AppApiComponents["schemas"]["VerificationQueueRow"];
+
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type CreateAdminGoatRequest = AdminApiComponents["schemas"]["CreateAdminGoatRequest"];
 export type AdminGoatBulkPreviewRequest = AdminApiComponents["schemas"]["AdminGoatBulkPreviewRequest"];
@@ -103,6 +146,9 @@ export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkS
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
 export type ReproductiveGoatRequest = AdminApiComponents["schemas"]["ReproductiveGoatRequest"];
+export type ReclassifyShedStageRequest = AdminApiComponents["schemas"]["ReclassifyShedStageRequest"];
+export type ReclassifyShedStagePreviewResponse = AdminApiComponents["schemas"]["ReclassifyShedStagePreviewResponse"];
+export type ReclassifyShedStageResponse = AdminApiComponents["schemas"]["ReclassifyShedStageResponse"];
 export type BulkStatusPreviewRequest = AdminApiComponents["schemas"]["BulkStatusPreviewRequest"];
 export type BulkStatusPreviewResponse = AdminApiComponents["schemas"]["BulkStatusPreviewResponse"];
 export type BulkStatusCommitRequest = AdminApiComponents["schemas"]["BulkStatusCommitRequest"];
@@ -142,10 +188,13 @@ export type TaskResponse = AdminApiComponents["schemas"]["TaskResponse"];
 export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest"];
 
 // Generic Verification vertical (context/architecture/verification-module-design.md +
-// verifier-app-and-flow.md). Admin-web is the AUTHORITY act surface: it reads the Verifier's
-// approve/reject queue and acts on the SOURCE task via the EXISTING /admin/tasks/{task_id}/verify|
-// rework|assign contract below — it never writes a verdict itself (that is the standalone Verifier
-// mobile app's job, gated on verification.review, built separately).
+// verifier-app-and-flow.md). /actions serves BOTH personas of that vertical, split by the page
+// contract's controls rather than by route:
+//   - the VERIFIER (verification.verdict -- that role ALONE) records the approve/reject verdict;
+//   - the AUTHORITY (verification.act) acts on the SOURCE task via /admin/tasks/{task_id}/rework
+//     |assign.
+// Admin-web gained the verdict half on 2026-08-03, when the verifier-only web workspace landed;
+// before that, verdicts were mobile-only.
 //
 // Real generated app-api types — the backend Verification module (1a) landed on main and the
 // client regenerated (`packages/api-client/src/generated/app-api.ts`,
@@ -155,8 +204,46 @@ export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest
 export type VerificationItemStatus = AppApiComponents["schemas"]["VerificationItemStatus"];
 export type VerificationSourceRef = AppApiComponents["schemas"]["VerificationSourceRef"];
 export type VerificationMediaItem = AppApiComponents["schemas"]["VerificationMediaItem"];
-export type VerificationQueueItem = AppApiComponents["schemas"]["VerificationQueueItem"];
-export type VerificationQueueResponse = AppApiComponents["schemas"]["VerificationQueueResponse"];
+export type VerificationQueueItem = AppApiComponents["schemas"]["VerificationQueueItem"] & {
+  verified_by_name?: string | null;
+};
+type VerificationQueueFilterOption = {
+  key: string;
+  label: string;
+};
+type VerificationActionTypeOption = {
+  category: string;
+  label: string;
+  module_label: string;
+};
+type VerificationStatusOption = {
+  key: string;
+  label: string;
+  status?: VerificationItemStatus | null;
+};
+type VerificationShedOption = {
+  id: string;
+  label: string;
+  park_label?: string | null;
+  operational_location_display?: string | null;
+};
+export type VerificationQueueResponse = Omit<AppApiComponents["schemas"]["VerificationQueueResponse"], "items" | "filter_options"> & {
+  items: VerificationQueueItem[];
+  filter_options: {
+    modules?: VerificationQueueFilterOption[];
+    module_key?: string | null;
+    action_types: VerificationActionTypeOption[];
+    statuses: VerificationStatusOption[];
+    sheds: VerificationShedOption[];
+    counts: Record<"pending" | "approved" | "rejected", number>;
+  };
+};
+export type VerificationDecision = AppApiComponents["schemas"]["VerificationDecision"];
+export type VerificationVerdictRequest = AppApiComponents["schemas"]["VerificationVerdictRequest"];
+export type VerificationVerdictResponse = AppApiComponents["schemas"]["VerificationVerdictResponse"];
+export type VerificationReviewEvent = AppApiComponents["schemas"]["VerificationReviewEvent"];
+export type VerificationReviewEventBatchRequest = AppApiComponents["schemas"]["VerificationReviewEventBatchRequest"];
+export type VerificationReviewEventBatchResponse = AppApiComponents["schemas"]["VerificationReviewEventBatchResponse"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -371,6 +458,43 @@ export async function requireAdminWebPageContract(routeId: string): Promise<Admi
   return page;
 }
 
+/**
+ * The first route this principal's compiled navigation actually offers — their landing.
+ *
+ * Returns null when the contract is unavailable (the shell renders its own contract-unavailable
+ * state) or the navigation is empty.
+ */
+export async function adminWebLandingHref(): Promise<string | null> {
+  const contract = await getAdminWebBootstrap();
+  if (!contract.ok) return null;
+  const first =
+    contract.data.navigation.primary.find((item) => item.enabled) ??
+    contract.data.navigation.groups.flatMap((group) => group.leaves).find((item) => item.enabled);
+  return first?.href ?? null;
+}
+
+/**
+ * Whether this principal's compiled navigation offers `href`.
+ *
+ * Contract-backed pages fail closed on their own: a principal who may not open one has no page
+ * contract for it, so requireAdminWebPageContract throws. A page that renders from LOCAL literal
+ * copy has no such contract to withhold, so it must ask this explicitly — otherwise it would render
+ * its module chrome to anyone who types the URL, even though its data calls 403. `/approvals` is
+ * the current instance; a future contract-less route needs the same call.
+ *
+ * Returns true when the contract is unavailable, leaving that failure to the shell rather than
+ * turning a backend hiccup into a spurious redirect.
+ */
+export async function adminWebRouteOffered(href: string): Promise<boolean> {
+  const contract = await getAdminWebBootstrap();
+  if (!contract.ok) return true;
+  const offered = [
+    ...contract.data.navigation.primary,
+    ...contract.data.navigation.groups.flatMap((group) => group.leaves),
+  ];
+  return offered.some((item) => item.enabled && item.href === href);
+}
+
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -435,6 +559,7 @@ export type CountsBreakdownParams = {
   farm_id?: string;
   park_id?: string;
   shed_id?: string;
+  partition_label?: string | null;
   management_stage?: string;
   breed?: string;
   sex?: string;
@@ -463,6 +588,104 @@ export async function getCountsBreakdown(
   );
 }
 
+export async function getMilkPreparation(params: {
+  park_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<MilkPreparationPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MilkPreparationPage>("/counts/milk-preparation", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Weighing — the admin-web Weights read-out.
+//
+// ONE request serves the whole screen. `summary` is a WHOLE-FILTER aggregate computed by the
+// backend over every shed in scope, so this layer must never re-derive a KPI by summing `rows`:
+// rows are bounded, the summary is not, and the two would silently disagree the moment the
+// estate outgrows the row cap.
+export async function getShedWeights(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<ShedWeightsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// Average weight by breed, sex and stage. The one weighing read that resolves a scanned tag
+// to its animal, so these three dimensions can exist at all.
+export async function getWeightDemographics(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<WeightDemographicsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeightDemographicsResponse>("/weighing/weight-demographics", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// The losing-kids list on the Weights page. Reuses the growth read model rather than adding a
+// second one: it already computes "kids whose latest pair of weighs went down", named by scanned
+// tag, which is exactly the table.
+export async function getWeighingGrowth(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<WeighingGrowthResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Growth Director — the analytics block under the Weights page. One request serves the whole
+// block; every aggregate (bands, medians, feed-per-kg ratios) is computed by the backend over the
+// whole filter, so this layer never re-derives a number from a row slice.
+export type GrowthDirectorWeightsResponse = AppApiComponents["schemas"]["GrowthDirectorWeightsResponse"];
+
+export async function getGrowthDirector(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<GrowthDirectorWeightsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<GrowthDirectorWeightsResponse>("/growth-director/weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Feed vertical — Direction, Packing and Config.
 //
@@ -480,14 +703,25 @@ export async function getCountsBreakdown(
 //
 // The read pages page by offset and get `has_more` rather than a total — counting the filtered set on
 // every request would be compute-on-read — so the pager is prev/next, not numbered.
-export type FeedDirectionPreviewPage = AppApiComponents["schemas"]["FeedDirectionPreviewPage"];
-export type FeedDirectionRow = AppApiComponents["schemas"]["FeedDirectionRow"];
+export type FeedDirectionPreviewPage = Omit<AppApiComponents["schemas"]["FeedDirectionPreviewPage"], "items"> & {
+  items: FeedDirectionRow[];
+};
+export type FeedDirectionRow = AppApiComponents["schemas"]["FeedDirectionRow"] & {
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+  blocked_reasons?: AppApiComponents["schemas"]["FeedDirectionItemQuantity"]["blocked_reason"][];
+};
 export type FeedDirectionItemQuantity = AppApiComponents["schemas"]["FeedDirectionItemQuantity"];
 export type FeedDirectionPreviewSummary = AppApiComponents["schemas"]["FeedDirectionPreviewSummary"];
 export type FeedDirectionLifecycle = AppApiComponents["schemas"]["FeedDirectionLifecycle"];
 export type FeedDirectionWorkflowLifecycle = AppApiComponents["schemas"]["FeedDirectionWorkflowLifecycle"];
-export type FeedPackingWorklistPage = AppApiComponents["schemas"]["FeedPackingWorklistPage"];
-export type FeedPackingRow = AppApiComponents["schemas"]["FeedPackingRow"];
+export type FeedPackingWorklistPage = Omit<AppApiComponents["schemas"]["FeedPackingWorklistPage"], "items"> & {
+  items: FeedPackingRow[];
+};
+export type FeedPackingRow = AppApiComponents["schemas"]["FeedPackingRow"] & {
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+};
 export type FeedConfigRationRatePage = AppApiComponents["schemas"]["FeedConfigRationRatePage"];
 export type FeedConfigRationRate = AppApiComponents["schemas"]["FeedConfigRationRate"];
 export type FeedConfigShedFactorPage = AppApiComponents["schemas"]["FeedConfigShedFactorPage"];
@@ -502,13 +736,103 @@ export type FeedConfigRationGroupPage = AppApiComponents["schemas"]["FeedConfigR
 export type FeedConfigShedTagPage = AppApiComponents["schemas"]["FeedConfigShedTagPage"];
 export type FeedConfigWriteResult = AppApiComponents["schemas"]["FeedConfigWriteResult"];
 export type UpsertFeedConfigRationRateRequest = AppApiComponents["schemas"]["UpsertFeedConfigRationRateRequest"];
+export type CreateFeedConfigFeedItemRequest = AppApiComponents["schemas"]["CreateFeedConfigFeedItemRequest"];
+export type SetFeedConfigFeedItemStatusRequest = AppApiComponents["schemas"]["SetFeedConfigFeedItemStatusRequest"];
 export type UpsertFeedConfigShedFactorRequest = AppApiComponents["schemas"]["UpsertFeedConfigShedFactorRequest"];
 export type UpsertFeedConfigScheduleRequest = AppApiComponents["schemas"]["UpsertFeedConfigScheduleRequest"];
-export type FeedConfigExperimentPage = AppApiComponents["schemas"]["FeedConfigExperimentPage"];
-export type FeedConfigExperiment = AppApiComponents["schemas"]["FeedConfigExperiment"];
-export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["UpsertFeedConfigExperimentRequest"];
+export type FeedConfigExperimentPage = Omit<AppApiComponents["schemas"]["FeedConfigExperimentPage"], "items"> & {
+  items: FeedConfigExperiment[];
+};
+export type FeedConfigExperiment = AppApiComponents["schemas"]["FeedConfigExperiment"] & {
+  partition_label?: string;
+  park_name?: string;
+  operational_location_display?: string;
+};
+export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["UpsertFeedConfigExperimentRequest"] & {
+  partition_label?: string;
+};
 export type SetFeedConfigExperimentShedStatusRequest =
-  AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
+  AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"] & {
+    partition_label?: string;
+  };
+export type FeedConfigPen = AppApiComponents["schemas"]["FeedConfigPen"];
+export type FeedConfigPenPage = AppApiComponents["schemas"]["FeedConfigPenPage"];
+export type UpsertFeedConfigExperimentBatchRequest =
+  AppApiComponents["schemas"]["UpsertFeedConfigExperimentBatchRequest"];
+
+export type HealthConfigProtocolRow = {
+  disease_key: string;
+  display_name: string;
+  age_band: "adult" | "kid";
+  duration_days: number;
+  step_count: number;
+  medication_count: number;
+  critical_action_count: number;
+  published_version_id?: string | null;
+  published_version?: number | null;
+  has_draft: boolean;
+  draft_version_id?: string | null;
+};
+export type HealthConfigProtocolPage = {
+  items: HealthConfigProtocolRow[];
+  next_cursor?: string | null;
+};
+export type HealthConfigStep = {
+  step_id?: string | null;
+  day_no: number;
+  seq: number;
+  session?: string | null;
+  record_type?: string | null;
+  medicine_name?: string | null;
+  dosage_text?: string | null;
+  dosage_denominator?: string | null;
+  medicine_route?: string | null;
+  instruction?: string | null;
+  critical_action_type?: string | null;
+};
+export type HealthConfigVersionSummary = {
+  protocol_version_id: string;
+  version: number;
+  status: "draft" | "published" | "retired";
+  step_count: number;
+  duration_days: number;
+  published_at?: string | null;
+};
+export type HealthConfigProtocolDetail = {
+  protocol_version_id: string;
+  disease_key: string;
+  display_name: string;
+  age_band: "adult" | "kid";
+  status: "draft" | "published" | "retired";
+  version: number;
+  duration_days: number;
+  open_case_count: number;
+  row_version?: string | null;
+  steps?: HealthConfigStep[];
+  history?: HealthConfigVersionSummary[];
+};
+export type HealthConfigWriteResult = {
+  outcome: string;
+};
+export type HealthConfigFieldError = {
+  field: string;
+  message: string;
+};
+export type CreateHealthConfigDiseaseRequest = {
+  display_name: string;
+  duration_days?: number;
+};
+export type OpenHealthConfigDraftRequest = {
+  disease_key: string;
+  age_band: "adult" | "kid";
+};
+export type SaveHealthConfigDraftRequest = {
+  disease_key: string;
+  age_band: "adult" | "kid";
+  display_name: string;
+  duration_days?: number;
+  steps: HealthConfigStep[];
+};
 
 export type FeedDirectionPreviewParams = {
   /** Required: the ration grid, the session split and the dispatch clock are all park-scoped. */
@@ -555,8 +879,18 @@ export async function getFeedPackingWorklist(params: {
 export async function listFeedConfigRationRates(params: {
   park_id: string;
   ration_group?: string;
+  /**
+   * A BREED, not a ration group. The backend resolves it through the breed -> ration-group map
+   * (Beetal and Sirohi both land on "Beetal/Sirohi"); see the OpenAPI description for why the two
+   * are separate filters rather than one.
+   */
+  breed?: string;
   shed_tag?: string;
-  feed_item?: string;
+  /** A SET. Sent as a repeated query parameter, never comma-joined — see the api-client serializer. */
+  feed_item?: string[];
+  /** Half of one filter: both or neither. The backend rejects a lone half rather than defaulting it. */
+  grams_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+  grams_value?: string;
   limit?: number;
   offset?: number;
 }): Promise<ApiResult<FeedConfigRationRatePage>> {
@@ -637,6 +971,104 @@ export async function listFeedConfigFeedItems(params: {
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Procurement vendor register (/procurement/vendors)
+// ---------------------------------------------------------------------------------------------
+
+export type ProcurementVendor = AppApiComponents["schemas"]["ProcurementVendor"];
+export type ProcurementVendorPage = AppApiComponents["schemas"]["ProcurementVendorPage"];
+export type ProcurementVendorWrite = AppApiComponents["schemas"]["ProcurementVendorWrite"];
+export type ProcurementVendorCatalog = AppApiComponents["schemas"]["ProcurementVendorCatalog"];
+
+/**
+ * One keyset page of the vendor register.
+ *
+ * `total` on the response is the WHOLE-FILTER count and must be rendered as-is; it is deliberately
+ * not `vendors.length` -- the page count is derived from it.
+ *
+ * Paging is by BOUNDED offset (capped server-side), not a keyset cursor, because the register needs
+ * a Back control and a page number and a forward-only cursor can express neither. See the endpoint
+ * description for why that is safe here and not a licence to use offset on herd-sized tables.
+ */
+export async function listProcurementVendors(params: {
+  search?: string;
+  record_type?: string;
+  status?: string;
+  state?: string;
+  city?: string;
+  breed?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApiResult<ProcurementVendorPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorPage>("/procurement/vendors", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** The business-managed dropdown vocabularies behind the register's filters and form. */
+export async function listProcurementVendorCatalog(): Promise<ApiResult<ProcurementVendorCatalog>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorCatalog>("/procurement/vendor-catalog", { cache: "no-store" }),
+  );
+}
+
+export async function createProcurementVendor(
+  body: ProcurementVendorWrite,
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendor>("/procurement/vendors", { method: "POST", cache: "no-store", body }),
+  );
+}
+
+/**
+ * Replace a vendor. `body.row_version` MUST carry the value read with the row -- the backend
+ * rejects a stale one with 409 rather than overwriting another editor's save.
+ */
+export async function updateProcurementVendor(
+  vendorId: string,
+  body: ProcurementVendorWrite,
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/vendors/${encodeURIComponent(vendorId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProcurementVendor>(path, { method: "PUT", cache: "no-store", body }),
+  );
+}
+
+/**
+ * Change ONLY a vendor's trading status.
+ *
+ * Deliberately not routed through updateProcurementVendor: that is a replace, so a status flip
+ * through it would have to resend every field and would clear anything the caller's screen did not
+ * render (payment details, for a caller without the finance permission).
+ */
+export async function updateProcurementVendorStatus(
+  vendorId: string,
+  body: { status: string; row_version: number },
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/vendors/${encodeURIComponent(vendorId)}/status` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProcurementVendor>(path, { method: "POST", cache: "no-store", body }),
+  );
+}
+
 export async function listFeedConfigRationGroups(params: {
   limit?: number;
   offset?: number;
@@ -663,6 +1095,68 @@ export async function listFeedConfigShedTags(params: {
     client.request<FeedConfigShedTagPage>("/feed-config/shed-tags", {
       cache: "no-store",
       query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Add one entry to the tenant's feed-item catalog.
+ *
+ * The odd one out among the Feed Config writes, in two ways worth stating at the call site.
+ *
+ * It is TENANT-scoped — no `park_id` — because `feed_item_catalog` is keyed on (tenant, item) and
+ * both parks author quantities against one vocabulary.
+ *
+ * And it AUTHORS NO QUANTITY. Adding an item makes the name selectable on the ration grid, the shed
+ * factors and the experiment sheds; every combination using it stays unconfigured, and therefore
+ * BLOCKED, until a rate is authored for it. Do not "help" by following this call with a rate write:
+ * an implicit 0 would record "feed none of it" for every group and tag in the tenant.
+ *
+ * The four attributes are OPTIONAL here — genuinely optional, unlike `grams_per_head` below — and
+ * the optionality carries meaning: omitted stores NULL ("not measured"), while an explicit 0 stores
+ * a measured zero. A missing energy value blocks a nutritional rollup, never a feeding decision,
+ * which is why absence is representable here and is not on a rate. Out-of-range values are still
+ * forwarded verbatim for the backend to reject.
+ */
+export async function createFeedConfigFeedItem(
+  body: CreateFeedConfigFeedItemRequest,
+  idempotencyKey = `feed-item-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/feed-items", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/**
+ * Retires one feed item, or restores a retired one.
+ *
+ * This is how a feed item is REMOVED, and it is a status flip rather than a delete: the item's
+ * authored rates, shed factors and experiment cells survive untouched, so a past feed sheet stays
+ * explainable and putting the item back restores it fully configured. It is not a display setting —
+ * generation reads the catalog `WHERE status = 'active'`, so a retired item leaves every feed sheet
+ * issued from that point onward.
+ */
+export async function setFeedConfigFeedItemStatus(
+  body: SetFeedConfigFeedItemStatusRequest,
+  idempotencyKey = `feed-item-status-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/feed-items/status", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }
@@ -704,9 +1198,30 @@ export async function upsertFeedConfigRationRate(
  * very screen that owns that decision.
  */
 export async function listFeedConfigExperiment(params: {
-  park_id: string;
+  /**
+   * OPTIONAL on this read alone. Omitted means every authored experiment cell in the tenant, across
+   * both parks -- the company-wide view. Every other /feed-config read stays park-scoped because it
+   * is park-OWNED; an experiment cell carries its own park, so it can be listed tenant-wide.
+   */
+  park_id?: string;
   shed_id?: string;
+  /**
+   * ONE PEN of that shed, by its human partition label. Absent returns every pen of the shed.
+   *
+   * Both halves travel together: this section's rows are PENS, and Castro holds three of them, so
+   * shed_id alone answers a coarser question than the list it returns.
+   */
+  partition_label?: string;
   status?: "active" | "retired";
+  /** A SET, sent as a repeated query parameter. A pen survives when any of its cells matches. */
+  feed_item?: string[];
+  experiment_category?: string;
+  /**
+   * Half of one filter: both or neither. Named kg_ and not grams_ because this compares an ABSOLUTE
+   * PEN TOTAL, while the ration grid's grams_op compares a PER-HEAD RATE.
+   */
+  kg_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+  kg_value?: string;
   limit?: number;
   offset?: number;
 }): Promise<ApiResult<FeedConfigExperimentPage>> {
@@ -726,6 +1241,58 @@ export async function listFeedConfigExperiment(params: {
 // row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with
 // roughly twice the authored quantity. There is deliberately no optional variant this function could
 // turn into 0. `head_count` may be null ("not recorded") but must never be invented.
+/**
+ * The park's PEN CATALOG — every operational location a quantity may be authored against.
+ *
+ * The authoritative answer to "what can I enrol?", and deliberately not derived from the experiment
+ * cell list. Deriving it from those rows made two things impossible: a pen that already has some
+ * cells looked like it had them ALL (so a new pen of an enrolled shed was unreachable — the Godel 1
+ * - Part 8 case), and a pen whose cells happened to fall on another page of the paginated read
+ * looked unconfigured. This reads the locations/shed_partitions catalog instead, so a pen holding
+ * zero animals is still listed and still authorable, and each row states for itself whether it is
+ * already configured.
+ */
+export async function listFeedConfigPens(params: {
+  park_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigPenPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigPenPage>("/feed-config/pens", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Author EVERY feed item of one pen in a single atomic write.
+ *
+ * One request, one transaction, one row in the idempotency ledger: either the pen gets all of its
+ * quantities or it gets none. Enrolling through N single-cell posts could half-succeed and leave a
+ * pen enrolled (membership is the workflow flag) while being fed a subset of what was entered —
+ * which is worse than not enrolling it at all.
+ */
+export async function upsertFeedConfigExperimentBatch(
+  body: UpsertFeedConfigExperimentBatchRequest,
+  idempotencyKey = `feed-experiment-batch-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/experiment/batch", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function upsertFeedConfigExperiment(
   body: UpsertFeedConfigExperimentRequest,
   idempotencyKey = `feed-experiment-${randomUUID()}`,
@@ -749,6 +1316,146 @@ export async function upsertFeedConfigExperiment(
  * This changes WHAT THE ANIMALS ARE FED, not what is displayed: active feeds the shed its authored
  * absolute kg, retired returns it to projected head count x grams per head x shed factor.
  */
+/**
+ * One bounded page of the authored treatment rulebook: one row per disease per age band, each
+ * carrying the LIVE published version and the OPEN DRAFT side by side.
+ *
+ * There is no total and no page-count, and that is deliberate rather than an omission: the backend
+ * returns a keyset `next_cursor` because counting the filtered catalog on every request is
+ * compute-on-read. A "N protocols" headline computed from the visible page would be a false
+ * statement about the catalog.
+ */
+export async function listHealthConfigProtocols(params: {
+  age_band?: "adult" | "kid";
+  search?: string;
+  draft_only?: boolean;
+  cursor?: string;
+  limit?: number;
+}): Promise<ApiResult<HealthConfigProtocolPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigProtocolPage>("/health-config/protocols", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** One protocol version with its ordered steps, version history and open-case count. */
+export async function getHealthConfigProtocol(
+  protocolVersionId: string,
+): Promise<ApiResult<HealthConfigProtocolDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/health-config/protocols/${encodeURIComponent(protocolVersionId)}` as keyof AppApiPaths &
+    string;
+  return request(() => client.request<HealthConfigProtocolDetail>(path, { cache: "no-store" }));
+}
+
+/**
+ * Add a disease. Opens a draft for BOTH age bands; nothing is live until each is published.
+ *
+ * `duration_days` is optional here on purpose, and the optionality carries meaning: OMITTED takes
+ * the backend's declared default, while a present out-of-range value is forwarded verbatim so the
+ * backend rejects it. Nothing in this layer clamps, rounds, or turns a cleared input into 0.
+ */
+export async function createHealthConfigDisease(
+  body: CreateHealthConfigDiseaseRequest,
+  idempotencyKey = `health-disease-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigWriteResult>("/health-config/diseases", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/**
+ * Open the draft for a protocol, copying the published version if none is open.
+ *
+ * No idempotency key: at most one draft can exist per protocol, so the uniqueness constraint IS the
+ * idempotency and a repeated call returns the same draft.
+ */
+export async function openHealthConfigDraft(
+  body: OpenHealthConfigDraftRequest,
+): Promise<ApiResult<HealthConfigProtocolDetail>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigProtocolDetail>("/health-config/drafts", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+/** Replace a draft's whole content. Steps carry no seq — order is positional. */
+export async function saveHealthConfigDraft(
+  body: SaveHealthConfigDraftRequest,
+  idempotencyKey = `health-draft-save-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigWriteResult>("/health-config/drafts/save", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Publish a draft, retiring the version it replaces. Open cases keep their pinned version. */
+export async function publishHealthConfigDraft(
+  protocolVersionId: string,
+  idempotencyKey = `health-draft-publish-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/health-config/protocols/${encodeURIComponent(protocolVersionId)}/publish` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<HealthConfigWriteResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
+/** Discard a draft without publishing it. */
+export async function discardHealthConfigDraft(
+  protocolVersionId: string,
+  idempotencyKey = `health-draft-discard-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/health-config/protocols/${encodeURIComponent(protocolVersionId)}/discard` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<HealthConfigWriteResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
 export async function setFeedConfigExperimentShedStatus(
   body: SetFeedConfigExperimentShedStatusRequest,
   idempotencyKey = `feed-experiment-status-${randomUUID()}`,
@@ -841,7 +1548,7 @@ export async function getVaccinationActionCenter(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<ActionCenterResponse>("/vaccination/action-center", {
       cache: "no-store",
       query: compactQuery({
@@ -856,6 +1563,8 @@ export async function getVaccinationActionCenter(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeActionCenterMedia(result.data, config.data.baseUrl) };
 }
 
 export async function getVaccinationActionCenterCounts(
@@ -901,7 +1610,7 @@ export async function getVaccinationAdherence(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<ProtocolAdherenceResponse>("/vaccination/adherence", {
       cache: "no-store",
       query: compactQuery({
@@ -915,6 +1624,8 @@ export async function getVaccinationAdherence(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeAdherenceMedia(result.data, config.data.baseUrl) };
 }
 
 // Control Tower — exception-only leadership summary + alerts (real /control-tower/vaccination).
@@ -1045,18 +1756,36 @@ export async function getVaccinationDriveAssignments(
   );
 }
 
+export type VaccinationDriveDateOverrideResponse = {
+  park_id: string;
+  vaccine_code: string;
+  original_drive_date: string;
+  override_date: string;
+  requested_override_date?: string;
+  applied_override_date?: string;
+  auto_shifted?: boolean;
+  shift_reason?: string;
+  conflicting_vaccine_code?: string;
+  conflicting_vaccine_label?: string;
+  conflicting_date?: string;
+  conflicting_rule?: string;
+  reason: string;
+  created_by: string;
+  created_at: string;
+};
+
 export async function postponeVaccinationDriveDate(body: {
   park_id: string;
   vaccine_code: string;
   original_drive_date: string;
   override_date: string;
   reason: string;
-}, idempotencyKey = `vaccination-drive-date-override-${randomUUID()}`): Promise<ApiResult<Record<string, unknown>>> {
+}, idempotencyKey = `vaccination-drive-date-override-${randomUUID()}`): Promise<ApiResult<VaccinationDriveDateOverrideResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<Record<string, unknown>>("/vaccination/schedule/drive-date-overrides", {
+    client.request<VaccinationDriveDateOverrideResponse>("/vaccination/schedule/drive-date-overrides", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1067,7 +1796,7 @@ export async function postponeVaccinationDriveDate(body: {
 
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
-  params: { asOf?: string } = {},
+  params: { asOf?: string; partitionLabel?: string } = {},
 ): Promise<ApiResult<VaccinationExecutionShedDrilldown>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1076,7 +1805,7 @@ export async function getVaccinationExecutionShedDrilldown(
   return request(() =>
     client.request<VaccinationExecutionShedDrilldown>(path, {
       cache: "no-store",
-      query: compactQuery({ as_of: params.asOf }),
+      query: compactQuery({ as_of: params.asOf, partition_label: params.partitionLabel }),
     }),
   );
 }
@@ -1173,6 +1902,79 @@ export async function getVaccinationOperatorAssignmentConfig(parkId?: string): P
       query: parkId ? { park_id: parkId } : {},
       cache: "no-store",
     }),
+  );
+}
+
+// CEO vaccination command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue.
+export async function getVaccinationCommandBoard(params: {
+  driveBatchId?: string;
+  parkId?: string;
+  asOf?: string;
+  /**
+   * Park of the selected drive. Narrows the board's sections to that park's share of the drive
+   * while leaving driveOptions at parkId's scope, so one request serves both the narrowed numbers
+   * and the full picker.
+   */
+  driveParkId?: string;
+} = {}): Promise<ApiResult<VaccinationCommandBoardResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationCommandBoardResponse>("/vaccination/command", {
+      cache: "no-store",
+      query: compactQuery({
+        drive_batch_id: params.driveBatchId,
+        park_id: params.parkId,
+        as_of: params.asOf,
+        drive_park_id: params.driveParkId,
+      }),
+    }),
+  );
+}
+
+// Live drive-day tracker. ONE read backs the whole page: KPI tiles, operator board, shed proof
+// progress, combo doses, activity feed, attention and verification. It is one call rather than six
+// because a single filter set has to narrow every section at once — and because this page polls, so
+// each extra endpoint would multiply the refresh cost.
+export async function getVaccinationLiveTracker(
+  params: {
+    businessDate?: string;
+    parkId?: string;
+    shedId?: string;
+    partitionLabel?: string;
+    operatorId?: string;
+    vaccineCode?: string;
+    status?: VaccinationLiveTrackerStatus;
+    activityLimit?: number;
+    // Both halves of the feed's keyset cursor. The feed's sort key is (occurred_at, event_id);
+    // sending the timestamp alone drops every event tied with the previous page's last row.
+    activityBefore?: string;
+    activityBeforeId?: string;
+  } = {},
+): Promise<ApiResult<VaccinationLiveTrackerResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationLiveTrackerResponse>("/vaccination/live-tracker", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({
+          business_date: params.businessDate,
+          park_id: params.parkId,
+          shed_id: params.shedId,
+          partition_label: params.partitionLabel,
+          operator_id: params.operatorId,
+          vaccine_code: params.vaccineCode,
+          status: params.status,
+          activity_limit: params.activityLimit,
+          activity_before: params.activityBefore,
+          activity_before_id: params.activityBeforeId,
+        }),
+      }),
+    ),
   );
 }
 
@@ -1380,11 +2182,29 @@ export async function assignSopTask(taskId: string, body: AssignTaskRequest): Pr
 }
 
 // The Verifier's read-only media queue (GET /verification/queue, real generated app-api contract).
-// NOTE the contract has NO park_id query filter yet — the drawer/list below narrow the
-// already-fetched bounded page by the top-bar park scope client-side (small page, ~20 rows, never
-// a full-table read) until a park_id query param is added server-side.
 export async function listVerificationQueue(
-  params: { category?: string; vertical?: string; module?: string; status?: VerificationItemStatus; cursor?: string; limit?: number } = {},
+  params: {
+    category?: string;
+    vertical?: string;
+    module?: string;
+    // navModule is the verifier-drawer MODULE key (filter_options.modules): it filters to every
+    // category that module registers, so Feed means distribution + packing + transport. Distinct
+    // from `module`, which filters the item's own module column.
+    navModule?: string;
+    // "all" is the explicit no-status-filter selection; omitting status lands on pending.
+    status?: VerificationItemStatus | "all";
+    businessDate?: string;
+    // Inclusive capture-date range. Sent INSTEAD of businessDate — the backend answers 400
+    // invalid_date_scope if both arrive, and 400 invalid_business_date_range unless both ends of
+    // the range are present.
+    businessDateFrom?: string;
+    businessDateTo?: string;
+    missed?: boolean;
+    parkId?: string;
+    shedId?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
 ): Promise<ApiResult<VerificationQueueResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1396,7 +2216,14 @@ export async function listVerificationQueue(
         category: params.category,
         vertical: params.vertical,
         module: params.module,
+        nav_module: params.navModule,
         status: params.status,
+        business_date: params.businessDate,
+        business_date_from: params.businessDateFrom,
+        business_date_to: params.businessDateTo,
+        missed: params.missed,
+        park_id: params.parkId,
+        shed_id: params.shedId,
         cursor: params.cursor,
         limit: params.limit ?? 20,
       }),
@@ -1404,6 +2231,58 @@ export async function listVerificationQueue(
   );
   if (!result.ok) return result;
   return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
+}
+
+export type VerificationOversightAnalyticsResponse =
+  AppApiComponents["schemas"]["VerificationOversightAnalyticsResponse"];
+
+// CEO/PC-Director oversight analytics (GET /verification/oversight-analytics), gated on
+// permissions.VerificationOversee -- the same capability as the /verify page contract's
+// oversight_analytics control. A caller without the capability gets 403 here; the page must only
+// call this when controlEnabled(pageContract, "oversight_analytics", false) is true, so the
+// component never renders a bare error card for a verifier.
+export async function getVerificationOversightAnalytics(): Promise<ApiResult<VerificationOversightAnalyticsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VerificationOversightAnalyticsResponse>("/verification/oversight-analytics", {
+      cache: "no-store",
+    }),
+  );
+}
+
+/**
+ * Record the Verifier's approve/reject decision on one verification item
+ * (POST /verification/items/{item_id}/verdict, gated on verification.verdict -- the verifier role
+ * ALONE, never CEO/CxO/director/park-head, per the verdict-exclusivity lock in AGENTS.md).
+ *
+ * `row_version` is the item's optimistic-concurrency guard: a stale value returns 409 rather than
+ * overwriting a verdict someone else recorded between page render and submit. A rejection without
+ * a reason is refused by the backend with 422 — the UI requires the reason too, but the backend is
+ * the rule's owner.
+ *
+ * The Idempotency-Key header is REQUIRED (8-200 chars) — the route rejects a request without one.
+ * Note the rejection is reported as `invalid_json`, the same code a malformed body gets, so a
+ * missing key looks exactly like a broken payload when debugging.
+ */
+export async function recordVerificationVerdict(
+  itemId: string,
+  body: VerificationVerdictRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<VerificationVerdictResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/verification/items/${encodeURIComponent(itemId)}/verdict` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VerificationVerdictResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
 function absolutizeVerificationMedia(queue: VerificationQueueResponse, baseUrl: string): VerificationQueueResponse {
@@ -1417,6 +2296,41 @@ function absolutizeVerificationMedia(queue: VerificationQueueResponse, baseUrl: 
       })),
     })),
   };
+}
+
+function absolutizeActionCenterMedia(response: ActionCenterResponse, baseUrl: string): ActionCenterResponse {
+  return {
+    ...response,
+    items: response.items.map((row) => ({
+      ...row,
+      evidence: absolutizeProcessIntegrityEvidenceMedia(row.evidence, baseUrl),
+    })),
+  };
+}
+
+function absolutizeAdherenceMedia(response: ProtocolAdherenceResponse, baseUrl: string): ProtocolAdherenceResponse {
+  return {
+    ...response,
+    rows: response.rows.map((row) => ({
+      ...row,
+      evidence: absolutizeProcessIntegrityEvidenceMedia(row.evidence, baseUrl),
+    })),
+  };
+}
+
+function absolutizeProcessIntegrityEvidenceMedia(evidence: ProcessIntegrityEvidence, baseUrl: string): ProcessIntegrityEvidence {
+  const evidenceWithMedia = evidence as ProcessIntegrityEvidence & {
+    media?: Array<{ download_url: string }>;
+  };
+  if (!evidenceWithMedia.media) return evidence;
+  const normalized: typeof evidenceWithMedia = {
+    ...evidenceWithMedia,
+    media: evidenceWithMedia.media.map((media) => ({
+      ...media,
+      download_url: absolutizeBackendURL(media.download_url, baseUrl),
+    })),
+  };
+  return normalized;
 }
 
 function absolutizeBackendURL(value: string, baseUrl: string): string {
@@ -1691,6 +2605,43 @@ export async function reproductiveGoat(
   const path = `/admin/goats/${encodeURIComponent(goatId)}/reproductive` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<AdminGoatResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Whole-pen stage change. Preview is a pure read and deliberately carries NO Idempotency-Key: the
+// drawer re-checks whenever the operator changes the pen or the target stage, and burning a key per
+// keystroke would leave the commit unable to reuse one. Commit is idempotent on Idempotency-Key,
+// which is the only thing stopping a double-clicked button from re-emitting stage-change events --
+// this write has no approval step behind it.
+export async function previewReclassifyShedStage(
+  body: ReclassifyShedStageRequest,
+): Promise<ApiResult<ReclassifyShedStagePreviewResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ReclassifyShedStagePreviewResponse>("/admin/goats/shed-stage/preview", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function commitReclassifyShedStage(
+  body: ReclassifyShedStageRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<ReclassifyShedStageResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ReclassifyShedStageResponse>("/admin/goats/shed-stage/commit", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -2263,11 +3214,151 @@ function parseEnvelope(body: unknown): ErrorEnvelope | null {
   return maybe as ErrorEnvelope;
 }
 
-export function compactQuery(values: Record<string, string | number | boolean | null | undefined>) {
-  const query: Record<string, string | number | boolean> = {};
+export function compactQuery(
+  values: Record<string, string | number | boolean | readonly string[] | null | undefined>,
+) {
+  const query: Record<string, string | number | boolean | readonly string[]> = {};
   for (const [key, value] of Object.entries(values)) {
     if (value === null || value === undefined || value === "") continue;
+    // An EMPTY array is dropped like an empty string: a multi-valued filter with nothing selected is
+    // "no filter", and emitting `feed_item=` would ask the backend for an item named "".
+    if (Array.isArray(value) && value.length === 0) continue;
     query[key] = value;
   }
   return query;
+}
+
+// ---------------------------------------------------------------------------
+// Counts Approvals (admin-web) — maintainer decision 2026-07-21.
+//
+// The pending birth/death/shifting approval queue, moved off mobile onto the admin-web Approvals
+// page. Served by the SAME approval service as the (now web-only) decision surface, under the
+// /admin-web/* prefix so it rides the admin session. Access is gated server-side by
+// counts.approve_access (the four org tiers + admin + ceo_internal); park_head no longer holds it.
+//
+// The approvals endpoints predate the OpenAPI contract (mobile consumed them via hand-written DTOs),
+// so these shapes are declared here rather than pulled from the generated client — the one
+// documented exception, mirroring how procurement/verification bootstrapped before their codegen.
+export type AdminWebApprovalRequestType = "birth" | "death" | "shifting";
+export type AdminWebApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export type AdminWebApprovalItem = {
+  approval_request_id: string;
+  request_type: AdminWebApprovalRequestType;
+  status: AdminWebApprovalStatus;
+  raised_by_user_id: string;
+  raised_at: string;
+  // Backend-composed display copy (added 2026-08-05 with the mobile Approvals module). The queue
+  // now resolves the raiser and the shed ids to NAMES server-side, so both surfaces read one
+  // authored line instead of each composing its own from raw ids. Optional by contract: absent
+  // when nothing was resolvable, in which case a renderer drops the line rather than showing an id.
+  //
+  // This page does not render raised_by_name or summary_line today — it deliberately omits the
+  // raiser and builds its own readable subject from resolved location names (see readableSubject).
+  // They are declared so the shape stays true to the contract and so this page can adopt the
+  // shared line later.
+  raised_by_name?: string;
+  summary_line?: string;
+  shifting_event_id?: string;
+  subject_goat_id?: string;
+  // subject_animal_location: present only for a death request whose animal resolves to a real
+  // park/shed. BACKEND-OWNED DISPLAY COPY — the same park/shed/partition fact already folded into
+  // summary_line, exposed as its own field so this page's structured (non-summary_line) rendering
+  // can show it directly instead of parsing it back out of a composed string. Render verbatim;
+  // absent means the animal's location could not be resolved, in which case drop the row rather
+  // than falling back to an id.
+  subject_animal_location?: string;
+  summary: unknown;
+  decided_by_user_id?: string;
+  decided_at?: string;
+  decision_reason?: string;
+};
+
+export type AdminWebApprovalListResponse = {
+  items: AdminWebApprovalItem[];
+  next_cursor?: string;
+};
+
+export type AdminWebApprovalDecisionResponse = {
+  approval_request_id: string;
+  request_type: AdminWebApprovalRequestType;
+  status: AdminWebApprovalStatus;
+  idempotent_replay: boolean;
+};
+
+export type AdminWebApprovalListParams = {
+  status?: string;
+  cursor?: string;
+  page_size?: number;
+};
+
+/** One keyset page of approval requests the caller may decide (GET /admin-web/counts/approvals). */
+export async function listAdminWebApprovals(
+  params: AdminWebApprovalListParams,
+): Promise<ApiResult<AdminWebApprovalListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/admin-web/counts/approvals" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<AdminWebApprovalListResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ status: params.status, cursor: params.cursor, page_size: params.page_size }),
+    }),
+  );
+}
+
+/**
+ * Approve or reject one request (POST /admin-web/counts/approvals/{id}/approve|reject). Carries the
+ * mandatory Idempotency-Key so a retry cannot double-apply; the backend re-checks the caller's
+ * authority against the request's STORED type, so an out-of-authority decision fails closed there.
+ */
+export async function decideAdminWebApproval(args: {
+  requestId: string;
+  approve: boolean;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<ApiResult<AdminWebApprovalDecisionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const verb = args.approve ? "approve" : "reject";
+  const path =
+    `/admin-web/counts/approvals/${encodeURIComponent(args.requestId)}/${verb}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<AdminWebApprovalDecisionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": args.idempotencyKey },
+      body: { reason: args.reason },
+    }),
+  );
+}
+
+/**
+ * Post a batch of verification review events to the backend for proof-of-watching.
+ * (POST /verification/review-events, gated on verification.verdict -- verifier-only authority.
+ * Reading the derived facts is gated on verification.review instead, so leadership can SEE the
+ * integrity signal it is not allowed to write.)
+ *
+ * Events are buffered client-side and submitted in batches (max 200 per batch).
+ * The client_event_id is the idempotency key: a replay of the same batch with
+ * the same client_event_ids inserts nothing new.
+ */
+export async function postVerificationReviewEvents(
+  events: VerificationReviewEvent[],
+  idempotencyKey?: string,
+): Promise<ApiResult<VerificationReviewEventBatchResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/verification/review-events" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VerificationReviewEventBatchResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+      body: { events },
+    }),
+  );
 }

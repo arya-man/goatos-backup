@@ -12,8 +12,9 @@ func TestStarterQuestionsRouteToAnswerableTools(t *testing.T) {
 		tool  string
 		route domain.Route
 	}{
+		"How many animals missed vaccination across all parks?": {"vaccination_overdue", domain.RouteCube},
 		"How many active goats and sheep do we have?":           {"active_animals", domain.RouteCube},
-		"What vaccinations are overdue by park?":                {"vaccination_overdue", domain.RouteCube},
+		"What vaccinations are overdue by shed?":                {"vaccination_overdue", domain.RouteCube},
 		"How many vaccinations are due today?":                  {"vaccination_due", domain.RouteCube},
 		"Which operators are overloaded on vaccination drives?": {"operator_vaccination_utilization", domain.RouteCube},
 		"What vaccines need pickup today?":                      {"mesha_vaccination_dose_pickup", domain.RouteToolbox},
@@ -28,6 +29,7 @@ func TestStarterQuestionsRouteToAnswerableTools(t *testing.T) {
 		"What operation exceptions are open?":                   {"operations_kernel_health", domain.RouteAPI},
 		"What inventory stock needs reorder?":                   {"mesha_inventory_stock", domain.RouteToolbox},
 		"Summarize the operations audit anomalies.":             {"operations_audit_summary", domain.RouteAPI},
+		"Plot vaccination overdue by shed.":                     {"vaccination_overdue", domain.RouteCube},
 		"Plot vaccination overdue by park.":                     {"vaccination_overdue", domain.RouteCube},
 	}
 	p := New()

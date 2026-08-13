@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+	vaccexecports "github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
 
 const (
@@ -76,6 +78,7 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 			t.Fatalf("%s query must join vaccination_drive_assignments", name)
 		}
 		if !strings.Contains(sql, "assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'") &&
+			!strings.Contains(sql, "member_assignment.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata'") &&
 			!strings.Contains(sql, "drive_date.assignment_planned_date") {
 			t.Fatalf("%s query must derive an India-business execution date from assignment.planned_date", name)
 		}
@@ -85,18 +88,19 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 	}
 
 	requiredFragments := map[string]string{
-		"execution horizon":     "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
-		"execution bucket":      "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
-		"operations horizon":    "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
-		"operations next due":   "MIN(effective.execution_due_at) FILTER",
-		"schedule horizon":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
-		"schedule next due":     "MIN(windowed.execution_due_at) FILTER",
-		"scan roster status":    "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
-		"shed summary next due": "MIN(effective.execution_due_at) FILTER",
-		"shed animal filter":    "COALESCE(drive_date.assignment_planned_date, dob.planned_date",
-		"hybrid member path":    "vda_member.assignment_planned_at",
-		"hybrid guess fallback": "vda_guess.assignment_planned_at",
-		"member coalesce logic": "COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at",
+		"execution horizon":       "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"execution bucket":        "COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AS execution_due_at",
+		"operations horizon":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz",
+		"operations next due":     "MIN(effective.execution_due_at) FILTER",
+		"schedule horizon":        "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz",
+		"schedule next due":       "MIN(windowed.execution_due_at) FILTER",
+		"scan roster status":      "ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now()",
+		"shed summary next due":   "MIN(effective.execution_due_at) FILTER",
+		"shed animal filter":      "COALESCE(drive_date.assignment_planned_date, dob.planned_date",
+		"hybrid member path":      "vda_member.assignment_planned_at",
+		"hybrid guess fallback":   "vda_guess.assignment_planned_at",
+		"member coalesce logic":   "COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at",
+		"execution date override": "vaccination_drive_date_overrides override",
 	}
 	combined := strings.Join([]string{
 		vaccinationExecutionSQL,
@@ -112,13 +116,15 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 		}
 	}
 	for name, sql := range map[string]string{
-		"execution": vaccinationExecutionSQL,
-		"roster":    scanRosterSQL,
+		"execution":         vaccinationExecutionSQL,
+		"roster":            scanRosterSQL,
+		"drive assignments": driveAssignmentsSQL,
 	} {
 		if !strings.Contains(sql, "LEFT JOIN goat_shed_partitions gsp") {
 			t.Fatalf("%s operator-scoped read must join goat_shed_partitions", name)
 		}
-		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") {
+		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") &&
+			!strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')") {
 			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition with Part N/N normalization", name)
 		}
 	}
@@ -134,11 +140,42 @@ func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeSt
 		"scan capture table":        "FROM sop_task_scan_captures scan",
 		"scan capture task scope":   "scan.task_id = st.task_id",
 		"scan capture roster field": "scan.field_key IN ('goat_ids', '__scan_roster__')",
-		"scan capture goat grain":   "COUNT(*) FILTER (WHERE located.scanned)::bigint AS scanned_count",
+		"animal rollup input grain": "CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id",
+		"scan capture goat grain":   "COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count",
 	}
 	for name, fragment := range requiredFragments {
 		if !strings.Contains(vaccinationExecutionSQL, fragment) {
 			t.Fatalf("vaccination execution SQL lost %s invariant %q", name, fragment)
+		}
+	}
+}
+
+func TestVaccinationExecutionGoatProofArtifactsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary ExecutionDate ParkScope StatusMatrix: completed goat proof artifacts count the animal done once even when multiple vaccine obligations share the task")
+	requiredFragments := map[string]string{
+		"goat proof lateral join":       "FROM proof_artifacts proof",
+		"goat proof task scope type":    "proof.scope_type = 'task'",
+		"goat proof task scope id":      "proof.scope_id = st.task_id",
+		"goat proof subject grain":      "proof.subject_type = 'goat'",
+		"goat proof completed upload":   "proof.upload_state = 'completed'",
+		"goat proof execution as-of":    "proof.created_at <= $7::timestamptz",
+		"goat proof scanned rollup":     "BOOL_OR(located.scanned OR located.proofed) AS has_scan",
+		"goat proof submitted rollup":   "BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof",
+		"vaccine chips multi-dose list": "ARRAY_AGG(DISTINCT located.dose_code ORDER BY located.dose_code)",
+	}
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(vaccinationExecutionSQL, fragment) {
+			t.Fatalf("vaccination execution SQL lost %s invariant %q", name, fragment)
+		}
+	}
+	scanRosterFragments := map[string]string{
+		"roster goat proof lateral": "FROM proof_artifacts proof",
+		"roster goat proof done":    "WHEN sc.capture_id IS NOT NULL OR goat_proof.proofed_at IS NOT NULL THEN 'done'",
+		"roster proof timestamp":    "COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at)",
+	}
+	for name, fragment := range scanRosterFragments {
+		if !strings.Contains(scanRosterSQL, fragment) {
+			t.Fatalf("scan roster SQL lost %s invariant %q", name, fragment)
 		}
 	}
 }
@@ -342,11 +379,11 @@ func TestListVaccinationExecutionOperatorScopeRespectsShedPartitionsOneToManyPag
 	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-partition-second")
 	execProjectionSQL(t, ctx, pool, "first goat partition",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-		 VALUES ($1, $2, $3, '1', 'K1 Shed - Part 1')`,
+		 VALUES ($1, $2, $3, 'Part 1', 'K1 Shed - Part 1')`,
 		testTenant, testGoat, testShed)
 	execProjectionSQL(t, ctx, pool, "second goat partition",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-		 VALUES ($1, $2, $3, '2', 'K1 Shed - Part 2')`,
+		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed - Part 2')`,
 		testTenant, secondGoat, testShed)
 	execProjectionSQL(t, ctx, pool, "operator a partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
@@ -358,6 +395,34 @@ func TestListVaccinationExecutionOperatorScopeRespectsShedPartitionsOneToManyPag
 		testTenant, testBatch, otherOperator, testPark, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
+	allPartitions, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ShedID:    strPtr(testShed),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("all-partition execution query error = %v", err)
+	}
+	if len(allPartitions) != 2 || allPartitions[0].Partition == allPartitions[1].Partition {
+		t.Fatalf("all-partition rows = %#v, want separate Part 1 and Part 2 cohorts", allPartitions)
+	}
+
+	part2 := "Part 2"
+	part2Rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:       testTenant,
+		ShedID:         strPtr(testShed),
+		PartitionLabel: &part2,
+		DueBefore:      time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("Part 2 execution query error = %v", err)
+	}
+	if len(part2Rows) != 1 || part2Rows[0].Partition != "Part 2" || part2Rows[0].ObligationCount != 1 {
+		t.Fatalf("Part 2 rows = %#v, want only the Part 2 cohort", part2Rows)
+	}
+
 	operatorA, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:             testTenant,
 		DueBefore:            time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -618,8 +683,8 @@ INSERT INTO vaccination_drive_assignments (
 	}
 
 	execProjectionSQL(t, ctx, pool, "move only ppr", `
-INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
+INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05',DATE '2026-08-05','CEO postponement',$3)`,
 		testTenant, testPark, testOperator)
 
 	july, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
@@ -748,6 +813,176 @@ WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date
 	}
 	if movedAfterClear := driveAssignmentRowFor(augustAfterClear, "2026-08-05", "Gandhi"); movedAfterClear != nil && containsString(movedAfterClear.VaccineCodes, "PPR") {
 		t.Fatalf("august rows after clear still contain moved PPR: %#v", movedAfterClear)
+	}
+}
+
+func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixUsesActiveVaccineDateOverrideForAssignmentDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "ettt dimensions for execution override",
+		`INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
+		 VALUES
+		   ($1, $2, $3, 'vaccination', 'ET_TT', 'D1', 'ET_TT'),
+		   ($1, $2, $3, 'vaccination', 'ET_TT_duplicate_selector', 'D1', 'ET_TT')`,
+		testTenant, testVersion, testRule)
+	execProjectionSQL(t, ctx, pool, "execution assignment raw date",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses)
+		 VALUES ($1, $2, DATE '2026-06-24', $3, $4, $5, 'K1 Shed', 'whole', 1, ARRAY[$6::uuid], 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed, testRule)
+
+	repo := NewRepository(pool, 5*time.Second)
+	assertExecutionBusinessDate := func(label, want string) {
+		t.Helper()
+		rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+			TenantID:  testTenant,
+			AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+			Limit:     10,
+		})
+		if err != nil {
+			t.Fatalf("%s: ListVaccinationExecution: %v", label, err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("%s: rows = %#v, want one execution row", label, rows)
+		}
+		if rows[0].DueAt == nil {
+			t.Fatalf("%s: DueAt nil", label)
+		}
+		got := rows[0].DueAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+		if got != want {
+			t.Fatalf("%s: execution business date = %s, want %s (row=%#v)", label, got, want, rows[0])
+		}
+		if rows[0].OperatorName == nil || *rows[0].OperatorName != "Operator A" {
+			t.Fatalf("%s: operator = %v, want Operator A", label, rows[0].OperatorName)
+		}
+		if rows[0].ObligationCount != 1 || rows[0].ScheduledCount != 1 {
+			t.Fatalf("%s: counts obligation/scheduled = %d/%d, want 1/1; protocol dimensions must not fan out mobile execution counts", label, rows[0].ObligationCount, rows[0].ScheduledCount)
+		}
+	}
+
+	assertExecutionBusinessDate("no override keeps raw assignment date", "2026-06-24")
+	execProjectionSQL(t, ctx, pool, "unrelated vaccine override ignored",
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
+		 VALUES ($1, $2, 'PPR', DATE '2026-06-24', DATE '2026-06-30', 'different vaccine should not move ET_TT', $3)`,
+		testTenant, testPark, testOperator)
+	assertExecutionBusinessDate("different vaccine override ignored", "2026-06-24")
+
+	execProjectionSQL(t, ctx, pool, "matching vaccine override moves execution date",
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
+		 VALUES ($1, $2, 'ET_TT', DATE '2026-06-24', DATE '2026-06-30', 'move ET_TT execution', $3)`,
+		testTenant, testPark, testOperator)
+	assertExecutionBusinessDate("active matching override moves execution date", "2026-06-30")
+
+	execProjectionSQL(t, ctx, pool, "canceled matching override reverts execution date",
+		`UPDATE vaccination_drive_date_overrides
+		 SET canceled_at = TIMESTAMPTZ '2026-06-25 00:00:00+00',
+		     canceled_by = $3,
+		     cancel_reason = 'revert'
+		 WHERE tenant_id = $1 AND park_id = $2 AND vaccine_code = 'ET_TT' AND original_drive_date = DATE '2026-06-24'`,
+		testTenant, testPark, testOperator)
+	assertExecutionBusinessDate("canceled matching override ignored", "2026-06-24")
+}
+
+func TestListVaccinationExecutionCurrentDriveCountsDistinctAnimalsNotObligationsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	secondObligation := "70000000-0000-4000-8000-0000000000a1"
+	execProjectionSQL(t, ctx, pool, "second obligation for same drive animal",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'scheduled', 'vaccexec-proj-same-goat-2', 2)`,
+		secondObligation, testTenant, testVersion, testRule, testBatch, testGoat, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v, want one current-drive shed row", rows)
+	}
+	if rows[0].ObligationCount != 1 || rows[0].CompletionRecorded != 1 {
+		t.Fatalf("counts obligation/recorded = %d/%d, want 1/1; mobile overview must count current-drive animals, not obligation rows", rows[0].ObligationCount, rows[0].CompletionRecorded)
+	}
+}
+
+func TestListVaccinationExecutionAnimalAcceptedOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixRequiresAllDriveObligationsAccepted(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	secondObligation := "70000000-0000-4000-8000-0000000000a2"
+	secondCompletion := "70000000-0000-4000-8000-0000000000a3"
+	execProjectionSQL(t, ctx, pool, "base obligation accepted",
+		`UPDATE obligation_instances
+		    SET status = 'completed', completed_at = TIMESTAMPTZ '2026-06-24 09:10:00+00'
+		  WHERE tenant_id = $1 AND obligation_id = $2`,
+		testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "base completion accepted",
+		`UPDATE vaccination_completions
+		    SET status = 'accepted', verified_at = TIMESTAMPTZ '2026-06-24 09:20:00+00'
+		  WHERE tenant_id = $1 AND completion_id = $2`,
+		testTenant, testComplete)
+	execProjectionSQL(t, ctx, pool, "second recorded obligation for same drive animal",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'vaccexec-proj-same-goat-recorded', 2)`,
+		secondObligation, testTenant, testVersion, testRule, testBatch, testGoat, testShed)
+	execProjectionSQL(t, ctx, pool, "second recorded completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
+		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-24 09:30:00+00', 'recorded', 'vaccexec-comp-same-goat-recorded', $6)`,
+		secondCompletion, testTenant, secondObligation, testBatch, testGoat, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v, want one current-drive shed row", rows)
+	}
+	if rows[0].ObligationCount != 1 || rows[0].CompletionAccepted != 0 || rows[0].CompletionRecorded != 1 {
+		t.Fatalf("animal counts = target %d accepted %d recorded %d, want 1/0/1; partial accepted obligations must not mark the animal accepted", rows[0].ObligationCount, rows[0].CompletionAccepted, rows[0].CompletionRecorded)
+	}
+
+	execProjectionSQL(t, ctx, pool, "remove recorded completion to leave open obligation",
+		`DELETE FROM vaccination_completions
+		  WHERE tenant_id = $1 AND completion_id = $2`,
+		testTenant, secondCompletion)
+	rows, err = projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution after open obligation: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("after open obligation rows = %#v, want one current-drive shed row", rows)
+	}
+	if rows[0].ObligationCount != 1 || rows[0].CompletionAccepted != 0 {
+		t.Fatalf("open animal counts = target %d accepted %d, want 1/0; accepted plus open obligation must not mark the animal accepted", rows[0].ObligationCount, rows[0].CompletionAccepted)
 	}
 }
 
@@ -949,6 +1184,11 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed - Part 2')`,
 		testTenant, secondGoat, testShed)
+	execProjectionSQL(t, ctx, pool, "partition roster catalog",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+		 VALUES ($1, $2, 'Part 1', '1', 'active', 'manual'), ($1, $2, 'Part 2', '2', 'active', 'manual')
+		 ON CONFLICT DO NOTHING`,
+		testTenant, testShed)
 	execProjectionSQL(t, ctx, pool, "operator a roster partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 1', 1)`,
@@ -957,19 +1197,31 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
 		testTenant, testBatch, otherOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "operator a second roster partition assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	operatorA, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
-	if err != nil {
-		t.Fatalf("ScanRoster(operator A): %v", err)
+	if !errors.Is(err, vaccexecports.ErrInvalidArgument) {
+		t.Fatalf("ScanRoster(operator A blank partition) err=%v, want ErrInvalidArgument", err)
 	}
-	if len(operatorA.Rows) != 1 || operatorA.Rows[0].GoatID != testGoat {
-		t.Fatalf("operator A roster rows=%#v, want only Part 1 goat", operatorA.Rows)
+	if len(operatorA.Rows) != 0 {
+		t.Fatalf("operator A blank partition rows=%#v, want none", operatorA.Rows)
 	}
 
-	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
+	operatorAPart2, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "2", TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
 	if err != nil {
-		t.Fatalf("ScanRoster(operator B): %v", err)
+		t.Fatalf("ScanRoster(operator A, Part 2): %v", err)
+	}
+	if len(operatorAPart2.Rows) != 1 || operatorAPart2.Rows[0].GoatID != secondGoat {
+		t.Fatalf("operator A Part 2 roster rows=%#v, want only Part 2 goat", operatorAPart2.Rows)
+	}
+
+	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "Part 2", TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster(operator B, Part 2): %v", err)
 	}
 	if len(operatorB.Rows) != 1 || operatorB.Rows[0].GoatID != secondGoat {
 		t.Fatalf("operator B roster rows=%#v, want only Part 2 goat", operatorB.Rows)
@@ -1123,6 +1375,44 @@ WHERE tenant_id=$1 AND sop_version_id=$2`, testTenant, testVaccinationSOPVer)
 	}
 	if lots == nil || len(lots.Options) != 1 || lots.Options[0].Value != parkLot || lots.Options[0].Label != "PARK-LOT-001" || lots.Options[0].Disabled {
 		t.Fatalf("park drive lots=%#v", lots)
+	}
+}
+
+func TestScanRosterParkScopedTaskResolvesTenantScopedBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	execProjectionSQL(t, ctx, pool, "park-scoped task with tenant batch", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Park task over tenant batch','in_progress',$5,'park',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`,
+		testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testPark, testBatch)
+	execProjectionSQL(t, ctx, pool, "tenant-scoped batch still tied to task",
+		`UPDATE obligation_batches SET sop_task_id=$1, scope_type='tenant', scope_id=$2 WHERE tenant_id=$2 AND batch_id=$3`,
+		testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "keep goat obligation batch-owned only",
+		`UPDATE obligation_instances SET sop_task_id=NULL WHERE tenant_id=$1 AND batch_id=$2`,
+		testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "primary tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','TENANT-BATCH-RFID','tenant-batch-rfid','active','global','v1',now())`,
+		testTenant, testGoat)
+
+	repo := NewRepository(pool, 5*time.Second)
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster: %v", err)
+	}
+	if len(roster.Rows) != 1 {
+		t.Fatalf("rows=%#v", roster.Rows)
+	}
+	row := roster.Rows[0]
+	if row.GoatID != testGoat || row.PrimaryTag != "TENANT-BATCH-RFID" || row.TaskID != testTask || row.BatchID != testBatch {
+		t.Fatalf("row=%#v", row)
 	}
 }
 
@@ -1723,6 +2013,7 @@ func TestVaccinationExecutionProductionQueryPlanUsesIndexes(t *testing.T) {
 		int64(0), // $13 cursorDueMicros
 		"",       // $14 cursorRowKey
 		"",       // $15 operatorScopeActorID (none)
+		"",       // $16 partitionLabel (all partitions)
 	)
 	if err != nil {
 		t.Fatalf("explain production vaccination execution query: %v", err)
@@ -2719,6 +3010,86 @@ func containsString(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func TestPartitionLabelReflectsCurrentLocationNotStaleAssignmentSnapshot(t *testing.T) {
+	t.Log("OL-13: goat moves to a different partition AFTER drive assignment; command board shows CURRENT partition, not stale assignment snapshot")
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	// Move the goat to a different partition (goat_shed_partitions stores current location).
+	// The assignment still carries the old partition ('whole'), but the execution partition key
+	// must use the CURRENT goat location from goat_shed_partitions.
+	testShed2 := "70000000-0000-4000-8000-000000000099"
+	execProjectionSQL(t, ctx, pool, "create second subdivided shed",
+		`INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, name, status)
+		 VALUES ($1, $2, $3, 'shed', 'Test Shed Part 1', 'active')`,
+		testShed2, testTenant, testPark)
+
+	// Seed catalog: this shed has partition '1'
+	execProjectionSQL(t, ctx, pool, "create partition 1",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, normalized_label, partition_label, source)
+		 VALUES ($1, $2, '1', 'Part 1', 'manual')`,
+		testTenant, testShed2)
+
+	// Seed test goat for partition move
+	testMovePartitionGoat := "80000000-0000-4000-8000-000000000097"
+	testMovePartitionObl := "80000000-0000-4000-8000-000000000098"
+	execProjectionSQL(t, ctx, pool, "create test goat for partition move",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		testMovePartitionGoat, testTenant, testParty, testShed2, testPark)
+
+	// Initially map goat to partition '1'
+	execProjectionSQL(t, ctx, pool, "map goat to partition 1",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, 'Part 1', 'Test Shed')`,
+		testTenant, testMovePartitionGoat, testShed2)
+
+	// Create drive assignment with the goat at partition '1'
+	execProjectionSQL(t, ctx, pool, "drive assignment partition 1",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24'::date, $3, $4, $5, 'Test Shed', 'Part 1', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed2)
+
+	// Seed obligation for the goat at the assignment
+	insertProjectionObligation(t, ctx, pool, testMovePartitionObl, testBatch, testMovePartitionGoat, "scheduled", "2026-06-24 00:00:00+00", "test-move-partition")
+
+	// NOW move the goat to a DIFFERENT partition: 'whole' (bare case)
+	// Update the goat_shed_partitions to reflect the new location.
+	execProjectionSQL(t, ctx, pool, "move goat from Part 1 to whole (bare)",
+		`UPDATE goat_shed_partitions SET partition_label='whole' WHERE tenant_id=$1 AND goat_id=$2 AND shed_id=$3`,
+		testTenant, testMovePartitionGoat, testShed2)
+
+	// Query the execution board
+	repo := NewRepository(pool, 5*time.Second)
+	parkID := testPark
+	shedID := testShed2
+	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+		TenantID: testTenant,
+		ParkID:   &parkID,
+		ShedID:   &shedID,
+		Limit:    100,
+		AsOf:     time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution error = %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatalf("expected execution rows, got 0")
+	}
+
+	// Assert: partition_label should be 'whole' (the CURRENT location), not 'Part 1' (stale assignment).
+	row := rows[0]
+	if row.Partition != "" && row.Partition != "whole" {
+		t.Fatalf("partition_label = %q want 'whole' (current) or bare, not 'Part 1' (stale assignment)", row.Partition)
+	}
+	// If partition is empty string or 'whole', that's the correct case (reflects current location).
+	t.Logf("partition_label correctly shows current location: %q (not stale assignment 'Part 1')", row.Partition)
 }
 
 func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {

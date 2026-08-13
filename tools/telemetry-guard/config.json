@@ -30,6 +30,20 @@
       "sibling_lookup": true,
       "sibling_extensions": [
         ".kt"
+      ],
+      "new_file_extensions": [
+        ".kt"
+      ],
+      "new_file_excludes": [
+        "**/src/test/**",
+        "**/src/androidTest/**",
+        "**/*Test.kt",
+        "**/res/**",
+        "**/*Dialog.kt",
+        "**/*Card.kt",
+        "**/*Chip.kt",
+        "**/*Row.kt",
+        "**/*Section.kt"
       ]
     },
     "admin_web": {
@@ -57,6 +71,120 @@
         ".tsx",
         ".ts"
       ]
+    },
+    "screen_view": {
+      "description": "Every Compose top-level screen/route destination (a public @Composable fun *Screen(...)/*Route(...)) must emit a screen-view event. Best-effort: this is a marker-presence check over the whole file/sibling, it does NOT verify the marker is actually reachable from the @Composable entry point, nor that it is inside a route/id-keyed LaunchedEffect (see docs/TELEMETRY.md for the LaunchedEffect-keying rule, which this guard cannot statically verify).",
+      "mode": "block",
+      "path_globs": [
+        "apps/goatos-android/**/*Screen.kt",
+        "apps/goatos-android/**/*Route.kt"
+      ],
+      "new_file_dir_markers": [],
+      "new_file_scope_root": "apps/goatos-android/",
+      "check_added": true,
+      "check_modified": true,
+      "check_new_feature_files": false,
+      "comment_style": "//",
+      "markers": [
+        "AnalyticsEvents.",
+        "AnalyticsFunnels.",
+        "analytics.track",
+        "AnalyticsPort",
+        "trackScreenView",
+        "logScreenView"
+      ],
+      "sibling_lookup": true,
+      "sibling_extensions": [
+        ".kt"
+      ]
+    },
+    "primary_action": {
+      "description": "Best-effort: an onClick block that itself performs a write/navigation call (navController.navigate/popBackStack, a *ViewModel submit/save/delete call spelled out inline, or a direct outbox/repository write) should carry an analytics call in the same lexical block. Cannot see analytics wired one function-call away (e.g. onClick = { viewModel.onSubmitClicked() } with the analytics call living inside onSubmitClicked()) \u2014 that is the single biggest class of false positive, which is why this surface is WARN not FAIL. Treat WARN findings as a worklist, not a gate.",
+      "mode": "warn",
+      "path_globs": [
+        "apps/goatos-android/**/*Screen.kt"
+      ],
+      "new_file_dir_markers": [],
+      "new_file_scope_root": "apps/goatos-android/",
+      "check_added": true,
+      "check_modified": true,
+      "check_new_feature_files": false,
+      "comment_style": "//",
+      "markers": [
+        "AnalyticsEvents.",
+        "AnalyticsFunnels.",
+        "analytics.track",
+        "AnalyticsPort",
+        "CrashReporter"
+      ],
+      "sibling_lookup": true,
+      "sibling_extensions": [
+        ".kt"
+      ]
+    },
+    "failure_outcome": {
+      "description": "Best-effort: a ViewModel that has a catch/Result-failure branch reaching the UI should carry a *_FAILURE/*_FAILED analytics event (with a reason code param) alongside CrashReporter/non-fatal recording. This overlaps intentionally with exception-guard (which enforces 'record it somewhere') \u2014 this surface additionally wants a user-facing outcome/failure ANALYTICS event, not just a crash record. File-level marker-presence only; cannot verify the failure event actually carries a reason-code parameter (see docs/TELEMETRY.md for the required-params convention) or that it fires on the exact failing branch. WARN because of that gap.",
+      "mode": "warn",
+      "path_globs": [
+        "apps/goatos-android/**/*ViewModel.kt"
+      ],
+      "new_file_dir_markers": [],
+      "new_file_scope_root": "apps/goatos-android/",
+      "check_added": true,
+      "check_modified": true,
+      "check_new_feature_files": false,
+      "comment_style": "//",
+      "markers": [
+        "FAILURE",
+        "FAILED",
+        "AnalyticsEvents.",
+        "AnalyticsFunnels."
+      ],
+      "sibling_lookup": true,
+      "sibling_extensions": [
+        ".kt"
+      ]
     }
-  }
+  },
+  "reserved_event_names": [
+    "app_remove",
+    "app_update",
+    "app_clear_data",
+    "app_uninstall",
+    "error",
+    "first_open",
+    "first_visit",
+    "first_open_time",
+    "first_visit_time",
+    "in_app_purchase",
+    "notification_dismiss",
+    "notification_foreground",
+    "notification_open",
+    "notification_receive",
+    "os_update",
+    "session_start",
+    "session_start_with_rollout",
+    "session_end",
+    "screen_view",
+    "user_engagement",
+    "ad_activeview",
+    "ad_click",
+    "ad_exposure",
+    "ad_query",
+    "ad_reward",
+    "adunit_exposure",
+    "dynamic_link_first_open",
+    "dynamic_link_app_open",
+    "dynamic_link_app_update"
+  ],
+  "reserved_param_prefixes": [
+    "firebase_",
+    "google_",
+    "ga_"
+  ],
+  "reserved_name_scan_globs": [
+    "apps/goatos-android/**/*.kt",
+    "apps/admin-web/**/*.ts",
+    "apps/admin-web/**/*.tsx"
+  ]
 }

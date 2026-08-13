@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="timetable_title">టైమ్‌టేబుల్</string>
     <string name="timetable_subtitle">షిఫ్ట్ రోస్టర్ — ఎవరు ప్రతిరోజు అమలు చేస్తారో నిర్ణయించే ఆపరేషనల్ మూలం.</string>

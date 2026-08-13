@@ -1,0 +1,389 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+)
+
+// Adversarial coverage for the shed-weights read. Every test seeds real rows and asserts the
+// number the screen renders, because each of these is a way the query can be quietly wrong while
+// still returning plausible-looking data.
+
+func shedWeightsWindow() (time.Time, time.Time) {
+	// Wide enough that membership is never the thing under test, except where it is.
+	return time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+}
+
+// submitted_at IS STAMPED, and that is what makes a repeat scan of the same tag legal.
+// weighing_observations_one_open_tag_uidx is UNIQUE on
+// (tenant_id, campaign_shed_id, lower(btrim(scanned_identifier))) WHERE submitted_at IS NULL, so a
+// bucket may hold exactly one OPEN row per tag. Superseded captures are the ones 000061 stamped on
+// completion — a finished bucket whose tag was re-scanned after a reopen — which is precisely the
+// history the dedup in `ind` exists to collapse, and the terminal state of essentially all real
+// weighing work. Seeding rows with a NULL submitted_at modelled a state the database forbids.
+func seedShedWeightScan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tag string, weightKg float64, at time.Time) {
+	t.Helper()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz)`,
+		repoTenant, repoCampaign, repoAnimalScope, tag, weightKg, repoAnimalProof, repoOperator,
+		fmt.Sprintf("shedweights:%s:%d", tag, at.UnixNano()), at)
+}
+
+// ONE-TO-MANY FAN-OUT. weighing_observations keeps superseded rows: a reopened bucket re-scans a
+// tag that already has a row, and 000073's duplicate collapse leaves losers in place. A bare
+// count(*) therefore reports MORE animals than the shed holds, and the average is computed over
+// captures rather than animals.
+//
+// Two tags, one of them scanned three times. The honest answer is 2 animals, averaged over each
+// tag's LATEST weight (20 and 30 -> 25.0), never 4 captures averaged to something else.
+func TestShedWeightsOneToManyDeduplicatesRepeatScansPerTag(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	day := time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC)
+	seedShedWeightScan(t, ctx, pool, "TAG-A", 11.0, day)
+	seedShedWeightScan(t, ctx, pool, "TAG-A", 15.0, day.Add(2*time.Hour))
+	seedShedWeightScan(t, ctx, pool, "TAG-A", 20.0, day.Add(4*time.Hour)) // latest wins
+	seedShedWeightScan(t, ctx, pool, "TAG-B", 30.0, day)
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+
+	var found bool
+	for _, row := range out.Rows {
+		if row.WeighingCategory != "individual_animal" || row.AnimalsWeighed == 0 {
+			continue
+		}
+		found = true
+		if row.AnimalsWeighed != 2 {
+			t.Fatalf("animals must count DISTINCT tags, not captures: want 2, got %d", row.AnimalsWeighed)
+		}
+		if got := fmt.Sprintf("%.1f", row.AverageWeightKg); got != "25.0" {
+			t.Fatalf("average must use each tag's latest weight (20+30)/2: want 25.0, got %s", got)
+		}
+		if got := fmt.Sprintf("%.1f", row.TotalWeightKg); got != "50.0" {
+			t.Fatalf("total must sum latest-per-tag: want 50.0, got %s", got)
+		}
+	}
+	if !found {
+		t.Fatal("expected an individual_animal row carrying the seeded scans")
+	}
+	if out.Summary.AnimalsWeighed != 2 {
+		t.Fatalf("summary animals must match the row grain: want 2, got %d", out.Summary.AnimalsWeighed)
+	}
+}
+
+// STATUS MATRIX. weighing_campaign_sheds.status spans pending / in_progress / completed /
+// canceled. Canceled is work that was called off, so it must leave sheds_in_scope entirely --
+// counting it inflates the "N of M sheds weighed" denominator with sheds nobody intended to
+// weigh. Every other status stays in scope whether or not it has weighs yet.
+func TestShedWeightsStatusMatrixExcludesOnlyCanceledFromScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	from, to := shedWeightsWindow()
+
+	for _, status := range []string{"pending", "in_progress", "completed", "canceled"} {
+		execWeighingTestSQL(t, ctx, pool,
+			`UPDATE weighing_campaign_sheds SET status = $1 WHERE campaign_shed_id = $2::uuid`,
+			status, repoAnimalScope)
+
+		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+		if err != nil {
+			t.Fatalf("GetShedWeights(%s): %v", status, err)
+		}
+		present := false
+		for _, row := range out.Rows {
+			if row.BucketStatus == status {
+				present = true
+			}
+		}
+		if status == "canceled" && present {
+			t.Fatal("canceled buckets must be out of scope entirely")
+		}
+		if status != "canceled" && !present {
+			t.Fatalf("status %q must stay in scope", status)
+		}
+	}
+}
+
+// PAGE BOUNDARY. The summary is a WHOLE-FILTER aggregate: it is computed over every shed in
+// scope and must not change with the row cap. This asserts the invariant the contract promises --
+// summing the returned rows reproduces the summary exactly -- so a future paging change that
+// starts computing the cards from the visible slice fails here.
+func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	day := time.Date(2026, 7, 12, 6, 0, 0, 0, time.UTC)
+	seedShedWeightScan(t, ctx, pool, "PAGE-1", 18.0, day)
+	seedShedWeightScan(t, ctx, pool, "PAGE-2", 22.0, day)
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+
+	var animals int
+	var total float64
+	var inScope int
+	for _, row := range out.Rows {
+		inScope++
+		animals += row.AnimalsWeighed
+		total += row.TotalWeightKg
+	}
+	if animals != out.Summary.AnimalsWeighed {
+		t.Fatalf("summary animals %d must equal the sum over rows %d", out.Summary.AnimalsWeighed, animals)
+	}
+	if inScope != out.Summary.ShedsInScope {
+		t.Fatalf("summary sheds_in_scope %d must equal the row count %d", out.Summary.ShedsInScope, inScope)
+	}
+	if fmt.Sprintf("%.1f", total) != fmt.Sprintf("%.1f", out.Summary.TotalWeightKg) {
+		t.Fatalf("summary total %.1f must equal the sum over rows %.1f", out.Summary.TotalWeightKg, total)
+	}
+	if out.Summary.AverageWeightKg == nil {
+		t.Fatal("average must be populated when animals were weighed")
+	}
+	// Weighted mean over ANIMALS, not the mean of per-shed averages.
+	want := total / float64(animals)
+	if fmt.Sprintf("%.3f", *out.Summary.AverageWeightKg) != fmt.Sprintf("%.3f", want) {
+		t.Fatalf("average must be total/animals (%.3f), got %.3f", want, *out.Summary.AverageWeightKg)
+	}
+}
+
+// PAGE BOUNDARY, REAL LIMIT. The table is capped at MaxShedWeightsRows, but the
+// KPI cards are contractually whole-filter aggregates. More sheds than the row
+// cap must therefore report a larger sheds_in_scope than len(rows); otherwise the
+// screen silently turns a bounded table slice into the business truth.
+func TestShedWeightsSummaryCountsShedsBeyondReturnedRowCap(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+WITH extra AS (
+  -- lpad, not format('%012s', ...): Postgres pads %s to width with SPACES, so the node segment
+  -- came out as '           1' and the ::uuid cast raised 22P02 before any row was inserted.
+  SELECT gs,
+         ('00000000-0000-4000-8000-' || lpad(gs::text, 12, '0'))::uuid AS location_id,
+         ('00000000-0000-4000-9000-' || lpad(gs::text, 12, '0'))::uuid AS campaign_shed_id
+  FROM generate_series(1, 301) gs
+),
+new_locations AS (
+  INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+  SELECT location_id, $1::uuid, 'shed', format('Limit Shed %03s', gs), $2::uuid, 'active'
+  FROM extra
+  ON CONFLICT (tenant_id, location_id) DO NOTHING
+  RETURNING location_id
+)
+INSERT INTO weighing_campaign_sheds (
+  campaign_shed_id, campaign_id, tenant_id, location_id, location_type,
+  display_name, weighing_category, operator_user_id, expected_animal_count
+)
+SELECT campaign_shed_id, $3::uuid, $1::uuid, location_id, 'shed',
+       format('Limit Shed %03s', gs), 'individual_animal', $4::uuid, 0
+FROM extra
+-- weighing_campaign_sheds is unique on campaign_shed_id ALONE (its primary key); there is no
+-- (tenant_id, campaign_shed_id) constraint for ON CONFLICT to infer, so naming the pair made this
+-- fixture raise 42P10 and the test could never reach its assertion.
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		repoTenant, repoPark, repoCampaign, repoOperator)
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if len(out.Rows) != 300 {
+		t.Fatalf("row list must stay capped at 300, got %d", len(out.Rows))
+	}
+	if out.Summary.ShedsInScope <= len(out.Rows) {
+		t.Fatalf("summary must count sheds beyond the returned row cap: rows=%d summary=%d", len(out.Rows), out.Summary.ShedsInScope)
+	}
+}
+
+// PARK SCOPE. The repository does no authorization of its own -- the service resolves the park
+// list -- so it must honour exactly the parks it is handed. An unrelated park id returns nothing
+// rather than falling back to the tenant's whole estate.
+func TestShedWeightsParkScopeReturnsNothingOutsideTheRequestedParks(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	from, to := shedWeightsWindow()
+	other := "00000000-0000-4000-8000-0000000030ff"
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if len(out.Rows) != 0 || out.Summary.ShedsInScope != 0 {
+		t.Fatalf("a foreign park must return no rows, got %d rows / %d in scope", len(out.Rows), out.Summary.ShedsInScope)
+	}
+}
+
+// DATE SHIFT. The window is half-open on accepted_at: a weigh on the exclusive boundary day
+// belongs to the NEXT period and must not be counted twice. Anchored on fixed dates rather than
+// now±N, because a vaccination-style hour offset makes the result depend on the clock.
+func TestShedWeightsDateShiftHonoursHalfOpenWindow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	inside := time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC)
+	boundary := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC) // exclusive end
+	seedShedWeightScan(t, ctx, pool, "WINDOW-IN", 19.0, inside)
+	seedShedWeightScan(t, ctx, pool, "WINDOW-OUT", 40.0, boundary)
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), boundary)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, row := range out.Rows {
+		if row.WeighingCategory != "individual_animal" || row.AnimalsWeighed == 0 {
+			continue
+		}
+		if row.AnimalsWeighed != 1 {
+			t.Fatalf("only the weigh inside the half-open window counts: want 1 animal, got %d", row.AnimalsWeighed)
+		}
+		if got := fmt.Sprintf("%.1f", row.AverageWeightKg); got != "19.0" {
+			t.Fatalf("boundary weigh must be excluded: want 19.0, got %s", got)
+		}
+	}
+}
+
+const (
+	shedWeightsCampaignFourWeek  = "00000000-0000-4000-8000-00000000b001"
+	shedWeightsScopeFourWeek     = "00000000-0000-4000-8000-00000000b101"
+	shedWeightsCampaignShortSpan = "00000000-0000-4000-8000-00000000b002"
+	shedWeightsScopeShortSpan    = "00000000-0000-4000-8000-00000000b102"
+)
+
+func seedShedWeightsCampaign(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignID, start string) {
+	t.Helper()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $4::date + 6, $4::date, 'published', 100, $5::uuid, $5::uuid)
+ON CONFLICT (campaign_id) DO NOTHING`, campaignID, repoTenant, repoPark, start, repoOperator)
+}
+
+// FOUR-WEEK BASELINE. A whole-shed row must not use the immediately previous
+// weigh when a proper four-week baseline exists. Castro-style data has 3 Aug as
+// latest, 29 Jul as the previous row, and 6 Jul exactly four weeks earlier; the
+// dashboard must render the 6 Jul -> 3 Aug rate.
+func TestShedWeightsFourWeekGainOneToManyPageBoundaryParkScopeStatusMatrixUsesBaselineNotPreviousEntry(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedLoadSecondCampaign(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, shedWeightsCampaignFourWeek, "2026-07-29")
+	repo := NewRepository(pool, 5*time.Second)
+
+	// The base fixture already has an open bucket for repoPerShed on 2026-07-29.
+	// Mark it completed before seeding another same-day bucket; the real open
+	// uniqueness guard keys by operational shed + partition + start date.
+	execWeighingTestSQL(t, ctx, pool,
+		`UPDATE weighing_campaign_sheds SET status='completed' WHERE campaign_shed_id=$1::uuid`,
+		repoShedScope)
+	seedLoadBucket(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoPerShed, "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofTwo, 24.53125, 64,
+		time.Date(2026, 7, 6, 6, 0, 0, 0, time.UTC))
+	seedLoadBucket(t, ctx, pool, shedWeightsScopeFourWeek, shedWeightsCampaignFourWeek, repoPerShed, "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, shedWeightsScopeFourWeek, shedWeightsCampaignFourWeek, repoShedProof, 29.21875, 64,
+		time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 30.793650793650794, 63,
+		time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, row := range out.Rows {
+		if row.LocationID != repoPerShed {
+			continue
+		}
+		if row.ShedAverageGainGPerDay == nil {
+			t.Fatal("four-week baseline must produce a gain")
+		}
+		if got := fmt.Sprintf("%.1f", *row.ShedAverageGainGPerDay); got != "223.7" {
+			t.Fatalf("gain must use 6 Jul -> 3 Aug, not 29 Jul -> 3 Aug: got %s g/day", got)
+		}
+		if row.GainSpanDays != 28 {
+			t.Fatalf("span must be 28 days, got %d", row.GainSpanDays)
+		}
+		return
+	}
+	t.Fatal("expected the per-shed row")
+}
+
+// NO SHORT-SPAN FALLBACK. If the only older row is a few days before latest, the
+// 4-week ADG is unknown. Returning last-two here would show a plausible but wrong
+// short-interval number on a card labelled as four-week growth.
+func TestShedWeightsGainDoesNotFallbackToTooRecentPreviousEntry(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, shedWeightsCampaignShortSpan, "2026-07-29")
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool,
+		`UPDATE weighing_campaign_sheds SET status='completed' WHERE campaign_shed_id=$1::uuid`,
+		repoShedScope)
+	seedLoadBucket(t, ctx, pool, shedWeightsScopeShortSpan, shedWeightsCampaignShortSpan, repoPerShed, "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, shedWeightsScopeShortSpan, shedWeightsCampaignShortSpan, repoShedProofTwo, 29.21875, 64,
+		time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 30.793650793650794, 63,
+		time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, row := range out.Rows {
+		if row.LocationID != repoPerShed {
+			continue
+		}
+		if row.ShedAverageGainGPerDay != nil {
+			t.Fatalf("short-span previous row must not produce 4-week ADG, got %.1f", *row.ShedAverageGainGPerDay)
+		}
+		return
+	}
+	t.Fatal("expected the per-shed row")
+}

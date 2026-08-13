@@ -32,6 +32,8 @@ import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
+import sg.mesha.goatos.core.network.dto.CountsBreakdownSeriesPointDto
+import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationShedDto
@@ -42,9 +44,11 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
+import sg.mesha.goatos.rfid.FakeScanSource
 
 /**
  * BirthDeathViewModel is now SELECTOR/SCAN-driven, so these lock in the two things the PR#11
@@ -63,6 +67,7 @@ class BirthDeathViewModelValidationTest {
 
     private lateinit var syncRepository: RecordingCountsSyncRepository
     private lateinit var countsRepository: FakeBirthDeathCountsRepository
+    private lateinit var scanSource: FakeScanSource
     private lateinit var analytics: AnalyticsPort
     private lateinit var crashReporter: CrashReporter
     private lateinit var savedStateHandle: SavedStateHandle
@@ -72,6 +77,7 @@ class BirthDeathViewModelValidationTest {
         Dispatchers.setMain(dispatcher)
         syncRepository = RecordingCountsSyncRepository()
         countsRepository = FakeBirthDeathCountsRepository()
+        scanSource = FakeScanSource()
         analytics = NoopAnalyticsPort()
         crashReporter = NoopTestCrashReporter()
         savedStateHandle = SavedStateHandle()
@@ -83,10 +89,16 @@ class BirthDeathViewModelValidationTest {
     private fun newViewModel() = BirthDeathViewModel(
         syncRepository,
         countsRepository,
+        scanSource,
         analytics,
         crashReporter,
         savedStateHandle,
     )
+
+    private fun completeRequiredBirthMetadata(vm: BirthDeathViewModel) {
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, MOTHER_RFID))
+    }
 
     // --- Birth: placement is chosen and required ---------------------------------------------
 
@@ -96,8 +108,8 @@ class BirthDeathViewModelValidationTest {
         advanceUntilIdle() // let the destinations catalog emit
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-01-01"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, "2026-01-15"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
 
         assertFalse(
             "Placement is required — submit stays disabled with no park/shed chosen",
@@ -117,8 +129,8 @@ class BirthDeathViewModelValidationTest {
         advanceUntilIdle()
 
         vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-01-01"))
-        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, "2026-01-15"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
         vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
         vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
 
@@ -129,6 +141,170 @@ class BirthDeathViewModelValidationTest {
         assertTrue("A birth was enqueued", request != null)
         assertEquals(PARK_ID, request!!.parkId)
         assertEquals(SHED_ID, request.shedId)
+    }
+
+    // --- Birth: single identifier, auto entry date, chosen breed ------------------------------
+
+    @Test
+    fun `birth needs only one identifier and auto-stamps today's entry date`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // Only one CHILD identifier is required; mother RFID and breed are mandatory metadata.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        assertTrue("Child identifier + mother + breed + dob + placement submit", vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals("Only the primary identifier is sent", "Goat001", request!!.animalIdentifier1)
+        assertEquals("A blank second RFID is sent as null", null, request.animalIdentifier2)
+        // Entry date is stamped automatically to today's business date (Asia/Kolkata), never typed.
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+            .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        assertEquals("Entry date is auto-stamped to today", today, request.entryDate)
+    }
+
+    @Test
+    fun `birth sends the optional second permanent RFID when provided`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // A newborn given two permanent ear tags: both identifiers are sent (second is optional).
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "RFID-A"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "RFID-B"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        assertTrue("Two distinct RFIDs + dob + placement submits", vm.state.value.canSubmit)
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals("Primary RFID sent", "RFID-A", request!!.animalIdentifier1)
+        assertEquals("Second RFID sent as animal_identifier_2", "RFID-B", request.animalIdentifier2)
+    }
+
+    @Test
+    fun `a second RFID equal to the first blocks submit`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "RFID-A"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        assertTrue("Valid before the duplicate second RFID", vm.state.value.canSubmit)
+
+        // Case-insensitive duplicate of the first RFID must block submit (backend enforces this too).
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "rfid-a"))
+        assertTrue("A duplicate second RFID blocks submit", !vm.state.value.canSubmit)
+        assertEquals(
+            "The second RFID must differ from the first.",
+            vm.state.value.validationMessage,
+        )
+    }
+
+    @Test
+    fun `a temporary tag never carries a second permanent RFID`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        // Even if a stale tag2 lingered, the temporary path must not send a second permanent RFID.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, "RFID-B"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, BIRTH_ID_KIND_TEMPORARY))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "TMP-77"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+        completeRequiredBirthMetadata(vm)
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals("Temporary tag is the primary identity", "TMP-77", request!!.temporaryIdentifier)
+        assertEquals("No permanent primary on the temporary path", null, request.animalIdentifier1)
+        assertEquals("No second permanent RFID on the temporary path", null, request.animalIdentifier2)
+    }
+
+    @Test
+    fun `breed options come from the herd's backend facet, and the chosen key is submitted`() =
+        runTest(dispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle() // let the breed facet emit from the cached breakdown envelope
+
+            assertEquals(
+                "Breed options are the backend breed facet, not a hardcoded list",
+                listOf(BREED_KEY),
+                vm.state.value.breedOptions.map { it.key },
+            )
+
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2020-01-01"))
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+            vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, MOTHER_RFID))
+            vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+            vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+
+            vm.onEvent(BirthDeathEvent.Submit)
+            advanceUntilIdle()
+
+            assertEquals(
+                "The selected breed facet key is submitted verbatim",
+                BREED_KEY,
+                syncRepository.lastBirth?.breed,
+            )
+        }
+
+    @Test
+    fun `breed options are fetched even when the breed cache is cold`() = runTest(dispatcher) {
+        // A field operator has CountsWrite (to record births) but not the CountsRead the Counts
+        // Breakdown breed facet needs, so sourcing breeds from there 403s and the picker used to stay
+        // disabled (empty options). The ViewModel must fetch the vocabulary from the operator
+        // `/app/counts/breeds` endpoint itself. With the cold cache the picker is disabled at first…
+        countsRepository = FakeBirthDeathCountsRepository(breedCacheColdUntilRefresh = true)
+        val vm = newViewModel()
+
+        // …and becomes usable only because init triggered a breeds refresh that warmed the cache.
+        advanceUntilIdle()
+
+        assertTrue(
+            "The ViewModel fetched the breed vocabulary itself",
+            countsRepository.refreshBreedsCalls >= 1,
+        )
+        assertEquals(
+            "Breed options are populated from the fetched vocabulary, not left empty",
+            listOf(BREED_KEY),
+            vm.state.value.breedOptions.map { it.key },
+        )
+    }
+
+    @Test
+    fun `future date of birth blocks submit`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, "Goat001"))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+        completeRequiredBirthMetadata(vm)
+        // A dob after today's auto entry date must fail closed — the backend rule dob <= entry_date
+        // reduces to dob <= today once entry date is auto-stamped.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2999-01-01"))
+
+        assertFalse("A future date of birth cannot be submitted", vm.state.value.canSubmit)
     }
 
     @Test
@@ -197,12 +373,127 @@ class BirthDeathViewModelValidationTest {
         assertEquals("row_version comes from the search result", ANIMAL_ROW_VERSION, request.rowVersion)
     }
 
+    // --- Birth: the permanent identifiers are SCANNABLE ---------------------------------------
+
+    @Test
+    fun `a scanned tag fills the primary identifier and releases the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        assertTrue("The reader is listening", scanSource.isStarted)
+        assertEquals(BirthDeathField.TAG, vm.state.value.scanningField)
+
+        scanSource.emit("982000123456789")
+        advanceUntilIdle()
+
+        assertEquals("The scan lands in animal_identifier_1", "982000123456789", vm.state.value.tag)
+        // One ear tag is one identifier: capture stops so the NEXT animal's tag cannot silently
+        // overwrite the one just scanned.
+        assertEquals("Capture released after the read", null, vm.state.value.scanningField)
+        assertFalse("The BT-HID reader was stopped", scanSource.isStarted)
+    }
+
+    @Test
+    fun `tapping the scanning field again stops the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+
+        assertEquals(null, vm.state.value.scanningField)
+        assertFalse(scanSource.isStarted)
+    }
+
+    @Test
+    fun `scanning the second identifier hands the reader over from the first`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG2))
+        advanceUntilIdle()
+
+        assertEquals("Only the second field is listening", BirthDeathField.TAG2, vm.state.value.scanningField)
+
+        scanSource.emit("982000987654321")
+        advanceUntilIdle()
+
+        assertEquals("The scan lands in animal_identifier_2", "982000987654321", vm.state.value.tag2)
+        assertEquals("The first identifier is untouched", "", vm.state.value.tag)
+    }
+
+    @Test
+    fun `switching to the temporary path releases the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        // A provisional tag is hand-written — both permanent-RFID fields disappear, so a scan in
+        // progress has lost its destination and must not keep eating hardware key events.
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, BIRTH_ID_KIND_TEMPORARY))
+        advanceUntilIdle()
+
+        assertEquals(null, vm.state.value.scanningField)
+        assertFalse(scanSource.isStarted)
+    }
+
+    @Test
+    fun `switching to the death mode releases the reader`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.SelectMode(BirthDeathMode.DEATH))
+        advanceUntilIdle()
+
+        assertEquals("Death has no identifier field to scan into", null, vm.state.value.scanningField)
+        assertFalse(scanSource.isStarted)
+    }
+
+    @Test
+    fun `a scanned identifier submits exactly as a typed one would`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG))
+        advanceUntilIdle()
+        scanSource.emit("982000123456789")
+        advanceUntilIdle()
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, "2026-07-01"))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, BREED_KEY))
+        vm.onEvent(BirthDeathEvent.EditField(BirthDeathField.DAM_ID, MOTHER_RFID))
+        vm.onEvent(BirthDeathEvent.SelectPark(PARK_ID))
+        vm.onEvent(BirthDeathEvent.SelectShed(SHED_ID))
+
+        assertTrue("A scanned tag satisfies the submit gate", vm.state.value.canSubmit)
+        vm.onEvent(BirthDeathEvent.Submit)
+        advanceUntilIdle()
+
+        val request = syncRepository.lastBirth
+        assertTrue("A birth was enqueued", request != null)
+        assertEquals(
+            "The scanned tag reaches the wire payload unchanged",
+            "982000123456789",
+            request!!.animalIdentifier1,
+        )
+    }
+
     private companion object {
         const val PARK_ID = "11111111-1111-1111-1111-111111111111"
         const val PARK_ID_2 = "22222222-2222-2222-2222-222222222222"
         const val SHED_ID = "33333333-3333-3333-3333-333333333333"
         const val GOAT_ID = "44444444-4444-4444-4444-444444444444"
         const val ANIMAL_ROW_VERSION = 7
+        const val BREED_KEY = "beetal"
+        const val MOTHER_RFID = "982000000000001"
     }
 }
 
@@ -238,8 +529,32 @@ private class RecordingCountsSyncRepository : SyncRepository {
 /**
  * Mirrors Room: the destinations catalog emits one park with one shed, and a tag lookup resolves to
  * one animal carrying its own row_version — the exact contract the death write round-trips.
+ *
+ * The breed vocabulary models the real cache/refresh split: [observeBirthBreeds] reads a Room-backed
+ * flow, and only [refreshBirthBreeds] (backed by the operator `/app/counts/breeds` endpoint) warms
+ * it. When [breedCacheColdUntilRefresh] is set, the vocabulary starts EMPTY (the dropdown would be
+ * disabled) and appears only once the ViewModel fetches it — modelling a field operator with no
+ * Counts (CountsRead) access whose breed cache was never warmed.
  */
-private class FakeBirthDeathCountsRepository : CountsRepository {
+private class FakeBirthDeathCountsRepository(
+    private val breedCacheColdUntilRefresh: Boolean = false,
+) : CountsRepository {
+    private fun breedsWithBeetal() = CountsBreedsResponseDto(
+        // The birth breed dropdown reuses the herd's OWN breed vocabulary; the fake supplies one.
+        breeds = listOf(
+            CountsBreakdownSeriesPointDto(key = "beetal", label = "Beetal", count = 12),
+        ),
+    )
+
+    private val birthBreeds = MutableStateFlow(
+        Resource(
+            data = if (breedCacheColdUntilRefresh) CountsBreedsResponseDto() else breedsWithBeetal(),
+        ),
+    )
+
+    var refreshBreedsCalls = 0
+        private set
+
     override fun observeHerdSummary(
         lifecycleStatus: String?,
         parkId: String?,
@@ -259,6 +574,15 @@ private class FakeBirthDeathCountsRepository : CountsRepository {
         query: CountsBreakdownQuery,
     ): Flow<Resource<CountsBreakdownResponseDto>> =
         MutableStateFlow(Resource(data = CountsBreakdownResponseDto()))
+
+    override fun observeBirthBreeds(): Flow<Resource<CountsBreedsResponseDto>> = birthBreeds
+
+    override suspend fun refreshBirthBreeds(): Result<Unit> {
+        refreshBreedsCalls++
+        // A real refresh writes the vocabulary into the cache the observe flow reads.
+        birthBreeds.value = Resource(data = breedsWithBeetal())
+        return Result.success(Unit)
+    }
 
     override fun breakdownRows(query: CountsBreakdownQuery): Flow<PagingData<CountsBreakdownRowDto>> =
         flowOf(PagingData.empty<CountsBreakdownRowDto>()).map { it }
@@ -308,7 +632,7 @@ private class FakeBirthDeathCountsRepository : CountsRepository {
                 sex = "female",
                 lifecycleStatus = "alive",
                 rowVersion = 7,
-                locationPath = GoatLocationPathDto(display = "North Park / Shed A"),
+                locationPath = GoatLocationPathDto(operationalLocationDisplay = "North Park / Shed A"),
             ),
         ),
     )

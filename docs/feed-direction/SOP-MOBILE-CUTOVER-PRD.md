@@ -101,10 +101,10 @@ verification process.
 
 | Role | What the person can see and do | What they cannot do by default |
 | --- | --- | --- |
-| Feed Director | Author the per-head ration and exact-shed absolute-kg allocations, inspect tomorrow coverage, publish/issue that when authorized, review outcomes and exceptions, issue corrections/emergency adjustments | Complete field proof as another worker or silently rewrite issued work |
-| Feed packing operator | See assigned shed/session packing tasks, enter actual quantities, capture required proof, explain shortfall and submit | Change the published expected quantity or verify their own submission/proof |
-| Feed transport operator | See assigned route/destination tasks, capture departure/arrival evidence and exceptions | Complete distribution or alter direction quantities |
-| Feed distribution operator | Record served/consumed quantity, distribution proof and water proof for assigned sheds/sessions | Publish the Feed protocol or hide a shortfall |
+| Feed Director | Inspect both parks' Feed work, see pending/done/rework status, author the per-head ration and exact-shed absolute-kg allocations, inspect tomorrow coverage, publish/issue that when authorized, review outcomes and exceptions, issue corrections/emergency adjustments | Execute ground tasks, upload field proof as another worker, or silently rewrite issued work |
+| Feed packing operator | See only their own park's assigned shed/session packing tasks, enter actual quantities, capture required proof, explain shortfall and submit | See another park's work, change the published expected quantity, or verify their own submission/proof |
+| Feed transport operator | See only their own park's assigned route/destination tasks, capture departure/arrival evidence and exceptions | See another park's work, complete distribution, or alter direction quantities |
+| Feed distribution operator | See only their own park's assigned work; record served/consumed quantity, distribution proof and water proof for assigned sheds/sessions | See another park's work, publish the Feed protocol, or hide a shortfall |
 | Wastage/consumption operator | Record consumed/wasted kg, reason and proof where separately assigned | Change the plan or reviewer verdict |
 | Video verifier | Inspect required evidence and quantities, accept/reject with reason, request step-specific rework | Change original submissions or approve outside assigned scope |
 | Supervisor/escalation owner | Reassign, unblock, approve allowed exceptions, follow overdue/rejected work | Erase history or bypass safety rules without reason and audit |
@@ -113,6 +113,11 @@ verification process.
 Assignment and actual submission are separate facts. One person may help another
 in the field, but GoatOS must record who was assigned, who actually submitted,
 who approved the substitution, and why.
+
+Golden rule for every environment, including throwaway/dev data: a ground Feed
+operator is single-park. Seed CBE and CPT as separate operator accounts. Only a
+director/CEO oversight account may see both parks, and that does not make the
+account an executor.
 
 Verification is also a separate fact. A principal who submitted an item or its
 proof can never verify that same submission, even when the principal holds both
@@ -553,8 +558,15 @@ behind it.
 
 ## 16. Product decisions still required
 
-1. Final effective-dated business deadlines and grace periods; legacy observed
-   triggers are not defaults.
+1. The default business clock is accepted: Day N 09:00 direction, 13:30 cutoff,
+   13:30-13:45 Diff, 15:00 packing/loading/Transport staging outside sheds, and serving
+   at the published 09:00/15:00 defaults. The 2026-08-10 maintainer policy
+   allows no ordinary grace for those accepted hard clocks. Water is hard only
+   when its effective session procedure pins applicability, sequence, owner,
+   deadline/grace, and proof.
+   Create/assign Transport before its 15:00 hard deadline; the current 15:30
+   materializer is a defect. Still define any stricter route lead time,
+   pre-warning, post-breach recovery/contacts, and exception attribution.
 2. Whether distributed and consumed quantity are one field or two events.
 3. Which stages require video, photo, either, duration/quality limits and
    gallery restrictions.

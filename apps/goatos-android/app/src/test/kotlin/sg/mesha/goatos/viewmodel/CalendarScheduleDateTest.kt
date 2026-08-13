@@ -9,29 +9,26 @@ import sg.mesha.goatos.core.network.dto.currentScheduleDate
 class CalendarScheduleDateTest {
 
     @Test
-    fun `calendar event item uses effective schedule date before original due time`() {
+    fun `calendar event item uses backend due time as schedule date`() {
         val item = CalendarEventDto(
             eventId = "event-1",
             title = "Vaccination",
             dueAt = "2026-08-01T08:00:00+05:30",
-            effectiveScheduleDate = "2026-08-05",
         ).toCalendarItem()
 
         assertEquals("2026-08-05", CalendarEventDto(
-            dueAt = "2026-08-01T08:00:00+05:30",
-            effectiveScheduleDate = "2026-08-05",
+            dueAt = "2026-08-05",
         ).currentScheduleDate)
-        assertEquals("2026-08-05", item.dateKey)
-        assertEquals("", item.timeLabel)
+        assertEquals("2026-08-01", item.dateKey)
+        assertEquals("08:00", item.timeLabel)
     }
 
     @Test
-    fun `drive summary label uses current assignment date before legacy due date`() {
+    fun `drive summary label uses backend due date`() {
         val summary = DriveSummaryDto(
-            currentAssignmentDate = "2026-09-02",
             dueDate = "2026-08-29",
         ).toCalendarDriveSummary()
 
-        assertEquals("Wed 2 Sep", summary.dueDateLabel)
+        assertEquals("Sat 29 Aug", summary.dueDateLabel)
     }
 }

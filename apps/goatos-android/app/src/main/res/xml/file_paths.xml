@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backs the FileProvider declared in AndroidManifest.xml for WeighingExportFileWriter.
+     "exports/" matches the cacheDir/exports subdirectory the writer creates: only that
+     subtree is exposed, not the whole cache. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="exports" path="exports/" />
+</paths>

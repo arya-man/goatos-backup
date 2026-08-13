@@ -240,6 +240,41 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 		    )`, impTenant, submissionID); got != "2026-06-29" {
 		t.Fatalf("withdrawal_until_date = %q, want 2026-06-29", got)
 	}
+
+	oldProofID := "91000000-0000-4000-8000-00000000f101"
+	currentProofID := "91000000-0000-4000-8000-00000000f102"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO proof_artifacts (
+  proof_id, tenant_id, storage_provider, object_key, content_hash, mime_type, size_bytes,
+  upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, metadata
+) VALUES
+  ($1::uuid, $3::uuid, 'local', 'fanout/old-proof', 'sha256:old', 'video/mp4', 10,
+   'completed', 'task', $4::uuid, 'goat', $5::uuid, 'video',
+   jsonb_build_object('superseded_by_proof_id', $2::text)),
+  ($2::uuid, $3::uuid, 'local', 'fanout/current-proof', 'sha256:current', 'video/mp4', 20,
+   'completed', 'task', $4::uuid, 'goat', $5::uuid, 'video', '{}'::jsonb);
+UPDATE sop_submissions
+SET proof_refs = jsonb_build_array(jsonb_build_object(
+  'proof_id', $2::text,
+  'proof_type', 'video',
+  'subject_type', 'goat',
+  'subject_id', $5::text,
+  'upload_state', 'completed'
+))
+WHERE tenant_id = $3::uuid
+  AND submission_id = $6::uuid`, oldProofID, currentProofID, impTenant, taskID, goatID, submissionID); err != nil {
+		t.Fatalf("seed replacement proof refs: %v", err)
+	}
+	completions, err := vacc.ListSubmissionCompletions(ctx, impTenant, submissionID)
+	if err != nil {
+		t.Fatalf("ListSubmissionCompletions() error = %v", err)
+	}
+	if len(completions) != 1 {
+		t.Fatalf("submission completions = %d, want 1", len(completions))
+	}
+	if got := completions[0].ProofRefIDs; len(got) != 1 || got[0] != currentProofID {
+		t.Fatalf("proof refs = %v, want current proof only %s", got, currentProofID)
+	}
 }
 
 func TestRecordCompletionsFromSubmissionSkipsTerminalObligation(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -541,6 +542,7 @@ type acceptIntakeRequest struct {
 	GoatIDs                   []string        `json:"goat_ids"`
 	ParkLocationID            string          `json:"park_location_id"`
 	ShedLocationID            string          `json:"shed_location_id"`
+	PartitionLabel            *string         `json:"partition_label"`
 	AcceptedAt                *time.Time      `json:"accepted_at"`
 	EntryDate                 *string         `json:"entry_date"`
 	TrustedVaccinationHistory json.RawMessage `json:"trusted_vaccination_history"`
@@ -566,6 +568,7 @@ func (h *Handler) AcceptIntake(w http.ResponseWriter, r *http.Request) {
 		GoatIDs:                   req.GoatIDs,
 		ParkLocationID:            req.ParkLocationID,
 		ShedLocationID:            req.ShedLocationID,
+		PartitionLabel:            optionalStringValue(req.PartitionLabel),
 		AcceptedAt:                acceptedAt,
 		AcceptedAtSet:             req.AcceptedAt != nil,
 		EntryDate:                 derefTime(entryDate),
@@ -693,6 +696,13 @@ func derefTime(v *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *v
+}
+
+func optionalStringValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v)
 }
 
 func tenantID(r *http.Request) string {

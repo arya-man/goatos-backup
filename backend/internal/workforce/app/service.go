@@ -340,9 +340,82 @@ func (s *Service) HeartbeatDevice(ctx context.Context, cmd ports.HeartbeatDevice
 		return nil, mapRepoErr(err)
 	}
 	if item.Status != "active" {
-		return nil, Forbidden("device_revoked", "device is not active")
+		healed, healErr := s.reactivateRecoverableDevice(ctx, cmd.TenantID, cmd.ActorID, item, domain.RegisterDeviceRequest{
+			AppInstallID:  item.AppInstallID,
+			AppVersion:    cmd.Body.AppVersion,
+			OSVersion:     cmd.Body.OSVersion,
+			PushTokenHash: cmd.Body.PushTokenHash,
+			FcmToken:      cmd.Body.FcmToken,
+		})
+		if healErr != nil {
+			return nil, healErr
+		}
+		item = healed
 	}
 	return &domain.DeviceResponse{Device: item, TraceID: traceID}, nil
+}
+
+// isAdministrativelyRevoked reports whether a non-active device was put there by a deliberate
+// admin/security action (workforce RevokeDevice, which stamps metadata["revocation_reason"]) as
+// opposed to a push-delivery side effect (notification SuppressInvalidRecipient, which stamps
+// metadata["fcm_invalidated_reason"] and -- since the P0 device-lockout fix -- no longer even
+// touches status). Only the administrative path is a terminal, non-recoverable state here.
+func isAdministrativelyRevoked(item domain.DeviceSummary) bool {
+	if item.Metadata == nil {
+		return false
+	}
+	_, revokedByAdmin := item.Metadata["revocation_reason"]
+	return revokedByAdmin
+}
+
+// reactivateRecoverableDevice self-heals a device that is not active but was never
+// administratively revoked (see isAdministrativelyRevoked): a stale non-active row left over from
+// before the SuppressInvalidRecipient fix (or any other push-side-effect deactivation), which
+// today's SuppressInvalidRecipient no longer produces but which may already exist in the fleet.
+// Recoverable state machine for workforce_member_devices.status:
+//   - "active"            -> normal, nothing to do.
+//   - "revoked" WITHOUT
+//     metadata.revocation_reason -> RECOVERABLE. Never a deliberate admin action; self-heal here.
+//   - "revoked" WITH
+//     metadata.revocation_reason -> NOT RECOVERABLE. A human/security workflow (operators device
+//     revoke) deliberately locked this device out; heartbeat/bootstrap must keep 403'ing it and
+//     must NEVER silently reactivate it.
+//   - "not_registered" (synthetic, no row yet) -> NOT handled here; the device must call
+//     RegisterDevice first, which is unambiguous because there is no device row to relitigate.
+//
+// Reactivation is always performed via the same RegisterDevice upsert path a fresh install uses
+// (keyed on (tenant_id, app_install_id), which uniquely identifies the row we already resolved as
+// belonging to this device/actor), so it reuses the exact write path already trusted to create an
+// 'active' row -- there is no second, bespoke "unlock" code path to audit. Critically, this
+// function is only ever reached AFTER the caller has resolved item via a device lookup scoped to
+// the AUTHENTICATED actor (GetDeviceForActor / activeProfileAndGrants), so reactivation requires
+// the same principal that owns the device row -- never device id alone.
+func (s *Service) reactivateRecoverableDevice(ctx context.Context, tenantID, actorID string, item domain.DeviceSummary, body domain.RegisterDeviceRequest) (domain.DeviceSummary, error) {
+	if isAdministrativelyRevoked(item) {
+		return domain.DeviceSummary{}, Forbidden("device_revoked", "device was administratively revoked")
+	}
+	if strings.TrimSpace(item.AppInstallID) == "" {
+		// No row to re-key against (e.g. the synthetic not_registered summary) -- cannot self-heal.
+		return domain.DeviceSummary{}, Forbidden("device_revoked", "device is not active")
+	}
+	body.AppInstallID = item.AppInstallID
+	body.AppVersion = strings.TrimSpace(body.AppVersion)
+	body.OSVersion = strings.TrimSpace(body.OSVersion)
+	if body.AppVersion == "" {
+		body.AppVersion = item.AppVersion
+	}
+	if body.OSVersion == "" {
+		body.OSVersion = item.OSVersion
+	}
+	healed, err := s.repo.RegisterDevice(ctx, ports.RegisterDeviceCommand{
+		TenantID: tenantID,
+		ActorID:  actorID,
+		Body:     body,
+	})
+	if err != nil {
+		return domain.DeviceSummary{}, mapRepoErr(err)
+	}
+	return healed, nil
 }
 
 func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, localeTag, traceID string) (*domain.BootstrapResponse, error) {
@@ -371,17 +444,30 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	if deviceID != "" {
 		item, err := s.repo.GetDeviceForActor(ctx, tenantID, actorID, deviceID)
 		if err != nil {
-			return nil, mapRepoErr(err)
+			if errors.Is(err, ports.ErrNotFound) {
+				item = domain.DeviceSummary{DeviceID: deviceID, Status: "not_registered"}
+				device = &item
+				deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
+			} else {
+				return nil, mapRepoErr(err)
+			}
+		} else {
+			if item.Status != "active" {
+				healed, healErr := s.reactivateRecoverableDevice(ctx, tenantID, actorID, item, domain.RegisterDeviceRequest{})
+				if healErr != nil {
+					return nil, healErr
+				}
+				item = healed
+			}
+			device = &item
+			deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
 		}
-		if item.Status != "active" {
-			reason := "device is not active"
-			return nil, Forbidden("device_revoked", reason)
-		}
-		device = &item
-		deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}
 	}
 	now := s.now().UTC()
 	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
+	navChrome := navChromeFor(grants, bootstrapModules)
+	visibleNav := visibleNavigationFor(grants, grantedModules, localeTag)
+	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:        profile,
@@ -390,15 +476,19 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		DeviceState:            deviceState,
 		AppMinSupportedVersion: "0.1.0",
 		FeatureFlags: map[string]bool{
-			"tasks":                   true,
-			"sop_runner":              true,
-			"proof_capture":           hasCapability(caps, "media.video_capture"),
-			"animal_id_scan":          hasCapability(caps, "animal_id.scan"),
-			"protocol_adherence_card": canViewProtocolAdherenceCard(grants),
+			"tasks":                       true,
+			"sop_runner":                  true,
+			"proof_capture":               hasCapability(caps, "media.video_capture"),
+			"animal_id_scan":              hasCapability(caps, "animal_id.scan"),
+			"protocol_adherence_card":     canViewProtocolAdherenceCard(grants),
+			"vaccination_execute":         canExecuteVaccination(grants, grantedModules),
+			"weighing_execute":            canExecuteWeighing(grants, grantedModules),
+			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
+			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
-		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
+		VisibleNavigation:       visibleNav,
 		Modules:                 bootstrapModules,
-		NavChrome:               navChromeFor(grants, bootstrapModules),
+		NavChrome:               navChrome,
 		TaskQueueDescriptors:    queuesFor(caps, localeTag),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
@@ -566,7 +656,7 @@ func validMemberStatus(value string) bool {
 
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "pc_director", "verifier", "supervisor", "admin", "other":
+	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "verifier", "supervisor", "cxo", "other":
 		return true
 	default:
 		return false
@@ -575,7 +665,7 @@ func validRoleHint(value string) bool {
 
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "pc_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "operator", "verifier", "ceo_internal":
 		return true
 	default:
 		return false
@@ -608,9 +698,16 @@ func hasCapability(items []domain.CapabilityAssignment, code string) bool {
 // Verifier is deliberately excluded: it owns a standalone evidence-review app,
 // not leadership action navigation. permissions.RoleOperator is also not leadership.
 var leadershipGrantRoles = map[string]bool{
-	permissions.RoleCEOInternal: true,
-	permissions.RolePCDirector:  true,
-	permissions.RoleParkHead:    true,
+	permissions.RoleCEOInternal:    true,
+	permissions.RolePCDirector:     true,
+	permissions.RoleGrowthDirector: true,
+	// Live as of the 2026-08-01 module-ownership decision: feed_director owns Feed and
+	// health_director owns Counts, so both are leadership for nav composition the same way
+	// pc_director and growth_director are. Their module set still comes from their granted
+	// permissions, not from this map.
+	permissions.RoleFeedDirector:   true,
+	permissions.RoleHealthDirector: true,
+	permissions.RoleParkHead:       true,
 }
 
 func isVerifierPrincipal(grants []domain.GrantSummary) bool {
@@ -639,18 +736,76 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// navChromeFor decides the nav chrome from the COMPOSED drawer, following the
-// nav-composition rule "1 module -> bottom bar, >=2 -> drawer". A leadership
-// principal with a single available module (a preventive-care leader whose only
-// drawer entry is the vaccination home) gets the clean bottom bar, not a
-// one-row drawer; a CEO with vaccination + counts gets the expanded drawer.
-// Field operators stay on minimal chrome until the operator drawer rollout is
-// explicitly enabled again.
-func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
-	if isStandaloneVerifierPrincipal(grants) {
-		return domain.NavChromeMinimal
+// nav-composition rule "1 available module -> clean bottom bar, >=2 -> module
+// switcher drawer". This applies uniformly to field operators and leadership:
+// a preventive-care leader whose only drawer entry is the vaccination home, or
+// an operator granted a single module, gets the clean bottom bar; a CEO with
+// vaccination + counts, or an OPERATOR granted vaccination + counts + feed,
+// gets the expanded drawer so they can switch between their modules.
+//
+// Maintainer decision 2026-07-27: the operator module-switcher drawer rollout is
+// ENABLED (it was previously pinned to minimal). Operators with >=2 granted
+// modules now get the same >=2->drawer treatment as leadership. The verifier
+// workspace follows the same rule: its per-feature evidence modules are
+// backend-composed drawer entries like any other module.
+
+// navItemKeyYou is the account destination's stable key in the nav registry.
+const navItemKeyYou = "you"
+
+// applyProfileEntryPlacement is THE decision about where the account entry ("You") lives,
+// made once for every principal. MAINTAINER RULING 2026-08-03, stated three times:
+//
+//	"You option should be on navigation bar for CEO and verifier and whoever got >=2
+//	 features, instead of sending that in bottom bar for every feature."
+//
+// "You" is the person, not a feature, so it must appear exactly ONCE -- not once per
+// module the principal happens to hold.
+//
+//   - >=2 modules  -> navChrome is "expanded", which means the client renders the module
+//     drawer. The drawer footer owns the account row (GoatOsShell.kt DrawerFooter,
+//     beside Sign out), so the entry is stripped from the served bar AND from every
+//     module's own bar. Stripping the per-module bars too is what makes switching
+//     modules in the drawer unable to resurrect a second You.
+//   - exactly 1 module -> navChrome is "minimal", there is no drawer, and the bottom bar
+//     is the ONLY route to /you. The entry stays.
+//
+// The >=2 test is not re-derived here: it is navChromeFor's count of AVAILABLE composed
+// modules, the same threshold docs/decisions/role-module-nav-composition.md uses to
+// decide the drawer exists at all. Keying off chrome instead of a second count is
+// deliberate -- the drawer's existence and the account entry's home cannot drift apart.
+//
+// There is NO role exception, and specifically no verifier exception. A verifier who
+// verifies vaccination AND weighing has a drawer like anyone else with two features; the
+// carve-out that used to sit here is exactly what put You in both the drawer footer and
+// the bottom bar of every verify feature.
+func applyProfileEntryPlacement(navChrome string, visibleNav []domain.BootstrapNavigationItem, modules []domain.BootstrapModule) ([]domain.BootstrapNavigationItem, []domain.BootstrapModule) {
+	if navChrome != domain.NavChromeExpanded {
+		return visibleNav, modules
 	}
-	if isLeadershipPrincipal(grants) {
+	visibleNav = withoutNavItem(visibleNav, navItemKeyYou)
+	for i := range modules {
+		modules[i].NavItems = withoutNavItem(modules[i].NavItems, navItemKeyYou)
+	}
+	return visibleNav, modules
+}
+
+// withoutNavItem drops one contribution from a composed bar.
+func withoutNavItem(items []domain.BootstrapNavigationItem, key string) []domain.BootstrapNavigationItem {
+	out := make([]domain.BootstrapNavigationItem, 0, len(items))
+	for _, item := range items {
+		if item.Key == key {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
+	// Verifiers with ≥2 feature modules get expanded chrome (drawer + You + Sign out).
+	// Single-module verifiers use minimal chrome (bottom bar only).
+	// This follows the same pattern as operators/leadership: ≥2 modules → drawer.
+	if isStandaloneVerifierPrincipal(grants) {
 		available := 0
 		for _, m := range modules {
 			if m.Status == moduleStatusAvailable {
@@ -661,6 +816,15 @@ func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule
 			return domain.NavChromeExpanded
 		}
 		return domain.NavChromeMinimal
+	}
+	available := 0
+	for _, m := range modules {
+		if m.Status == moduleStatusAvailable {
+			available++
+		}
+	}
+	if available >= 2 {
+		return domain.NavChromeExpanded
 	}
 	return domain.NavChromeMinimal
 }

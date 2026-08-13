@@ -1145,6 +1145,37 @@ $$;
 
 
 --
+-- Name: herd_register_birth_after_write_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_birth_after_write_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  PERFORM herd_register_refresh_goat_projection(NEW.tenant_id, NEW.child_goat_id);
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: herd_register_goat_count_eligible(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_goat_count_eligible(p_tenant_id uuid, p_goat_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE
+    AS $$
+  SELECT NOT EXISTS (
+    SELECT 1
+    FROM public.goat_births gb
+    WHERE gb.tenant_id = p_tenant_id
+      AND gb.child_goat_id = p_goat_id
+      AND gb.count_status <> 'approved'
+  );
+$$;
+
+
+--
 -- Name: herd_register_goats_after_write_trg(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1259,19 +1290,11 @@ BEGIN
     breed, sex, lifecycle_status, is_kid, is_untagged, projected_at
   )
   SELECT
-    g.tenant_id,
-    g.goat_id,
-    g.display_id,
-    g.park_id,
-    g.farm_id,
-    g.current_location_id,
-    g.breed,
-    g.sex,
-    g.lifecycle_status,
+    g.tenant_id, g.goat_id, g.display_id, g.park_id, g.farm_id, g.current_location_id,
+    g.breed, g.sex, g.lifecycle_status,
     herd_register_is_kid(g.age_band, g.management_stage),
     NOT EXISTS (
-      SELECT 1
-      FROM goat_identifiers gi
+      SELECT 1 FROM goat_identifiers gi
       WHERE gi.tenant_id = g.tenant_id
         AND gi.goat_id = g.goat_id
         AND gi.identifier_type = 'animal_identifier_1'
@@ -1282,6 +1305,7 @@ BEGIN
   WHERE g.tenant_id = p_tenant_id
     AND g.goat_id = p_goat_id
     AND g.merged_into_goat_id IS NULL
+    AND herd_register_goat_count_eligible(g.tenant_id, g.goat_id)
   ON CONFLICT (tenant_id, goat_id)
   DO UPDATE SET
     display_id = EXCLUDED.display_id,
@@ -1305,20 +1329,12 @@ BEGIN
     herd_register_goat_projection.is_kid,
     herd_register_goat_projection.is_untagged
   ) IS DISTINCT FROM (
-    EXCLUDED.display_id,
-    EXCLUDED.park_id,
-    EXCLUDED.farm_id,
-    EXCLUDED.current_location_id,
-    EXCLUDED.breed,
-    EXCLUDED.sex,
-    EXCLUDED.lifecycle_status,
-    EXCLUDED.is_kid,
-    EXCLUDED.is_untagged
+    EXCLUDED.display_id, EXCLUDED.park_id, EXCLUDED.farm_id,
+    EXCLUDED.current_location_id, EXCLUDED.breed, EXCLUDED.sex,
+    EXCLUDED.lifecycle_status, EXCLUDED.is_kid, EXCLUDED.is_untagged
   );
 
   IF NOT FOUND THEN
-    -- NOT FOUND also follows a no-op ON CONFLICT. Delete only when the canonical
-    -- goat is absent or merged; otherwise the current projection is already exact.
     DELETE FROM herd_register_goat_projection p
     WHERE p.tenant_id = p_tenant_id
       AND p.goat_id = p_goat_id
@@ -1327,6 +1343,7 @@ BEGIN
         WHERE g.tenant_id = p_tenant_id
           AND g.goat_id = p_goat_id
           AND g.merged_into_goat_id IS NULL
+          AND herd_register_goat_count_eligible(g.tenant_id, g.goat_id)
       );
   END IF;
 END;
@@ -1395,10 +1412,29 @@ $$;
 --
 
 CREATE FUNCTION public.next_goat_display_id() RETURNS text
-    LANGUAGE sql
+    LANGUAGE plpgsql
     AS $$
-  SELECT 'G-' || lpad(v::text, GREATEST(6, length(v::text)), '0')
-  FROM (SELECT nextval('goat_display_id_seq') AS v) s;
+DECLARE
+  candidate text;
+  sequence_value bigint;
+BEGIN
+  LOOP
+    sequence_value := nextval('public.goat_display_id_seq');
+    candidate := 'G-' || lpad(
+      sequence_value::text,
+      GREATEST(6, length(sequence_value::text)),
+      '0'
+    );
+
+    EXIT WHEN NOT EXISTS (
+      SELECT 1
+      FROM public.goats g
+      WHERE g.display_id = candidate
+    );
+  END LOOP;
+
+  RETURN candidate;
+END;
 $$;
 
 
@@ -1686,213 +1722,182 @@ CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
 DECLARE
   config_family_key text;
 BEGIN
-  IF NEW.aggregate_type = 'verification_item' THEN
+  IF NEW.aggregate_type = 'counts_approval_request' THEN
     IF NOT EXISTS (
-      SELECT 1
-      FROM verification_items
-      WHERE tenant_id = NEW.tenant_id
-        AND item_id = NEW.aggregate_id
+      SELECT 1 FROM counts_approval_requests
+      WHERE tenant_id = NEW.tenant_id AND approval_request_id = NEW.aggregate_id
     ) THEN
-      RAISE EXCEPTION 'verification item outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+      RAISE EXCEPTION 'counts approval outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
+    RETURN NEW;
+  END IF;
 
+  IF NEW.aggregate_type = 'verification_item' THEN
+    IF NOT EXISTS (SELECT 1 FROM verification_items WHERE tenant_id = NEW.tenant_id AND item_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'verification item outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
+    END IF;
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'vaccination_batch' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM obligation_batches
-      WHERE tenant_id = NEW.tenant_id
-        AND batch_id = NEW.aggregate_id
-    ) THEN
+    IF NOT EXISTS (SELECT 1 FROM obligation_batches WHERE tenant_id = NEW.tenant_id AND batch_id = NEW.aggregate_id) THEN
       RAISE EXCEPTION 'vaccination batch outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
+    RETURN NEW;
+  END IF;
 
+  IF NEW.aggregate_type = 'weighing' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM weighing_campaigns
+      WHERE tenant_id = NEW.tenant_id AND campaign_id = NEW.aggregate_id
+      UNION ALL
+      SELECT 1 FROM weighing_observations
+      WHERE tenant_id = NEW.tenant_id AND observation_id = NEW.aggregate_id
+      UNION ALL
+      SELECT 1 FROM weighing_shed_observations
+      WHERE tenant_id = NEW.tenant_id AND shed_observation_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'weighing outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'count_base_anchor' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM count_base_anchors
-      WHERE tenant_id = NEW.tenant_id
-        AND base_count_anchor_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'count base anchor outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM count_base_anchors WHERE tenant_id = NEW.tenant_id AND base_count_anchor_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'count base anchor outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'shifting_event' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM shifting_events
-      WHERE tenant_id = NEW.tenant_id
-        AND shifting_event_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'shifting event outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM shifting_events WHERE tenant_id = NEW.tenant_id AND shifting_event_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'shifting event outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'count_projection_exception' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM count_projection_exceptions
-      WHERE tenant_id = NEW.tenant_id
-        AND count_projection_exception_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'count projection exception outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM count_projection_exceptions WHERE tenant_id = NEW.tenant_id AND count_projection_exception_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'count projection exception outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'admin_ui_config_family' THEN
     config_family_key := COALESCE(NEW.payload->>'family_key', NEW.payload #>> '{payload,family_key}');
-    IF NOT EXISTS (
-      SELECT 1
-      FROM admin_ui_config_family_revisions
-      WHERE tenant_id = NEW.tenant_id
-        AND family_key = config_family_key
-    ) THEN
-      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', config_family_key, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM admin_ui_config_family_revisions WHERE tenant_id = NEW.tenant_id AND family_key = config_family_key) THEN
+      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', config_family_key, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'calendar_notification' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM notification_requests
-      WHERE tenant_id = NEW.tenant_id
-        AND notification_request_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'calendar notification outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM notification_requests WHERE tenant_id = NEW.tenant_id AND notification_request_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'calendar notification outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'calendar_snooze' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM calendar_snoozes
-      WHERE tenant_id = NEW.tenant_id
-        AND snooze_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'calendar snooze outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM calendar_snoozes WHERE tenant_id = NEW.tenant_id AND snooze_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'calendar snooze outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'obligation_escalation' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM obligation_escalations
-      WHERE tenant_id = NEW.tenant_id
-        AND escalation_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'obligation escalation outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM obligation_escalations WHERE tenant_id = NEW.tenant_id AND escalation_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'obligation escalation outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'obligation_instance' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM obligation_instances
-      WHERE tenant_id = NEW.tenant_id
-        AND obligation_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'obligation instance outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM obligation_instances WHERE tenant_id = NEW.tenant_id AND obligation_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'obligation instance outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'protocol_version' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM protocol_versions
-      WHERE tenant_id = NEW.tenant_id
-        AND protocol_version_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'protocol version outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM protocol_versions WHERE tenant_id = NEW.tenant_id AND protocol_version_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'protocol version outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'correction_request' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM identity_correction_requests
-      WHERE tenant_id = NEW.tenant_id
-        AND correction_request_id = NEW.aggregate_id
-    ) THEN
-      RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
-        USING ERRCODE = '23503';
+    IF NOT EXISTS (SELECT 1 FROM identity_correction_requests WHERE tenant_id = NEW.tenant_id AND correction_request_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'absence' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM workforce_absences
-      WHERE tenant_id = NEW.tenant_id
-        AND absence_id = NEW.aggregate_id
-    ) THEN
+    IF NOT EXISTS (SELECT 1 FROM workforce_absences WHERE tenant_id = NEW.tenant_id AND absence_id = NEW.aggregate_id) THEN
       RAISE EXCEPTION 'absence outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
   IF NEW.aggregate_type = 'park' THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM locations
-      WHERE tenant_id = NEW.tenant_id
-        AND location_id = NEW.aggregate_id
-    ) THEN
+    IF NOT EXISTS (SELECT 1 FROM locations WHERE tenant_id = NEW.tenant_id AND location_id = NEW.aggregate_id) THEN
       RAISE EXCEPTION 'park outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
-
     RETURN NEW;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-    FROM goat_identity_events
-    WHERE tenant_id = NEW.tenant_id
-      AND identity_event_id = NEW.event_id
-  ) THEN
-    RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id
-      USING ERRCODE = '23503';
+  IF NEW.aggregate_type = 'feed_direction_session_completion' THEN
+    IF NOT EXISTS (SELECT 1 FROM feed_direction_session_completions WHERE tenant_id = NEW.tenant_id AND completion_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'feed direction completion outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
   END IF;
 
+  IF NEW.aggregate_type = 'feed_distribution_completion' THEN
+    IF NOT EXISTS (SELECT 1 FROM feed_distribution_completions WHERE tenant_id = NEW.tenant_id AND completion_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'feed distribution completion outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'feed_packing_completion' THEN
+    IF NOT EXISTS (SELECT 1 FROM feed_packing_completions WHERE tenant_id = NEW.tenant_id AND completion_id = NEW.aggregate_id) THEN
+      RAISE EXCEPTION 'feed packing completion outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'health_protocol_version' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM health_protocol_versions
+      WHERE tenant_id = NEW.tenant_id AND health_protocol_version_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'health protocol outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'health_case' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM health_cases
+      WHERE tenant_id = NEW.tenant_id AND health_case_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'health case outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM goat_identity_events WHERE tenant_id = NEW.tenant_id AND identity_event_id = NEW.event_id) THEN
+    RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id USING ERRCODE = '23503';
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -1990,6 +1995,69 @@ CREATE FUNCTION public.verification_items_touch_updated_at() RETURNS trigger
 BEGIN
   NEW.updated_at := now();
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: weighing_campaign_sheds_fill_task_identity(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.weighing_campaign_sheds_fill_task_identity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.park_id IS NULL OR NEW.start_business_date IS NULL THEN
+    SELECT COALESCE(NEW.park_id, wc.park_id),
+           COALESCE(NEW.start_business_date, wc.start_business_date)
+      INTO NEW.park_id, NEW.start_business_date
+    FROM public.weighing_campaigns wc
+    WHERE wc.tenant_id = NEW.tenant_id
+      AND wc.campaign_id = NEW.campaign_id;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+
+--
+-- Name: weighing_operator_park_bound_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.weighing_operator_park_bound_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  park uuid;
+BEGIN
+  IF NEW.operator_user_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- park_id is denormalised onto the bucket; fall back to the campaign when a writer omits it.
+  park := NEW.park_id;
+  IF park IS NULL THEN
+    SELECT c.park_id INTO park
+    FROM weighing_campaigns c
+    WHERE c.campaign_id = NEW.campaign_id AND c.tenant_id = NEW.tenant_id;
+  END IF;
+  IF park IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM user_scope_grants g
+    WHERE g.tenant_id = NEW.tenant_id
+      AND g.user_id = NEW.operator_user_id
+      AND g.status = 'active'
+      AND (g.scope_type = 'tenant' OR (g.scope_type = 'park' AND g.scope_id = park))
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'weighing: operator % is not scoped to park % (operators are single-park; only a tenant-scoped director spans parks)',
+    NEW.operator_user_id, park
+    USING ERRCODE = '23514';
 END;
 $$;
 
@@ -2268,7 +2336,7 @@ CREATE TABLE public.workforce_members (
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
     CONSTRAINT workforce_members_hr_designation_grade_check CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text])))),
-    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'growth_director'::text, 'feed_director'::text, 'health_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text]))),
     CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
 );
@@ -2369,6 +2437,22 @@ CREATE TABLE public.breeds (
 
 
 --
+-- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_shed_partitions (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    partition_label text DEFAULT 'whole'::text NOT NULL,
+    source_shed_name text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
+    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
+);
+
+
+--
 -- Name: goats; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2406,6 +2490,7 @@ CREATE TABLE public.goats (
     exit_reason text,
     breeding_date date,
     last_delivery_date date,
+    time_of_birth time without time zone,
     CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
     CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
     CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
@@ -2433,11 +2518,13 @@ CREATE VIEW ceo_ai.animal_current_scope AS
     g.lifecycle_status,
     g.sex,
     COALESCE(b.canonical_name, g.breed) AS breed,
-    (((now() AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) AS age_days
-   FROM (((public.goats g
+    (((now() AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) AS age_days,
+    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label
+   FROM ((((public.goats g
      LEFT JOIN public.locations pk ON ((pk.location_id = g.park_id)))
      LEFT JOIN public.locations sh ON ((sh.location_id = g.shed_id)))
-     LEFT JOIN public.breeds b ON ((b.breed_id = g.breed_id)));
+     LEFT JOIN public.breeds b ON ((b.breed_id = g.breed_id)))
+     LEFT JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = g.tenant_id) AND (gsp.goat_id = g.goat_id))));
 
 
 --
@@ -2575,15 +2662,29 @@ CREATE TABLE public.shifting_events (
     completion_request_fingerprint text,
     cancel_idempotency_key text,
     cancel_request_fingerprint text,
+    completion_destination_tag text,
+    completed_at timestamp with time zone,
+    completed_by uuid,
+    management_stage_mode text,
+    target_management_stage text,
+    feed_packing_proof_ref text,
+    feed_given_proof_ref text,
+    feed_config_fingerprint text,
+    feed_requirement_snapshot jsonb,
+    raise_comment text,
+    destination_partition_label text,
+    source_partition_label text,
     CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
     CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text]))),
+    CONSTRAINT shifting_events_high_priority_feed_evidence_consistent_check CHECK ((((feed_packing_proof_ref IS NULL) AND (feed_given_proof_ref IS NULL) AND (feed_config_fingerprint IS NULL) AND (feed_requirement_snapshot IS NULL)) OR ((btrim(feed_packing_proof_ref) <> ''::text) AND (btrim(feed_given_proof_ref) <> ''::text) AND (btrim(feed_config_fingerprint) <> ''::text) AND (jsonb_typeof(feed_requirement_snapshot) = 'object'::text)))),
     CONSTRAINT shifting_events_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT shifting_events_key_check CHECK ((btrim(logical_shifting_event_key) <> ''::text)),
+    CONSTRAINT shifting_events_management_stage_mode_check CHECK (((management_stage_mode IS NULL) OR (management_stage_mode = ANY (ARRAY['keep_current'::text, 'select_stage'::text, 'destination_stage'::text])))),
     CONSTRAINT shifting_events_payload_hash_check CHECK ((btrim(payload_hash) <> ''::text)),
     CONSTRAINT shifting_events_priority_check CHECK ((priority = ANY (ARRAY['high'::text, 'low'::text]))),
     CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'import'::text, 'goatos_canonical'::text]))),
     CONSTRAINT shifting_events_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
-    CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
+    CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'pending_verification'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
     CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text])))
 );
 
@@ -2597,40 +2698,47 @@ CREATE VIEW ceo_ai.counts_movement_daily AS
          SELECT b.tenant_id,
             b.shed_id,
             b.event_date,
+            b.partition_label,
             b.births,
             (0)::bigint AS deaths,
             (0)::bigint AS transfers_out,
             (0)::bigint AS shifts_in,
             (0)::bigint AS shifts_out,
             (0)::bigint AS approvals_pending
-           FROM ( SELECT goats.tenant_id,
-                    goats.shed_id,
-                    COALESCE(goats.entry_date, ((goats.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date) AS event_date,
+           FROM ( SELECT g.tenant_id,
+                    g.shed_id,
+                    COALESCE(g.entry_date, ((g.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date) AS event_date,
+                    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
                     count(*) AS births
-                   FROM public.goats
-                  WHERE (goats.origin_type = 'birth'::text)
-                  GROUP BY goats.tenant_id, goats.shed_id, COALESCE(goats.entry_date, ((goats.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) b
+                   FROM (public.goats g
+                     LEFT JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = g.tenant_id) AND (gsp.goat_id = g.goat_id))))
+                  WHERE (g.origin_type = 'birth'::text)
+                  GROUP BY g.tenant_id, g.shed_id, COALESCE(g.entry_date, ((g.created_at AT TIME ZONE 'Asia/Kolkata'::text))::date), NULLIF(gsp.partition_label, 'whole'::text)) b
         UNION ALL
          SELECT d.tenant_id,
             d.shed_id,
             d.event_date,
+            d.partition_label,
             0,
             d.deaths,
             0,
             0,
             0,
             0
-           FROM ( SELECT goats.tenant_id,
-                    goats.shed_id,
-                    ((goats.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+           FROM ( SELECT g.tenant_id,
+                    g.shed_id,
+                    ((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
+                    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
                     count(*) AS deaths
-                   FROM public.goats
-                  WHERE ((goats.exited_at IS NOT NULL) AND (goats.exit_reason = 'died'::text))
-                  GROUP BY goats.tenant_id, goats.shed_id, (((goats.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) d
+                   FROM (public.goats g
+                     LEFT JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = g.tenant_id) AND (gsp.goat_id = g.goat_id))))
+                  WHERE ((g.exited_at IS NOT NULL) AND (g.exit_reason = 'died'::text))
+                  GROUP BY g.tenant_id, g.shed_id, (((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date), NULLIF(gsp.partition_label, 'whole'::text)) d
         UNION ALL
          SELECT t.tenant_id,
             t.shed_id,
             t.event_date,
+            NULL::text AS partition_label,
             0,
             0,
             t.transfers_out,
@@ -2649,6 +2757,7 @@ CREATE VIEW ceo_ai.counts_movement_daily AS
          SELECT si.tenant_id,
             si.shed_id,
             si.event_date,
+            NULL::text AS partition_label,
             0,
             0,
             0,
@@ -2667,6 +2776,7 @@ CREATE VIEW ceo_ai.counts_movement_daily AS
          SELECT so.tenant_id,
             so.shed_id,
             so.event_date,
+            NULL::text AS partition_label,
             0,
             0,
             0,
@@ -2685,6 +2795,7 @@ CREATE VIEW ceo_ai.counts_movement_daily AS
          SELECT a.tenant_id,
             a.shed_id,
             a.event_date,
+            NULL::text AS partition_label,
             0,
             0,
             0,
@@ -2709,11 +2820,12 @@ CREATE VIEW ceo_ai.counts_movement_daily AS
     (sum(e.transfers_out))::bigint AS transfers_out,
     (sum(e.shifts_in))::bigint AS shifts_in,
     (sum(e.shifts_out))::bigint AS shifts_out,
-    (sum(e.approvals_pending))::bigint AS approvals_pending
+    (sum(e.approvals_pending))::bigint AS approvals_pending,
+    e.partition_label
    FROM ((events e
      LEFT JOIN public.locations sh ON ((sh.location_id = e.shed_id)))
      LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
-  GROUP BY e.tenant_id, e.event_date, e.shed_id, sh.name, pk.name;
+  GROUP BY e.tenant_id, e.event_date, e.shed_id, e.partition_label, sh.name, pk.name;
 
 
 --
@@ -2787,6 +2899,12 @@ CREATE TABLE public.feed_direction_issue_rows (
     amended_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE lower(btrim(partition_label))
+END) STORED,
     CONSTRAINT feed_direction_issue_rows_amended_shape_check CHECK (((amended = false) OR (amended_at IS NOT NULL))),
     CONSTRAINT feed_direction_issue_rows_blocked_shape_check CHECK ((((quantity_kg IS NULL) AND (blocked_reason_code IS NOT NULL)) OR ((quantity_kg IS NOT NULL) AND (blocked_reason_code IS NULL)))),
     CONSTRAINT feed_direction_issue_rows_seq_check CHECK (((row_seq >= 0) AND (item_seq >= 0))),
@@ -3080,9 +3198,13 @@ CREATE TABLE public.notification_requests (
     leased_at timestamp with time zone,
     lease_token uuid,
     delivered_by text,
+    requeued_at timestamp with time zone,
+    requeued_by text,
+    requeue_count integer DEFAULT 0 NOT NULL,
     CONSTRAINT notification_requests_channel_check CHECK ((channel = ANY (ARRAY['local-stub'::text, 'push_fcm'::text, 'slack'::text, 'email'::text, 'webhook'::text, 'incident'::text, 'opsgenie'::text, 'pagerduty'::text]))),
     CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
+    CONSTRAINT notification_requests_requeue_count_check CHECK ((requeue_count >= 0)),
     CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
     CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'verification_approved'::text, 'verification_closed'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
 );
@@ -3209,13 +3331,21 @@ CREATE TABLE public.verification_items (
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    applier_ack_expected boolean DEFAULT false NOT NULL,
+    applied_at timestamp with time zone,
+    applied_by_module text,
+    subject_note text,
+    partition_label text,
+    context_rows jsonb DEFAULT '[]'::jsonb NOT NULL,
+    CONSTRAINT verification_items_applied_ack_complete_chk CHECK (((applied_at IS NULL) = (applied_by_module IS NULL))),
     CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
     CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
+    CONSTRAINT verification_items_context_rows_is_array CHECK ((jsonb_typeof(context_rows) = 'array'::text)),
     CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
     CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
     CONSTRAINT verification_items_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
+    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'withdrawn'::text]))),
     CONSTRAINT verification_items_subject_label_check CHECK (((subject_label IS NULL) OR (btrim(subject_label) <> ''::text)))
 );
 
@@ -3498,6 +3628,21 @@ CREATE VIEW ceo_ai.shed_capacity_current AS
            FROM public.goats
           WHERE ((goats.shed_id IS NOT NULL) AND (goats.lifecycle_status <> ALL (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))
           GROUP BY goats.tenant_id, goats.shed_id
+        ), part_occ AS (
+         SELECT g.tenant_id,
+            g.shed_id,
+            NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
+            count(*) AS animals
+           FROM (public.goats g
+             JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = g.tenant_id) AND (gsp.goat_id = g.goat_id))))
+          WHERE ((g.shed_id IS NOT NULL) AND (g.lifecycle_status <> ALL (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])) AND (NULLIF(gsp.partition_label, 'whole'::text) IS NOT NULL))
+          GROUP BY g.tenant_id, g.shed_id, NULLIF(gsp.partition_label, 'whole'::text)
+        ), partitions AS (
+         SELECT DISTINCT goat_shed_partitions.tenant_id,
+            goat_shed_partitions.shed_id,
+            NULLIF(goat_shed_partitions.partition_label, 'whole'::text) AS partition_label
+           FROM public.goat_shed_partitions
+          WHERE (NULLIF(goat_shed_partitions.partition_label, 'whole'::text) IS NOT NULL)
         ), owner_seat AS (
          SELECT wp.tenant_id,
             wp.scope_id AS shed_id,
@@ -3512,25 +3657,54 @@ CREATE VIEW ceo_ai.shed_capacity_current AS
            FROM (public.workforce_positions wp
              JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
           WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+        ), shed_grains AS (
+         SELECT s_1.tenant_id,
+            s_1.location_id AS shed_id,
+            NULL::text AS partition_label
+           FROM public.locations s_1
+          WHERE (s_1.location_type = 'shed'::text)
+        UNION ALL
+         SELECT p.tenant_id,
+            p.shed_id,
+            p.partition_label
+           FROM partitions p
         )
  SELECT s.tenant_id,
     pk.name AS park_label,
     s.name AS shed_label,
-    COALESCE(occ.animals, (0)::bigint) AS animals,
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
+            ELSE COALESCE(po.animals, (0)::bigint)
+        END AS animals,
     sp.capacity,
-    (sp.capacity - COALESCE(occ.animals, (0)::bigint)) AS variance,
+    (sp.capacity -
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
+            ELSE COALESCE(po.animals, (0)::bigint)
+        END) AS variance,
         CASE
             WHEN (sp.capacity IS NULL) THEN 'unknown_capacity'::text
-            WHEN (COALESCE(occ.animals, (0)::bigint) > sp.capacity) THEN 'over_capacity'::text
-            WHEN (COALESCE(occ.animals, (0)::bigint) = sp.capacity) THEN 'at_capacity'::text
+            WHEN (
+            CASE
+                WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
+                ELSE COALESCE(po.animals, (0)::bigint)
+            END > sp.capacity) THEN 'over_capacity'::text
+            WHEN (
+            CASE
+                WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
+                ELSE COALESCE(po.animals, (0)::bigint)
+            END = sp.capacity) THEN 'at_capacity'::text
             ELSE 'under_capacity'::text
         END AS status,
     o.owner_label,
-    bk.backup_label
-   FROM (((((public.locations s
+    bk.backup_label,
+    sg.partition_label
+   FROM (((((((shed_grains sg
+     JOIN public.locations s ON (((s.location_id = sg.shed_id) AND (s.tenant_id = sg.tenant_id))))
      LEFT JOIN public.locations pk ON ((pk.location_id = s.parent_location_id)))
      LEFT JOIN public.shed_profiles sp ON ((sp.location_id = s.location_id)))
-     LEFT JOIN occ ON (((occ.tenant_id = s.tenant_id) AND (occ.shed_id = s.location_id))))
+     LEFT JOIN occ ON (((occ.tenant_id = sg.tenant_id) AND (occ.shed_id = sg.shed_id))))
+     LEFT JOIN part_occ po ON (((po.tenant_id = sg.tenant_id) AND (po.shed_id = sg.shed_id) AND (po.partition_label = sg.partition_label))))
      LEFT JOIN owner_seat o ON (((o.tenant_id = s.tenant_id) AND (o.shed_id = s.location_id))))
      LEFT JOIN backup_seat bk ON (((bk.tenant_id = s.tenant_id) AND (bk.shed_id = s.location_id))))
   WHERE (s.location_type = 'shed'::text);
@@ -3554,6 +3728,7 @@ CREATE TABLE public.sop_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     accepted_at timestamp with time zone,
     row_version integer DEFAULT 1 NOT NULL,
+    partition_label text,
     CONSTRAINT sop_submissions_answers_object_check CHECK ((jsonb_typeof(answers) = 'object'::text)),
     CONSTRAINT sop_submissions_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT sop_submissions_proof_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
@@ -3768,11 +3943,42 @@ CREATE VIEW ceo_ai.vaccination_dose_pickup AS
             oi.batch_id,
             oi.scope_id AS shed_id,
             oi.rule_id,
+            NULL::text AS partition_label,
             count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS animals_due,
             count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS animals_overdue
            FROM public.obligation_instances oi
           WHERE ((oi.scope_type = 'shed'::text) AND (oi.batch_id IS NOT NULL))
           GROUP BY oi.tenant_id, oi.batch_id, oi.scope_id, oi.rule_id
+        ), obl_part AS (
+         SELECT oi.tenant_id,
+            oi.batch_id,
+            oi.scope_id AS shed_id,
+            oi.rule_id,
+            NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
+            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS animals_due,
+            count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS animals_overdue
+           FROM (public.obligation_instances oi
+             JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = oi.tenant_id) AND (gsp.goat_id = oi.target_id))))
+          WHERE ((oi.scope_type = 'shed'::text) AND (oi.batch_id IS NOT NULL) AND (oi.target_type = 'goat'::text) AND (NULLIF(gsp.partition_label, 'whole'::text) IS NOT NULL))
+          GROUP BY oi.tenant_id, oi.batch_id, oi.scope_id, oi.rule_id, NULLIF(gsp.partition_label, 'whole'::text)
+        ), obl_grains AS (
+         SELECT obl.tenant_id,
+            obl.batch_id,
+            obl.shed_id,
+            obl.rule_id,
+            obl.partition_label,
+            obl.animals_due,
+            obl.animals_overdue
+           FROM obl
+        UNION ALL
+         SELECT obl_part.tenant_id,
+            obl_part.batch_id,
+            obl_part.shed_id,
+            obl_part.rule_id,
+            obl_part.partition_label,
+            obl_part.animals_due,
+            obl_part.animals_overdue
+           FROM obl_part
         )
  SELECT ob.tenant_id,
     bt.planned_date AS business_date,
@@ -3788,8 +3994,9 @@ CREATE VIEW ceo_ai.vaccination_dose_pickup AS
             WHEN (ob.animals_overdue > 0) THEN 'catch_up_overdue'::text
             WHEN (ob.animals_due > 0) THEN 'pick_and_administer'::text
             ELSE 'no_action'::text
-        END AS next_action
-   FROM ((((((obl ob
+        END AS next_action,
+    ob.partition_label
+   FROM ((((((obl_grains ob
      JOIN public.obligation_batches bt ON (((bt.tenant_id = ob.tenant_id) AND (bt.batch_id = ob.batch_id))))
      LEFT JOIN public.locations sh ON ((sh.location_id = ob.shed_id)))
      LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
@@ -3885,6 +4092,7 @@ CREATE VIEW ceo_ai.vaccination_operator_status AS
             a.operator_id,
             a.park_id,
             a.shed_id,
+            NULLIF(a.partition_label, 'whole'::text) AS partition_label,
             a.planned_date,
             COALESCE(sum(a.animal_count), (0)::bigint) AS assigned_animals,
             COALESCE(sum(a.animal_count) FILTER (WHERE (b.status = ANY (ARRAY['planned'::text, 'in_progress'::text]))), (0)::bigint) AS due,
@@ -3894,7 +4102,7 @@ CREATE VIEW ceo_ai.vaccination_operator_status AS
            FROM (public.vaccination_drive_assignments a
              LEFT JOIN public.obligation_batches b ON (((b.tenant_id = a.tenant_id) AND (b.batch_id = a.batch_id))))
           WHERE (a.operator_id IS NOT NULL)
-          GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id, a.planned_date
+          GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id, NULLIF(a.partition_label, 'whole'::text), a.planned_date
         ), cap AS (
          SELECT vaccination_capacity_config.tenant_id,
             vaccination_capacity_config.max_per_day
@@ -3922,7 +4130,8 @@ CREATE VIEW ceo_ai.vaccination_operator_status AS
             WHEN (s.due > 0) THEN 'run_drive'::text
             WHEN ((s.done > 0) AND (s.due = 0)) THEN 'completed'::text
             ELSE 'no_action'::text
-        END AS next_action
+        END AS next_action,
+    s.partition_label
    FROM ((((assigned s
      LEFT JOIN public.workforce_members wm ON ((wm.workforce_member_id = s.operator_id)))
      LEFT JOIN public.locations pk ON ((pk.location_id = s.park_id)))
@@ -4002,6 +4211,7 @@ CREATE TABLE public.vaccination_eligibility_rollups (
     source_revision bigint DEFAULT 0 NOT NULL,
     recomputed_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
     CONSTRAINT vaccination_eligibility_rollups_count_check CHECK ((animal_count >= 0))
 );
 
@@ -4022,12 +4232,33 @@ CREATE VIEW ceo_ai.vaccination_shed_status AS
            FROM public.obligation_instances
           WHERE (obligation_instances.scope_type = 'shed'::text)
           GROUP BY obligation_instances.tenant_id, obligation_instances.scope_id
+        ), obl_part AS (
+         SELECT oi.tenant_id,
+            oi.scope_id AS shed_id,
+            NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
+            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS due,
+            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['completed'::text, 'accepted'::text]))) AS done,
+            count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS overdue,
+            min(oi.due_at) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS next_due,
+            count(DISTINCT oi.batch_id) FILTER (WHERE (oi.batch_id IS NOT NULL)) AS planned_sessions
+           FROM (public.obligation_instances oi
+             JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = oi.tenant_id) AND (gsp.goat_id = oi.target_id))))
+          WHERE ((oi.scope_type = 'shed'::text) AND (oi.target_type = 'goat'::text) AND (NULLIF(gsp.partition_label, 'whole'::text) IS NOT NULL))
+          GROUP BY oi.tenant_id, oi.scope_id, NULLIF(gsp.partition_label, 'whole'::text)
         ), anim AS (
          SELECT vaccination_eligibility_rollups.tenant_id,
             vaccination_eligibility_rollups.shed_id,
             (sum(vaccination_eligibility_rollups.animal_count) FILTER (WHERE vaccination_eligibility_rollups.usable_for_vaccination))::bigint AS animals
            FROM public.vaccination_eligibility_rollups
           GROUP BY vaccination_eligibility_rollups.tenant_id, vaccination_eligibility_rollups.shed_id
+        ), anim_part AS (
+         SELECT vaccination_eligibility_rollups.tenant_id,
+            vaccination_eligibility_rollups.shed_id,
+            NULLIF(vaccination_eligibility_rollups.partition_label, 'whole'::text) AS partition_label,
+            (sum(vaccination_eligibility_rollups.animal_count) FILTER (WHERE vaccination_eligibility_rollups.usable_for_vaccination))::bigint AS animals
+           FROM public.vaccination_eligibility_rollups
+          WHERE (NULLIF(vaccination_eligibility_rollups.partition_label, 'whole'::text) IS NOT NULL)
+          GROUP BY vaccination_eligibility_rollups.tenant_id, vaccination_eligibility_rollups.shed_id, NULLIF(vaccination_eligibility_rollups.partition_label, 'whole'::text)
         ), owner_seat AS (
          SELECT wp.tenant_id,
             wp.scope_id AS shed_id,
@@ -4042,29 +4273,78 @@ CREATE VIEW ceo_ai.vaccination_shed_status AS
            FROM (public.workforce_positions wp
              JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
           WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
+        ), partitions AS (
+         SELECT DISTINCT goat_shed_partitions.tenant_id,
+            goat_shed_partitions.shed_id,
+            NULLIF(goat_shed_partitions.partition_label, 'whole'::text) AS partition_label
+           FROM public.goat_shed_partitions
+          WHERE (NULLIF(goat_shed_partitions.partition_label, 'whole'::text) IS NOT NULL)
+        ), shed_grains AS (
+         SELECT s_1.tenant_id,
+            s_1.location_id AS shed_id,
+            NULL::text AS partition_label
+           FROM public.locations s_1
+          WHERE (s_1.location_type = 'shed'::text)
+        UNION ALL
+         SELECT p.tenant_id,
+            p.shed_id,
+            p.partition_label
+           FROM partitions p
         )
- SELECT s.tenant_id,
+ SELECT sg.tenant_id,
     pk.name AS park_label,
     s.name AS shed_label,
-    COALESCE(anim.animals, (0)::bigint) AS animals,
-    COALESCE(obl.due, (0)::bigint) AS due,
-    COALESCE(obl.done, (0)::bigint) AS done,
-    COALESCE(obl.planned_sessions, (0)::bigint) AS planned_sessions,
-    ((obl.next_due AT TIME ZONE 'Asia/Kolkata'::text))::date AS next_due_date,
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN COALESCE(anim.animals, (0)::bigint)
+            ELSE COALESCE(ap.animals, (0)::bigint)
+        END AS animals,
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.due, (0)::bigint)
+            ELSE COALESCE(op.due, (0)::bigint)
+        END AS due,
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.done, (0)::bigint)
+            ELSE COALESCE(op.done, (0)::bigint)
+        END AS done,
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.planned_sessions, (0)::bigint)
+            ELSE COALESCE(op.planned_sessions, (0)::bigint)
+        END AS planned_sessions,
+    ((
+        CASE
+            WHEN (sg.partition_label IS NULL) THEN obl.next_due
+            ELSE op.next_due
+        END AT TIME ZONE 'Asia/Kolkata'::text))::date AS next_due_date,
     om.manager_label,
     bk.backup_label,
         CASE
-            WHEN (COALESCE(obl.overdue, (0)::bigint) > 0) THEN 'overdue'::text
-            WHEN (COALESCE(obl.due, (0)::bigint) > 0) THEN 'due'::text
-            WHEN (COALESCE(obl.done, (0)::bigint) > 0) THEN 'complete'::text
+            WHEN (
+            CASE
+                WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.overdue, (0)::bigint)
+                ELSE COALESCE(op.overdue, (0)::bigint)
+            END > 0) THEN 'overdue'::text
+            WHEN (
+            CASE
+                WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.due, (0)::bigint)
+                ELSE COALESCE(op.due, (0)::bigint)
+            END > 0) THEN 'due'::text
+            WHEN (
+            CASE
+                WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.done, (0)::bigint)
+                ELSE COALESCE(op.done, (0)::bigint)
+            END > 0) THEN 'complete'::text
             ELSE 'no_work_due'::text
-        END AS status
-   FROM (((((public.locations s
+        END AS status,
+    sg.partition_label
+   FROM ((((((((shed_grains sg
+     JOIN public.locations s ON (((s.location_id = sg.shed_id) AND (s.tenant_id = sg.tenant_id))))
      LEFT JOIN public.locations pk ON ((pk.location_id = s.parent_location_id)))
-     LEFT JOIN obl ON (((obl.tenant_id = s.tenant_id) AND (obl.shed_id = s.location_id))))
-     LEFT JOIN anim ON (((anim.tenant_id = s.tenant_id) AND (anim.shed_id = s.location_id))))
-     LEFT JOIN owner_seat om ON (((om.tenant_id = s.tenant_id) AND (om.shed_id = s.location_id))))
-     LEFT JOIN backup_seat bk ON (((bk.tenant_id = s.tenant_id) AND (bk.shed_id = s.location_id))))
+     LEFT JOIN obl ON (((obl.tenant_id = sg.tenant_id) AND (obl.shed_id = sg.shed_id))))
+     LEFT JOIN obl_part op ON (((op.tenant_id = sg.tenant_id) AND (op.shed_id = sg.shed_id) AND (op.partition_label = sg.partition_label))))
+     LEFT JOIN anim ON (((anim.tenant_id = sg.tenant_id) AND (anim.shed_id = sg.shed_id))))
+     LEFT JOIN anim_part ap ON (((ap.tenant_id = sg.tenant_id) AND (ap.shed_id = sg.shed_id) AND (ap.partition_label = sg.partition_label))))
+     LEFT JOIN owner_seat om ON (((om.tenant_id = sg.tenant_id) AND (om.shed_id = sg.shed_id))))
+     LEFT JOIN backup_seat bk ON (((bk.tenant_id = sg.tenant_id) AND (bk.shed_id = sg.shed_id))))
   WHERE (s.location_type = 'shed'::text);
 
 
@@ -4090,13 +4370,465 @@ CREATE VIEW ceo_ai.verification_queue_status AS
     sh.name AS shed_label,
     count(*) FILTER (WHERE (vi.status = 'pending'::text)) AS pending,
     count(*) FILTER (WHERE (vi.status = 'rejected'::text)) AS rejected,
-    count(*) FILTER (WHERE (vi.status = ANY (ARRAY['accepted'::text, 'verified'::text]))) AS accepted,
+    count(*) FILTER (WHERE (vi.status = 'approved'::text)) AS accepted,
     min(vi.captured_at) FILTER (WHERE (vi.status = 'pending'::text)) AS oldest_pending_at,
-    NULL::text AS owner_label
+    NULL::text AS owner_label,
+    count(*) FILTER (WHERE (vi.status <> 'withdrawn'::text)) AS total,
+    count(*) FILTER (WHERE (vi.status = 'withdrawn'::text)) AS withdrawn,
+    count(*) AS total_including_withdrawn
    FROM ((public.verification_items vi
      LEFT JOIN public.locations sh ON ((sh.location_id = vi.shed_id)))
      LEFT JOIN public.locations pk ON ((pk.location_id = vi.park_id)))
   GROUP BY vi.tenant_id, COALESCE(vi.vertical, 'verification'::text), pk.name, sh.name;
+
+
+--
+-- Name: verification_review_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verification_review_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_id uuid,
+    proof_id uuid,
+    actor_id uuid NOT NULL,
+    session_id text NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    client_event_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT verification_review_events_item_id_scope_check CHECK ((((event_type = 'queue_opened'::text) AND (item_id IS NULL)) OR ((event_type <> 'queue_opened'::text) AND (item_id IS NOT NULL)))),
+    CONSTRAINT verification_review_events_payload_object_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT verification_review_events_session_check CHECK ((btrim(session_id) <> ''::text)),
+    CONSTRAINT verification_review_events_type_check CHECK ((event_type = ANY (ARRAY['queue_opened'::text, 'item_opened'::text, 'video_play'::text, 'video_pause'::text, 'video_seek_attempt'::text, 'video_ended'::text, 'proof_switched'::text, 'fullscreen_toggled'::text, 'verdict_recorded'::text])))
+);
+
+
+--
+-- Name: verifier_review_integrity; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.verifier_review_integrity AS
+ WITH ordered_video_events AS (
+         SELECT verification_review_events.tenant_id,
+            verification_review_events.item_id,
+            verification_review_events.actor_id,
+            COALESCE((verification_review_events.proof_id)::text, ''::text) AS proof_key,
+            verification_review_events.event_type,
+            verification_review_events.occurred_at,
+            ((verification_review_events.payload ->> 'video_position_ms'::text))::bigint AS position_ms,
+            ((verification_review_events.payload ->> 'video_duration_ms'::text))::bigint AS duration_ms
+           FROM public.verification_review_events
+          WHERE (verification_review_events.event_type = ANY (ARRAY['video_play'::text, 'video_pause'::text, 'video_seek_attempt'::text, 'video_ended'::text]))
+        ), next_event AS (
+         SELECT ordered_video_events.tenant_id,
+            ordered_video_events.item_id,
+            ordered_video_events.actor_id,
+            ordered_video_events.proof_key,
+            ordered_video_events.event_type,
+            ordered_video_events.occurred_at,
+            ordered_video_events.position_ms,
+            ordered_video_events.duration_ms,
+            lead(ordered_video_events.event_type) OVER w AS next_type,
+            lead(ordered_video_events.occurred_at) OVER w AS next_at,
+            lead(ordered_video_events.position_ms) OVER w AS next_position_ms
+           FROM ordered_video_events
+          WINDOW w AS (PARTITION BY ordered_video_events.tenant_id, ordered_video_events.item_id, ordered_video_events.actor_id, ordered_video_events.proof_key ORDER BY ordered_video_events.occurred_at)
+        ), play_spans AS (
+         SELECT next_event.tenant_id,
+            next_event.item_id,
+            next_event.actor_id,
+            next_event.proof_key,
+            COALESCE(next_event.position_ms, (0)::bigint) AS start_ms,
+            (LEAST(COALESCE((next_event.next_position_ms)::numeric, ((COALESCE(next_event.position_ms, (0)::bigint))::numeric + GREATEST((EXTRACT(epoch FROM (next_event.next_at - next_event.occurred_at)) * (1000)::numeric), (0)::numeric))), (((COALESCE(next_event.position_ms, (0)::bigint))::numeric + (GREATEST((EXTRACT(epoch FROM (next_event.next_at - next_event.occurred_at)) * (1000)::numeric), (0)::numeric) * 2.0)) + (500)::numeric)))::bigint AS end_ms
+           FROM next_event
+          WHERE ((next_event.event_type = 'video_play'::text) AND (next_event.next_type = ANY (ARRAY['video_pause'::text, 'video_seek_attempt'::text, 'video_ended'::text])))
+        ), valid_spans AS (
+         SELECT play_spans.tenant_id,
+            play_spans.item_id,
+            play_spans.actor_id,
+            play_spans.proof_key,
+            play_spans.start_ms,
+            play_spans.end_ms
+           FROM play_spans
+          WHERE (play_spans.end_ms > play_spans.start_ms)
+        ), spans_with_prev_end AS (
+         SELECT valid_spans.tenant_id,
+            valid_spans.item_id,
+            valid_spans.actor_id,
+            valid_spans.proof_key,
+            valid_spans.start_ms,
+            valid_spans.end_ms,
+            max(valid_spans.end_ms) OVER (PARTITION BY valid_spans.tenant_id, valid_spans.item_id, valid_spans.actor_id, valid_spans.proof_key ORDER BY valid_spans.start_ms ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_max_end
+           FROM valid_spans
+        ), spans_grouped AS (
+         SELECT spans_with_prev_end.tenant_id,
+            spans_with_prev_end.item_id,
+            spans_with_prev_end.actor_id,
+            spans_with_prev_end.proof_key,
+            spans_with_prev_end.start_ms,
+            spans_with_prev_end.end_ms,
+            spans_with_prev_end.prev_max_end,
+            sum(
+                CASE
+                    WHEN ((spans_with_prev_end.prev_max_end IS NULL) OR (spans_with_prev_end.start_ms > spans_with_prev_end.prev_max_end)) THEN 1
+                    ELSE 0
+                END) OVER (PARTITION BY spans_with_prev_end.tenant_id, spans_with_prev_end.item_id, spans_with_prev_end.actor_id, spans_with_prev_end.proof_key ORDER BY spans_with_prev_end.start_ms) AS island
+           FROM spans_with_prev_end
+        ), merged_spans AS (
+         SELECT spans_grouped.tenant_id,
+            spans_grouped.item_id,
+            spans_grouped.actor_id,
+            spans_grouped.proof_key,
+            spans_grouped.island,
+            min(spans_grouped.start_ms) AS island_start,
+            max(spans_grouped.end_ms) AS island_end
+           FROM spans_grouped
+          GROUP BY spans_grouped.tenant_id, spans_grouped.item_id, spans_grouped.actor_id, spans_grouped.proof_key, spans_grouped.island
+        ), watch_distinct AS (
+         SELECT merged_spans.tenant_id,
+            merged_spans.item_id,
+            merged_spans.actor_id,
+            (sum((merged_spans.island_end - merged_spans.island_start)))::bigint AS watched_distinct_ms
+           FROM merged_spans
+          GROUP BY merged_spans.tenant_id, merged_spans.item_id, merged_spans.actor_id
+        ), proof_durations AS (
+         SELECT per_proof.tenant_id,
+            per_proof.item_id,
+            per_proof.actor_id,
+            (sum(per_proof.proof_duration_ms))::bigint AS proof_duration_ms
+           FROM ( SELECT verification_review_events.tenant_id,
+                    verification_review_events.item_id,
+                    verification_review_events.actor_id,
+                    COALESCE((verification_review_events.proof_id)::text, ''::text) AS proof_key,
+                    max(((verification_review_events.payload ->> 'video_duration_ms'::text))::bigint) AS proof_duration_ms
+                   FROM public.verification_review_events
+                  GROUP BY verification_review_events.tenant_id, verification_review_events.item_id, verification_review_events.actor_id, COALESCE((verification_review_events.proof_id)::text, ''::text)) per_proof
+          GROUP BY per_proof.tenant_id, per_proof.item_id, per_proof.actor_id
+        ), event_stats AS (
+         SELECT verification_review_events.tenant_id,
+            verification_review_events.item_id,
+            verification_review_events.actor_id,
+            count(*) FILTER (WHERE (verification_review_events.event_type = 'video_play'::text)) AS play_count,
+            count(*) FILTER (WHERE (verification_review_events.event_type = 'video_pause'::text)) AS pause_count,
+            count(*) FILTER (WHERE (verification_review_events.event_type = 'video_seek_attempt'::text)) AS seek_attempt_count,
+            min(verification_review_events.occurred_at) FILTER (WHERE (verification_review_events.event_type = 'item_opened'::text)) AS item_opened_at
+           FROM public.verification_review_events
+          GROUP BY verification_review_events.tenant_id, verification_review_events.item_id, verification_review_events.actor_id
+        ), item_facts AS (
+         SELECT es.tenant_id,
+            es.item_id,
+            es.actor_id,
+            pd.proof_duration_ms,
+            es.play_count,
+            es.pause_count,
+            es.seek_attempt_count,
+            es.item_opened_at,
+            COALESCE(wd.watched_distinct_ms, (0)::bigint) AS watched_distinct_ms,
+                CASE
+                    WHEN (pd.proof_duration_ms > 0) THEN LEAST(((COALESCE(wd.watched_distinct_ms, (0)::bigint))::numeric / (pd.proof_duration_ms)::numeric), (1)::numeric)
+                    ELSE NULL::numeric
+                END AS watch_fraction
+           FROM ((event_stats es
+             LEFT JOIN watch_distinct wd ON (((wd.tenant_id = es.tenant_id) AND (wd.item_id = es.item_id) AND (wd.actor_id = es.actor_id))))
+             LEFT JOIN proof_durations pd ON (((pd.tenant_id = es.tenant_id) AND (pd.item_id = es.item_id) AND (pd.actor_id = es.actor_id))))
+        ), reviewed_items AS (
+         SELECT vi.tenant_id,
+            vi.item_id,
+            vi.verified_by AS actor_id,
+            vi.status,
+            vi.verdict_reason,
+            vi.category,
+            vi.park_id,
+            pk.name AS park_label,
+            ((vi.verified_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS business_day,
+            jf.watch_fraction,
+            jf.proof_duration_ms,
+            jf.watched_distinct_ms,
+            jf.play_count,
+            jf.pause_count,
+            jf.seek_attempt_count,
+                CASE
+                    WHEN ((jf.item_opened_at IS NOT NULL) AND (vi.verified_at IS NOT NULL)) THEN EXTRACT(epoch FROM (vi.verified_at - jf.item_opened_at))
+                    ELSE NULL::numeric
+                END AS time_to_verdict_seconds
+           FROM ((public.verification_items vi
+             LEFT JOIN item_facts jf ON (((jf.tenant_id = vi.tenant_id) AND (jf.item_id = vi.item_id) AND (jf.actor_id = vi.verified_by))))
+             LEFT JOIN public.locations pk ON ((pk.location_id = vi.park_id)))
+          WHERE ((vi.verified_by IS NOT NULL) AND (vi.status = ANY (ARRAY['approved'::text, 'rejected'::text])))
+        ), reject_reason_grain AS (
+         SELECT reviewed_items.tenant_id,
+            reviewed_items.actor_id,
+            reviewed_items.park_id,
+            reviewed_items.category,
+            reviewed_items.business_day,
+            COALESCE(reviewed_items.verdict_reason, 'unspecified'::text) AS reason,
+            count(*) AS reason_count
+           FROM reviewed_items
+          WHERE (reviewed_items.status = 'rejected'::text)
+          GROUP BY reviewed_items.tenant_id, reviewed_items.actor_id, reviewed_items.park_id, reviewed_items.category, reviewed_items.business_day, COALESCE(reviewed_items.verdict_reason, 'unspecified'::text)
+        ), reject_reason_rollup AS (
+         SELECT reject_reason_grain.tenant_id,
+            reject_reason_grain.actor_id,
+            reject_reason_grain.park_id,
+            reject_reason_grain.category,
+            reject_reason_grain.business_day,
+            jsonb_object_agg(reject_reason_grain.reason, reject_reason_grain.reason_count) AS reject_reason_breakdown
+           FROM reject_reason_grain
+          GROUP BY reject_reason_grain.tenant_id, reject_reason_grain.actor_id, reject_reason_grain.park_id, reject_reason_grain.category, reject_reason_grain.business_day
+        )
+ SELECT ri.tenant_id,
+    ri.actor_id AS verifier_id,
+    ri.park_id,
+    ri.park_label,
+    ri.category,
+    ri.business_day,
+    count(*) AS videos_reviewed,
+    percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((ri.time_to_verdict_seconds)::double precision)) FILTER (WHERE (ri.time_to_verdict_seconds IS NOT NULL)) AS median_time_to_verdict_seconds,
+    percentile_cont((0.9)::double precision) WITHIN GROUP (ORDER BY ((ri.time_to_verdict_seconds)::double precision)) FILTER (WHERE (ri.time_to_verdict_seconds IS NOT NULL)) AS p90_time_to_verdict_seconds,
+    percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((ri.watch_fraction)::double precision)) FILTER (WHERE (ri.watch_fraction IS NOT NULL)) AS median_watch_fraction,
+    count(*) FILTER (WHERE ((ri.watch_fraction IS NOT NULL) AND (ri.watch_fraction < 0.9))) AS below_watch_threshold_count,
+    count(*) FILTER (WHERE (ri.watch_fraction IS NULL)) AS missing_review_telemetry_count,
+    count(*) FILTER (WHERE (ri.status = 'rejected'::text)) AS rejected_count,
+    ((count(*) FILTER (WHERE (ri.status = 'rejected'::text)))::numeric / (NULLIF(count(*), 0))::numeric) AS reject_rate,
+    COALESCE((array_agg(rr.reject_reason_breakdown) FILTER (WHERE (rr.reject_reason_breakdown IS NOT NULL)))[1], '{}'::jsonb) AS reject_reason_breakdown
+   FROM (reviewed_items ri
+     LEFT JOIN reject_reason_rollup rr ON (((rr.tenant_id = ri.tenant_id) AND (rr.actor_id = ri.actor_id) AND (NOT (rr.park_id IS DISTINCT FROM ri.park_id)) AND (rr.category = ri.category) AND (NOT (rr.business_day IS DISTINCT FROM ri.business_day)))))
+  GROUP BY ri.tenant_id, ri.actor_id, ri.park_id, ri.park_label, ri.category, ri.business_day;
+
+
+--
+-- Name: weighing_campaign_sheds; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_campaign_sheds (
+    campaign_shed_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    location_type text NOT NULL,
+    display_name text NOT NULL,
+    expected_animal_count integer DEFAULT 0 NOT NULL,
+    weighing_category text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    operator_user_id uuid NOT NULL,
+    closed_at timestamp with time zone,
+    closed_by uuid,
+    close_reason text,
+    closed_not_accepted_count integer,
+    park_id uuid,
+    start_business_date date,
+    closure_kind text,
+    partition_label text,
+    CONSTRAINT weighing_campaign_sheds_category_check CHECK ((weighing_category = ANY (ARRAY['individual_animal'::text, 'per_shed_partition'::text]))),
+    CONSTRAINT weighing_campaign_sheds_closure_kind_check CHECK (((closure_kind IS NULL) OR (closure_kind = ANY (ARRAY['verified'::text, 'early'::text])))),
+    CONSTRAINT weighing_campaign_sheds_expected_animal_count_check CHECK ((expected_animal_count >= 0)),
+    CONSTRAINT weighing_campaign_sheds_location_type_check CHECK ((location_type = ANY (ARRAY['shed'::text, 'cohort'::text, 'pen'::text]))),
+    CONSTRAINT weighing_campaign_sheds_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'completed'::text, 'closed'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: weighing_campaigns; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_campaigns (
+    campaign_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    period_type text DEFAULT 'week'::text NOT NULL,
+    period_start_date date NOT NULL,
+    period_end_date date NOT NULL,
+    cadence_type text DEFAULT 'weekly_kids'::text NOT NULL,
+    start_business_date date NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    planned_cap_per_day integer DEFAULT 100 NOT NULL,
+    operator_user_id uuid NOT NULL,
+    published_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    created_by uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    closed_at timestamp with time zone,
+    closed_by uuid,
+    close_reason text,
+    closed_not_accepted_count integer,
+    closure_kind text,
+    CONSTRAINT weighing_campaigns_cadence_type_check CHECK ((cadence_type = 'weekly_kids'::text)),
+    CONSTRAINT weighing_campaigns_closure_kind_check CHECK (((closure_kind IS NULL) OR (closure_kind = ANY (ARRAY['verified'::text, 'early'::text])))),
+    CONSTRAINT weighing_campaigns_period_check CHECK ((period_end_date >= period_start_date)),
+    CONSTRAINT weighing_campaigns_period_type_check CHECK ((period_type = 'week'::text)),
+    CONSTRAINT weighing_campaigns_planned_cap_per_day_check CHECK ((planned_cap_per_day > 0)),
+    CONSTRAINT weighing_campaigns_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT weighing_campaigns_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'in_progress'::text, 'delayed'::text, 'completed'::text, 'closed'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: weighing_observations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_observations (
+    observation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    campaign_id uuid NOT NULL,
+    campaign_shed_id uuid,
+    scanned_identifier text DEFAULT ''::text NOT NULL,
+    weight_kg numeric(8,3) NOT NULL,
+    proof_artifact_id uuid NOT NULL,
+    expected_location_id uuid,
+    expected_location_label text,
+    actual_location_id uuid,
+    actual_location_label text,
+    recorded_by uuid NOT NULL,
+    accepted_at timestamp with time zone DEFAULT now() NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    verification_status text DEFAULT 'pending'::text NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rework_reason text,
+    submitted_at timestamp with time zone,
+    rework_notified_at timestamp with time zone,
+    CONSTRAINT weighing_observations_scanned_identifier_required CHECK ((btrim(scanned_identifier) <> ''::text)),
+    CONSTRAINT weighing_observations_verification_status_check CHECK ((verification_status = ANY (ARRAY['pending'::text, 'verified'::text, 'rework'::text]))),
+    CONSTRAINT weighing_observations_weight_kg_check CHECK ((weight_kg > (0)::numeric))
+);
+
+
+--
+-- Name: weighing_shed_observations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_shed_observations (
+    shed_observation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    campaign_id uuid NOT NULL,
+    campaign_shed_id uuid NOT NULL,
+    weight_kg numeric(10,3) NOT NULL,
+    average_weight_kg numeric(8,3) NOT NULL,
+    animal_count integer NOT NULL,
+    proof_artifact_id uuid NOT NULL,
+    recorded_by uuid NOT NULL,
+    accepted_at timestamp with time zone DEFAULT now() NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    verification_status text DEFAULT 'pending'::text NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rework_reason text,
+    withdrawn_at timestamp with time zone,
+    CONSTRAINT weighing_shed_observations_animal_count_check CHECK ((animal_count > 0)),
+    CONSTRAINT weighing_shed_observations_average_weight_check CHECK ((average_weight_kg > (0)::numeric)),
+    CONSTRAINT weighing_shed_observations_average_weight_kg_check CHECK ((average_weight_kg > (0)::numeric)),
+    CONSTRAINT weighing_shed_observations_verification_status_check CHECK ((verification_status = ANY (ARRAY['pending'::text, 'verified'::text, 'rework'::text]))),
+    CONSTRAINT weighing_shed_observations_weight_kg_check CHECK ((weight_kg > (0)::numeric))
+);
+
+
+--
+-- Name: weighing_work_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_work_items (
+    work_item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    campaign_id uuid NOT NULL,
+    campaign_shed_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    operator_user_id uuid NOT NULL,
+    weighing_category text NOT NULL,
+    shed_label text NOT NULL,
+    shed_location_id uuid NOT NULL,
+    planned_business_date date NOT NULL,
+    due_business_date date NOT NULL,
+    work_state text DEFAULT 'scheduled'::text NOT NULL,
+    day_start_surfaced_on date,
+    rolled_forward_count integer DEFAULT 0 NOT NULL,
+    last_rolled_forward_on date,
+    delayed_since_business_date date,
+    escalated_on date,
+    terminal_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    closed_reason text,
+    merged_into_work_item_id uuid,
+    CONSTRAINT weighing_work_items_category_check CHECK ((weighing_category = ANY (ARRAY['individual_animal'::text, 'per_shed_partition'::text]))),
+    CONSTRAINT weighing_work_items_due_not_before_planned_check CHECK ((due_business_date >= planned_business_date)),
+    CONSTRAINT weighing_work_items_rolled_forward_count_check CHECK ((rolled_forward_count >= 0)),
+    CONSTRAINT weighing_work_items_work_state_check CHECK ((work_state = ANY (ARRAY['scheduled'::text, 'delayed'::text, 'completed'::text, 'closed'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: weighing_capture_activity; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.weighing_capture_activity AS
+ SELECT cs.tenant_id,
+    pk.name AS park_label,
+    cs.display_name AS shed_label,
+    cs.weighing_category,
+    cs.status AS bucket_status,
+    c.period_start_date,
+    c.period_end_date,
+    c.cadence_type,
+    wi.work_state,
+    wi.planned_business_date,
+    wi.due_business_date,
+    wi.delayed_since_business_date,
+    wi.rolled_forward_count,
+    COALESCE(obs.scan_count, (0)::bigint) AS scan_count,
+    obs.weight_avg_kg AS scan_weight_avg_kg,
+    obs.weight_min_kg AS scan_weight_min_kg,
+    obs.weight_max_kg AS scan_weight_max_kg,
+    sho.animal_count AS shed_animal_count,
+    sho.average_weight_kg AS shed_weight_avg_kg,
+    sho.weight_kg AS shed_total_weight_kg,
+        CASE cs.weighing_category
+            WHEN 'per_shed_partition'::text THEN (COALESCE(sho.animal_count, 0))::bigint
+            ELSE COALESCE(obs.scan_count, (0)::bigint)
+        END AS animals_weighed
+   FROM (((((public.weighing_campaign_sheds cs
+     JOIN public.weighing_campaigns c ON ((c.campaign_id = cs.campaign_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = c.park_id)))
+     LEFT JOIN public.weighing_work_items wi ON ((wi.campaign_shed_id = cs.campaign_shed_id)))
+     LEFT JOIN LATERAL ( SELECT count(*) AS scan_count,
+            avg(latest.weight_kg) AS weight_avg_kg,
+            min(latest.weight_kg) AS weight_min_kg,
+            max(latest.weight_kg) AS weight_max_kg
+           FROM ( SELECT DISTINCT ON (COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''::text), (o.observation_id)::text)) o.weight_kg
+                   FROM public.weighing_observations o
+                  WHERE ((o.tenant_id = cs.tenant_id) AND (o.campaign_shed_id = cs.campaign_shed_id))
+                  ORDER BY COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''::text), (o.observation_id)::text), o.accepted_at DESC, o.observation_id DESC) latest) obs ON (true))
+     LEFT JOIN public.weighing_shed_observations sho ON (((sho.campaign_shed_id = cs.campaign_shed_id) AND (sho.withdrawn_at IS NULL))));
+
+
+--
+-- Name: weighing_verification_status; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.weighing_verification_status AS
+ SELECT vi.tenant_id,
+    pk.name AS park_label,
+    sh.name AS shed_label,
+    count(*) FILTER (WHERE (vi.status <> 'withdrawn'::text)) AS total,
+    count(*) FILTER (WHERE (vi.status = 'pending'::text)) AS pending,
+    count(*) FILTER (WHERE (vi.status = 'rejected'::text)) AS rework,
+    count(*) FILTER (WHERE (vi.status = 'approved'::text)) AS verified,
+    min(vi.captured_at) FILTER (WHERE (vi.status = 'pending'::text)) AS oldest_pending_at,
+    count(*) FILTER (WHERE (vi.status = 'withdrawn'::text)) AS withdrawn,
+    count(*) AS total_including_withdrawn
+   FROM ((public.verification_items vi
+     LEFT JOIN public.locations sh ON ((sh.location_id = vi.shed_id)))
+     LEFT JOIN public.locations pk ON ((pk.location_id = vi.park_id)))
+  WHERE (vi.module = 'weighing'::text)
+  GROUP BY vi.tenant_id, pk.name, sh.name;
 
 
 --
@@ -4285,6 +5017,8 @@ CREATE TABLE public.animal_stage_lookup (
     status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    age_band text,
+    CONSTRAINT animal_stage_lookup_age_band_check CHECK (((age_band IS NULL) OR (age_band = ANY (ARRAY['kid'::text, 'adult'::text])))),
     CONSTRAINT animal_stage_lookup_age_check CHECK (((min_age_days IS NULL) OR (max_age_days IS NULL) OR (max_age_days >= min_age_days))),
     CONSTRAINT animal_stage_lookup_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
 );
@@ -4935,7 +5669,7 @@ CREATE TABLE public.feed_config_write_log (
     CONSTRAINT feed_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
     CONSTRAINT feed_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
     CONSTRAINT feed_config_write_log_insert_shape_check CHECK (((outcome <> ALL (ARRAY['inserted'::text, 'corrected'::text])) OR (result_row_id IS NOT NULL))),
-    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text]))),
+    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text]))),
     CONSTRAINT feed_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text]))),
     CONSTRAINT feed_config_write_log_supersede_shape_check CHECK (((outcome <> 'superseded'::text) OR ((result_row_id IS NOT NULL) AND (superseded_row_id IS NOT NULL))))
 );
@@ -4966,6 +5700,70 @@ CREATE TABLE public.feed_conversions (
 
 
 --
+-- Name: feed_direction_session_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_direction_session_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    session_no integer NOT NULL,
+    target_date date NOT NULL,
+    workflow text NOT NULL,
+    status text DEFAULT 'completed'::text NOT NULL,
+    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    completed_by uuid,
+    completed_at timestamp with time zone DEFAULT now() NOT NULL,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_direction_session_completions_proof_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
+    CONSTRAINT feed_direction_session_completions_session_no_check CHECK ((session_no >= 1)),
+    CONSTRAINT feed_direction_session_completions_status_check CHECK ((status = 'completed'::text)),
+    CONSTRAINT feed_direction_session_completions_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+);
+
+
+--
+-- Name: feed_distribution_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_distribution_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    session_no integer NOT NULL,
+    target_date date NOT NULL,
+    workflow text NOT NULL,
+    status text DEFAULT 'pending_verification'::text NOT NULL,
+    distribution_proof_ref text,
+    water_proof_ref text,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rework_reason text,
+    completed_by uuid,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE lower(btrim(partition_label))
+END) STORED,
+    feed_weight_proof_ref text,
+    CONSTRAINT feed_distribution_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((distribution_proof_ref IS NOT NULL) AND (btrim(distribution_proof_ref) <> ''::text) AND (water_proof_ref IS NOT NULL) AND (btrim(water_proof_ref) <> ''::text)))),
+    CONSTRAINT feed_distribution_completions_session_no_check CHECK ((session_no >= 1)),
+    CONSTRAINT feed_distribution_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
+    CONSTRAINT feed_distribution_completions_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+);
+
+
+--
 -- Name: feed_experiment_config; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4984,6 +5782,12 @@ CREATE TABLE public.feed_experiment_config (
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE public.feed_config_norm(partition_label)
+END) STORED,
     CONSTRAINT feed_experiment_config_absolute_kg_check CHECK ((absolute_kg >= (0)::numeric)),
     CONSTRAINT feed_experiment_config_category_not_blank CHECK ((btrim(experiment_category) <> ''::text)),
     CONSTRAINT feed_experiment_config_head_count_check CHECK (((head_count IS NULL) OR (head_count >= 0))),
@@ -5013,6 +5817,41 @@ CREATE TABLE public.feed_item_catalog (
     CONSTRAINT feed_item_catalog_label_not_blank CHECK ((btrim(feed_item_label) <> ''::text)),
     CONSTRAINT feed_item_catalog_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text]))),
     CONSTRAINT feed_item_catalog_wastage_check CHECK (((wastage_factor IS NULL) OR ((wastage_factor >= (0)::numeric) AND (wastage_factor < (1)::numeric))))
+);
+
+
+--
+-- Name: feed_packing_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_packing_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    session_no integer NOT NULL,
+    target_date date NOT NULL,
+    workflow text NOT NULL,
+    status text DEFAULT 'pending_verification'::text NOT NULL,
+    packing_proof_ref text,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rework_reason text,
+    completed_by uuid,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE lower(btrim(partition_label))
+END) STORED,
+    CONSTRAINT feed_packing_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((packing_proof_ref IS NOT NULL) AND (btrim(packing_proof_ref) <> ''::text)))),
+    CONSTRAINT feed_packing_completions_session_no_check CHECK ((session_no >= 0)),
+    CONSTRAINT feed_packing_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
+    CONSTRAINT feed_packing_completions_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
 );
 
 
@@ -5179,6 +6018,76 @@ CREATE TABLE public.feed_shed_tags (
 
 
 --
+-- Name: feed_transport_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_transport_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    attempt_no integer NOT NULL,
+    proof_ref text NOT NULL,
+    operator_id uuid NOT NULL,
+    status text DEFAULT 'verification_due'::text NOT NULL,
+    rejection_reason text,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    idempotency_key text NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_transport_attempts_number_check CHECK ((attempt_no >= 1)),
+    CONSTRAINT feed_transport_attempts_proof_check CHECK ((btrim(proof_ref) <> ''::text)),
+    CONSTRAINT feed_transport_attempts_status_check CHECK ((status = ANY (ARRAY['verification_due'::text, 'approved'::text, 'rejected'::text])))
+);
+
+
+--
+-- Name: feed_transport_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_transport_tasks (
+    task_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    business_date date NOT NULL,
+    scheduled_at timestamp with time zone NOT NULL,
+    status text DEFAULT 'due'::text NOT NULL,
+    operator_id uuid,
+    current_attempt_id uuid,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    partition_label text DEFAULT ''::text NOT NULL,
+    CONSTRAINT feed_transport_tasks_status_check CHECK ((status = ANY (ARRAY['due'::text, 'verification_due'::text, 'rework'::text, 'completed'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: goat_births; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_births (
+    tenant_id uuid NOT NULL,
+    child_goat_id uuid NOT NULL,
+    mother_goat_id uuid NOT NULL,
+    litter_size smallint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    birth_event_id uuid NOT NULL,
+    child_ordinal smallint NOT NULL,
+    count_status text DEFAULT 'approved'::text NOT NULL,
+    count_approved_at timestamp with time zone,
+    count_approved_by uuid,
+    CONSTRAINT goat_births_child_ordinal_check CHECK (((child_ordinal >= 1) AND (child_ordinal <= litter_size))),
+    CONSTRAINT goat_births_count_decision_shape_check CHECK ((((count_status = 'approved'::text) AND (count_approved_at IS NOT NULL)) OR ((count_status <> 'approved'::text) AND (count_approved_at IS NULL) AND (count_approved_by IS NULL)))),
+    CONSTRAINT goat_births_count_status_check CHECK ((count_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))),
+    CONSTRAINT goat_births_distinct_goats_check CHECK ((child_goat_id <> mother_goat_id)),
+    CONSTRAINT goat_births_litter_size_check CHECK ((litter_size = ANY (ARRAY[1, 2, 3])))
+);
+
+
+--
 -- Name: goat_custody_history; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5237,7 +6146,7 @@ CREATE TABLE public.goat_identifiers (
     CONSTRAINT goat_identifiers_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT goat_identifiers_scope_key_check CHECK ((length(scope_key) > 0)),
     CONSTRAINT goat_identifiers_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text, 'disputed'::text, 'duplicate'::text, 'invalid'::text]))),
-    CONSTRAINT goat_identifiers_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text]))),
+    CONSTRAINT goat_identifiers_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text, 'temporary_tag'::text]))),
     CONSTRAINT goat_identifiers_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
 );
 
@@ -5278,7 +6187,9 @@ CREATE TABLE public.goat_location_history (
     occurred_at timestamp with time zone NOT NULL,
     recorded_at timestamp with time zone DEFAULT now() NOT NULL,
     actor_id uuid,
-    source_record_id text
+    source_record_id text,
+    from_partition_label text,
+    to_partition_label text
 );
 
 
@@ -5322,18 +6233,201 @@ CREATE TABLE public.goat_ownership (
 
 
 --
--- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
+-- Name: health_cases; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.goat_shed_partitions (
+CREATE TABLE public.health_cases (
+    health_case_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid NOT NULL,
     goat_id uuid NOT NULL,
-    shed_id uuid NOT NULL,
-    partition_label text DEFAULT 'whole'::text NOT NULL,
-    source_shed_name text NOT NULL,
+    health_protocol_version_id uuid NOT NULL,
+    disease_key text NOT NULL,
+    disease_name text NOT NULL,
+    age_band text NOT NULL,
+    start_date date NOT NULL,
+    duration_days integer NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    status_before_death_hold text,
+    park_id uuid,
+    shed_id uuid,
+    diagnosed_by uuid,
+    diagnosed_at timestamp with time zone DEFAULT now() NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
-    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
+    partition_label text,
+    CONSTRAINT health_cases_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
+    CONSTRAINT health_cases_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
+    CONSTRAINT health_cases_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT health_cases_status_check CHECK ((status = ANY (ARRAY['active'::text, 'recovered'::text, 'continued'::text, 'referred'::text, 'held_death_review'::text, 'closed_dead'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: health_config_write_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_config_write_log (
+    health_config_write_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    write_kind text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    outcome text NOT NULL,
+    disease_key text NOT NULL,
+    age_band text,
+    result_version_id uuid,
+    retired_version_id uuid,
+    actor_ref text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT health_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
+    CONSTRAINT health_config_write_log_age_band_check CHECK (((age_band IS NULL) OR (age_band = ANY (ARRAY['adult'::text, 'kid'::text])))),
+    CONSTRAINT health_config_write_log_disease_check CHECK ((btrim(disease_key) <> ''::text)),
+    CONSTRAINT health_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
+    CONSTRAINT health_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['disease_create'::text, 'draft_save'::text, 'draft_publish'::text, 'draft_discard'::text]))),
+    CONSTRAINT health_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['created'::text, 'saved'::text, 'unchanged'::text, 'published'::text, 'discarded'::text]))),
+    CONSTRAINT health_config_write_log_publish_shape_check CHECK (((outcome <> 'published'::text) OR (result_version_id IS NOT NULL))),
+    CONSTRAINT health_config_write_log_retire_shape_check CHECK (((retired_version_id IS NULL) OR (outcome = 'published'::text))),
+    CONSTRAINT health_config_write_log_saved_shape_check CHECK (((outcome <> ALL (ARRAY['saved'::text, 'unchanged'::text])) OR (result_version_id IS NOT NULL)))
+);
+
+
+--
+-- Name: health_medicine_administrations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_medicine_administrations (
+    health_administration_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    health_case_id uuid NOT NULL,
+    health_session_id uuid NOT NULL,
+    health_session_step_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    disease_key text NOT NULL,
+    medicine_name text NOT NULL,
+    dosage_text text,
+    dosage_denominator text,
+    medicine_route text,
+    administered_by uuid,
+    administered_at timestamp with time zone NOT NULL,
+    proof_ref text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: health_protocol_steps; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_protocol_steps (
+    health_protocol_step_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    health_protocol_version_id uuid NOT NULL,
+    day_no integer NOT NULL,
+    session text NOT NULL,
+    seq integer NOT NULL,
+    record_type text NOT NULL,
+    medicine_name text,
+    dosage_text text,
+    dosage_denominator text,
+    medicine_route text,
+    instruction text,
+    critical_action_type text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT health_protocol_steps_content_check CHECK ((((record_type = 'medication'::text) AND (length(btrim(COALESCE(medicine_name, ''::text))) > 0)) OR ((record_type <> 'medication'::text) AND (length(btrim(COALESCE(instruction, ''::text))) > 0)))),
+    CONSTRAINT health_protocol_steps_critical_action_type_check CHECK (((critical_action_type IS NULL) OR (critical_action_type = ANY (ARRAY['lifecycle_exit'::text, 'quarantine_or_movement'::text])))),
+    CONSTRAINT health_protocol_steps_critical_check CHECK (((record_type = 'critical_action'::text) = (critical_action_type IS NOT NULL))),
+    CONSTRAINT health_protocol_steps_day_no_check CHECK (((day_no >= 1) AND (day_no <= 90))),
+    CONSTRAINT health_protocol_steps_record_type_check CHECK ((record_type = ANY (ARRAY['action'::text, 'medication'::text, 'critical_action'::text]))),
+    CONSTRAINT health_protocol_steps_seq_check CHECK ((seq >= 1)),
+    CONSTRAINT health_protocol_steps_session_check CHECK ((session = ANY (ARRAY['morning'::text, 'afternoon'::text, 'evening'::text, 'unscheduled'::text])))
+);
+
+
+--
+-- Name: health_protocol_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_protocol_versions (
+    health_protocol_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    disease_key text NOT NULL,
+    display_name text NOT NULL,
+    age_band text NOT NULL,
+    version integer NOT NULL,
+    duration_days integer DEFAULT 3 NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    source_ref text,
+    content_hash text NOT NULL,
+    published_at timestamp with time zone,
+    published_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    updated_by uuid,
+    CONSTRAINT health_protocol_versions_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
+    CONSTRAINT health_protocol_versions_disease_key_check CHECK ((disease_key ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT health_protocol_versions_display_name_check CHECK ((length(btrim(display_name)) > 0)),
+    CONSTRAINT health_protocol_versions_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
+    CONSTRAINT health_protocol_versions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'retired'::text]))),
+    CONSTRAINT health_protocol_versions_version_check CHECK ((version >= 1))
+);
+
+
+--
+-- Name: health_session_steps; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_session_steps (
+    health_session_step_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    health_session_id uuid NOT NULL,
+    source_protocol_step_id uuid,
+    seq integer NOT NULL,
+    record_type text NOT NULL,
+    medicine_name text,
+    dosage_text text,
+    dosage_denominator text,
+    medicine_route text,
+    instruction text,
+    critical_action_type text,
+    status text DEFAULT 'pending'::text NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT health_session_steps_record_type_check CHECK ((record_type = ANY (ARRAY['action'::text, 'medication'::text, 'critical_action'::text]))),
+    CONSTRAINT health_session_steps_seq_check CHECK ((seq >= 1)),
+    CONSTRAINT health_session_steps_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'guarded'::text])))
+);
+
+
+--
+-- Name: health_treatment_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_treatment_sessions (
+    health_session_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    health_case_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    day_no integer NOT NULL,
+    business_date date NOT NULL,
+    session text NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    status text DEFAULT 'scheduled'::text NOT NULL,
+    status_before_death_hold text,
+    completed_by uuid,
+    completed_at timestamp with time zone,
+    proof_ref text,
+    completion_idempotency_key text,
+    completion_fingerprint text,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT health_treatment_sessions_day_no_check CHECK (((day_no >= 1) AND (day_no <= 90))),
+    CONSTRAINT health_treatment_sessions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT health_treatment_sessions_session_check CHECK ((session = ANY (ARRAY['morning'::text, 'afternoon'::text, 'evening'::text, 'unscheduled'::text]))),
+    CONSTRAINT health_treatment_sessions_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'completed'::text, 'rework'::text, 'held_death_review'::text, 'canceled_death'::text])))
 );
 
 
@@ -5434,7 +6528,7 @@ CREATE TABLE public.identifier_policies (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     approved_by uuid,
     CONSTRAINT identifier_policies_active_uniqueness_check CHECK ((active_uniqueness = ANY (ARRAY['global'::text, 'scoped'::text, 'non_unique'::text]))),
-    CONSTRAINT identifier_policies_identifier_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text]))),
+    CONSTRAINT identifier_policies_identifier_type_check CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text, 'temporary_tag'::text]))),
     CONSTRAINT identifier_policies_invalid_value_action_check CHECK ((invalid_value_action = ANY (ARRAY['review'::text, 'reject'::text]))),
     CONSTRAINT identifier_policies_missing_scope_action_check CHECK ((missing_or_conflicting_scope_action = ANY (ARRAY['review'::text, 'reject'::text]))),
     CONSTRAINT identifier_policies_unknown_scope_action_check CHECK ((unknown_scope_action = ANY (ARRAY['review'::text, 'reject'::text])))
@@ -5739,6 +6833,146 @@ CREATE TABLE public.location_review_items (
     CONSTRAINT location_review_items_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
     CONSTRAINT location_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
     CONSTRAINT location_review_items_type_check CHECK ((review_type = ANY (ARRAY['unknown_alias'::text, 'alias_conflict'::text, 'parent_type_conflict'::text, 'capacity_conflict'::text, 'retire_blocked'::text, 'usage_conflict'::text])))
+);
+
+
+--
+-- Name: milk_feeding_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.milk_feeding_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    attempt_no integer NOT NULL,
+    answers jsonb NOT NULL,
+    proof_refs jsonb NOT NULL,
+    submitted_by uuid NOT NULL,
+    submitted_at timestamp with time zone NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT milk_feeding_attempts_attempt_no_check CHECK ((attempt_no > 0))
+);
+
+
+--
+-- Name: milk_feeding_farm_watchlist; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.milk_feeding_farm_watchlist (
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    consecutive_yes smallint DEFAULT 0 NOT NULL,
+    remarks text,
+    added_date date NOT NULL,
+    added_session smallint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT milk_feeding_farm_watchlist_added_session_check CHECK (((added_session >= 1) AND (added_session <= 4))),
+    CONSTRAINT milk_feeding_farm_watchlist_consecutive_yes_check CHECK (((consecutive_yes >= 0) AND (consecutive_yes <= 1)))
+);
+
+
+--
+-- Name: milk_feeding_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.milk_feeding_tasks (
+    task_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid,
+    feeding_date date NOT NULL,
+    session_no smallint NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    head_count integer NOT NULL,
+    status text DEFAULT 'not_submitted'::text NOT NULL,
+    current_attempt_no integer DEFAULT 0 NOT NULL,
+    assigned_operator_id uuid,
+    submitted_by uuid,
+    submitted_at timestamp with time zone,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rework_reason text,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT milk_feeding_tasks_active_farm_grain_check CHECK (((status = 'retired'::text) OR (shed_id IS NULL))),
+    CONSTRAINT milk_feeding_tasks_current_attempt_no_check CHECK ((current_attempt_no >= 0)),
+    CONSTRAINT milk_feeding_tasks_head_count_check CHECK ((head_count >= 0)),
+    CONSTRAINT milk_feeding_tasks_session_no_check CHECK (((session_no >= 1) AND (session_no <= 4))),
+    CONSTRAINT milk_feeding_tasks_status_check CHECK ((status = ANY (ARRAY['not_submitted'::text, 'pending_verification'::text, 'completed'::text, 'rework'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: milk_feeding_watchlist; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.milk_feeding_watchlist (
+    tenant_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    consecutive_yes smallint DEFAULT 0 NOT NULL,
+    remarks text,
+    added_date date NOT NULL,
+    added_session smallint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT milk_feeding_watchlist_added_session_check CHECK (((added_session >= 1) AND (added_session <= 4))),
+    CONSTRAINT milk_feeding_watchlist_consecutive_yes_check CHECK (((consecutive_yes >= 0) AND (consecutive_yes <= 1)))
+);
+
+
+--
+-- Name: milk_preparation_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.milk_preparation_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    preparation_date date NOT NULL,
+    feeding_date date NOT NULL,
+    status text DEFAULT 'pending_verification'::text NOT NULL,
+    current_attempt_no integer DEFAULT 1 NOT NULL,
+    goat_milk_used boolean DEFAULT false NOT NULL,
+    submitted_by uuid NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rework_reason text,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    shed_id uuid,
+    CONSTRAINT milk_preparation_completions_active_farm_grain_check CHECK (((status = 'retired'::text) OR (shed_id IS NULL))),
+    CONSTRAINT milk_preparation_completions_attempt_check CHECK ((current_attempt_no >= 1)),
+    CONSTRAINT milk_preparation_completions_date_check CHECK ((feeding_date = (preparation_date + 1))),
+    CONSTRAINT milk_preparation_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: milk_preparation_proof_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.milk_preparation_proof_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    completion_id uuid NOT NULL,
+    attempt_no integer NOT NULL,
+    goat_milk_used boolean NOT NULL,
+    proof_refs jsonb NOT NULL,
+    submitted_by uuid NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    answers jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT milk_preparation_proof_attempts_attempt_check CHECK ((attempt_no >= 1)),
+    CONSTRAINT milk_preparation_proof_attempts_proofs_check CHECK (((jsonb_typeof(proof_refs) = 'object'::text) AND (jsonb_array_length(jsonb_path_query_array(proof_refs, '$.keyvalue()'::jsonpath)) = ANY (ARRAY[2, 5]))))
 );
 
 
@@ -6198,6 +7432,27 @@ CREATE TABLE public.shed_lifecycle_status_lookup (
 
 
 --
+-- Name: shed_partitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shed_partitions (
+    tenant_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    partition_label text NOT NULL,
+    normalized_label text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    display_order integer,
+    source text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shed_partitions_label_nonblank CHECK ((btrim(partition_label) <> ''::text)),
+    CONSTRAINT shed_partitions_not_whole CHECK ((normalized_label <> 'whole'::text)),
+    CONSTRAINT shed_partitions_source CHECK ((source = ANY (ARRAY['goat_attested'::text, 'location_alias'::text, 'manual'::text]))),
+    CONSTRAINT shed_partitions_status CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+);
+
+
+--
 -- Name: sop_definitions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6517,6 +7772,42 @@ CREATE TABLE public.user_scope_grants (
 
 
 --
+-- Name: vaccination_completion_rejections; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_completion_rejections (
+    rejection_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    completion_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    batch_id uuid,
+    goat_id uuid NOT NULL,
+    sop_submission_item_id uuid,
+    vaccine_inventory_lot_id uuid,
+    doses integer,
+    dose_ml_given numeric,
+    route_site text,
+    adverse_reaction boolean DEFAULT false NOT NULL,
+    adverse_reaction_problem_id uuid,
+    cold_chain_verified boolean DEFAULT false NOT NULL,
+    administered_at timestamp with time zone,
+    original_status text NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rejection_reason text,
+    withdrawal_until_date date,
+    recorded_by uuid,
+    original_idempotency_key text NOT NULL,
+    original_row_version integer NOT NULL,
+    original_created_at timestamp with time zone NOT NULL,
+    original_updated_at timestamp with time zone NOT NULL,
+    rejected_at timestamp with time zone DEFAULT now() NOT NULL,
+    rejected_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: vaccination_completions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6582,6 +7873,10 @@ CREATE TABLE public.vaccination_drive_date_overrides (
     canceled_at timestamp with time zone,
     canceled_by uuid,
     cancel_reason text,
+    requested_override_date date NOT NULL,
+    shift_reason text DEFAULT ''::text NOT NULL,
+    clinical_shift_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT vaccination_drive_date_overrides_metadata_object_check CHECK ((jsonb_typeof(clinical_shift_metadata) = 'object'::text)),
     CONSTRAINT vaccination_drive_date_overrides_postpone_check CHECK ((override_date > original_drive_date)),
     CONSTRAINT vaccination_drive_date_overrides_reason_not_blank CHECK ((btrim(reason) <> ''::text)),
     CONSTRAINT vaccination_drive_date_overrides_vaccine_code_not_blank CHECK ((btrim(vaccine_code) <> ''::text))
@@ -6644,6 +7939,7 @@ CREATE TABLE public.vaccination_operator_assignment_config (
     park_id uuid NOT NULL,
     active_operators_per_day integer DEFAULT 1 NOT NULL,
     default_operator_id uuid NOT NULL,
+    selected_operator_ids uuid[] DEFAULT '{}'::uuid[] NOT NULL,
     row_version bigint DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -6795,6 +8091,139 @@ CREATE VIEW public.vw_procurement_vaccination_excluded_goats AS
 
 
 --
+-- Name: weighing_idempotency_records; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_idempotency_records (
+    tenant_id uuid NOT NULL,
+    event_type text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id uuid NOT NULL,
+    result_snapshot jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: weighing_repair_batch_progress; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_repair_batch_progress (
+    repair_key text NOT NULL,
+    batches_run bigint DEFAULT 0 NOT NULL,
+    rows_repaired bigint DEFAULT 0 NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_batch_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    CONSTRAINT weighing_repair_batch_progress_batches_run_check CHECK ((batches_run >= 0)),
+    CONSTRAINT weighing_repair_batch_progress_rows_repaired_check CHECK ((rows_repaired >= 0))
+);
+
+
+--
+-- Name: weighing_shed_load_tags; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_shed_load_tags (
+    tenant_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    load_ref text NOT NULL,
+    owner_name text DEFAULT ''::text NOT NULL,
+    placed_on date,
+    notes text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT weighing_shed_load_tags_load_ref_not_blank CHECK ((btrim(load_ref) <> ''::text))
+);
+
+
+--
+-- Name: weighing_shed_observation_proofs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_shed_observation_proofs (
+    shed_observation_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    proof_artifact_id uuid NOT NULL,
+    proof_position smallint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT weighing_shed_observation_proofs_proof_position_check CHECK (((proof_position >= 1) AND (proof_position <= 5)))
+);
+
+
+--
+-- Name: workflow_actions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workflow_actions (
+    action_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workflow_id uuid NOT NULL,
+    action_key text NOT NULL,
+    seq integer NOT NULL,
+    section text DEFAULT 'main'::text NOT NULL,
+    action_type text NOT NULL,
+    title text NOT NULL,
+    detail text,
+    requires_video boolean DEFAULT false NOT NULL,
+    options jsonb,
+    due_at timestamp with time zone,
+    status text DEFAULT 'pending'::text NOT NULL,
+    answer_value text,
+    proof_ref text,
+    completed_by uuid,
+    completed_at timestamp with time zone,
+    verification_item_id uuid,
+    idempotency_key text,
+    request_fingerprint text,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workflow_actions_action_type_check CHECK ((action_type = ANY (ARRAY['question'::text, 'question_select'::text, 'action'::text, 'approval'::text]))),
+    CONSTRAINT workflow_actions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workflow_actions_section_check CHECK ((section = ANY (ARRAY['main'::text, 'colostrum_session'::text]))),
+    CONSTRAINT workflow_actions_seq_check CHECK ((seq >= 1)),
+    CONSTRAINT workflow_actions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_review'::text, 'completed'::text, 'rework'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: workflow_instances; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workflow_instances (
+    workflow_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    template_key text NOT NULL,
+    module text NOT NULL,
+    subject_goat_id uuid NOT NULL,
+    dam_goat_id uuid,
+    event_at timestamp with time zone NOT NULL,
+    event_date date NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    state text DEFAULT 'open'::text NOT NULL,
+    actions_total integer DEFAULT 0 NOT NULL,
+    actions_done integer DEFAULT 0 NOT NULL,
+    next_action_key text,
+    next_action_title text,
+    next_due_at timestamp with time zone,
+    awaiting_verification boolean DEFAULT false NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    birth_event_id uuid,
+    CONSTRAINT workflow_instances_counters_check CHECK (((actions_total >= 0) AND (actions_done >= 0) AND (actions_done <= actions_total))),
+    CONSTRAINT workflow_instances_module_check CHECK ((module = ANY (ARRAY['birth'::text, 'death'::text]))),
+    CONSTRAINT workflow_instances_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workflow_instances_state_check CHECK ((state = ANY (ARRAY['open'::text, 'completed'::text, 'canceled'::text]))),
+    CONSTRAINT workflow_instances_template_key_check CHECK ((template_key = ANY (ARRAY['birth_kid'::text, 'birth_mother'::text, 'death'::text])))
+);
+
+
+--
 -- Name: workforce_capabilities; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6914,6 +8343,7 @@ CREATE TABLE public.workforce_member_devices (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
     fcm_token text,
+    notifications_enabled boolean,
     CONSTRAINT workforce_member_devices_app_install_check CHECK ((btrim(app_install_id) <> ''::text)),
     CONSTRAINT workforce_member_devices_app_version_check CHECK ((btrim(app_version) <> ''::text)),
     CONSTRAINT workforce_member_devices_platform_check CHECK ((platform = 'android'::text)),
@@ -7439,6 +8869,30 @@ ALTER TABLE ONLY public.feed_direction_issues
 
 
 --
+-- Name: feed_direction_session_completions feed_direction_session_completions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_session_completions
+    ADD CONSTRAINT feed_direction_session_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: feed_distribution_completions feed_distribution_completions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_distribution_completions
+    ADD CONSTRAINT feed_distribution_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: feed_distribution_completions feed_distribution_completions_weight_proof_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.feed_distribution_completions
+    ADD CONSTRAINT feed_distribution_completions_weight_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((feed_weight_proof_ref IS NOT NULL) AND (btrim(feed_weight_proof_ref) <> ''::text)))) NOT VALID;
+
+
+--
 -- Name: feed_experiment_config feed_experiment_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7452,6 +8906,14 @@ ALTER TABLE ONLY public.feed_experiment_config
 
 ALTER TABLE ONLY public.feed_item_catalog
     ADD CONSTRAINT feed_item_catalog_pkey PRIMARY KEY (feed_item_id);
+
+
+--
+-- Name: feed_packing_completions feed_packing_completions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_packing_completions
+    ADD CONSTRAINT feed_packing_completions_pkey PRIMARY KEY (completion_id);
 
 
 --
@@ -7508,6 +8970,46 @@ ALTER TABLE ONLY public.feed_shed_factors
 
 ALTER TABLE ONLY public.feed_shed_tags
     ADD CONSTRAINT feed_shed_tags_pkey PRIMARY KEY (shed_tag_id);
+
+
+--
+-- Name: feed_transport_attempts feed_transport_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_transport_attempts
+    ADD CONSTRAINT feed_transport_attempts_pkey PRIMARY KEY (attempt_id);
+
+
+--
+-- Name: feed_transport_tasks feed_transport_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_transport_tasks
+    ADD CONSTRAINT feed_transport_tasks_pkey PRIMARY KEY (task_id);
+
+
+--
+-- Name: goat_births goat_births_event_child_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_births
+    ADD CONSTRAINT goat_births_event_child_unique UNIQUE (tenant_id, birth_event_id, child_ordinal);
+
+
+--
+-- Name: goat_births goat_births_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_births
+    ADD CONSTRAINT goat_births_pkey PRIMARY KEY (child_goat_id);
+
+
+--
+-- Name: goat_births goat_births_tenant_child_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_births
+    ADD CONSTRAINT goat_births_tenant_child_unique UNIQUE (tenant_id, child_goat_id);
 
 
 --
@@ -7628,6 +9130,134 @@ ALTER TABLE ONLY public.goats
 
 ALTER TABLE ONLY public.goats
     ADD CONSTRAINT goats_tenant_goat_unique UNIQUE (tenant_id, goat_id);
+
+
+--
+-- Name: health_cases health_cases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_cases
+    ADD CONSTRAINT health_cases_pkey PRIMARY KEY (health_case_id);
+
+
+--
+-- Name: health_cases health_cases_tenant_id_health_case_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_cases
+    ADD CONSTRAINT health_cases_tenant_id_health_case_id_key UNIQUE (tenant_id, health_case_id);
+
+
+--
+-- Name: health_cases health_cases_tenant_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_cases
+    ADD CONSTRAINT health_cases_tenant_id_idempotency_key_key UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: health_config_write_log health_config_write_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_config_write_log
+    ADD CONSTRAINT health_config_write_log_pkey PRIMARY KEY (health_config_write_id);
+
+
+--
+-- Name: health_medicine_administrations health_medicine_administratio_health_session_id_health_sess_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_medicine_administrations
+    ADD CONSTRAINT health_medicine_administratio_health_session_id_health_sess_key UNIQUE (health_session_id, health_session_step_id);
+
+
+--
+-- Name: health_medicine_administrations health_medicine_administrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_medicine_administrations
+    ADD CONSTRAINT health_medicine_administrations_pkey PRIMARY KEY (health_administration_id);
+
+
+--
+-- Name: health_protocol_steps health_protocol_steps_health_protocol_version_id_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_steps
+    ADD CONSTRAINT health_protocol_steps_health_protocol_version_id_seq_key UNIQUE (health_protocol_version_id, seq);
+
+
+--
+-- Name: health_protocol_steps health_protocol_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_steps
+    ADD CONSTRAINT health_protocol_steps_pkey PRIMARY KEY (health_protocol_step_id);
+
+
+--
+-- Name: health_protocol_versions health_protocol_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_versions
+    ADD CONSTRAINT health_protocol_versions_pkey PRIMARY KEY (health_protocol_version_id);
+
+
+--
+-- Name: health_protocol_versions health_protocol_versions_tenant_id_disease_key_age_band_ver_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_versions
+    ADD CONSTRAINT health_protocol_versions_tenant_id_disease_key_age_band_ver_key UNIQUE (tenant_id, disease_key, age_band, version);
+
+
+--
+-- Name: health_protocol_versions health_protocol_versions_tenant_id_health_protocol_version__key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_versions
+    ADD CONSTRAINT health_protocol_versions_tenant_id_health_protocol_version__key UNIQUE (tenant_id, health_protocol_version_id);
+
+
+--
+-- Name: health_session_steps health_session_steps_health_session_id_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_session_steps
+    ADD CONSTRAINT health_session_steps_health_session_id_seq_key UNIQUE (health_session_id, seq);
+
+
+--
+-- Name: health_session_steps health_session_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_session_steps
+    ADD CONSTRAINT health_session_steps_pkey PRIMARY KEY (health_session_step_id);
+
+
+--
+-- Name: health_treatment_sessions health_treatment_sessions_health_case_id_day_no_session_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_treatment_sessions
+    ADD CONSTRAINT health_treatment_sessions_health_case_id_day_no_session_key UNIQUE (health_case_id, day_no, session);
+
+
+--
+-- Name: health_treatment_sessions health_treatment_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_treatment_sessions
+    ADD CONSTRAINT health_treatment_sessions_pkey PRIMARY KEY (health_session_id);
+
+
+--
+-- Name: health_treatment_sessions health_treatment_sessions_tenant_id_health_session_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_treatment_sessions
+    ADD CONSTRAINT health_treatment_sessions_tenant_id_health_session_id_key UNIQUE (tenant_id, health_session_id);
 
 
 --
@@ -7892,6 +9522,94 @@ ALTER TABLE ONLY public.locations
 
 ALTER TABLE ONLY public.locations
     ADD CONSTRAINT locations_unique_code UNIQUE (tenant_id, location_code);
+
+
+--
+-- Name: milk_feeding_attempts milk_feeding_attempts_attempt_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_attempts
+    ADD CONSTRAINT milk_feeding_attempts_attempt_uq UNIQUE (tenant_id, task_id, attempt_no);
+
+
+--
+-- Name: milk_feeding_attempts milk_feeding_attempts_idempotency_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_attempts
+    ADD CONSTRAINT milk_feeding_attempts_idempotency_uq UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: milk_feeding_attempts milk_feeding_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_attempts
+    ADD CONSTRAINT milk_feeding_attempts_pkey PRIMARY KEY (attempt_id);
+
+
+--
+-- Name: milk_feeding_farm_watchlist milk_feeding_farm_watchlist_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_farm_watchlist
+    ADD CONSTRAINT milk_feeding_farm_watchlist_pkey PRIMARY KEY (tenant_id, park_id, goat_id);
+
+
+--
+-- Name: milk_feeding_tasks milk_feeding_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_tasks
+    ADD CONSTRAINT milk_feeding_tasks_pkey PRIMARY KEY (task_id);
+
+
+--
+-- Name: milk_feeding_watchlist milk_feeding_watchlist_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_watchlist
+    ADD CONSTRAINT milk_feeding_watchlist_pkey PRIMARY KEY (tenant_id, shed_id, goat_id);
+
+
+--
+-- Name: milk_preparation_completions milk_preparation_completions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_completions
+    ADD CONSTRAINT milk_preparation_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: milk_preparation_completions milk_preparation_completions_tenant_id_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_completions
+    ADD CONSTRAINT milk_preparation_completions_tenant_id_uq UNIQUE (tenant_id, completion_id);
+
+
+--
+-- Name: milk_preparation_proof_attempts milk_preparation_proof_attempts_attempt_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_proof_attempts
+    ADD CONSTRAINT milk_preparation_proof_attempts_attempt_uq UNIQUE (tenant_id, completion_id, attempt_no);
+
+
+--
+-- Name: milk_preparation_proof_attempts milk_preparation_proof_attempts_idempotency_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_proof_attempts
+    ADD CONSTRAINT milk_preparation_proof_attempts_idempotency_uq UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: milk_preparation_proof_attempts milk_preparation_proof_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_proof_attempts
+    ADD CONSTRAINT milk_preparation_proof_attempts_pkey PRIMARY KEY (attempt_id);
 
 
 --
@@ -8375,6 +10093,14 @@ ALTER TABLE ONLY public.shed_lifecycle_status_lookup
 
 
 --
+-- Name: shed_partitions shed_partitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_partitions
+    ADD CONSTRAINT shed_partitions_pkey PRIMARY KEY (tenant_id, shed_id, normalized_label);
+
+
+--
 -- Name: shed_profiles shed_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8415,11 +10141,35 @@ ALTER TABLE public.shifting_events
 
 
 --
+-- Name: shifting_events shifting_events_pending_verification_proof_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_pending_verification_proof_check CHECK (((event_status <> 'pending_verification'::text) OR ((proof_ref IS NOT NULL) AND (btrim(proof_ref) <> ''::text)))) NOT VALID;
+
+
+--
+-- Name: shifting_events shifting_events_pending_verification_requires_authorization_che; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_pending_verification_requires_authorization_che CHECK (((event_status <> 'pending_verification'::text) OR (authorization_state = 'authorized'::text))) NOT VALID;
+
+
+--
 -- Name: shifting_events shifting_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.shifting_events
     ADD CONSTRAINT shifting_events_pkey PRIMARY KEY (shifting_event_id);
+
+
+--
+-- Name: shifting_events shifting_events_raise_comment_length_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.shifting_events
+    ADD CONSTRAINT shifting_events_raise_comment_length_check CHECK (((raise_comment IS NULL) OR (char_length(raise_comment) <= 1000))) NOT VALID;
 
 
 --
@@ -8615,6 +10365,14 @@ ALTER TABLE ONLY public.vaccination_capacity_config
 
 
 --
+-- Name: vaccination_completion_rejections vaccination_completion_rejections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completion_rejections
+    ADD CONSTRAINT vaccination_completion_rejections_pkey PRIMARY KEY (rejection_id);
+
+
+--
 -- Name: vaccination_completions vaccination_completions_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8772,6 +10530,126 @@ ALTER TABLE ONLY public.verification_items
 
 ALTER TABLE ONLY public.verification_items
     ADD CONSTRAINT verification_items_tenant_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: verification_items verification_items_tenant_item_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_items
+    ADD CONSTRAINT verification_items_tenant_item_unique UNIQUE (tenant_id, item_id);
+
+
+--
+-- Name: verification_review_events verification_review_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_review_events
+    ADD CONSTRAINT verification_review_events_pkey PRIMARY KEY (event_id);
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaign_sheds
+    ADD CONSTRAINT weighing_campaign_sheds_pkey PRIMARY KEY (campaign_shed_id);
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_task_identity_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.weighing_campaign_sheds
+    ADD CONSTRAINT weighing_campaign_sheds_task_identity_check CHECK (((park_id IS NOT NULL) AND (start_business_date IS NOT NULL))) NOT VALID;
+
+
+--
+-- Name: weighing_campaigns weighing_campaigns_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaigns
+    ADD CONSTRAINT weighing_campaigns_pkey PRIMARY KEY (campaign_id);
+
+
+--
+-- Name: weighing_idempotency_records weighing_idempotency_records_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_idempotency_records
+    ADD CONSTRAINT weighing_idempotency_records_pkey PRIMARY KEY (tenant_id, event_type, idempotency_key);
+
+
+--
+-- Name: weighing_observations weighing_observations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_observations
+    ADD CONSTRAINT weighing_observations_pkey PRIMARY KEY (observation_id);
+
+
+--
+-- Name: weighing_repair_batch_progress weighing_repair_batch_progress_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_repair_batch_progress
+    ADD CONSTRAINT weighing_repair_batch_progress_pkey PRIMARY KEY (repair_key);
+
+
+--
+-- Name: weighing_shed_load_tags weighing_shed_load_tags_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_load_tags
+    ADD CONSTRAINT weighing_shed_load_tags_pkey PRIMARY KEY (tenant_id, location_id, load_ref);
+
+
+--
+-- Name: weighing_shed_observation_proofs weighing_shed_observation_proofs_pk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observation_proofs
+    ADD CONSTRAINT weighing_shed_observation_proofs_pk PRIMARY KEY (shed_observation_id, proof_position);
+
+
+--
+-- Name: weighing_shed_observation_proofs weighing_shed_observation_proofs_unique_artifact; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observation_proofs
+    ADD CONSTRAINT weighing_shed_observation_proofs_unique_artifact UNIQUE (shed_observation_id, proof_artifact_id);
+
+
+--
+-- Name: weighing_shed_observations weighing_shed_observations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observations
+    ADD CONSTRAINT weighing_shed_observations_pkey PRIMARY KEY (shed_observation_id);
+
+
+--
+-- Name: weighing_work_items weighing_work_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_pkey PRIMARY KEY (work_item_id);
+
+
+--
+-- Name: workflow_actions workflow_actions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workflow_actions
+    ADD CONSTRAINT workflow_actions_pkey PRIMARY KEY (action_id);
+
+
+--
+-- Name: workflow_instances workflow_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workflow_instances
+    ADD CONSTRAINT workflow_instances_pkey PRIMARY KEY (workflow_id);
 
 
 --
@@ -9372,6 +11250,13 @@ CREATE INDEX counts_approval_requests_status_queue_idx ON public.counts_approval
 
 
 --
+-- Name: counts_approval_requests_submitter_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_approval_requests_submitter_pending_idx ON public.counts_approval_requests USING btree (tenant_id, raised_by_user_id, request_type, raised_at DESC, approval_request_id DESC) WHERE (status = 'pending'::text);
+
+
+--
 -- Name: counts_shifting_readiness_evidence_prefix_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9480,7 +11365,7 @@ CREATE INDEX feed_direction_completions_shed_history_idx ON public.feed_directio
 -- Name: feed_direction_issue_rows_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_direction_issue_rows_natural_key_uidx ON public.feed_direction_issue_rows USING btree (tenant_id, feed_direction_issue_id, shed_id, session_no, shed_tag_key, breed_key, feed_item_key);
+CREATE UNIQUE INDEX feed_direction_issue_rows_natural_key_uidx ON public.feed_direction_issue_rows USING btree (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key);
 
 
 --
@@ -9512,17 +11397,59 @@ CREATE INDEX feed_direction_issues_serve_idx ON public.feed_direction_issues USI
 
 
 --
+-- Name: feed_direction_session_completions_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_direction_session_completions_idempotency_uq ON public.feed_direction_session_completions USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_direction_session_completions_natural_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_direction_session_completions_natural_uq ON public.feed_direction_session_completions USING btree (tenant_id, park_id, shed_id, session_no, target_date, workflow);
+
+
+--
+-- Name: feed_direction_session_completions_serving_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_session_completions_serving_idx ON public.feed_direction_session_completions USING btree (tenant_id, park_id, target_date, workflow);
+
+
+--
+-- Name: feed_distribution_completions_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_distribution_completions_idempotency_uq ON public.feed_distribution_completions USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_distribution_completions_natural_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_distribution_completions_natural_uq ON public.feed_distribution_completions USING btree (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow);
+
+
+--
+-- Name: feed_distribution_completions_serving_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_distribution_completions_serving_idx ON public.feed_distribution_completions USING btree (tenant_id, park_id, target_date, workflow);
+
+
+--
 -- Name: feed_experiment_config_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_experiment_config_natural_key_uidx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id, feed_item_key);
+CREATE UNIQUE INDEX feed_experiment_config_natural_key_uidx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id, partition_key, feed_item_key);
 
 
 --
 -- Name: feed_experiment_config_shed_lookup_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX feed_experiment_config_shed_lookup_idx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id) INCLUDE (feed_item_key, absolute_kg) WHERE (status = 'active'::text);
+CREATE INDEX feed_experiment_config_shed_lookup_idx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id) INCLUDE (partition_key, feed_item_key, absolute_kg) WHERE (status = 'active'::text);
 
 
 --
@@ -9530,6 +11457,34 @@ CREATE INDEX feed_experiment_config_shed_lookup_idx ON public.feed_experiment_co
 --
 
 CREATE UNIQUE INDEX feed_item_catalog_natural_key_uidx ON public.feed_item_catalog USING btree (tenant_id, feed_item_key);
+
+
+--
+-- Name: feed_packing_completions_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_packing_completions_idempotency_uq ON public.feed_packing_completions USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_packing_completions_natural_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_packing_completions_natural_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow);
+
+
+--
+-- Name: feed_packing_completions_pen_day_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_packing_completions_pen_day_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, target_date, workflow);
+
+
+--
+-- Name: feed_packing_completions_serving_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_packing_completions_serving_idx ON public.feed_packing_completions USING btree (tenant_id, park_id, target_date, workflow);
 
 
 --
@@ -9680,6 +11635,76 @@ CREATE UNIQUE INDEX feed_shed_tags_natural_key_uidx ON public.feed_shed_tags USI
 
 
 --
+-- Name: feed_transport_attempts_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_transport_attempts_idempotency_uq ON public.feed_transport_attempts USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_transport_attempts_number_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_transport_attempts_number_uq ON public.feed_transport_attempts USING btree (tenant_id, task_id, attempt_no);
+
+
+--
+-- Name: feed_transport_attempts_task_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_transport_attempts_task_history_idx ON public.feed_transport_attempts USING btree (tenant_id, task_id, attempt_no DESC);
+
+
+--
+-- Name: feed_transport_attempts_tenant_attempt_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_transport_attempts_tenant_attempt_uq ON public.feed_transport_attempts USING btree (tenant_id, attempt_id);
+
+
+--
+-- Name: feed_transport_tasks_daily_location_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_transport_tasks_daily_location_uq ON public.feed_transport_tasks USING btree (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''::text), 'whole'::text));
+
+
+--
+-- Name: feed_transport_tasks_operator_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_transport_tasks_operator_idx ON public.feed_transport_tasks USING btree (tenant_id, operator_id, business_date, status);
+
+
+--
+-- Name: feed_transport_tasks_tenant_task_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_transport_tasks_tenant_task_uq ON public.feed_transport_tasks USING btree (tenant_id, task_id);
+
+
+--
+-- Name: feed_transport_tasks_today_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_transport_tasks_today_partition_idx ON public.feed_transport_tasks USING btree (tenant_id, business_date, status, shed_id, partition_label);
+
+
+--
+-- Name: goat_births_count_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_births_count_pending_idx ON public.goat_births USING btree (tenant_id, birth_event_id, child_goat_id) WHERE (count_status = 'pending'::text);
+
+
+--
+-- Name: goat_births_mother_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_births_mother_idx ON public.goat_births USING btree (tenant_id, mother_goat_id, child_goat_id);
+
+
+--
 -- Name: goat_custody_history_custodian_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9691,6 +11716,13 @@ CREATE INDEX goat_custody_history_custodian_idx ON public.goat_custody_history U
 --
 
 CREATE INDEX goat_custody_history_goat_current_idx ON public.goat_custody_history USING btree (goat_id, valid_to);
+
+
+--
+-- Name: goat_identifiers_active_temporary_tag_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identifiers_active_temporary_tag_idx ON public.goat_identifiers USING btree (tenant_id, goat_id) WHERE ((identifier_type = 'temporary_tag'::text) AND (status = 'active'::text));
 
 
 --
@@ -9785,10 +11817,24 @@ CREATE INDEX goat_location_history_tenant_from_location_idx ON public.goat_locat
 
 
 --
+-- Name: goat_location_history_tenant_from_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_location_history_tenant_from_partition_idx ON public.goat_location_history USING btree (tenant_id, from_location_id, COALESCE(from_partition_label, ''::text), occurred_at DESC) WHERE (from_location_id IS NOT NULL);
+
+
+--
 -- Name: goat_location_history_tenant_to_location_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX goat_location_history_tenant_to_location_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, occurred_at DESC);
+
+
+--
+-- Name: goat_location_history_tenant_to_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_location_history_tenant_to_partition_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, COALESCE(to_partition_label, ''::text), occurred_at DESC);
 
 
 --
@@ -9964,6 +12010,111 @@ CREATE INDEX goats_tenant_reproductive_idx ON public.goats USING btree (tenant_i
 --
 
 CREATE INDEX goats_tenant_sex_display_idx ON public.goats USING btree (tenant_id, sex, display_id) WHERE (merged_into_goat_id IS NULL);
+
+
+--
+-- Name: health_administrations_goat_timeline_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_administrations_goat_timeline_idx ON public.health_medicine_administrations USING btree (tenant_id, goat_id, administered_at DESC, health_administration_id);
+
+
+--
+-- Name: health_cases_goat_open_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_cases_goat_open_idx ON public.health_cases USING btree (tenant_id, goat_id, status, start_date DESC, health_case_id);
+
+
+--
+-- Name: health_cases_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_cases_shed_partition_idx ON public.health_cases USING btree (tenant_id, shed_id, partition_label) WHERE (shed_id IS NOT NULL);
+
+
+--
+-- Name: health_config_write_log_disease_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_config_write_log_disease_idx ON public.health_config_write_log USING btree (tenant_id, disease_key, created_at DESC);
+
+
+--
+-- Name: health_config_write_log_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX health_config_write_log_idempotency_uidx ON public.health_config_write_log USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: health_protocol_steps_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_protocol_steps_order_idx ON public.health_protocol_steps USING btree (health_protocol_version_id, day_no, session, seq);
+
+
+--
+-- Name: health_protocol_versions_catalog_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_protocol_versions_catalog_idx ON public.health_protocol_versions USING btree (tenant_id, age_band, display_name, health_protocol_version_id) WHERE (status = 'published'::text);
+
+
+--
+-- Name: health_protocol_versions_draft_catalog_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_protocol_versions_draft_catalog_idx ON public.health_protocol_versions USING btree (tenant_id, age_band, display_name, health_protocol_version_id) WHERE (status = 'draft'::text);
+
+
+--
+-- Name: health_protocol_versions_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_protocol_versions_history_idx ON public.health_protocol_versions USING btree (tenant_id, disease_key, age_band, version DESC);
+
+
+--
+-- Name: health_protocol_versions_one_draft_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX health_protocol_versions_one_draft_uq ON public.health_protocol_versions USING btree (tenant_id, disease_key, age_band) WHERE (status = 'draft'::text);
+
+
+--
+-- Name: health_protocol_versions_one_published_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX health_protocol_versions_one_published_uq ON public.health_protocol_versions USING btree (tenant_id, disease_key, age_band) WHERE (status = 'published'::text);
+
+
+--
+-- Name: health_session_steps_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_session_steps_order_idx ON public.health_session_steps USING btree (health_session_id, seq);
+
+
+--
+-- Name: health_sessions_completion_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX health_sessions_completion_idempotency_uq ON public.health_treatment_sessions USING btree (tenant_id, completion_idempotency_key) WHERE (completion_idempotency_key IS NOT NULL);
+
+
+--
+-- Name: health_sessions_goat_open_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_sessions_goat_open_idx ON public.health_treatment_sessions USING btree (tenant_id, goat_id, status, business_date, health_session_id);
+
+
+--
+-- Name: health_sessions_worklist_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_sessions_worklist_idx ON public.health_treatment_sessions USING btree (tenant_id, business_date, due_at, health_session_id);
 
 
 --
@@ -10275,6 +12426,55 @@ CREATE INDEX locations_tenant_type_status_order_idx ON public.locations USING bt
 
 
 --
+-- Name: milk_feeding_attempts_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX milk_feeding_attempts_task_idx ON public.milk_feeding_attempts USING btree (tenant_id, task_id, attempt_no DESC);
+
+
+--
+-- Name: milk_feeding_tasks_farm_session_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX milk_feeding_tasks_farm_session_uidx ON public.milk_feeding_tasks USING btree (tenant_id, park_id, feeding_date, session_no) WHERE (status <> 'retired'::text);
+
+
+--
+-- Name: milk_feeding_tasks_worklist_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX milk_feeding_tasks_worklist_idx ON public.milk_feeding_tasks USING btree (tenant_id, feeding_date, status, park_id, session_no);
+
+
+--
+-- Name: milk_feeding_watchlist_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX milk_feeding_watchlist_shed_idx ON public.milk_feeding_watchlist USING btree (tenant_id, shed_id, goat_id);
+
+
+--
+-- Name: milk_preparation_completions_farm_day_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX milk_preparation_completions_farm_day_uidx ON public.milk_preparation_completions USING btree (tenant_id, park_id, preparation_date) WHERE (status <> 'retired'::text);
+
+
+--
+-- Name: milk_preparation_completions_serving_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX milk_preparation_completions_serving_idx ON public.milk_preparation_completions USING btree (tenant_id, preparation_date, park_id, status);
+
+
+--
+-- Name: milk_preparation_proof_attempts_completion_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX milk_preparation_proof_attempts_completion_idx ON public.milk_preparation_proof_attempts USING btree (tenant_id, completion_id, attempt_no DESC);
+
+
+--
 -- Name: movement_commands_submission_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10296,6 +12496,13 @@ CREATE INDEX notification_delivery_attempts_request_idx ON public.notification_d
 
 
 --
+-- Name: notification_requests_counts_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_counts_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'counts.%'::text);
+
+
+--
 -- Name: notification_requests_due_order_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10307,6 +12514,13 @@ CREATE INDEX notification_requests_due_order_idx ON public.notification_requests
 --
 
 CREATE INDEX notification_requests_event_idx ON public.notification_requests USING btree (tenant_id, calendar_event_id, requested_at DESC, notification_request_id DESC);
+
+
+--
+-- Name: notification_requests_feed_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_feed_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'feed.%'::text);
 
 
 --
@@ -10335,6 +12549,20 @@ CREATE INDEX notification_requests_recipient_ref_pending_idx ON public.notificat
 --
 
 CREATE INDEX notification_requests_sending_lease_idx ON public.notification_requests USING btree (tenant_id, leased_at, notification_request_id) WHERE (status = 'sending'::text);
+
+
+--
+-- Name: notification_requests_vaccination_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_vaccination_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'vaccination.%'::text);
+
+
+--
+-- Name: notification_requests_weighing_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_weighing_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'weighing.%'::text);
 
 
 --
@@ -10531,6 +12759,20 @@ CREATE UNIQUE INDEX outbox_messages_config_changed_idempotency_idx ON public.out
 --
 
 CREATE UNIQUE INDEX outbox_messages_counts_base_anchor_recorded_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.base_count_anchor.recorded'::text);
+
+
+--
+-- Name: outbox_messages_counts_death_rejected_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_death_rejected_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.death.rejected'::text);
+
+
+--
+-- Name: outbox_messages_counts_death_reported_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_counts_death_reported_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'counts.death.reported'::text);
 
 
 --
@@ -10919,6 +13161,13 @@ CREATE INDEX seed_runs_tenant_state_idx ON public.seed_runs USING btree (tenant_
 
 
 --
+-- Name: shed_partitions_tenant_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shed_partitions_tenant_shed_idx ON public.shed_partitions USING btree (tenant_id, shed_id, status);
+
+
+--
 -- Name: shed_profiles_animal_stage_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10944,6 +13193,27 @@ CREATE UNIQUE INDEX shifting_event_impacts_grain_unique ON public.shifting_event
 --
 
 CREATE INDEX shifting_event_impacts_projection_idx ON public.shifting_event_impacts USING btree (tenant_id, lower(breed_key), stage_tag, ration_context_resolution_state);
+
+
+--
+-- Name: shifting_events_actions_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_actions_history_idx ON public.shifting_events USING btree (tenant_id, raised_at DESC, shifting_event_id DESC) WHERE (event_status <> 'canceled'::text);
+
+
+--
+-- Name: shifting_events_actions_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_actions_idx ON public.shifting_events USING btree (tenant_id, raised_at DESC, shifting_event_id DESC) WHERE (((event_status = ANY (ARRAY['pending'::text, 'authorized'::text])) AND (proof_ref IS NULL)) OR (verification_state = 'rejected'::text));
+
+
+--
+-- Name: shifting_events_actions_park_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_actions_park_idx ON public.shifting_events USING btree (tenant_id, source_park_id, raised_at DESC, shifting_event_id DESC) WHERE (((event_status = ANY (ARRAY['pending'::text, 'authorized'::text])) AND (proof_ref IS NULL)) OR (verification_state = 'rejected'::text));
 
 
 --
@@ -11035,6 +13305,13 @@ CREATE INDEX sop_submissions_review_idx ON public.sop_submissions USING btree (t
 --
 
 CREATE INDEX sop_submissions_task_history_idx ON public.sop_submissions USING btree (tenant_id, task_id, submitted_at DESC);
+
+
+--
+-- Name: sop_submissions_task_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_submissions_task_partition_idx ON public.sop_submissions USING btree (tenant_id, task_id, COALESCE(partition_label, ''::text), submitted_at DESC);
 
 
 --
@@ -11220,6 +13497,13 @@ CREATE INDEX transit_handoffs_load_proof_idx ON public.transit_handoffs USING bt
 
 
 --
+-- Name: uq_weighing_open_shed_partition_per_park_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_weighing_open_shed_partition_per_park_date ON public.weighing_campaign_sheds USING btree (tenant_id, park_id, start_business_date, location_id, COALESCE(partition_label, ''::text)) WHERE (status <> ALL (ARRAY['canceled'::text, 'closed'::text, 'completed'::text]));
+
+
+--
 -- Name: user_scope_grants_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11231,6 +13515,27 @@ CREATE INDEX user_scope_grants_scope_idx ON public.user_scope_grants USING btree
 --
 
 CREATE INDEX user_scope_grants_user_active_idx ON public.user_scope_grants USING btree (user_id, status, valid_from, valid_to);
+
+
+--
+-- Name: vaccination_completion_rejections_completion_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_completion_rejections_completion_uidx ON public.vaccination_completion_rejections USING btree (tenant_id, completion_id);
+
+
+--
+-- Name: vaccination_completion_rejections_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completion_rejections_goat_idx ON public.vaccination_completion_rejections USING btree (tenant_id, goat_id, rejected_at DESC);
+
+
+--
+-- Name: vaccination_completion_rejections_obligation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completion_rejections_obligation_idx ON public.vaccination_completion_rejections USING btree (tenant_id, obligation_id, rejected_at DESC);
 
 
 --
@@ -11335,7 +13640,7 @@ CREATE INDEX vaccination_drive_date_overrides_lookup_idx ON public.vaccination_d
 -- Name: vaccination_eligibility_rollups_grain_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX vaccination_eligibility_rollups_grain_uidx ON public.vaccination_eligibility_rollups USING btree (tenant_id, COALESCE(park_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), species, management_stage, sex, breed, health_status, usable_for_vaccination);
+CREATE UNIQUE INDEX vaccination_eligibility_rollups_grain_uidx ON public.vaccination_eligibility_rollups USING btree (tenant_id, COALESCE(park_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(partition_label, ''::text), species, management_stage, sex, breed, health_status, usable_for_vaccination);
 
 
 --
@@ -11416,6 +13721,13 @@ CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccinati
 
 
 --
+-- Name: verification_items_awaiting_application_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_awaiting_application_idx ON public.verification_items USING btree (tenant_id, module, verified_at DESC, item_id) WHERE (applier_ack_expected AND (applied_at IS NULL) AND (closed_at IS NULL) AND (status <> 'pending'::text));
+
+
+--
 -- Name: verification_items_leadership_queue_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11430,6 +13742,13 @@ CREATE INDEX verification_items_queue_idx ON public.verification_items USING btr
 
 
 --
+-- Name: verification_items_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_shed_partition_idx ON public.verification_items USING btree (tenant_id, shed_id, partition_label) WHERE (shed_id IS NOT NULL);
+
+
+--
 -- Name: verification_items_source_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11441,6 +13760,307 @@ CREATE INDEX verification_items_source_idx ON public.verification_items USING bt
 --
 
 CREATE INDEX verification_items_source_submission_idx ON public.verification_items USING btree (tenant_id, source_submission_id) WHERE (source_submission_id IS NOT NULL);
+
+
+--
+-- Name: verification_items_verified_by_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_verified_by_review_idx ON public.verification_items USING btree (tenant_id, verified_by, park_id, category, verified_at) WHERE (verified_by IS NOT NULL);
+
+
+--
+-- Name: verification_review_events_actor_time_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_review_events_actor_time_idx ON public.verification_review_events USING btree (tenant_id, actor_id, occurred_at);
+
+
+--
+-- Name: verification_review_events_item_actor_time_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_review_events_item_actor_time_idx ON public.verification_review_events USING btree (tenant_id, item_id, actor_id, occurred_at);
+
+
+--
+-- Name: verification_review_events_tenant_client_event_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX verification_review_events_tenant_client_event_unique_idx ON public.verification_review_events USING btree (tenant_id, client_event_id);
+
+
+--
+-- Name: weighing_campaign_sheds_campaign_location_partition_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX weighing_campaign_sheds_campaign_location_partition_uidx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text));
+
+
+--
+-- Name: weighing_campaign_sheds_campaign_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_campaign_partition_idx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text));
+
+
+--
+-- Name: weighing_campaign_sheds_campaign_shed_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_campaign_shed_keyset_idx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, campaign_shed_id);
+
+
+--
+-- Name: weighing_campaign_sheds_campaign_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_campaign_status_idx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, status);
+
+
+--
+-- Name: weighing_campaign_sheds_detail_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_detail_keyset_idx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, display_name, campaign_shed_id);
+
+
+--
+-- Name: weighing_campaign_sheds_open_date_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_open_date_partition_idx ON public.weighing_campaign_sheds USING btree (tenant_id, start_business_date, location_id, COALESCE(partition_label, ''::text)) INCLUDE (campaign_id, park_id, operator_user_id, weighing_category, status) WHERE (status <> ALL (ARRAY['canceled'::text, 'closed'::text, 'completed'::text]));
+
+
+--
+-- Name: weighing_campaign_sheds_operator_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_operator_status_idx ON public.weighing_campaign_sheds USING btree (tenant_id, operator_user_id, status, updated_at DESC, campaign_shed_id);
+
+
+--
+-- Name: weighing_campaigns_period_start_created_campaign_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaigns_period_start_created_campaign_keyset_idx ON public.weighing_campaigns USING btree (period_start_date, created_at, campaign_id);
+
+
+--
+-- Name: weighing_idempotency_records_resource_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_idempotency_records_resource_idx ON public.weighing_idempotency_records USING btree (tenant_id, resource_type, resource_id);
+
+
+--
+-- Name: weighing_observations_campaign_scanned_identifier_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_campaign_scanned_identifier_idx ON public.weighing_observations USING btree (tenant_id, campaign_id, scanned_identifier, accepted_at DESC);
+
+
+--
+-- Name: weighing_observations_export_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_export_window_idx ON public.weighing_observations USING btree (tenant_id, accepted_at DESC, campaign_shed_id) INCLUDE (campaign_id, proof_artifact_id, scanned_identifier, weight_kg, verification_status, verified_at);
+
+
+--
+-- Name: weighing_observations_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX weighing_observations_idempotency_uidx ON public.weighing_observations USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: weighing_observations_one_open_tag_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX weighing_observations_one_open_tag_uidx ON public.weighing_observations USING btree (tenant_id, campaign_shed_id, lower(btrim(scanned_identifier))) WHERE (submitted_at IS NULL);
+
+
+--
+-- Name: weighing_observations_rework_undelivered_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_rework_undelivered_idx ON public.weighing_observations USING btree (tenant_id, campaign_shed_id, verified_at) WHERE ((verification_status = 'rework'::text) AND (rework_notified_at IS NULL));
+
+
+--
+-- Name: weighing_observations_shed_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_shed_keyset_idx ON public.weighing_observations USING btree (tenant_id, campaign_id, campaign_shed_id, accepted_at, observation_id);
+
+
+--
+-- Name: weighing_observations_shed_submitted_tag_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_shed_submitted_tag_idx ON public.weighing_observations USING btree (tenant_id, campaign_id, campaign_shed_id, lower(btrim(scanned_identifier))) WHERE (submitted_at IS NOT NULL);
+
+
+--
+-- Name: weighing_observations_verification_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_verification_status_idx ON public.weighing_observations USING btree (tenant_id, campaign_shed_id, verification_status, accepted_at DESC) WHERE (verification_status <> 'verified'::text);
+
+
+--
+-- Name: weighing_shed_load_tags_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_shed_load_tags_load_idx ON public.weighing_shed_load_tags USING btree (tenant_id, load_ref, location_id);
+
+
+--
+-- Name: weighing_shed_observation_proofs_tenant_observation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_shed_observation_proofs_tenant_observation_idx ON public.weighing_shed_observation_proofs USING btree (tenant_id, shed_observation_id, proof_position);
+
+
+--
+-- Name: weighing_shed_observations_export_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_shed_observations_export_window_idx ON public.weighing_shed_observations USING btree (tenant_id, accepted_at DESC, campaign_shed_id) INCLUDE (campaign_id, shed_observation_id, proof_artifact_id, weight_kg, average_weight_kg, animal_count, verification_status, verified_at) WHERE (withdrawn_at IS NULL);
+
+
+--
+-- Name: weighing_shed_observations_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX weighing_shed_observations_idempotency_uidx ON public.weighing_shed_observations USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: weighing_shed_observations_one_open_scope_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX weighing_shed_observations_one_open_scope_uidx ON public.weighing_shed_observations USING btree (tenant_id, campaign_shed_id) WHERE (withdrawn_at IS NULL);
+
+
+--
+-- Name: weighing_shed_observations_verification_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_shed_observations_verification_status_idx ON public.weighing_shed_observations USING btree (tenant_id, campaign_shed_id, verification_status) WHERE (verification_status <> 'verified'::text);
+
+
+--
+-- Name: weighing_work_items_bucket_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX weighing_work_items_bucket_uidx ON public.weighing_work_items USING btree (tenant_id, campaign_shed_id);
+
+
+--
+-- Name: weighing_work_items_campaign_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_work_items_campaign_state_idx ON public.weighing_work_items USING btree (tenant_id, campaign_id, work_state, due_business_date);
+
+
+--
+-- Name: weighing_work_items_open_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_work_items_open_keyset_idx ON public.weighing_work_items USING btree (tenant_id, work_item_id) WHERE (work_state = ANY (ARRAY['scheduled'::text, 'delayed'::text]));
+
+
+--
+-- Name: weighing_work_items_open_shed_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_work_items_open_shed_date_idx ON public.weighing_work_items USING btree (tenant_id, park_id, shed_location_id, due_business_date) INCLUDE (work_item_id, operator_user_id, campaign_shed_id) WHERE (work_state = ANY (ARRAY['scheduled'::text, 'delayed'::text]));
+
+
+--
+-- Name: weighing_work_items_sweep_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_work_items_sweep_due_idx ON public.weighing_work_items USING btree (tenant_id, work_state, due_business_date, work_item_id);
+
+
+--
+-- Name: weighing_work_items_sweep_planned_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_work_items_sweep_planned_idx ON public.weighing_work_items USING btree (tenant_id, work_state, planned_business_date, work_item_id);
+
+
+--
+-- Name: workflow_actions_colostrum_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_actions_colostrum_day_idx ON public.workflow_actions USING btree (tenant_id, due_at, workflow_id) WHERE ((section = 'colostrum_session'::text) OR (action_key = 'first_colostrum'::text));
+
+
+--
+-- Name: workflow_actions_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workflow_actions_idempotency_uq ON public.workflow_actions USING btree (tenant_id, idempotency_key) WHERE (idempotency_key IS NOT NULL);
+
+
+--
+-- Name: workflow_actions_natural_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workflow_actions_natural_uq ON public.workflow_actions USING btree (workflow_id, action_key);
+
+
+--
+-- Name: workflow_actions_workflow_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_actions_workflow_seq_idx ON public.workflow_actions USING btree (workflow_id, seq);
+
+
+--
+-- Name: workflow_instances_birth_event_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workflow_instances_birth_event_uq ON public.workflow_instances USING btree (tenant_id, template_key, subject_goat_id, birth_event_id) WHERE ((template_key = ANY (ARRAY['birth_kid'::text, 'birth_mother'::text])) AND (birth_event_id IS NOT NULL));
+
+
+--
+-- Name: workflow_instances_birth_legacy_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workflow_instances_birth_legacy_uq ON public.workflow_instances USING btree (tenant_id, template_key, subject_goat_id) WHERE ((template_key = ANY (ARRAY['birth_kid'::text, 'birth_mother'::text])) AND (birth_event_id IS NULL));
+
+
+--
+-- Name: workflow_instances_death_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workflow_instances_death_uq ON public.workflow_instances USING btree (tenant_id, template_key, subject_goat_id) WHERE (template_key = 'death'::text);
+
+
+--
+-- Name: workflow_instances_list_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_instances_list_idx ON public.workflow_instances USING btree (tenant_id, module, event_date, next_due_at, workflow_id);
+
+
+--
+-- Name: workflow_instances_overdue_dates_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_instances_overdue_dates_idx ON public.workflow_instances USING btree (tenant_id, module, event_date DESC, next_due_at) WHERE ((state = 'open'::text) AND (next_due_at IS NOT NULL));
+
+
+--
+-- Name: workflow_instances_subject_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_instances_subject_idx ON public.workflow_instances USING btree (tenant_id, subject_goat_id);
 
 
 --
@@ -11546,6 +14166,13 @@ CREATE INDEX workforce_member_devices_last_seen_idx ON public.workforce_member_d
 --
 
 CREATE INDEX workforce_member_devices_member_status_idx ON public.workforce_member_devices USING btree (tenant_id, workforce_member_id, status);
+
+
+--
+-- Name: workforce_member_devices_push_reachable_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_devices_push_reachable_idx ON public.workforce_member_devices USING btree (tenant_id, workforce_member_id) WHERE ((status = 'active'::text) AND (fcm_token IS NOT NULL) AND (notifications_enabled IS DISTINCT FROM false));
 
 
 --
@@ -11756,6 +14383,13 @@ CREATE TRIGGER counts_shifting_readiness_evidence_after_write AFTER INSERT OR UP
 --
 
 CREATE TRIGGER farm_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant_id, location_id ON public.farm_profiles FOR EACH ROW EXECUTE FUNCTION public.validate_location_profile_type('farm');
+
+
+--
+-- Name: goat_births goat_births_herd_projection_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER goat_births_herd_projection_trg AFTER INSERT OR UPDATE OF count_status ON public.goat_births FOR EACH ROW EXECUTE FUNCTION public.herd_register_birth_after_write_trg();
 
 
 --
@@ -11987,6 +14621,20 @@ CREATE TRIGGER user_scope_grants_validate_scope_trg BEFORE INSERT OR UPDATE OF t
 --
 
 CREATE TRIGGER verification_items_touch_updated_at BEFORE UPDATE ON public.verification_items FOR EACH ROW EXECUTE FUNCTION public.verification_items_touch_updated_at();
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_fill_task_identity_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER weighing_campaign_sheds_fill_task_identity_trg BEFORE INSERT OR UPDATE OF campaign_id, park_id, start_business_date ON public.weighing_campaign_sheds FOR EACH ROW EXECUTE FUNCTION public.weighing_campaign_sheds_fill_task_identity();
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_operator_park_bound; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER weighing_campaign_sheds_operator_park_bound BEFORE INSERT OR UPDATE OF operator_user_id, park_id, campaign_id ON public.weighing_campaign_sheds FOR EACH ROW EXECUTE FUNCTION public.weighing_operator_park_bound_guard();
 
 
 --
@@ -12694,6 +15342,38 @@ ALTER TABLE ONLY public.feed_direction_issues
 
 
 --
+-- Name: feed_direction_session_completions feed_direction_session_completions_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_session_completions
+    ADD CONSTRAINT feed_direction_session_completions_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_direction_session_completions feed_direction_session_completions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_session_completions
+    ADD CONSTRAINT feed_direction_session_completions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_distribution_completions feed_distribution_completions_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_distribution_completions
+    ADD CONSTRAINT feed_distribution_completions_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_distribution_completions feed_distribution_completions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_distribution_completions
+    ADD CONSTRAINT feed_distribution_completions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
 -- Name: feed_experiment_config feed_experiment_config_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12723,6 +15403,22 @@ ALTER TABLE ONLY public.feed_experiment_config
 
 ALTER TABLE ONLY public.feed_item_catalog
     ADD CONSTRAINT feed_item_catalog_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_packing_completions feed_packing_completions_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_packing_completions
+    ADD CONSTRAINT feed_packing_completions_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_packing_completions feed_packing_completions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_packing_completions
+    ADD CONSTRAINT feed_packing_completions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
 
 
 --
@@ -12835,6 +15531,54 @@ ALTER TABLE ONLY public.feed_shed_factors
 
 ALTER TABLE ONLY public.feed_shed_tags
     ADD CONSTRAINT feed_shed_tags_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_transport_attempts feed_transport_attempts_task_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_transport_attempts
+    ADD CONSTRAINT feed_transport_attempts_task_fk FOREIGN KEY (tenant_id, task_id) REFERENCES public.feed_transport_tasks(tenant_id, task_id);
+
+
+--
+-- Name: feed_transport_tasks feed_transport_tasks_current_attempt_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_transport_tasks
+    ADD CONSTRAINT feed_transport_tasks_current_attempt_fk FOREIGN KEY (tenant_id, current_attempt_id) REFERENCES public.feed_transport_attempts(tenant_id, attempt_id);
+
+
+--
+-- Name: feed_transport_tasks feed_transport_tasks_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_transport_tasks
+    ADD CONSTRAINT feed_transport_tasks_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_transport_tasks feed_transport_tasks_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_transport_tasks
+    ADD CONSTRAINT feed_transport_tasks_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: goat_births goat_births_child_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_births
+    ADD CONSTRAINT goat_births_child_tenant_fk FOREIGN KEY (tenant_id, child_goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: goat_births goat_births_mother_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_births
+    ADD CONSTRAINT goat_births_mother_tenant_fk FOREIGN KEY (tenant_id, mother_goat_id) REFERENCES public.goats(tenant_id, goat_id);
 
 
 --
@@ -13275,6 +16019,94 @@ ALTER TABLE ONLY public.goats
 
 ALTER TABLE ONLY public.goats
     ADD CONSTRAINT goats_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: health_medicine_administrations health_administrations_case_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_medicine_administrations
+    ADD CONSTRAINT health_administrations_case_fk FOREIGN KEY (tenant_id, health_case_id) REFERENCES public.health_cases(tenant_id, health_case_id);
+
+
+--
+-- Name: health_medicine_administrations health_administrations_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_medicine_administrations
+    ADD CONSTRAINT health_administrations_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: health_medicine_administrations health_administrations_session_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_medicine_administrations
+    ADD CONSTRAINT health_administrations_session_fk FOREIGN KEY (tenant_id, health_session_id) REFERENCES public.health_treatment_sessions(tenant_id, health_session_id);
+
+
+--
+-- Name: health_cases health_cases_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_cases
+    ADD CONSTRAINT health_cases_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: health_cases health_cases_protocol_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_cases
+    ADD CONSTRAINT health_cases_protocol_fk FOREIGN KEY (tenant_id, health_protocol_version_id) REFERENCES public.health_protocol_versions(tenant_id, health_protocol_version_id);
+
+
+--
+-- Name: health_config_write_log health_config_write_log_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_config_write_log
+    ADD CONSTRAINT health_config_write_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: health_protocol_steps health_protocol_steps_protocol_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_steps
+    ADD CONSTRAINT health_protocol_steps_protocol_fk FOREIGN KEY (tenant_id, health_protocol_version_id) REFERENCES public.health_protocol_versions(tenant_id, health_protocol_version_id) ON DELETE CASCADE;
+
+
+--
+-- Name: health_protocol_versions health_protocol_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_protocol_versions
+    ADD CONSTRAINT health_protocol_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: health_session_steps health_session_steps_session_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_session_steps
+    ADD CONSTRAINT health_session_steps_session_fk FOREIGN KEY (tenant_id, health_session_id) REFERENCES public.health_treatment_sessions(tenant_id, health_session_id) ON DELETE CASCADE;
+
+
+--
+-- Name: health_treatment_sessions health_sessions_case_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_treatment_sessions
+    ADD CONSTRAINT health_sessions_case_fk FOREIGN KEY (tenant_id, health_case_id) REFERENCES public.health_cases(tenant_id, health_case_id) ON DELETE CASCADE;
+
+
+--
+-- Name: health_treatment_sessions health_sessions_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_treatment_sessions
+    ADD CONSTRAINT health_sessions_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
 
 
 --
@@ -13838,6 +16670,86 @@ ALTER TABLE ONLY public.locations
 
 
 --
+-- Name: milk_feeding_attempts milk_feeding_attempts_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_attempts
+    ADD CONSTRAINT milk_feeding_attempts_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.milk_feeding_tasks(task_id);
+
+
+--
+-- Name: milk_feeding_farm_watchlist milk_feeding_farm_watchlist_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_farm_watchlist
+    ADD CONSTRAINT milk_feeding_farm_watchlist_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: milk_feeding_farm_watchlist milk_feeding_farm_watchlist_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_farm_watchlist
+    ADD CONSTRAINT milk_feeding_farm_watchlist_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: milk_feeding_tasks milk_feeding_tasks_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_tasks
+    ADD CONSTRAINT milk_feeding_tasks_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: milk_feeding_tasks milk_feeding_tasks_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_tasks
+    ADD CONSTRAINT milk_feeding_tasks_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: milk_feeding_watchlist milk_feeding_watchlist_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_watchlist
+    ADD CONSTRAINT milk_feeding_watchlist_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: milk_feeding_watchlist milk_feeding_watchlist_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_feeding_watchlist
+    ADD CONSTRAINT milk_feeding_watchlist_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: milk_preparation_completions milk_preparation_completions_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_completions
+    ADD CONSTRAINT milk_preparation_completions_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: milk_preparation_completions milk_preparation_completions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_completions
+    ADD CONSTRAINT milk_preparation_completions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: milk_preparation_proof_attempts milk_preparation_proof_attempts_completion_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.milk_preparation_proof_attempts
+    ADD CONSTRAINT milk_preparation_proof_attempts_completion_fk FOREIGN KEY (tenant_id, completion_id) REFERENCES public.milk_preparation_completions(tenant_id, completion_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: movement_commands movement_commands_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14387,6 +17299,14 @@ ALTER TABLE ONLY public.protocol_versions
 
 ALTER TABLE ONLY public.shed_lifecycle_status_lookup
     ADD CONSTRAINT shed_lifecycle_status_lookup_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: shed_partitions shed_partitions_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_partitions
+    ADD CONSTRAINT shed_partitions_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id) ON DELETE RESTRICT;
 
 
 --
@@ -15099,6 +18019,230 @@ ALTER TABLE ONLY public.vaccines
 
 ALTER TABLE ONLY public.verification_items
     ADD CONSTRAINT verification_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: verification_review_events verification_review_events_item_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_review_events
+    ADD CONSTRAINT verification_review_events_item_fkey FOREIGN KEY (tenant_id, item_id) REFERENCES public.verification_items(tenant_id, item_id) DEFERRABLE;
+
+
+--
+-- Name: verification_review_events verification_review_events_proof_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_review_events
+    ADD CONSTRAINT verification_review_events_proof_fkey FOREIGN KEY (proof_id) REFERENCES public.proof_artifacts(proof_id) DEFERRABLE;
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_campaign_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaign_sheds
+    ADD CONSTRAINT weighing_campaign_sheds_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaign_sheds
+    ADD CONSTRAINT weighing_campaign_sheds_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: weighing_campaign_sheds weighing_campaign_sheds_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaign_sheds
+    ADD CONSTRAINT weighing_campaign_sheds_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_campaigns weighing_campaigns_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaigns
+    ADD CONSTRAINT weighing_campaigns_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: weighing_campaigns weighing_campaigns_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_campaigns
+    ADD CONSTRAINT weighing_campaigns_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_idempotency_records weighing_idempotency_records_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_idempotency_records
+    ADD CONSTRAINT weighing_idempotency_records_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_observations weighing_observations_campaign_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_observations
+    ADD CONSTRAINT weighing_observations_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_observations weighing_observations_campaign_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_observations
+    ADD CONSTRAINT weighing_observations_campaign_shed_id_fkey FOREIGN KEY (campaign_shed_id) REFERENCES public.weighing_campaign_sheds(campaign_shed_id);
+
+
+--
+-- Name: weighing_observations weighing_observations_proof_artifact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_observations
+    ADD CONSTRAINT weighing_observations_proof_artifact_id_fkey FOREIGN KEY (proof_artifact_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: weighing_observations weighing_observations_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_observations
+    ADD CONSTRAINT weighing_observations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_shed_load_tags weighing_shed_load_tags_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_load_tags
+    ADD CONSTRAINT weighing_shed_load_tags_location_tenant_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: weighing_shed_load_tags weighing_shed_load_tags_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_load_tags
+    ADD CONSTRAINT weighing_shed_load_tags_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_shed_observation_proofs weighing_shed_observation_proofs_proof_artifact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observation_proofs
+    ADD CONSTRAINT weighing_shed_observation_proofs_proof_artifact_id_fkey FOREIGN KEY (proof_artifact_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: weighing_shed_observation_proofs weighing_shed_observation_proofs_shed_observation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observation_proofs
+    ADD CONSTRAINT weighing_shed_observation_proofs_shed_observation_id_fkey FOREIGN KEY (shed_observation_id) REFERENCES public.weighing_shed_observations(shed_observation_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_shed_observation_proofs weighing_shed_observation_proofs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observation_proofs
+    ADD CONSTRAINT weighing_shed_observation_proofs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_shed_observations weighing_shed_observations_campaign_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observations
+    ADD CONSTRAINT weighing_shed_observations_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_shed_observations weighing_shed_observations_campaign_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observations
+    ADD CONSTRAINT weighing_shed_observations_campaign_shed_id_fkey FOREIGN KEY (campaign_shed_id) REFERENCES public.weighing_campaign_sheds(campaign_shed_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_shed_observations weighing_shed_observations_proof_artifact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observations
+    ADD CONSTRAINT weighing_shed_observations_proof_artifact_id_fkey FOREIGN KEY (proof_artifact_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: weighing_shed_observations weighing_shed_observations_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_observations
+    ADD CONSTRAINT weighing_shed_observations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_work_items weighing_work_items_campaign_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.weighing_campaigns(campaign_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_work_items weighing_work_items_campaign_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_campaign_shed_id_fkey FOREIGN KEY (campaign_shed_id) REFERENCES public.weighing_campaign_sheds(campaign_shed_id) ON DELETE CASCADE;
+
+
+--
+-- Name: weighing_work_items weighing_work_items_merged_into_work_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_merged_into_work_item_id_fkey FOREIGN KEY (merged_into_work_item_id) REFERENCES public.weighing_work_items(work_item_id);
+
+
+--
+-- Name: weighing_work_items weighing_work_items_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: weighing_work_items weighing_work_items_shed_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_shed_location_id_fkey FOREIGN KEY (shed_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: weighing_work_items weighing_work_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_work_items
+    ADD CONSTRAINT weighing_work_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workflow_actions workflow_actions_workflow_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workflow_actions
+    ADD CONSTRAINT workflow_actions_workflow_fk FOREIGN KEY (workflow_id) REFERENCES public.workflow_instances(workflow_id);
 
 
 --

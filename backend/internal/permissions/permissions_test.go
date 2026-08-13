@@ -27,6 +27,8 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleCEOInternal, VaccinationOverviewRead, true},
 		{RoleOperator, VaccinationOverviewRead, false},
 		{RolePCDirector, VaccinationVerify, true},
+		{RolePCDirector, TaskExecute, true},
+		{RolePCDirector, WeighingExecute, false},
 		{RolePCDirector, CalendarAction, true},
 		{RolePCDirector, ProcurementWrite, false},
 		{RolePCDirector, ProcurementReview, false},
@@ -47,14 +49,40 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RolePCDirector, OperationsRepair, false},
 		{RoleParkHead, OperationsRepair, false},
 		{RolePCDirector, AdminWebBootstrap, true},
-		{RoleVerifier, AdminWebBootstrap, false},
+		// The verifier reaches admin-web to run the verifier-only web workspace (maintainer
+		// decision 2026-08-03). What she sees there is the verifier lens, not the admin product:
+		// adminui/app/verifier_lens.go drops every page contract except the evidence queue.
+		{RoleVerifier, AdminWebBootstrap, true},
 		{RoleParkHead, AdminWebBootstrap, false},
 		{RoleOperator, AdminWebBootstrap, false},
+		// Seeing the evidence is leadership VISIBILITY: verifier and CEO/CxO both read the queue.
 		{RoleVerifier, VerificationReview, true},
 		{RoleCEOInternal, VerificationReview, true},
 		{RoleOperator, VerificationReview, false},
 		{RoleParkHead, VerificationReview, false},
-		{RolePCDirector, VerificationReview, false},
+		// pc_director READS the queue (maintainer decision 2026-08-08). This row asserted false
+		// until then, which is why the backend-composed nav offered the PC Director a Videos entry
+		// whose only backing read 403'd on-device. The PC Director owns Vaccination, so the person
+		// accountable for the module must be able to see the evidence trail for it. He still may
+		// NOT sign the verdict -- VerificationVerdict stays verifier-only, asserted below.
+		{RolePCDirector, VerificationReview, true},
+		// DECIDING on it is the Verifier's alone (maintainer decision 2026-08-03). CEO/CxO reads the
+		// same queue and still closes the work, but may not sign off the second check on itself.
+		{RoleVerifier, VerificationVerdict, true},
+		{RoleCEOInternal, VerificationVerdict, false},
+		{RoleParkHead, VerificationVerdict, false},
+		{RolePCDirector, VerificationVerdict, false},
+		{RoleGrowthDirector, VerificationVerdict, false},
+		{RoleOperator, VerificationVerdict, false},
+		// Acting on the result is leadership's: verdict WITHOUT act is what selects the verifier lens.
+		{RoleVerifier, VerificationAct, false},
+		{RoleCEOInternal, VerificationAct, true},
+		{RoleParkHead, VerificationAct, true},
+		{RoleGrowthDirector, WeighingMonitor, true},
+		{RoleGrowthDirector, WeighingExecute, true},
+		{RoleGrowthDirector, TaskExecute, false},
+		{RoleGrowthDirector, VaccinationRead, false},
+		{RoleGrowthDirector, VaccinationCampaign, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.role+"/"+tt.permission, func(t *testing.T) {
@@ -328,6 +356,45 @@ func TestAppVaccinationExecutionRoutesAuthorizeOperator(t *testing.T) {
 	}
 }
 
+// TestOperatorAuthorizesVaccinationControlTowerAlertsRoute is a regression test for a
+// defect found on a real device 2026-08-04: an operator's Alerts tab calls
+// GET /control-tower/vaccination (AlertsViewModel -> ControlTowerRepository), but that
+// route required BOTH ObligationRead and VaccinationRead (ANDed), and RoleOperator held
+// neither -- so the Alerts tab always 403'd and the mobile client rendered a friendly
+// "No alerts yet" empty state instead of a visible error. The fix adds a route-scoped
+// VaccinationAlertsRead capability via AnyPermissions, granted only to RoleOperator,
+// without widening the operator's base grant set (which would have exposed the OTHER
+// ~15 vaccination admin/oversight routes that share the ObligationRead/VaccinationRead
+// ANDed pair and are not all proven park-scoped).
+func TestOperatorAuthorizesVaccinationControlTowerAlertsRoute(t *testing.T) {
+	route, ok := Match("GET", "/control-tower/vaccination")
+	if !ok {
+		t.Fatal("vaccination control-tower route is not registered")
+	}
+	if route.OperationID != "getVaccinationControlTower" {
+		t.Fatalf("operation_id=%q, want getVaccinationControlTower", route.OperationID)
+	}
+	if !AuthorizeRoute(route, []string{RoleOperator}) {
+		t.Fatal("operator must authorize the vaccination control-tower route that backs their Alerts tab")
+	}
+
+	// Every other role whose nav includes Vaccination and therefore also hits this
+	// route (per the shared ObligationRead+VaccinationRead pair) must remain authorized --
+	// this fix is additive (AnyPermissions), never a narrowing.
+	for _, role := range []string{RoleVerifier, RolePCDirector, RoleParkHead, RoleCEOInternal} {
+		if !AuthorizeRoute(route, []string{role}) {
+			t.Fatalf("role %q must still authorize the vaccination control-tower route (no regression)", role)
+		}
+	}
+
+	// A role with no vaccination-related grant at all (e.g. growth_director, whose
+	// module is Weighing, not Vaccination) must still be denied: this fix must not
+	// become a blanket "any authenticated app user" grant.
+	if AuthorizeRoute(route, []string{RoleGrowthDirector}) {
+		t.Fatal("growth_director must NOT authorize the vaccination control-tower route -- vaccination is not their module")
+	}
+}
+
 func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	for _, item := range []struct {
 		path        string
@@ -342,14 +409,21 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if route.OperationID != item.operationID {
 			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
 		}
-		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolRead {
-			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolRead)
+		// The feed reads moved OFF protocol.read (the vaccination protocol permission) onto their
+		// own feed_direction.read, so the Feed Director can hold the feed surface without also
+		// holding Vaccination. Every role that authorized this route before still does.
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedDirectionRead {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, FeedDirectionRead)
 		}
-		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
-			t.Fatalf("operator must not authorize Feed Direction read route: %s", item.path)
+		// Maintainer decision 2026-07-22: operators see the Feed vertical on the phone.
+		if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("operator should authorize Feed Direction read route: %s", item.path)
 		}
 		if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
-			t.Fatalf("park head should authorize Feed Direction read route via protocol.read: %s", item.path)
+			t.Fatalf("park head should authorize Feed Direction read route: %s", item.path)
+		}
+		if !RolesAuthorize([]string{RoleFeedDirector}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("feed_director must authorize their OWN module read route: %s", item.path)
 		}
 	}
 
@@ -375,11 +449,16 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if !ok {
 			t.Fatalf("feed direction counts exception action route is not registered: %s", path)
 		}
-		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolWrite {
-			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolWrite)
+		// Moved off protocol.write (CEO-only) onto feed_direction.oversee: CEO keeps it and the
+		// Feed Director, who owns the chain that produced the exception, gains it. Nobody loses it.
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedDirectionOversee {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, FeedDirectionOversee)
 		}
 		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("operator must not authorize Feed Direction counts exception action: %s", path)
+		}
+		if !RolesAuthorize([]string{RoleFeedDirector}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("feed_director should authorize Feed Direction counts exception action: %s", path)
 		}
 		if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("ceo_internal should authorize Feed Direction counts exception action: %s", path)
@@ -435,12 +514,23 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		operationID string
 		permission  string
 	}{
+		// Read and decide are DIFFERENT gates (maintainer decision 2026-08-03): leadership sees the
+		// evidence queue, only the Verifier records the verdict on it.
 		{"GET", "/verification/queue", "listVerificationQueue", VerificationReview},
-		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationReview},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationVerdict},
+		// Telemetry INGEST carries the verifier's own verdict authority, NOT the leadership-visible
+		// read: this stream measures whether the person signing the second check actually watched the
+		// evidence, so a principal who cannot record a verdict must not be able to write rows into it
+		// under their own actor id. Reading the derived facts stays on VerificationReview so
+		// leadership can SEE the signal it cannot write. Asserted here so a drift back to
+		// VerificationReview fails a test instead of shipping.
+		{"POST", "/verification/review-events", "recordVerificationReviewEvents", VerificationVerdict},
+		{"GET", "/verification/items/98000000-0000-4000-8000-000000000001/review-facts", "getVerificationItemReviewFacts", VerificationReview},
 		{"GET", "/verification/action-queue", "listVerificationActionQueue", VerificationAct},
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/close", "closeVerificationItem", VerificationAct},
 		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},
 		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close", "closeVaccinationBatch", VerificationAct},
+		{"GET", "/verification/oversight-analytics", "getVerificationOversightAnalytics", VerificationOversee},
 	} {
 		route, ok := Match(item.method, item.path)
 		if !ok {
@@ -452,6 +542,31 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		if len(route.Permissions) != 1 || route.Permissions[0] != item.permission {
 			t.Fatalf("permissions=%v, want [%s]", route.Permissions, item.permission)
 		}
+	}
+}
+
+// TestVerificationOversightAnalyticsRouteIsOverseeOnly pins the 403 boundary for the new
+// GET /verification/oversight-analytics endpoint: a verifier holds verification.review and
+// verification.verdict (she can see and decide the queue) but NOT verification.oversee, so she
+// must be refused this route exactly like the oversight_analytics/oversight_filters page-contract
+// controls refuse her the matching UI. CEO/CxO and pc_director, who DO hold
+// permissions.VerificationOversee, must authorize it.
+func TestVerificationOversightAnalyticsRouteIsOverseeOnly(t *testing.T) {
+	route, ok := Match("GET", "/verification/oversight-analytics")
+	if !ok {
+		t.Fatal("getVerificationOversightAnalytics route is not registered")
+	}
+	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
+		t.Fatal("verifier must NOT authorize the oversight-analytics route (holds review/verdict, not oversee) — 403 expected")
+	}
+	if RolesAuthorize([]string{RoleGrowthDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("growth_director must NOT authorize the oversight-analytics route — 403 expected")
+	}
+	if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+		t.Fatal("ceo_internal must authorize the oversight-analytics route")
+	}
+	if !RolesAuthorize([]string{RolePCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("pc_director must authorize the oversight-analytics route")
 	}
 }
 
@@ -481,6 +596,18 @@ func TestVerificationSeparationOfDuty(t *testing.T) {
 	}
 	if RoleHasPermission(RoleOperator, VerificationReview) {
 		t.Fatal("operator role must not hold verification.review")
+	}
+	// The CEO/CxO override was retired for the DECISION only (maintainer decision 2026-08-03): the
+	// founder cohort keeps evidence visibility and the closing act, but the independent second check
+	// must not be signable by the people it checks.
+	if RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+		t.Fatal("ceo_internal must NOT authorize verification verdict — the second check must stay independent")
+	}
+	if !RoleHasPermission(RoleCEOInternal, VerificationReview) {
+		t.Fatal("ceo_internal must keep verification.review so leadership can still see the evidence")
+	}
+	if !RoleHasPermission(RoleCEOInternal, VerificationAct) {
+		t.Fatal("ceo_internal must keep verification.act so leadership can still close the work")
 	}
 }
 

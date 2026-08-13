@@ -18,7 +18,18 @@ var ErrOperatorAssignmentConfigConflict = errors.New("vaccination execution: ope
 // RowVersion never silently clobbers a concurrent admin write. Mirrors ErrOperatorAssignmentConfigConflict.
 var ErrCapacityConfigConflict = errors.New("vaccination execution: capacity config: row version conflict")
 
+// ErrInvalidArgument marks caller-supplied input rejected before the database is
+// touched -- today, a malformed alerts-feed keyset cursor. It must map to 400,
+// never 500: a client sending a corrupt cursor is a bad request, and answering
+// 500 makes a paging bug look like an outage.
+var ErrInvalidArgument = errors.New("vaccination execution: invalid argument")
+
 type Repository interface {
+	// ListAlerts returns one keyset page of the CALLER'S OWN vaccination alerts,
+	// read from the shared notification_requests plumbing and discriminated by
+	// message_key LIKE 'vaccination.%'. The audience filter lives in the query
+	// (member_id equality), so this can never surface another person's alert.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
 	ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error)
 	// ListVaccinationExecutionPage returns one stable keyset page of execution projections plus the
 	// pre-cursor window total, so the request path never fetches the whole server-filtered set.
@@ -77,4 +88,18 @@ type Repository interface {
 	// across a date range. Aggregated FULL-DAY (not paginated). Date range is inclusive: from q.AsOf to q.DueBefore.
 	// Returns VaccineCarryLine rows keyed by (date, vaccine_label).
 	VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error)
+
+	// VaccinationCommandBoard returns the CEO closure view: KPIs (drive-scoped or all-history),
+	// cohort×vaccine pending matrix, shed×dose state matrix, weekly given chart, and verification queue.
+	// All aggregations are served from canonical indexed SQL (5k-50k envelope); no projection tables.
+	VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error)
+
+	// LiveTracker returns the whole live drive-day tracker in ONE read: KPI tiles, the operator
+	// board, the shed × partition proof board, the combo-dose card, the keyset activity feed, the
+	// attention list, the verification block and the filter vocabulary.
+	//
+	// It is one call rather than six because the page's contract is that a single filter set applies
+	// to every section at once; six independent reads cannot keep tiles and tables reconciled, and
+	// would multiply the polling cost by six.
+	LiveTracker(ctx context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error)
 }

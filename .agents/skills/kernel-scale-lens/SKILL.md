@@ -46,6 +46,40 @@ chapters below; do not review from the summary.
 - `make clinical-defer-guard` — mandatory clinical defer set. All registered in
   `tools/ci/guardrail-manifest.json`.
 
+## HOW-TO: write meaningful notification copy (maintainer decision, 2026-08-02)
+
+The `notify/escalate` step of the golden chain is not satisfied by a durable,
+fail-closed row alone — the copy in that row must be MEANINGFUL, never
+abstract. Applies to every notification type (vaccination, weighing, feed,
+counts), not just vaccination.
+
+A compliant Title/Body names:
+- **Park** and **shed/partition** (when partition exists, never parent shed alone
+  — see [`docs/decisions/operational-location-display-contract.md`](../../../docs/decisions/operational-location-display-contract.md)).
+- **Vaccine/work-item name in human form** (`ET+TT`, `PPR · Booster` — never a
+  raw config token like `et_tt_adult_w2`; use the vaccine display mapper, see
+  `docs/decisions/scale-anti-patterns.md` UI-copy section).
+- **Count** (animals/sheds).
+- **A farm-readable due date in IST.**
+
+A leadership escalation additionally names **which sheds are outstanding**,
+not just a count — "Shed 2, Shed 5 still outstanding", not "2 sheds pending".
+
+Defective (do not ship): `Title: "Vaccination(s) due soon"` /
+`Body: "· 3"`, or `fmt.Sprintf("%d sheds is now live", len(buckets))`.
+
+Compliant: `Title: parkName + " · " + shedLabel + " · " + vaccineLabel + " due"`
+/ `Body: fmt.Sprintf("%d goats in %s (%s) need %s by %s IST", count, parkName, shedLabel, vaccineLabel, businessDate)`.
+
+Full rule + before/after examples:
+[`docs/decisions/2026-08-02-meaningful-notification-copy.md`](../../../docs/decisions/2026-08-02-meaningful-notification-copy.md).
+
+Machine gate: `make notification-specificity-guard`
+(`tools/agent-hooks/check-notification-specificity.mjs`), diff-scoped over
+`backend/internal/notificationbridge/**`. Composes with, does not duplicate,
+`make ui-vaccine-labels-guard` (raw-token humanization is that guard's job;
+this one checks for missing park/shed/date specificity).
+
 ## At a glance (detail in the links above)
 - **Golden-chain completeness:** every feature answers expected / followed / where
   broke / owns-next / due-by-when / evidence / escalation.

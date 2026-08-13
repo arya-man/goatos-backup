@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -44,6 +45,101 @@ DROP INDEX IF EXISTS t_idx;`), 0o600); err != nil {
 	}
 	if !migrations[0].NoTx {
 		t.Fatalf("NoTx = false, want true for goose NO TRANSACTION marker")
+	}
+}
+
+// The applied side of every allowance is compared verbatim against the checksum column this
+// runner recorded, and loadMigrations only ever writes "sha256:"+hex. An entry whose applied
+// value is stored in any other shape can never match, so the allowance is dead and the audited
+// database it exists to rescue fails the drift check instead of converging.
+//
+// This asserts the real map rather than a copied literal on purpose: the sibling table test
+// below duplicates these values by hand, so a malformed entry copied into both places passes
+// there while still being unreachable in production.
+func TestAllowedHistoricalChecksumsUseTheRecordedChecksumFormat(t *testing.T) {
+	recorded := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	if len(allowedHistoricalChecksums) == 0 {
+		t.Fatal("allowedHistoricalChecksums is empty; the format invariant would be vacuous")
+	}
+	for version, pair := range allowedHistoricalChecksums {
+		if !recorded.MatchString(pair.current) {
+			t.Errorf("%s: current %q is not in the recorded sha256:<hex> format", version, pair.current)
+		}
+		if !recorded.MatchString(pair.applied) {
+			t.Errorf("%s: applied %q is not in the recorded sha256:<hex> format, so this allowance can never match a database", version, pair.applied)
+		}
+	}
+}
+
+// Proves the format above is the one the runner actually records, so the invariant stays tied to
+// the producer instead of to a literal someone can change independently.
+func TestRecordedChecksumFormatMatchesLoadMigrations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "000001_fmt.sql"), []byte("-- +goose Up\nSELECT 1;\n"), 0o600); err != nil {
+		t.Fatalf("write migration: %v", err)
+	}
+	migrations, err := loadMigrations(dir)
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	if len(migrations) != 1 {
+		t.Fatalf("loaded %d migrations, want 1", len(migrations))
+	}
+	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(migrations[0].Checksum) {
+		t.Fatalf("recorded checksum %q is not sha256:<hex>; the allowlist invariant is anchored to the wrong format", migrations[0].Checksum)
+	}
+}
+
+func TestAllowedHistoricalChecksumOnlyAcceptsKnownBaselineDrift(t *testing.T) {
+	migration := migrationFile{
+		Version:  "000001_goatos_clean_slate_baseline",
+		Filename: "000001_goatos_clean_slate_baseline.sql",
+		Checksum: "sha256:2ecaf35d57ff448fcd2f293e502074c1fe5c36e509a807fa482ab609659d6bb0",
+	}
+	if !isAllowedHistoricalChecksum(migration, "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349") {
+		t.Fatal("known historical baseline checksum was rejected")
+	}
+	if isAllowedHistoricalChecksum(migration, "sha256:unexpected") {
+		t.Fatal("unexpected baseline checksum was accepted")
+	}
+	migration.Version = "000002_restore_operator_assignment_selected_ids"
+	if isAllowedHistoricalChecksum(migration, "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349") {
+		t.Fatal("historical checksum allowance applied to a non-baseline migration")
+	}
+}
+
+func TestAllowedHistoricalChecksumsAcceptOnlyAuditedGoatosDBPairs(t *testing.T) {
+	cases := []struct {
+		version string
+		current string
+		applied string
+	}{
+		{"000035_death_upload_before_approval", "sha256:cf443ab9807a012553d04ad764577f1885ea990e0fd4b370b58bd9f8f1a95efb", "sha256:daca76c460dba159de9d9dff35c1694638e093e91ae7773ce13a6a9b1d6a15f5"},
+		{"000036_death_two_operator_actions", "sha256:306c83248d800baba7d47b39681e8133a4f3d4fe989402f6ebf74461b4a0752a", "sha256:fa64a6e997e28a0a0222271ad7862f9afd522192e42b002cc3ac21f3feb91abd"},
+		{"000038_counts_submitter_pending_index", "sha256:99fa47f84cc38475acc609ee20926cbb5a1f7f3cf8f43a8fae436dbd2377e6bd", "sha256:7ec8991c8283f36c55fc87025512f671d1378e93df7b021bf353b46056dc4c3c"},
+		{"000041_birth_mother_video_medicine", "sha256:764c18b63e8dcb6cdacfbfad22f91aed7f718b0b43aa56466385620d6b7c56b6", "sha256:b1350ee397b966168b3b27e188530de94d50d2e89114b76dfe98842b4b79751b"},
+		{"000042_birth_litter_video_contract", "sha256:064fae166174f4397d8baedfc318a5adf9e94ff01df69db3bae174ae639e7ae6", "sha256:3bfea97c8be106a3b2a2acaa155c39f569b989cdcd497ce7f5dd4e5aadfcbd2e"},
+		{"000044_birth_ors_second_round_gate", "sha256:36ba3dbc1043da7f2aa99d92bd0b558007469f321ecc3e1f47765e29f20d859b", "sha256:e069f6eb6a7bcd1db8c57cb0d50e4b34e5a439cee2a4122723b2319bba35e59a"},
+		{"000045_birth_ors_reopened_card_sync", "sha256:e97e70e0a86531a451f21ae3cc65f9ff774404c2b4b8a9873f8aeba7061d0464", "sha256:dce6a89bff449645c04e0de43ff1bcdb60fe52aba1eb9658b3d7ef4b30658fc5"},
+		{"000046_birth_weight_and_colostrum_repair", "sha256:0f0873a5149c5582ccfd96d830674669cd343fbf1efb29a4168c96b5eb0a8d06", "sha256:ef8eb3e8f4ab306b9270831d79aaaa910b646a08ecc70d3988ac5ac073d5e0d7"},
+		{"000047_birth_colostrum_card_counts", "sha256:0abe9e413b9793a3b0a133c09e828adac0e8d7ac8f57f974d880a3c62ddbdacf", "sha256:15053660bb0686a60e496ed645bad7db72d1cab7915aa29e7e859cf3fe9e6274"},
+		{"000052_shifting_management_stage_selection", "sha256:a0b12a06829e63aed9204b5755f522d86c265be46d32778c4efdd22c13070662", "sha256:65e4e4b2dc1cde852eadd602f06a6baa8b306a54f0538cbbf14ee327bea8be64"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.version, func(t *testing.T) {
+			migration := migrationFile{Version: tc.version, Filename: tc.version + ".sql", Checksum: tc.current}
+			if !isAllowedHistoricalChecksum(migration, tc.applied) {
+				t.Fatal("audited historical checksum pair was rejected")
+			}
+			if isAllowedHistoricalChecksum(migration, "sha256:unexpected") {
+				t.Fatal("unexpected applied checksum was accepted")
+			}
+			migration.Checksum = "sha256:unexpected-current"
+			if isAllowedHistoricalChecksum(migration, tc.applied) {
+				t.Fatal("historical checksum was accepted for unexpected current migration content")
+			}
+		})
 	}
 }
 
@@ -168,5 +264,138 @@ func TestValidateLocalChecksumDriftTargetOnlyAllowsLocalLoopback(t *testing.T) {
 
 	if err := validateLocalChecksumDriftTarget(localURL); err != nil {
 		t.Fatalf("local checksum drift allowance rejected: %v", err)
+	}
+}
+
+// TestExtractConcurrentIndexNamesIgnoresComments locks in the fix for the bug
+// where `migrate up` could not bring up ANY fresh database: prose inside a
+// `--` comment mentioning CREATE INDEX CONCURRENTLY was extracted as an index
+// name, the index was (of course) not found, ensureConcurrentIndexesValid's
+// repair path fired, and re-running the 000001 baseline died on
+// `CREATE SCHEMA analytics` already existing.
+func TestExtractConcurrentIndexNamesIgnoresComments(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want []string
+	}{
+		{
+			name: "line comment mentioning the statement is not an index name",
+			sql: `-- Lock-safe on hot table outbox_messages: CREATE UNIQUE INDEX CONCURRENTLY with the NEW predicate
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS real_idx ON t (id);`,
+			want: []string{"real_idx"},
+		},
+		{
+			name: "comment-only prose yields nothing",
+			sql:  `-- a prior CREATE INDEX CONCURRENTLY failed partway, leaving it INVALID`,
+			want: nil,
+		},
+		{
+			name: "block comment prose is ignored",
+			sql: `/* CREATE INDEX CONCURRENTLY bogus_name ON t (id); */
+CREATE INDEX CONCURRENTLY kept_idx ON t (id);`,
+			want: []string{"kept_idx"},
+		},
+		{
+			name: "trailing comment on the same line does not hide the statement",
+			sql:  `CREATE INDEX CONCURRENTLY IF NOT EXISTS kept_idx ON t (id); -- CREATE INDEX CONCURRENTLY ignored_word`,
+			want: []string{"kept_idx"},
+		},
+		{
+			name: "quoted identifier is unquoted, not mangled",
+			sql:  `CREATE INDEX CONCURRENTLY IF NOT EXISTS "Quoted_Idx" ON t (id);`,
+			want: []string{"Quoted_Idx"},
+		},
+		{
+			name: "prose inside a string literal is not an index name",
+			sql: `INSERT INTO notes (body) VALUES ('CREATE INDEX CONCURRENTLY from_a_literal ON t (id)');
+CREATE INDEX CONCURRENTLY after_literal_idx ON t (id);`,
+			want: []string{"after_literal_idx"},
+		},
+		{
+			name: "apostrophe inside a dollar-quoted body does not disable comment stripping",
+			sql: `CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION $msg$that can't happen$msg$;
+END;
+$$;
+-- CREATE INDEX CONCURRENTLY prose_after_dollar_body
+CREATE INDEX CONCURRENTLY IF NOT EXISTS after_body_idx ON t (id);`,
+			want: []string{"after_body_idx"},
+		},
+		{
+			name: "dedupes repeated names",
+			sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS dup_idx ON t (id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS dup_idx ON t (id);`,
+			want: []string{"dup_idx"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractConcurrentIndexNames(tc.sql)
+			if len(got) != len(tc.want) {
+				t.Fatalf("extractConcurrentIndexNames() = %#v, want %#v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("extractConcurrentIndexNames() = %#v, want %#v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// TestExtractConcurrentIndexNamesOnRealMigrations guards the whole committed
+// migration corpus: every extracted name must come from a real statement, not
+// from prose. Ground truth is computed line-wise (all CONCURRENTLY statements
+// in this repo start their own line), which is deliberately a different
+// implementation from stripSQLComments.
+func TestExtractConcurrentIndexNamesOnRealMigrations(t *testing.T) {
+	dir := filepath.Join("..", "..", "migrations", "postgres")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	checked := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		sql := string(raw)
+		if !strings.Contains(sql, "CONCURRENTLY") {
+			continue
+		}
+		checked++
+		want := map[string]bool{}
+		for _, line := range strings.Split(sql, "\n") {
+			code := line
+			if idx := strings.Index(code, "--"); idx >= 0 {
+				code = code[:idx]
+			}
+			for _, m := range concurrentIndexNameRe.FindAllStringSubmatch(code, -1) {
+				want[strings.Trim(m[1], `"`)] = true
+			}
+		}
+		got := map[string]bool{}
+		for _, n := range extractConcurrentIndexNames(sql) {
+			got[n] = true
+		}
+		for n := range got {
+			if !want[n] {
+				t.Errorf("%s: extracted %q, which is not a real CREATE INDEX CONCURRENTLY target (prose leaked through)", e.Name(), n)
+			}
+		}
+		for n := range want {
+			if !got[n] {
+				t.Errorf("%s: real index %q was NOT extracted; the concurrent-index guard would silently skip it", e.Name(), n)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no migrations containing CONCURRENTLY were checked; corpus guard is inert")
 	}
 }

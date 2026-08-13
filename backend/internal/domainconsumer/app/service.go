@@ -73,6 +73,15 @@ const (
 var (
 	ErrEventProcessingInProgress      = errors.New("domain event processing in progress")
 	ErrProcessedEventFinalizationLost = errors.New("domain event processed-event finalization lost")
+	// ErrPermanentDispatchFailure marks a handler rejection that redelivery can never turn into a
+	// success (e.g. a deterministic domain-rule rejection wrapped in eventbus.PermanentError). The
+	// terminal MarkFailed row + the WarnContext log below are the durable, loud record of the
+	// failure; a Subscriber implementation should treat this as errors.Is-detectable and ACK the
+	// message instead of nacking it, so a permanently-invalid event is delivered, logged, and
+	// recorded exactly once instead of spinning through redelivery forever (the incident this
+	// guards against: verification.verdict.approved retried 3056+ times against a deterministic
+	// "vaccination: stock gate blocked" rejection because nothing ever stopped the nack loop).
+	ErrPermanentDispatchFailure = errors.New("domain event permanent dispatch failure")
 )
 
 type ProcessedEventStore interface {
@@ -260,7 +269,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		if err := s.bus.Publish(ctx, event); err != nil {
 			if eventbus.IsPermanentError(err) {
 				if s.log != nil {
-					s.log.WarnContext(ctx, "domain_event_permanent_failure_nacked_for_dlq",
+					s.log.WarnContext(ctx, "domain_event_permanent_failure_terminal",
 						slog.String("message_id", message.ID),
 						slog.String("event_id", processed.EventID),
 						slog.String("event_type", event.Type),
@@ -268,7 +277,13 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 						slog.Any("error", err),
 					)
 				}
-				return fmt.Errorf("domain event permanent dispatch %s/%s: %w", event.Type, event.Key, err)
+				// Wrapping in ErrPermanentDispatchFailure (in addition to the MarkFailed row the
+				// defer above writes) lets a Subscriber distinguish "will never succeed" from
+				// "retry me": errors.Is(err, ErrPermanentDispatchFailure) is the seam a Pub/Sub (or
+				// any at-least-once) subscriber uses to ACK instead of NACK, so this message is
+				// delivered, logged, and durably marked failed exactly once rather than redelivered
+				// forever.
+				return fmt.Errorf("domain event permanent dispatch %s/%s: %w: %w", event.Type, event.Key, ErrPermanentDispatchFailure, err)
 			}
 			return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
 		}

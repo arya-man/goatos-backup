@@ -1,9 +1,14 @@
 package sg.mesha.goatos.core.data.sync
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -102,6 +107,67 @@ class SyncEngineTest {
         val row = store.findById("row-1")!!
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
         assertEquals(1, api.submitCalls.size)
+    }
+
+    @Test
+    fun `health completion drains once with the stored stable key`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            OutboxEntity(
+                id = "health-row",
+                opType = OutboxOpType.HEALTH_TREATMENT_COMPLETE.name,
+                groupKey = "health-session-1",
+                idempotencyKey = "health-complete:health-session-1",
+                payloadJson = syncJson.encodeToString(
+                    HealthTreatmentCompletePayload("health-session-1"),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi()
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
+
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("health-row")?.status)
+        assertEquals(listOf("health-session-1" to "health-complete:health-session-1"), api.healthCompleteCalls)
+    }
+
+    @Test
+    fun `opening a health case drains through the production dispatcher`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            OutboxEntity(
+                id = "health-open-row",
+                opType = "HEALTH_CASE_OPEN",
+                groupKey = "goat-1",
+                idempotencyKey = "health-case:stable-key",
+                payloadJson = """{"goat_id":"goat-1","disease_key":"pneumonia","age_band":"adult","start_date":"2026-07-30"}""",
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+
+        val api = ScriptedAppApi()
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
+
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("health-open-row")?.status)
+        assertEquals("health-case:stable-key", api.healthOpenCalls.single().first)
+        assertEquals("goat-1", api.healthOpenCalls.single().second.goatId)
+        assertEquals("pneumonia", api.healthOpenCalls.single().second.diseaseKey)
     }
 
     @Test
@@ -354,18 +420,46 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `dispatches a SCAN_CAPTURE item via the scan-captures endpoint with its idempotency key`() = runBlocking {
+    fun `scan capture acknowledgement updates only its operational partition`() = runBlocking {
         val store = FakeOutboxStore()
-        val idempotencyKey = "scan:task-1:__scan_roster__:901007000504392"
+        val scannedGoatDao = FakeScannedGoatDao()
+        val idempotencyKey = "scan:task-1:partition:1:__scan_roster__:901007000504392"
+        scannedGoatDao.insert(
+            ScannedGoatEntity(
+                id = "scan-row-1",
+                taskId = "task-1",
+                partitionKey = "1",
+                fieldKey = "__scan_roster__",
+                tag = "901007000504392",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                capturedAtMs = 123L,
+                syncStatus = CaptureSyncStatus.PENDING.name,
+            ),
+        )
+        scannedGoatDao.insert(
+            ScannedGoatEntity(
+                id = "scan-row-2",
+                taskId = "task-1",
+                partitionKey = "2",
+                fieldKey = "__scan_roster__",
+                tag = "901007000504392",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                capturedAtMs = 124L,
+                syncStatus = CaptureSyncStatus.PENDING.name,
+            ),
+        )
         store.insert(
             OutboxEntity(
                 id = "row-scan-1",
                 opType = OutboxOpType.SCAN_CAPTURE.name,
-                groupKey = "task-1",
+                groupKey = "task-1|1",
                 idempotencyKey = idempotencyKey,
                 payloadJson = syncJson.encodeToString(
                     ScanCapturePayload(
                         taskId = "task-1",
+                        partitionKey = "1",
                         request = ScanCaptureRequestDto(
                             fieldKey = "__scan_roster__",
                             tag = "901007000504392",
@@ -405,7 +499,13 @@ class SyncEngineTest {
                 )
             }
         }
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+        val engine = SyncEngine(
+            store,
+            api,
+            connectivityGate = { true },
+            clock = { 0L },
+            scannedGoatDao = scannedGoatDao,
+        )
 
         engine.drainOnce()
 
@@ -413,6 +513,14 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals("901007000504392", seenTag)
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(
+            CaptureSyncStatus.SYNCED.name,
+            scannedGoatDao.listForField("task-1", "1", "__scan_roster__").single().syncStatus,
+        )
+        assertEquals(
+            CaptureSyncStatus.PENDING.name,
+            scannedGoatDao.listForField("task-1", "2", "__scan_roster__").single().syncStatus,
+        )
     }
 
     @Test
@@ -482,6 +590,90 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals("duplicate", seenOutcome)
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+    }
+
+    @Test
+    fun `offline SCAN_ATTEMPT stays queued then syncs unchanged when online`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "scan-attempt:task-1:unknown-419"
+        store.insert(
+            OutboxEntity(
+                id = "row-attempt-offline",
+                opType = OutboxOpType.SCAN_ATTEMPT.name,
+                groupKey = "task-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    ScanAttemptPayload(
+                        taskId = "task-1",
+                        request = ScanAttemptRequestDto(
+                            fieldKey = "__scan_roster__",
+                            tag = "901007000504419",
+                            normalizedTag = "901007000504419",
+                            goatId = null,
+                            obligationId = null,
+                            outcome = "unknown",
+                            tagRole = "unknown",
+                            reason = "unknown_tag",
+                            capturedAtMs = 9_001L,
+                        ),
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        var online = false
+        var scanAttemptCalls = 0
+        var seenKey: String? = null
+        var seenRequest: ScanAttemptRequestDto? = null
+        val api = ScriptedAppApi().apply {
+            recordScanAttemptFn = { taskId, key, request ->
+                assertEquals("task-1", taskId)
+                scanAttemptCalls++
+                seenKey = key
+                seenRequest = request
+                ScanAttemptResponseDto(
+                    attempt = ScanAttemptDto(
+                        attemptId = "attempt-offline",
+                        taskId = taskId,
+                        fieldKey = request.fieldKey,
+                        tag = request.tag,
+                        goatId = request.goatId,
+                        obligationId = request.obligationId,
+                        outcome = request.outcome,
+                        tagRole = request.tagRole,
+                        reason = request.reason,
+                    ),
+                )
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { online }, clock = { 0L })
+
+        val offlineResult = engine.drainOnce()
+
+        assertEquals(false, offlineResult)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("row-attempt-offline")!!.status)
+        assertEquals(0, store.findById("row-attempt-offline")!!.attemptCount)
+        assertEquals(0, scanAttemptCalls)
+
+        online = true
+        engine.drainOnce()
+
+        val row = store.findById("row-attempt-offline")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(1, scanAttemptCalls)
+        assertEquals(idempotencyKey, seenKey)
+        assertEquals("901007000504419", seenRequest!!.tag)
+        assertEquals("unknown", seenRequest!!.outcome)
+        assertEquals("unknown_tag", seenRequest!!.reason)
+        assertEquals(9_001L, seenRequest!!.capturedAtMs)
     }
 
     @Test
@@ -945,6 +1137,152 @@ class SyncEngineTest {
 
         assertTrue(engine.drainOnce())
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-1")!!.status)
+    }
+}
+
+private class FakeScannedGoatDao : ScannedGoatDao {
+    private val rows = mutableListOf<ScannedGoatEntity>()
+
+    override suspend fun insert(entity: ScannedGoatEntity): Long {
+        if (rows.any {
+                it.taskId == entity.taskId &&
+                    it.partitionKey == entity.partitionKey &&
+                    it.fieldKey == entity.fieldKey &&
+                    it.tag == entity.tag
+            }
+        ) {
+            return -1L
+        }
+        rows += entity
+        return 1L
+    }
+
+    override suspend fun findByTaskFieldTag(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+    ): ScannedGoatEntity? = rows.firstOrNull {
+        it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag
+    }
+
+    override suspend fun findByTaskFieldTagObligation(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+        obligationId: String?,
+    ): ScannedGoatEntity? = rows.firstOrNull {
+        it.taskId == taskId &&
+            it.partitionKey == partitionKey &&
+            it.fieldKey == fieldKey &&
+            it.tag == tag &&
+            it.obligationId == obligationId
+    }
+
+    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
+        rows.replaceAll { row ->
+            if (row.id == id) {
+                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus)
+            } else {
+                row
+            }
+        }
+    }
+
+    override fun observeForField(taskId: String, partitionKey: String, fieldKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey }.take(limit))
+
+    override suspend fun listForField(taskId: String, partitionKey: String, fieldKey: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey }.take(limit)
+
+    override fun observeCountForField(taskId: String, partitionKey: String, fieldKey: String): Flow<Int> =
+        flowOf(rows.count { it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey })
+
+    override suspend fun listForTask(taskId: String, partitionKey: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId && it.partitionKey == partitionKey }.take(limit)
+
+    override fun observeForTask(taskId: String, partitionKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId && it.partitionKey == partitionKey }.take(limit))
+
+    override suspend fun markTaskStatus(taskId: String, status: String) {
+        rows.replaceAll { row -> if (row.taskId == taskId) row.copy(syncStatus = status) else row }
+    }
+
+    override suspend fun markFieldTagStatus(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+        obligationId: String?,
+        status: String,
+    ) {
+        rows.replaceAll { row ->
+            if (
+                row.taskId == taskId &&
+                row.partitionKey == partitionKey &&
+                row.fieldKey == fieldKey &&
+                row.tag == tag &&
+                row.obligationId == obligationId
+            ) {
+                row.copy(syncStatus = status)
+            } else {
+                row
+            }
+        }
+    }
+
+    override suspend fun clearForTask(taskId: String) {
+        rows.removeAll { it.taskId == taskId }
+    }
+
+    override suspend fun deleteSyncedForField(taskId: String, partitionKey: String, fieldKey: String) {
+        rows.removeAll {
+            it.taskId == taskId &&
+                it.partitionKey == partitionKey &&
+                it.fieldKey == fieldKey &&
+                it.syncStatus == CaptureSyncStatus.SYNCED.name
+        }
+    }
+
+    override suspend fun deleteSyncedForFieldExceptObligations(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        serverDoneObligationIds: List<String>,
+    ) {
+        rows.removeAll {
+            it.taskId == taskId &&
+                it.partitionKey == partitionKey &&
+                it.fieldKey == fieldKey &&
+                it.syncStatus == CaptureSyncStatus.SYNCED.name &&
+                (it.obligationId == null || it.obligationId !in serverDoneObligationIds)
+        }
+    }
+
+    /**
+     * Mirrors the DAO query exactly: SYNCED rows for the NAMED obligations only.
+     *
+     * A row with a null obligationId is deliberately left alone — it is a capture that was never
+     * linked to an obligation, not a rejected animal, and deleting it here would let this fake
+     * pass while the real query wiped other sheds' scan evidence.
+     */
+    override suspend fun deleteSyncedByRejectedObligations(
+        partitionKey: String,
+        fieldKey: String,
+        rejectedObligationIds: List<String>,
+    ) {
+        rows.removeAll {
+            it.partitionKey == partitionKey &&
+                it.fieldKey == fieldKey &&
+                it.syncStatus == CaptureSyncStatus.SYNCED.name &&
+                it.obligationId != null &&
+                it.obligationId in rejectedObligationIds
+        }
+    }
+
+    override suspend fun clearAll() {
+        rows.clear()
     }
 }
 

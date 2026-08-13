@@ -68,6 +68,38 @@ func TestCompleteUploadRejectsStorageMismatch(t *testing.T) {
 	}
 }
 
+func TestDeleteUploadRemovesRepositoryAcceptedArtifactFromStorage(t *testing.T) {
+	proof := baseProof()
+	repo := &fakeProofRepo{proof: proof}
+	storage := &fakeProofStorage{}
+	service := NewService(repo, storage)
+
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, proofTestID, proofTestActor); err != nil {
+		t.Fatalf("DeleteUpload() error = %v", err)
+	}
+	if storage.deleted.ProofID != proofTestID {
+		t.Fatalf("storage deleted %#v, want %s", storage.deleted, proofTestID)
+	}
+}
+
+// DeleteUpload is owner-scoped, so a caller with no resolvable actor identity must be rejected
+// outright rather than falling through to an unscoped delete.
+func TestDeleteUploadRefusesMissingActor(t *testing.T) {
+	service := NewService(&fakeProofRepo{proof: baseProof()}, &fakeProofStorage{})
+
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, proofTestID, ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("DeleteUpload() error = %v, want ErrInvalid", err)
+	}
+}
+
+func TestDeleteUploadRefusesInvalidProofID(t *testing.T) {
+	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
+
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, "not-a-uuid", proofTestActor); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("DeleteUpload() error = %v, want ErrInvalid", err)
+	}
+}
+
 func TestResolveProofRefsRequiresCompletedTaskBoundProof(t *testing.T) {
 	repo := &fakeProofRepo{proof: baseProof()}
 	service := NewService(repo, &fakeProofStorage{})
@@ -202,6 +234,30 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	}
 	if repo.completed.Metadata["review_note"] != "clear" {
 		t.Fatalf("non-reserved completion metadata lost: %#v", repo.completed.Metadata)
+	}
+}
+
+func TestListUploadedProofsRequiresSessionIdentity(t *testing.T) {
+	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
+	if _, err := service.ListUploadedProofs(context.Background(), domain.ListUploadedProofsQuery{
+		TenantID:           proofTestTenant,
+		ScopeType:          "shed",
+		ScopeID:            proofTestShed,
+		AllAuthorizedParks: true,
+	}); err == nil {
+		t.Fatal("ListUploadedProofs() without client_task_key or field_key succeeded")
+	}
+}
+
+func TestListUploadedProofsFailsClosedWithoutAuthorizedParkScope(t *testing.T) {
+	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
+	if _, err := service.ListUploadedProofs(context.Background(), domain.ListUploadedProofsQuery{
+		TenantID:      proofTestTenant,
+		ScopeType:     "shed",
+		ScopeID:       proofTestShed,
+		ClientTaskKey: "feed-pack:shed-1:whole:1:normal:2026-08-13",
+	}); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("ListUploadedProofs() err = %v, want ErrForbidden", err)
 	}
 }
 
@@ -348,6 +404,17 @@ func (r *fakeProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs []s
 	return out, nil
 }
 
+func (r *fakeProofRepo) ListUploadedProofs(context.Context, domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	if len(r.proofs) == 0 {
+		return nil, nil
+	}
+	out := make([]domain.Artifact, 0, len(r.proofs))
+	for _, proof := range r.proofs {
+		out = append(out, proof)
+	}
+	return out, nil
+}
+
 func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUpload) (domain.Artifact, error) {
 	r.completed = in
 	out := r.proof
@@ -356,6 +423,10 @@ func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUploa
 	out.SizeBytes = in.SizeBytes
 	out.UploadState = "completed"
 	return out, nil
+}
+
+func (r *fakeProofRepo) DeleteUnattachedProof(context.Context, string, string, string) (domain.Artifact, error) {
+	return r.proof, nil
 }
 
 func (r *fakeProofRepo) ApplyRetention(context.Context, string, []string, string, *time.Time) (int, error) {
@@ -378,6 +449,7 @@ type fakeProofStorage struct {
 	stored      domain.StoredObject
 	finalizeErr error
 	finalized   bool
+	deleted     domain.Artifact
 }
 
 func (s *fakeProofStorage) Provider() string { return "local" }
@@ -397,6 +469,11 @@ func (s *fakeProofStorage) FinalizeUpload(context.Context, domain.Artifact, doma
 
 func (s *fakeProofStorage) Store(context.Context, domain.Artifact, io.Reader, string) (domain.StoredObject, error) {
 	return s.stored, nil
+}
+
+func (s *fakeProofStorage) Delete(_ context.Context, proof domain.Artifact) error {
+	s.deleted = proof
+	return nil
 }
 
 func stringPtr(v string) *string { return &v }

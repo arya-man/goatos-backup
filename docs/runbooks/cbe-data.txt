@@ -1,0 +1,964 @@
+CBE All Sheds — Assumed RFID Mapping
+Counting DB date: 17/07/2026
+
+Tag, shed, breed, type, gender, and kid/adult values come from the CBE Counting DB DB tab.
+
+SUMMARY
+Sheds with non-zero count: 63
+Assumed RFID rows: 951
+Kid: 463 | Adult: 488
+Sheep: 365 | Goat: 586 | Unknown: 0
+Male: 386 | Female: 565 | Unknown: 0
+
+ASSUMED_RFID	TAG	SHED	TYPE	BREED	GENDER	KID_ADULT
+CBE-ASSUMED-RFID-00001	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00002	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00003	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00004	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00005	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00006	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00007	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00008	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00009	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00010	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00011	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00012	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00013	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00014	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00015	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00016	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00017	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00018	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00019	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00020	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00021	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00022	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00023	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00024	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00025	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00026	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00027	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00028	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00029	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00030	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00031	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00032	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00033	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00034	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00035	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00036	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00037	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00038	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00039	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00040	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00041	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00042	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00043	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00044	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00045	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00046	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00047	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00048	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00049	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00050	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00051	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00052	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00053	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00054	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00055	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00056	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00057	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00058	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00059	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00060	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00061	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00062	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00063	F2-Male	Castro 1	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00064	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00065	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00066	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00067	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00068	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00069	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00070	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00071	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00072	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00073	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00074	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00075	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00076	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00077	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00078	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00079	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00080	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00081	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00082	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00083	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00084	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00085	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00086	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00087	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00088	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00089	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00090	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00091	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00092	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00093	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00094	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00095	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00096	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00097	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00098	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00099	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00100	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00101	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00102	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00103	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00104	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00105	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00106	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00107	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00108	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00109	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00110	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00111	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00112	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00113	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00114	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00115	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00116	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00117	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00118	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00119	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00120	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00121	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00122	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00123	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00124	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00125	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00126	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00127	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00128	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00129	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00130	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00131	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00132	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00133	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00134	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00135	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00136	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00137	F2-Male	Castro 2	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00138	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00139	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00140	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00141	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00142	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00143	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00144	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00145	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00146	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00147	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00148	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00149	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00150	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00151	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00152	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00153	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00154	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00155	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00156	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00157	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00158	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00159	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00160	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00161	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00162	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00163	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00164	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00165	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00166	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00167	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00168	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00169	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00170	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00171	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00172	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00173	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00174	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00175	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00176	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00177	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00178	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00179	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00180	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00181	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00182	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00183	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00184	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00185	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00186	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00187	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00188	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00189	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00190	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00191	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00192	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00193	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00194	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00195	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00196	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00197	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00198	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00199	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00200	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00201	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00202	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00203	F2-Male	Castro 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00204	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00205	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00206	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00207	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00208	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00209	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00210	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00211	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00212	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00213	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00214	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00215	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00216	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00217	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00218	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00219	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00220	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00221	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00222	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00223	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00224	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00225	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00226	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00227	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00228	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00229	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00230	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00231	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00232	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00233	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00234	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00235	Non-Pregnant	Gandhi 1	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00236	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00237	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00238	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00239	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00240	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00241	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00242	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00243	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00244	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00245	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00246	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00247	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00248	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00249	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00250	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00251	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00252	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00253	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00254	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00255	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00256	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00257	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00258	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00259	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00260	Non-Pregnant	Gandhi 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00261	Non-Pregnant	Gandhi 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00262	Non-Pregnant	Gandhi 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00263	Non-Pregnant	Gandhi 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00264	Non-Pregnant	Gandhi 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00265	Non-Pregnant	Gandhi 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00266	Non-Pregnant	Gandhi 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00267	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00268	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00269	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00270	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00271	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00272	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00273	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00274	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00275	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00276	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00277	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00278	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00279	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00280	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00281	Non-Pregnant	Gandhi 2	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00282	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00283	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00284	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00285	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00286	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00287	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00288	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00289	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00290	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00291	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00292	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00293	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00294	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00295	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00296	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00297	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00298	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00299	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00300	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00301	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00302	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00303	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00304	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00305	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00306	Non-Pregnant	Gandhi 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00307	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00308	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00309	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00310	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00311	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00312	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00313	Non-Pregnant	Gandhi 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00314	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00315	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00316	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00317	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00318	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00319	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00320	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00321	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00322	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00323	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00324	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00325	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00326	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00327	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00328	Non-Pregnant	Gandhi 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00329	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00330	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00331	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00332	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00333	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00334	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00335	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00336	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00337	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00338	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00339	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00340	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00341	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00342	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00343	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00344	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00345	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00346	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00347	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00348	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00349	F2-Female	Godel 1 - Part 1	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00350	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00351	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00352	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00353	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00354	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00355	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00356	F2-Female	Godel 1 - Part 2	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00357	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00358	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00359	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00360	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00361	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00362	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00363	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00364	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00365	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00366	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00367	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00368	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00369	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00370	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00371	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00372	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00373	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00374	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00375	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00376	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00377	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00378	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00379	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00380	F2-Female	Godel 1 - Part 3	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00381	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00382	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00383	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00384	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00385	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00386	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00387	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00388	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00389	F2-Female	Godel 1 - Part 4	Goat	Beetal	Female	Kid
+CBE-ASSUMED-RFID-00390	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00391	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00392	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00393	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00394	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00395	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00396	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00397	F2-Female	Godel 1 - Part 5	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00398	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00399	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00400	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00401	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00402	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00403	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00404	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00405	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00406	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00407	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00408	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00409	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00410	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00411	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00412	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00413	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00414	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00415	F2-Female	Godel 1 - Part 6	Goat	Malai	Female	Kid
+CBE-ASSUMED-RFID-00416	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00417	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00418	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00419	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00420	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00421	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00422	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00423	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00424	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00425	F2-Male	Godel 1 - Part 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00426	F2-Male	Godel 1 - Part 8	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00427	F2-Male	Godel 1 - Part 8	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00428	F2-Male	Godel 1 - Part 8	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00429	F2-Male	Godel 1 - Part 8	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00430	F2-Male	Godel 1 - Part 8	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00431	Warmup	Godel 2 - Part 1	Sheep	Anantapur Sheep	Male	Adult
+CBE-ASSUMED-RFID-00432	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00433	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00434	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00435	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00436	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00437	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00438	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00439	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00440	F2-Male	Godel 2 - Part 3	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00441	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00442	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00443	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00444	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00445	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00446	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00447	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00448	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00449	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00450	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00451	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00452	F2-Female	Godel 2 - Part 4	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00453	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00454	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00455	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00456	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00457	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00458	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00459	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00460	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00461	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00462	F2-Male	Godel 2 - Part 5	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00463	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00464	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00465	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00466	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00467	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00468	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00469	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00470	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00471	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00472	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00473	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00474	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00475	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00476	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00477	Non-Pregnant	Godel 2 - Part 6	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00478	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00479	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00480	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00481	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00482	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00483	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00484	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00485	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00486	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00487	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00488	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00489	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00490	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00491	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00492	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00493	Non-Pregnant	Godel 2 - Part 7	Goat	Osmanabadi	Female	Adult
+CBE-ASSUMED-RFID-00494	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00495	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00496	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00497	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00498	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00499	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00500	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00501	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00502	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00503	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00504	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00505	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00506	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00507	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00508	Non-Pregnant	Godel 2 - Part 8	Goat	Malai	Female	Adult
+CBE-ASSUMED-RFID-00509	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00510	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00511	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00512	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00513	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00514	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00515	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00516	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00517	Buck	Ho Chi Minh 1	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00518	Buck	Ho Chi Minh 1	Goat	Sirohi	Male	Adult
+CBE-ASSUMED-RFID-00519	Buck	Ho Chi Minh 1	Goat	Sirohi	Male	Adult
+CBE-ASSUMED-RFID-00520	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00521	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00522	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00523	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00524	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00525	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00526	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00527	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00528	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00529	Buck	Ho Chi Minh 1	Goat	Sojat	Male	Adult
+CBE-ASSUMED-RFID-00530	Mother	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00531	Mother	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00532	Mother	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00533	Mother	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00534	Mother	Mandela 1 - Part 1	Sheep	Anantapur Sheep	Female	Kid
+CBE-ASSUMED-RFID-00535	Buck	Mandela 1 - Part 2	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00536	Buck	Mandela 1 - Part 2	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00537	Buck	Mandela 1 - Part 2	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00538	Buck	Mandela 1 - Part 2	Goat	Beetal	Male	Adult
+CBE-ASSUMED-RFID-00539	Non-Pregnant	Mandela 1 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00540	Non-Pregnant	Mandela 1 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00541	Non-Pregnant	Mandela 1 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00542	Non-Pregnant	Mandela 1 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00543	Non-Pregnant	Mandela 1 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00544	Non-Pregnant	Mandela 1 - Part 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00545	Non-Pregnant	Mandela 1 - Part 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00546	Non-Pregnant	Mandela 1 - Part 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00547	Non-Pregnant	Mandela 1 - Part 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00548	Non-Pregnant	Mandela 1 - Part 3	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00549	Non-Pregnant	Mandela 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00550	Non-Pregnant	Mandela 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00551	Non-Pregnant	Mandela 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00552	Non-Pregnant	Mandela 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00553	Non-Pregnant	Mandela 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00554	Non-Pregnant	Mandela 1 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00555	Non-Pregnant	Mandela 1 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00556	Non-Pregnant	Mandela 1 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00557	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00558	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00559	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00560	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00561	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00562	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00563	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00564	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00565	Non-Pregnant	Mandela 1 - Part 5	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00566	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00567	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00568	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00569	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00570	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00571	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00572	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00573	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00574	Non-Pregnant	Mandela 1 - Part 6	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00575	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00576	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00577	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00578	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00579	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00580	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00581	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00582	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00583	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00584	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00585	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00586	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00587	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00588	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00589	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00590	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00591	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00592	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00593	Non-Pregnant	Mandela 1 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00594	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00595	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00596	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00597	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00598	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00599	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00600	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00601	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00602	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00603	Non-Pregnant	Mandela 2 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00604	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00605	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00606	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00607	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00608	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00609	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00610	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00611	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00612	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00613	Non-Pregnant	Mandela 2 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00614	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00615	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00616	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00617	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00618	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00619	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00620	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00621	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00622	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00623	Non-Pregnant	Mandela 2 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00624	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00625	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00626	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00627	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00628	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00629	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00630	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00631	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00632	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00633	Non-Pregnant	Mandela 2 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00634	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00635	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00636	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00637	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00638	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00639	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00640	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00641	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00642	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00643	Non-Pregnant	Mandela 2 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00644	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00645	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00646	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00647	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00648	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00649	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00650	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00651	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00652	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00653	Non-Pregnant	Mandela 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00654	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00655	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00656	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00657	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00658	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00659	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00660	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00661	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00662	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00663	Non-Pregnant	Mandela 2 - Part 7	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00664	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00665	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00666	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00667	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00668	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00669	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00670	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00671	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00672	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00673	Non-Pregnant	Mandela 2 - Part 8	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00674	Non-Pregnant	Sumathi 1 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00675	Non-Pregnant	Sumathi 1 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00676	Non-Pregnant	Sumathi 1 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00677	Non-Pregnant	Sumathi 1 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00678	Non-Pregnant	Sumathi 1 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00679	Non-Pregnant	Sumathi 1 - Part 1	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00680	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00681	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00682	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00683	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00684	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00685	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00686	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00687	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00688	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00689	Non-Pregnant	Sumathi 1 - Part 2	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00690	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00691	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00692	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00693	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00694	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00695	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00696	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00697	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00698	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00699	Non-Pregnant	Sumathi 1 - Part 3	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00700	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00701	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00702	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00703	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00704	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00705	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00706	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00707	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00708	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00709	Non-Pregnant	Sumathi 1 - Part 4	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00710	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00711	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00712	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00713	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00714	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00715	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00716	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00717	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00718	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00719	Non-Pregnant	Sumathi 1 - Part 5	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00720	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00721	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00722	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00723	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00724	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00725	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00726	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00727	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00728	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00729	Non-Pregnant	Sumathi 1 - Part 6	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00730	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00731	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00732	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00733	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00734	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00735	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00736	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00737	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00738	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00739	Non-Pregnant	Sumathi 1 - Part 7	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00740	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00741	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00742	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00743	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00744	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00745	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00746	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00747	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00748	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00749	Non-Pregnant	Sumathi 1 - Part 8	Goat	Beetal	Female	Adult
+CBE-ASSUMED-RFID-00750	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00751	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00752	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00753	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00754	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00755	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00756	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00757	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00758	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00759	Non-Pregnant	Sumathi 2 - Part 1	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00760	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00761	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00762	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00763	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00764	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00765	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00766	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00767	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00768	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00769	Non-Pregnant	Sumathi 2 - Part 2	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00770	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00771	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00772	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00773	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00774	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00775	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00776	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00777	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00778	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00779	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00780	Non-Pregnant	Sumathi 2 - Part 3	Goat	Sirohi	Female	Adult
+CBE-ASSUMED-RFID-00781	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00782	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00783	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00784	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00785	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00786	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00787	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00788	Non-Pregnant	Sumathi 2 - Part 4	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00789	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00790	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00791	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00792	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00793	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00794	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00795	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00796	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00797	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00798	Non-Pregnant	Sumathi 2 - Part 5	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00799	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00800	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00801	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00802	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00803	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00804	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00805	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00806	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00807	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00808	Non-Pregnant	Sumathi 2 - Part 6	Goat	Sojat	Female	Adult
+CBE-ASSUMED-RFID-00809	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00810	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00811	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00812	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00813	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00814	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00815	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00816	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00817	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00818	Non-Pregnant	Sumathi 2 - Part 7	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00819	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00820	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00821	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00822	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00823	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00824	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00825	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00826	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00827	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00828	Non-Pregnant	Sumathi 2 - Part 8	Sheep	Anantapur Sheep	Female	Adult
+CBE-ASSUMED-RFID-00829	F2-Male	Yashoda 1	Goat	Osmanabadi	Male	Kid
+CBE-ASSUMED-RFID-00830	F2-Male	Yashoda 1	Goat	Osmanabadi	Male	Kid
+CBE-ASSUMED-RFID-00831	F2-Male	Yashoda 1	Goat	Osmanabadi	Male	Kid
+CBE-ASSUMED-RFID-00832	F2-Male	Yashoda 1	Goat	Osmanabadi	Male	Kid
+CBE-ASSUMED-RFID-00833	F2-Male	Yashoda 1	Goat	Osmanabadi	Male	Kid
+CBE-ASSUMED-RFID-00834	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00835	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00836	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00837	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00838	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00839	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00840	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00841	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00842	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00843	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00844	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00845	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00846	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00847	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00848	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00849	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00850	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00851	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00852	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00853	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00854	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00855	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00856	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00857	ICU-Kid	Yashoda 10	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00858	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00859	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00860	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00861	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00862	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00863	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00864	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00865	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00866	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00867	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00868	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00869	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00870	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00871	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00872	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00873	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00874	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00875	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00876	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00877	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00878	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00879	ICU- kid	Yashoda 2	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00880	F2-Male	Yashoda 3	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00881	F2-Male	Yashoda 3	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00882	F2-Male	Yashoda 3	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00883	F2-Male	Yashoda 3	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00884	F2-Male	Yashoda 3	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00885	F2-Male	Yashoda 3	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00886	F2-Male	Yashoda 3	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00887	F2-Male	Yashoda 3	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00888	F2-Male	Yashoda 3	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00889	F2-Male	Yashoda 3	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00890	F2-Male	Yashoda 3	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00891	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00892	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00893	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00894	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00895	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00896	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00897	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00898	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00899	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00900	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00901	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00902	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00903	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00904	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00905	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00906	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00907	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00908	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00909	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00910	ICU- kid	Yashoda 4	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00911	ICU- kid	Yashoda 4	Goat	Osmanabadi	Male	Adult
+CBE-ASSUMED-RFID-00912	K1	Yashoda 5	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00913	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00914	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00915	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00916	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00917	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00918	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00919	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00920	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00921	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00922	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00923	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00924	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00925	K2	Yashoda 6	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00926	K2	Yashoda 7	Sheep	Anantapur Sheep	Male	Kid
+CBE-ASSUMED-RFID-00927	K2	Yashoda 7	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00928	K2	Yashoda 7	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00929	K2	Yashoda 7	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00930	K2	Yashoda 7	Goat	Boer	Male	Kid
+CBE-ASSUMED-RFID-00931	K2	Yashoda 7	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00932	K2	Yashoda 7	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00933	K2	Yashoda 7	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00934	K2	Yashoda 7	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00935	K2	Yashoda 7	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00936	K2	Yashoda 7	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00937	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00938	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00939	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00940	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00941	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00942	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00943	K2	Yashoda 8	Goat	Beetal	Male	Kid
+CBE-ASSUMED-RFID-00944	F2- Male	Yashoda 9	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00945	F2- Male	Yashoda 9	Goat	Malai	Male	Kid
+CBE-ASSUMED-RFID-00946	F2- Male	Yashoda 9	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00947	F2- Male	Yashoda 9	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00948	F2- Male	Yashoda 9	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00949	F2- Male	Yashoda 9	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00950	F2- Male	Yashoda 9	Goat	Sojat	Male	Kid
+CBE-ASSUMED-RFID-00951	F2- Male	Yashoda 9	Goat	Sojat	Male	Kid

@@ -17,7 +17,7 @@ object MeshaType {
     val eyebrow = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.W700, letterSpacing = 1.6.sp)
 
     /** Big screen title ("Calendar", "You", "Alerts"). */
-    val screenTitle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.W800, letterSpacing = (-0.5).sp)
+    val screenTitle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.W700)
 
     /** `.vhead h3` — compact in-header title. */
     val headerTitle = TextStyle(fontSize = 16.5.sp, fontWeight = FontWeight.W700, letterSpacing = (-0.3).sp)
@@ -34,12 +34,23 @@ object MeshaType {
     /** `.evt .mt` / secondary card text. */
     val cardSubtitle = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.W500)
 
+    /** Dense evidence/feed row title, matching alert/list cards without using full card-title scale. */
+    val listTitle = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+
     /** Default body / input text. */
     val body = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.W400)
     val bodyStrong = TextStyle(fontSize = 14.5.sp, fontWeight = FontWeight.W700)
 
     /** `.pill`. */
     val pill = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.W700)
+
+    /**
+     * A pill that carries weight of its own: a selected filter, a status, a category.
+     * Heavier and a shade larger than [pill] so it reads as the answer rather than the
+     * option. Distinct from [cta] — a call to action is lighter (W700) and belongs on an
+     * affordance you tap through, not on a label describing state.
+     */
+    val pillStrong = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.W800)
 
     /** `.btn`. */
     val button = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.W800)
@@ -53,4 +64,19 @@ object MeshaType {
 
     /** Fine print (otp note, role note). */
     val caption = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.W600)
+
+    /** Large initials rendered inside an avatar badge (profile header). */
+    val avatarInitials = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.W800)
+
+    /** A settings/list row's primary label (e.g. Profile settings row title). */
+    val rowLabel = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.W400)
+
+    /** A settings/list row's small secondary caption underneath [rowLabel]. */
+    val rowCaption = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.W400)
+
+    /** A settings/list row's trailing value (right-aligned, e.g. current setting). */
+    val rowValue = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.W700)
+
+    /** A small navigation glyph (e.g. the "›" row-disclosure chevron). */
+    val glyphSmall = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.W400)
 }

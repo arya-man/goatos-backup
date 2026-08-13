@@ -110,6 +110,26 @@ class AnalyticsFunnelsTest {
     }
 
     @Test
+    fun `trackSubmitStatus emits compact status reason and attempt counters`() {
+        AnalyticsFunnels.trackSubmitStatus(
+            testAnalytics,
+            taskId = "task-stuck",
+            status = "retrying",
+            reason = "stale_scan_roster",
+            attemptCount = 2,
+            maxAttempts = 5,
+        )
+
+        val (eventName, params) = capturedEvents[0]
+        assertEquals(AnalyticsFunnels.Events.SUBMIT_STATUS, eventName)
+        assertEquals("task-stuck", params[AnalyticsFunnels.Params.TASK_ID])
+        assertEquals("retrying", params[AnalyticsFunnels.Params.SUBMIT_STATUS])
+        assertEquals("stale_scan_roster", params[AnalyticsFunnels.Params.REASON])
+        assertEquals("2", params[AnalyticsFunnels.Params.ATTEMPT_COUNT])
+        assertEquals("5", params[AnalyticsFunnels.Params.MAX_ATTEMPTS])
+    }
+
+    @Test
     fun `funnel event constants match original event names`() {
         // Verify that the aliased constants still point to the original AnalyticsEvents
         assertEquals(AnalyticsEvents.LOGIN_ATTEMPT, AnalyticsFunnels.Events.LOGIN_ATTEMPT)

@@ -22,8 +22,8 @@ workflow YAML.
 
 ## Landing on main
 
-Codex and Claude must use one command when the requested outcome includes a
-push to `main`:
+Codex and Claude must use this command when ordinary work or this documentation
+foundation requires a push to `main`:
 
 ```bash
 make land-main
@@ -51,6 +51,23 @@ session can start inside a dirty/shared worktree that must not be rewritten.
 
 Run the deterministic fixture test with `make land-main-self-test`.
 
+### Whole-ledger and task-kernel program exception
+
+`make land-main` remains the ordinary direct-main landing gate and is also the
+gate for the documentation foundation that authorizes the program. It is not
+the final landing path for the approved whole-ledger/task-kernel implementation
+program. That program keeps one externally visible integration PR against
+`main`; internal agents contribute reviewed commits without external milestone
+PRs. F0 must add `make land-integration-pr PR=<number>`, a repo-owned gate that
+verifies Mesha/VGoats authority, one open same-repo program PR with base `main`,
+expected base/head, local HEAD equal to remote PR head, fresh main as an
+ancestor, exact-head local-CI/proof/review receipts, and required certification
+lanes. After a final refetch it uses the existing guarded Mesha fast-forward
+push so the tested PR head itself becomes `main`; any race fails. It then
+requires fresh `origin/main` to equal that head and the PR to report merged.
+Until the helper and adversarial tests land, implementation batches remain
+closure-pending and the program PR cannot land.
+
 ## Local-only enforcement when hosted Actions is unavailable
 
 When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
@@ -64,13 +81,22 @@ When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
    or any red selected sub-step is failure.
 4. Record the full SHA and the final `ci-local: GREEN @ <sha>` line in the proof
    packet.
-5. Run `make land-main`; it performs fresh-main rebase, exact-SHA CI, race
-   recheck, and the Mesha-credential push in the required order.
+5. For ordinary work and this documentation foundation, run `make land-main`;
+   it performs fresh-main rebase, exact-SHA CI, race recheck, and the
+   Mesha-credential push in the required order. For the sole approved
+   whole-ledger/task-kernel program PR, run
+   `make land-integration-pr PR=<number>` only after F0 implements and proves
+   that gate.
 
-The common job always runs repository, agent, contract, domain-event architecture,
-large-file, and diff hygiene. In particular, movement/Vaccination producer-to-
-consumer closure is checked by `domain-event-architecture-guard` on every normal
-`make ci-local` run; it is not confined to the legacy compatibility job.
+The common job always runs repository, agent, contract, operational read-model,
+domain-event architecture, large-file, and diff hygiene. In particular,
+movement/Vaccination producer-to-consumer closure is checked by
+`domain-event-architecture-guard` on every normal `make ci-local` run; it is not
+confined to the legacy compatibility job. Pluggable vertical/read-model
+discoverability is checked by `operational-read-model-contract-guard`, which
+keeps `docs/architecture/operational-read-model-contract.md` wired into AGENTS,
+SKILLS, build skills, review lenses, frontend/mobile references, and this
+runbook.
 It also runs `local-stack-service-guard`, which mechanically checks the exact
 origin/main shared FE/BE contract, canonical DB pin, LaunchAgent tool PATH,
 atomic child cleanup, live main-drift watchdog, and the isolated E2E boundary.
@@ -89,6 +115,20 @@ acceptance while Actions is unavailable.
 
 ## Guardrail registration and exact-SHA push evidence
 
+Guardrails are part of root-cause closure, not an optional clean-up after the
+behavior lands. For every bug, audit batch, kernel milestone, migration, or new
+feature, apply
+`context/execution/defect-prevention-execution-contract.md`. If the recurrence
+is mechanically detectable, the fix batch must add or strengthen the structural
+guard, its adversarial self-test, manifest entry, Make target, and ordinary
+affected local-CI step together. If a DB/transaction/type/schema or runtime
+reconciler is the stronger control, record why a static guard is unsuitable.
+Route deterministic regressions through the ordinary affected job; record and
+run applicable PostgreSQL, migration, device, browser, deploy, or live-state
+certification separately. A skip is absence of proof, and a green
+compatibility-only `JOB=guardrails` run does not prove an ordinary PR is
+protected.
+
 Every machine guardrail in `make guardrails` and `make ci-local` is registered in
 a single source of truth: `tools/ci/guardrail-manifest.json`. Each entry declares:
 
@@ -100,18 +140,23 @@ a single source of truth: `tools/ci/guardrail-manifest.json`. Each entry declare
 - A `requiredInCI` flag: `true` if the guard is assigned to a local-CI component
   job, `false` if it's optional or local-only
 
-The `guardrail-registration-guard` (Make target, part of `make guardrails`) is a
-meta-guard that FAILS if:
+The current `guardrail-registration-guard` (Make target, part of
+`make guardrails`) provides a partial textual registration check. It fails for
+these declared shapes:
 
 - A new `check-*.mjs` guard exists under `tools/agent-hooks/` or `tools/ci/` but
   is absent from the manifest (silent hole: unregistered guards skip themselves)
 - A manifest guard declares neither a self-test command nor an `selfTestExemptReason`
   (incomplete registration: unvalidated guards might silently break)
-- A `requiredInCI=true` guard's Make target is missing from the `guardrails:` target
-  in the Makefile (unwired guard: appears to run but doesn't)
-- A `requiredInCI=true` guard's CI step is missing from a standard
-  `run_common`/component job in `tools/ci/run-local-ci.sh` (half-wired: a mention
-  or compatibility-only `run_guardrails` call is not enforcement)
+- A `requiredInCI=true` guard's declared target/step text is absent from the
+  expected Make/CI files.
+
+It does **not yet** prove that the target invokes the real check, that the
+ordinary affected job executes it, that IDs/scripts/docs are unique and exist,
+or that a comment, `echo`, dead branch, or wrong target cannot spoof wiring.
+Those semantic checks and adversarial fixtures are mandatory F0 work in the
+current remediation ledger. Until F0 closes them, review the actual recipes and
+job routing directly.
 
 The `guardrail-registration-guard` target runs its adversarial self-test and real
 check together:
@@ -131,9 +176,10 @@ When you add a new guardrail, register it BEFORE the commit:
    is rejected
 5. Run `make guardrails` locally to verify the registration passes
 
-The `guardrail-registration-guard` runs first in `make guardrails`, so registration
-failures are caught immediately. Silent holes (unregistered/self-test-less/unwired
-guards) are the class of defects this meta-guard prevents.
+The `guardrail-registration-guard` runs first in `make guardrails`, so the
+textual registration failures it recognizes are caught immediately. Do not
+claim it prevents every silent/unwired guard hole until the F0 semantic
+hardening and spoof tests land.
 
 A green default `make ci-local` writes an exact-SHA receipt into the worktree git
 directory (`goatos-ci-local-receipt.json`). A full-classified or `MODE=all` run

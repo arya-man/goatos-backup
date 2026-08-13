@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -106,25 +107,106 @@ func resolvePage(limit, offset *int32) (domain.Page, error) {
 // and CPT genuinely differ on two rows (see migration 000003); a tenant-wide listing would
 // interleave two parks' rates under identical group/tag/item labels and give the author no way to
 // tell which park a row belongs to.
-func (s *Service) ListRationRates(ctx context.Context, tenantID, parkID, rationGroup, shedTag, feedItem string, limit, offset *int32) (domain.RationRatePage, error) {
+func (s *Service) ListRationRates(ctx context.Context, tenantID string, f RationRateFilter) (domain.RationRatePage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.RationRatePage{}, ErrMissingTenant
 	}
-	if strings.TrimSpace(parkID) == "" {
+	if strings.TrimSpace(f.ParkID) == "" {
 		return domain.RationRatePage{}, ErrMissingPark
 	}
-	page, err := resolvePage(limit, offset)
+	page, err := resolvePage(f.Limit, f.Offset)
+	if err != nil {
+		return domain.RationRatePage{}, err
+	}
+	compare, err := resolveGramsComparison(f.GramsOp, f.GramsValue)
 	if err != nil {
 		return domain.RationRatePage{}, err
 	}
 	return s.repo.ListRationRates(ctx, domain.RationRateQuery{
-		TenantID:    tenantID,
-		ParkID:      strings.TrimSpace(parkID),
-		RationGroup: strings.TrimSpace(rationGroup),
-		ShedTag:     strings.TrimSpace(shedTag),
-		FeedItem:    strings.TrimSpace(feedItem),
-		Page:        page,
+		TenantID:     tenantID,
+		ParkID:       strings.TrimSpace(f.ParkID),
+		RationGroup:  strings.TrimSpace(f.RationGroup),
+		Breed:        strings.TrimSpace(f.Breed),
+		ShedTag:      strings.TrimSpace(f.ShedTag),
+		FeedItems:    cleanStrings(f.FeedItems),
+		GramsCompare: compare,
+		Page:         page,
 	})
+}
+
+// RationRateFilter is the read's narrowing input.
+//
+// A STRUCT rather than more positional parameters. The grid now filters on park, ration group,
+// breed, shed tag, a SET of feed items and a comparison against the rate itself; as a parameter
+// list that is nine same-typed arguments in a row, where transposing two of them compiles cleanly
+// and silently filters the grid by the wrong column.
+type RationRateFilter struct {
+	ParkID      string
+	RationGroup string
+	// Breed resolves through the breed -> ration-group map; see domain.RationRateQuery.Breed for
+	// why it is a different filter from RationGroup rather than an alias for it.
+	Breed     string
+	ShedTag   string
+	FeedItems []string
+	// GramsOp and GramsValue are the two halves of ONE filter and are validated as a pair: either
+	// both are present or neither is. Accepting one alone would mean inventing the other, and both
+	// inventions answer a question nobody asked -- a default operator silently reinterprets the
+	// value, and a default value silently reinterprets the operator.
+	GramsOp    string
+	GramsValue string
+	Limit      *int32
+	Offset     *int32
+}
+
+// ErrInvalidFilter is returned for a filter the caller expressed wrongly -- an unknown comparison
+// operator, a non-numeric comparison value, or half a comparison. It maps to 400, never to an empty
+// page: silently returning no rows for a malformed filter reads on screen as "no rates are
+// configured", which on this screen means "these animals are blocked" and is a different fact.
+var ErrInvalidFilter = errors.New("feedconfig: invalid filter")
+
+// gramsValuePattern is the exact-decimal shape numeric(12,3) accepts from this filter: an optional
+// sign, digits, and at most three decimal places.
+//
+// Validated as TEXT and passed on as text. Parsing to float64 to check it would reintroduce exactly
+// the round-tripping this module keeps decimal strings to avoid, and would let 1e309 through as
+// +Inf. The database does the actual comparison in numeric.
+var gramsValuePattern = regexp.MustCompile(`^-?\d{1,9}(\.\d{1,3})?$`)
+
+func resolveGramsComparison(op, value string) (*domain.GramsComparison, error) {
+	op = strings.TrimSpace(op)
+	value = strings.TrimSpace(value)
+	if op == "" && value == "" {
+		return nil, nil
+	}
+	if op == "" || value == "" {
+		return nil, fmt.Errorf("%w: grams comparison needs both an operator and a value", ErrInvalidFilter)
+	}
+	parsed, ok := domain.ParseGramsOp(op)
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown grams comparison operator %q", ErrInvalidFilter, op)
+	}
+	if !gramsValuePattern.MatchString(value) {
+		return nil, fmt.Errorf("%w: grams comparison value %q is not an exact decimal", ErrInvalidFilter, value)
+	}
+	return &domain.GramsComparison{Op: parsed, Value: value}, nil
+}
+
+// cleanStrings trims and drops blanks, and returns nil for an all-blank set.
+//
+// nil vs empty matters downstream: the SQL reads a NULL array as "no filter" and a present array as
+// "match one of these", so a set of nothing but blanks must collapse to no filter rather than to an
+// array that matches nothing.
+func cleanStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ListRationGroups serves the breed -> ration-group map. Tenant-scoped, not park-scoped: the merge
@@ -246,13 +328,42 @@ func (s *Service) ListShedFactors(ctx context.Context, tenantID, parkID, shedID,
 // rather than deleted, so its authored quantities survive; hiding them by default would force an
 // operator restoring a shed to re-key every figure from the workbook, and would also make a shed
 // that someone withdrew by mistake invisible on the screen that owns that decision.
-func (s *Service) ListExperimentConfig(ctx context.Context, tenantID, parkID, shedID, status string, limit, offset *int32) (domain.ExperimentConfigPage, error) {
+// ListPens returns the park's operational locations for the experiment enroller: every active shed,
+// and every pen of a subdivided shed, flagged with whether it already carries experiment config.
+//
+// park_id is REQUIRED for the same reason it is on every other read here -- the ration grid, the
+// session split and the dispatch clock are all park-scoped, and a tenant-wide location list would be
+// an unbounded read with no screen behind it.
+func (s *Service) ListPens(ctx context.Context, tenantID, parkID string, limit, offset *int32) (domain.PenPage, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return domain.PenPage{}, ErrMissingTenant
+	}
+	// park_id is OPTIONAL here, matching ListExperimentConfig. Omitted means every pen in the
+	// tenant, which is what the enroller needs when the top bar reads company-wide: the experiment
+	// table is tenant-wide in that mode, so a park-locked candidate list would offer nothing for the
+	// other park's rows. Requiring it made the company-wide enroller receive ZERO pens and render
+	// "every pen already has quantities" over a park with 37 free ones.
+	page, err := resolvePage(limit, offset)
+	if err != nil {
+		return domain.PenPage{}, err
+	}
+	return s.repo.ListPens(ctx, domain.PenQuery{
+		TenantID: tenantID,
+		ParkID:   strings.TrimSpace(parkID),
+		Page:     page,
+	})
+}
+
+func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f ExperimentConfigFilter) (domain.ExperimentConfigPage, error) {
+	parkID, shedID, status := f.ParkID, f.ShedID, f.Status
+	limit, offset := f.Limit, f.Offset
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ExperimentConfigPage{}, ErrMissingTenant
 	}
-	if strings.TrimSpace(parkID) == "" {
-		return domain.ExperimentConfigPage{}, ErrMissingPark
-	}
+	// park_id is OPTIONAL on THIS read alone. Every other read here is park-owned, but an experiment
+	// cell carries its own park, so an absent park means "the whole tenant's authored experiments" --
+	// which is what a company-wide scope must be able to show. Without this the screen silently
+	// rendered one park's pens and called it everything.
 	// Same reasoning as applies_to and workflow above: an unrecognised status filter must not quietly
 	// widen the result. Here it matters more than usual, because the two statuses mean two DIFFERENT
 	// WORKFLOWS, and a screen that showed retired rows while claiming to show active ones would
@@ -265,13 +376,50 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID, parkID, sh
 	if err != nil {
 		return domain.ExperimentConfigPage{}, err
 	}
+	compare, err := resolveGramsComparison(f.KgOp, f.KgValue)
+	if err != nil {
+		return domain.ExperimentConfigPage{}, err
+	}
 	return s.repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: tenantID,
 		ParkID:   strings.TrimSpace(parkID),
 		ShedID:   strings.TrimSpace(shedID),
-		Status:   normalizedStatus,
-		Page:     page,
+		// Not validated against the shed's catalog here. This is a READ: a partition that matches
+		// nothing simply returns no pens, which is the honest answer, and rejecting it would need a
+		// per-request catalog lookup on a filter the operator picked from a list we supplied.
+		PartitionLabel:     strings.TrimSpace(f.PartitionLabel),
+		Status:             normalizedStatus,
+		FeedItems:          cleanStrings(f.FeedItems),
+		ExperimentCategory: strings.TrimSpace(f.ExperimentCategory),
+		KgCompare:          compare,
+		Page:               page,
 	})
+}
+
+// ExperimentConfigFilter is the experiment section's narrowing input.
+//
+// A struct for the same reason RationRateFilter is one, and it deliberately mirrors that type: the
+// two sections of Feed Config filter on the same shapes (a set of feed items, a comparison against
+// the authored quantity), so an author who learns one has learned the other.
+//
+// The quantities themselves are NOT the same kind of number, which is why the fields are named
+// apart rather than shared: the ration grid holds a per-head RATE in grams and this holds an
+// ABSOLUTE kg total for a pen. Calling both "grams" here is how the two get confused, and confusing
+// them is how a pen gets fed its per-head rate as a shed total.
+type ExperimentConfigFilter struct {
+	ParkID string
+	ShedID string
+	// PartitionLabel narrows to ONE PEN of the selected shed. Blank means every pen of it.
+	PartitionLabel     string
+	Status             string
+	FeedItems          []string
+	ExperimentCategory string
+	// KgOp and KgValue are validated as a pair by the same rule as the grid's grams comparison:
+	// both or neither, and an unrecognised operator is rejected rather than dropped.
+	KgOp    string
+	KgValue string
+	Limit   *int32
+	Offset  *int32
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +542,141 @@ func (s *Service) UpsertShedFactor(ctx context.Context, in UpsertShedFactorInput
 	})
 }
 
+// CreateFeedItemInput adds one entry to the tenant's feed-item catalog.
+//
+// NO park_id, on purpose: feed_item_catalog is keyed (tenant, feed_item_key), so the vocabulary is
+// shared by every park. This is the only write in the module that is not park-scoped.
+//
+// The three nutritional attributes are *string for a DIFFERENT reason than GramsPerHead's pointer
+// above, and the difference matters. There, nil is rejected because absence of a rate is a blocking
+// state that must never be filled in. Here, nil is ACCEPTED and stored as NULL, because the column
+// is genuinely nullable and the consequence is bounded: a missing energy value blocks a rollup, not
+// a feeding decision. What the pointer buys is the same distinction either way -- an unmeasured
+// attribute stays distinguishable from a measured 0, and neither is invented from the other.
+//
+// A PRESENT but out-of-range attribute is still rejected with a field error, never clamped into the
+// column's CHECK range.
+type CreateFeedItemInput struct {
+	TenantID        string
+	ActorRef        string
+	FeedItemLabel   string
+	EnergyKcalPerKg *string
+	DryMatterFactor *string
+	WastageFactor   *string
+	DisplayOrder    *int32
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// CreateFeedItem validates and adds one catalog entry.
+//
+// WHAT THIS WRITE DOES NOT DO, stated because the screen it serves sits next to the ration grid:
+// it authors no rate, no shed factor and no experiment quantity. The new label becomes SELECTABLE
+// on those surfaces immediately, and every combination using it stays unconfigured -- and therefore
+// blocking -- until someone authors it. Adding a convenience "seed a 0 rate for the new item" step
+// here would author "feed none of it" for every group and tag in the tenant, which is the exact
+// blank-is-not-zero collapse this module exists to prevent.
+func (s *Service) CreateFeedItem(ctx context.Context, in CreateFeedItemInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	label, err := domain.RequireNonBlank("feed_item", in.FeedItemLabel)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	// Each optional attribute is validated ONLY when present. An absent one stays nil and is stored
+	// as NULL -- "not measured" -- rather than being normalized into a 0 that claims it was.
+	energy, err := normalizeOptional(in.EnergyKcalPerKg, func(raw string) (string, error) {
+		return domain.NormalizeEnergyKcalPerKg("energy_kcal_per_kg", raw)
+	})
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	dryMatter, err := normalizeOptional(in.DryMatterFactor, func(raw string) (string, error) {
+		return domain.NormalizeDryMatterFactor("dry_matter_factor", raw)
+	})
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	wastage, err := normalizeOptional(in.WastageFactor, func(raw string) (string, error) {
+		return domain.NormalizeWastageFactor("wastage_factor", raw)
+	})
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	displayOrder, err := domain.ValidateDisplayOrder("display_order", in.DisplayOrder)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	return s.repo.CreateFeedItem(ctx, domain.CreateFeedItemCommand{
+		WriteIdentity:   identity,
+		FeedItemLabel:   label,
+		EnergyKcalPerKg: energy,
+		DryMatterFactor: dryMatter,
+		WastageFactor:   wastage,
+		DisplayOrder:    displayOrder,
+	})
+}
+
+// SetFeedItemStatusInput retires one feed item, or restores a retired one.
+//
+// The one authored field is the status. Nothing else about the item is editable here on purpose:
+// this is the "remove it" action, and letting it also rewrite an item's energy or wastage would put
+// an in-place edit of measured attributes behind a control that says Retire.
+type SetFeedItemStatusInput struct {
+	TenantID   string
+	ActorRef   string
+	FeedItemID string
+	Status     string
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// SetFeedItemStatus takes a feed item out of every future feed sheet, or puts it back.
+//
+// Not a display toggle -- generation reads the catalog `WHERE status = 'active'` -- so this is
+// validated as strictly as any other authored write: an unrecognised status is rejected rather than
+// coerced, because one value keeps the item in every sheet and the other removes it from all of them.
+func (s *Service) SetFeedItemStatus(ctx context.Context, in SetFeedItemStatusInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	feedItemID, err := domain.RequireNonBlank("feed_item_id", in.FeedItemID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	status, err := domain.ValidateFeedItemStatus("status", in.Status)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	return s.repo.SetFeedItemStatus(ctx, domain.SetFeedItemStatusCommand{
+		WriteIdentity: identity,
+		FeedItemID:    feedItemID,
+		Status:        status,
+	})
+}
+
+// normalizeOptional runs a validator over a value only when the caller SENT one.
+//
+// The nil passthrough is the whole point: it keeps "the author did not fill this in" out of the
+// validators entirely, so no validator can accidentally turn an absent attribute into a canonical
+// "0.000". A present-but-blank string is NOT treated as absent -- it reaches the validator, which
+// rejects it as a missing field, because a client that sent the key meant to send a value.
+func normalizeOptional(raw *string, normalize func(string) (string, error)) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	normalized, err := normalize(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
+}
+
 // UpsertScheduleConfigInput authors one park/workflow dispatch clock.
 //
 // TransportTime is a **string so three states stay distinguishable: absent (leave whatever policy
@@ -478,10 +761,14 @@ func (s *Service) UpsertScheduleConfig(ctx context.Context, in UpsertScheduleCon
 // It is a pointer so "not recorded" stays distinct from an authored 0, which would state the shed is
 // empty.
 type UpsertExperimentConfigInput struct {
-	TenantID           string
-	ActorRef           string
-	ParkID             string
-	ShedID             string
+	TenantID string
+	ActorRef string
+	ParkID   string
+	ShedID   string
+	// PartitionLabel names which PEN of the shed this cell belongs to. Empty is legitimate (an
+	// undivided shed) and is NOT rejected -- but on a partitioned shed an empty label authors the
+	// shed-wide 'whole' row rather than a pen, so the client must send the pen it rendered.
+	PartitionLabel     string
 	FeedItemLabel      string
 	AbsoluteKg         *string
 	HeadCount          *int32
@@ -532,6 +819,7 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 		WriteIdentity:      identity,
 		ParkID:             parkID,
 		ShedID:             shedID,
+		PartitionLabel:     strings.TrimSpace(in.PartitionLabel),
 		FeedItemLabel:      item,
 		AbsoluteKg:         kg,
 		HeadCount:          headCount,
@@ -539,7 +827,102 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 	})
 }
 
-// SetExperimentShedStatusInput switches a WHOLE SHED between the experiment workflow and the normal
+// ExperimentBatchCellInput is one authored feed item inside a batch enrolment.
+//
+// AbsoluteKg is a *string for the same absent-vs-zero reason as the single-cell write. A cell the
+// author left BLANK must not be in this slice at all; a cell that is here and carries nil is an
+// error, not an instruction to feed nothing.
+type ExperimentBatchCellInput struct {
+	FeedItemLabel string
+	AbsoluteKg    *string
+}
+
+// UpsertExperimentConfigBatchInput enrolls every feed item of ONE unconfigured pen atomically.
+type UpsertExperimentConfigBatchInput struct {
+	TenantID           string
+	ActorRef           string
+	ParkID             string
+	ShedID             string
+	PartitionLabel     string
+	ExperimentCategory string
+	HeadCount          *int32
+	Cells              []ExperimentBatchCellInput
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// UpsertExperimentConfigBatch validates and enrolls a whole pen's authored quantities atomically.
+//
+// Every cell is validated BEFORE the transaction opens. A batch that would reject its fourth cell
+// must not have written its first three: the point of this endpoint is that a pen is never left
+// half-authored, and validating inside the loop that writes would make the guarantee depend on
+// rollback rather than on never having started.
+func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExperimentConfigBatchInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	shedID, err := domain.RequireNonBlank("shed_id", in.ShedID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	category, err := domain.RequireNonBlank("experiment_category", in.ExperimentCategory)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	// An empty batch is a caller mistake, not a no-op: it would enrol a pen onto the experiment
+	// workflow with nothing authored, which the planner reads as "fed nothing".
+	if len(in.Cells) == 0 {
+		return domain.WriteResult{}, &domain.FieldError{Field: "items", Reason: domain.ErrMissingField}
+	}
+	headCount, err := domain.ValidateHeadCount("head_count", in.HeadCount)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+
+	// Duplicate feed items are rejected rather than de-duplicated. Two cells naming the same item
+	// carry two different authored quantities; inside one INSERT they race and the survivor is
+	// arbitrary, so silently keeping one would store a number the author did not choose. Compared on
+	// the NORMALIZED key, because that is what the unique index collapses them on.
+	seen := make(map[string]struct{}, len(in.Cells))
+	cells := make([]domain.ExperimentBatchCell, 0, len(in.Cells))
+	for _, cell := range in.Cells {
+		item, err := domain.RequireNonBlank("feed_item", cell.FeedItemLabel)
+		if err != nil {
+			return domain.WriteResult{}, err
+		}
+		key := domain.NormalizeFeedItemKey(item)
+		if _, dup := seen[key]; dup {
+			return domain.WriteResult{}, &domain.FieldError{Field: "items", Reason: domain.ErrDuplicateFeedItem}
+		}
+		seen[key] = struct{}{}
+		if cell.AbsoluteKg == nil {
+			return domain.WriteResult{}, &domain.FieldError{Field: "absolute_kg", Reason: domain.ErrMissingField}
+		}
+		kg, err := domain.NormalizeDecimal("absolute_kg", *cell.AbsoluteKg, absoluteKgScale, true)
+		if err != nil {
+			return domain.WriteResult{}, err
+		}
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: kg})
+	}
+
+	return s.repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+		WriteIdentity:      identity,
+		ParkID:             parkID,
+		ShedID:             shedID,
+		PartitionLabel:     strings.TrimSpace(in.PartitionLabel),
+		ExperimentCategory: category,
+		HeadCount:          headCount,
+		Cells:              cells,
+	})
+}
+
+// SetExperimentShedStatusInput switches ONE PEN between the experiment workflow and the normal
 // per-head ration grid.
 //
 // Status is REQUIRED and validated, never defaulted: the two values are the two workflows, and
@@ -549,7 +932,11 @@ type SetExperimentShedStatusInput struct {
 	ActorRef string
 	ParkID   string
 	ShedID   string
-	Status   string
+	// PartitionLabel names the PEN being switched. Required for a subdivided shed and blank for an
+	// undivided one; the adapter validates it against the shed's own catalog. Without it this
+	// switch retired every pen of the shed while the UI captioned it with one pen's name.
+	PartitionLabel string
+	Status         string
 
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -573,10 +960,11 @@ func (s *Service) SetExperimentShedStatus(ctx context.Context, in SetExperimentS
 		return domain.WriteResult{}, err
 	}
 	return s.repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
-		WriteIdentity: identity,
-		ParkID:        parkID,
-		ShedID:        shedID,
-		Status:        status,
+		WriteIdentity:  identity,
+		ParkID:         parkID,
+		ShedID:         shedID,
+		PartitionLabel: strings.TrimSpace(in.PartitionLabel),
+		Status:         status,
 	})
 }
 

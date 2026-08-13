@@ -21,7 +21,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 
 const MAIN_REF = "refs/heads/main";
 const ZERO_SHA = "0000000000000000000000000000000000000000";
@@ -118,6 +118,39 @@ function commandFromHookPayload(raw) {
   return raw || "";
 }
 
+// EVERY receipt — `all` as well as `scoped` — records the diff base it was
+// computed against, and that base must be a genuine ancestor of (or equal to)
+// the remote main being pushed to.
+//
+// WHY `all` NEEDS THIS TOO. `mode:"all"` says "every job ran"; it does NOT say
+// "every job was given the real diff". run-local-ci.sh derives BOTH the job
+// scope and the Android UI-diff detector from the base, so a base that is not
+// behind remote main (e.g. GOATOS_CI_BASE=HEAD, or the HEAD~1 fallback on a bad
+// network) yields an EMPTY diff: the UI-diff detector sees nothing, the
+// "skipped-with-ui-diff" banner never fires, and a genuinely green mode:"all"
+// receipt records screenshots:"skipped" while hiding a real UI change.
+// A base at-or-behind remote main can only ever OVER-detect, which is safe.
+function computeBaseAncestry({ receipt, remoteSha }) {
+  const base = receipt?.base;
+  if (!base || !/^[0-9a-f]{40}$/.test(String(base))) {
+    return {
+      ok: false,
+      reason: `local-CI receipt records no diff base (base=${String(base ?? "missing")}); re-run \`make ci-local\` so the receipt can be validated against remote main`,
+    };
+  }
+  if (!remoteSha || remoteSha === ZERO_SHA) return { ok: true }; // creating main
+  if (base === remoteSha) return { ok: true };
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", base, remoteSha], { stdio: "ignore" });
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      reason: `local-CI receipt was computed against base ${String(base).slice(0, 12)}, which is not an ancestor of remote main ${remoteSha.slice(0, 12)}; that run diffed against the wrong base (GOATOS_CI_BASE spoof or a HEAD~1 fallback) and may have skipped proofs — re-run \`make ci-local\` with a real base`,
+    };
+  }
+}
+
 function computeScopedCoverage({ localSha, remoteSha, receipt }) {
   try {
     if (!receipt.base || receipt.base !== remoteSha) {
@@ -143,12 +176,24 @@ function computeScopedCoverage({ localSha, remoteSha, receipt }) {
   }
 }
 
+// Screenshot coverage is EVIDENCE, not decoration. `skipped` is the authorized
+// default (Paparazzi is opt-in). `skipped-with-ui-diff` means the run itself
+// detected an Android UI/snapshot diff and still did not prove it — that receipt
+// does not authorize main. Clear it with `make ci-local-screenshots`.
+const SCREENSHOT_BLOCKING = "skipped-with-ui-diff";
+const SCREENSHOT_ALLOWED = new Set(["yes", "skipped", "not-applicable"]);
+
+function receiptCoversAndroid(receipt) {
+  return receipt.mode === "all" || normalizedJobs(receipt.jobs).includes("android");
+}
+
 // Pure: given the git push payload lines and the current receipt, decide whether the push is
 // blocked. Only pushes that UPDATE refs/heads/main are gated; deletes and other refs pass.
 export function evaluatePush({
   pushLines,
   receipt,
   scopedCoverage = () => ({ ok: false, reason: "scoped coverage was not revalidated" }),
+  baseAncestry = () => ({ ok: false, reason: "the receipt's diff base was not validated against remote main" }),
   mainFreshness = () => ({ ok: true }),
 }) {
   const reasons = [];
@@ -172,6 +217,24 @@ export function evaluatePush({
       reasons.push(`local-CI receipt is for ${String(receipt.sha).slice(0, 12)} but you are pushing ${localSha.slice(0, 12)}; re-run \`make ci-local\` on the exact commit`);
       continue;
     }
+    // Base-provenance gate — like the screenshot gate, checked BEFORE the mode
+    // branches so it applies to `all` and `scoped` receipts alike. A receipt
+    // whose base is not behind remote main cannot authorize main, whatever its
+    // mode: it proves nothing about the diff that is actually being pushed.
+    const ancestry = baseAncestry({ localSha, remoteSha, receipt });
+    if (!ancestry.ok) reasons.push(ancestry.reason);
+    // Screenshot evidence gate — checked BEFORE the mode branches so it applies
+    // to `all` and `scoped` receipts alike, and to receipts carried through
+    // --reuse-after-rebase (which forwards the value verbatim by design).
+    if (receipt.screenshots === SCREENSHOT_BLOCKING) {
+      reasons.push(
+        `local-CI receipt records screenshots="${SCREENSHOT_BLOCKING}": this diff touches Android UI/snapshots and the Paparazzi proof did not run; run \`make ci-local-screenshots\``,
+      );
+    } else if (!SCREENSHOT_ALLOWED.has(receipt.screenshots) && receiptCoversAndroid(receipt)) {
+      reasons.push(
+        `local-CI receipt covers the android job but records screenshots="${receipt.screenshots ?? "unknown"}"; re-run \`make ci-local\` to record screenshot coverage`,
+      );
+    }
     if (receipt.mode === "scoped") {
       const coverage = scopedCoverage({ localSha, remoteSha, receipt });
       if (!coverage.ok) reasons.push(coverage.reason);
@@ -182,7 +245,15 @@ export function evaluatePush({
   return { blocked: reasons.length > 0, reasons };
 }
 
-function record(sha, { mode, base, jobs }) {
+const SCREENSHOT_STATES = ["yes", "skipped", "skipped-with-ui-diff", "not-applicable"];
+
+function record(sha, { mode, base, jobs, screenshots }) {
+  // run-local-ci.sh's reachability trace mode executes nothing. It already exits
+  // before the receipt block; this is the second lock on that door.
+  if (["1", "true", "TRUE", "True"].includes(process.env.GOATOS_CI_TRACE_ONLY ?? "")) {
+    console.error("refusing to record: GOATOS_CI_TRACE_ONLY is set; a trace run executes nothing and can never produce evidence");
+    process.exit(2);
+  }
   if (!sha || !/^[0-9a-f]{40}$/.test(sha)) {
     console.error(`--record needs a full 40-hex sha, got: ${sha}`);
     process.exit(2);
@@ -191,19 +262,36 @@ function record(sha, { mode, base, jobs }) {
     console.error(`--mode must be all or scoped, got: ${mode}`);
     process.exit(2);
   }
+  if (!SCREENSHOT_STATES.includes(screenshots)) {
+    console.error(`--screenshots must be one of ${SCREENSHOT_STATES.join("|")}, got: ${screenshots}`);
+    process.exit(2);
+  }
+  // A receipt covering the android job must state screenshot coverage explicitly.
+  // It must never assert "irrelevant" by default. This RECORDS a fact; it does
+  // not relax any exact-SHA / base / job-coverage check.
+  const coversAndroid = mode === "all" || String(jobs || "").includes("android");
+  if (coversAndroid && (screenshots === "unknown" || screenshots === "not-applicable")) {
+    console.error("refusing to record: this run covers the android job but did not report screenshot coverage");
+    process.exit(2);
+  }
+  // BOTH modes must state the base they diffed against — see computeBaseAncestry.
+  // A mode:"all" receipt without a base is unvalidatable and would re-open the
+  // base-spoof hole (`GOATOS_CI_BASE=HEAD make ci-local` -> green, UI proof
+  // silently skipped).
+  if (!base || !/^[0-9a-f]{40}$/.test(base)) {
+    console.error(`--record needs --base with a full 40-hex sha (the resolved CI diff base), got: ${base}`);
+    process.exit(2);
+  }
   const receipt = {
     sha,
     mode,
+    base,
+    screenshots,
     result: "green",
     timestamp: new Date().toISOString(),
     generatedBy: "tools/ci/run-local-ci.sh",
   };
   if (mode === "scoped") {
-    if (!base || !/^[0-9a-f]{40}$/.test(base)) {
-      console.error(`scoped --record needs --base with a full 40-hex sha, got: ${base}`);
-      process.exit(2);
-    }
-    receipt.base = base;
     receipt.jobs = normalizedJobs(jobs);
     receipt.rulesHash = currentRulesHash();
     const coverage = computeScopedCoverage({ localSha: sha, remoteSha: base, receipt });
@@ -216,7 +304,11 @@ function record(sha, { mode, base, jobs }) {
   console.log(`local-ci-evidence: recorded GREEN ${mode} receipt for ${sha.slice(0, 12)} at ${receiptPath()}`);
 }
 
-function reuseAfterRebase({ oldSha, newSha, newBase, jobs }) {
+// `recordFn` is a test seam ONLY: production always passes the real `record`.
+// It exists so the self-test can drive BOTH re-record branches (including the
+// scoped one, whose real `record` would need live git objects) and assert the
+// CARRIED VALUE rather than the shape of this function's source text.
+function reuseAfterRebase({ oldSha, newSha, newBase, jobs, recordFn = record }) {
   const receipt = readReceipt();
   if (!receipt || receipt.result !== "green") {
     console.error("cannot reuse CI receipt: no green receipt is present");
@@ -231,7 +323,10 @@ function reuseAfterRebase({ oldSha, newSha, newBase, jobs }) {
     process.exit(2);
   }
   if (receipt.mode === "all") {
-    record(newSha, { mode: "all", jobs: "common,backend,query-plans,admin-web,android" });
+    // Carry screenshot coverage forward VERBATIM; never upgrade skipped -> yes.
+    // Rebind to the NEW base as well as the new sha: a carried receipt still has
+    // to name a base that push-time ancestry validation can check.
+    recordFn(newSha, { mode: "all", base: newBase, jobs: "common,backend,query-plans,admin-web,android", screenshots: receipt.screenshots });
     return;
   }
   if (receipt.mode !== "scoped") {
@@ -248,17 +343,35 @@ function reuseAfterRebase({ oldSha, newSha, newBase, jobs }) {
     console.error(`cannot reuse CI receipt: required jobs changed from ${recorded.join(",")} to ${required.join(",")}`);
     process.exit(1);
   }
-  record(newSha, { mode: "scoped", base: newBase, jobs: required.join(",") });
+  recordFn(newSha, { mode: "scoped", base: newBase, jobs: required.join(","), screenshots: receipt.screenshots });
 }
 
 function verify() {
   const head = execFileSync("git", ["rev-parse", "HEAD"]).toString("utf8").trim();
   const receipt = readReceipt();
+  // --verify is the OFFLINE local sanity check (guardrail-manifest realCheck),
+  // not the push gate. It has no push payload, so it uses the locally known
+  // origin/main when one exists — which is what makes a base spoof visible here
+  // too — and otherwise falls back to the receipt's own base, exactly as before.
+  // The authoritative remote-main comparison is prePush, which gets the true
+  // remote sha from git.
+  let localOriginMain = "";
+  try {
+    localOriginMain = execFileSync("git", ["rev-parse", "--verify", "refs/remotes/origin/main"], { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8").trim();
+  } catch { /* no remote-tracking main locally (offline clone / fresh worktree) */ }
+  if (!localOriginMain) {
+    console.error("local-ci-evidence: NOTE — refs/remotes/origin/main is unavailable, so the receipt's diff base could NOT be checked against real remote main here. The pre-push hook still enforces it.");
+  }
   const remoteSha = receipt?.base || ZERO_SHA;
   const { blocked, reasons } = evaluatePush({
     pushLines: [`HEAD ${head} ${MAIN_REF} ${remoteSha}`],
     receipt,
     scopedCoverage: computeScopedCoverage,
+    // Ancestry is checked against the locally known origin/main, NOT against the
+    // synthetic remoteSha above (which is the receipt's own base and would make
+    // the check vacuous). With no local origin/main this degrades to "the
+    // receipt must at least NAME a base", and says so loudly above.
+    baseAncestry: ({ receipt: r }) => computeBaseAncestry({ receipt: r, remoteSha: localOriginMain || ZERO_SHA }),
   });
   // The synthetic line above pushes HEAD to main; reuse the same gate.
   if (blocked) {
@@ -266,7 +379,7 @@ function verify() {
     for (const r of reasons) console.error(`  - ${r}`);
     process.exit(1);
   }
-  console.log(`local-ci-evidence: HEAD ${head.slice(0, 12)} has a matching GREEN ${receipt.mode} CI receipt`);
+  console.log(`local-ci-evidence: HEAD ${head.slice(0, 12)} has a matching GREEN ${receipt.mode} CI receipt (screenshots=${receipt.screenshots ?? "unknown"})`);
 }
 
 function prePush() {
@@ -275,6 +388,7 @@ function prePush() {
     pushLines: payload.split("\n"),
     receipt: readReceipt(),
     scopedCoverage: computeScopedCoverage,
+    baseAncestry: computeBaseAncestry,
     mainFreshness: computeMainFreshness,
   });
   if (blocked) {
@@ -297,13 +411,18 @@ function agentHook() {
 function selfTest() {
   const sha = "a".repeat(40);
   const other = "b".repeat(40);
-  const green = { sha, mode: "all", result: "green" };
+  // Every fixture receipt now carries `base`, because a receipt without one no
+  // longer authorizes main (see computeBaseAncestry). `okBase` stands in for a
+  // base that IS an ancestor of remote main; the real ancestry function is
+  // exercised against live git objects further down.
+  const okBase = () => ({ ok: true });
+  const green = { sha, base: other, mode: "all", result: "green", screenshots: "skipped" };
   const mainPush = [`refs/heads/main ${sha} ${MAIN_REF} ${other}`];
 
   // matching green full receipt -> allowed
-  if (evaluatePush({ pushLines: mainPush, receipt: green }).blocked) throw new Error("self-test: matching receipt should allow");
+  if (evaluatePush({ pushLines: mainPush, receipt: green, baseAncestry: okBase }).blocked) throw new Error("self-test: matching receipt should allow");
   // a full receipt never authorizes a stale/non-rebased candidate
-  if (!evaluatePush({ pushLines: mainPush, receipt: green, mainFreshness: () => ({ ok: false, reason: "stale main" }) }).blocked) {
+  if (!evaluatePush({ pushLines: mainPush, receipt: green, baseAncestry: okBase, mainFreshness: () => ({ ok: false, reason: "stale main" }) }).blocked) {
     throw new Error("self-test: stale main should block even with a full receipt");
   }
   // no receipt -> blocked
@@ -312,17 +431,97 @@ function selfTest() {
   if (!evaluatePush({ pushLines: mainPush, receipt: { sha, mode: "guardrails", result: "green" } }).blocked) throw new Error("self-test: partial run should block");
   // matching scoped receipt -> allowed only when its coverage was revalidated
   const scoped = { sha, base: other, jobs: ["common", "backend"], mode: "scoped", result: "green" };
-  if (evaluatePush({ pushLines: mainPush, receipt: scoped, scopedCoverage: () => ({ ok: true }) }).blocked) throw new Error("self-test: valid scoped receipt should allow");
+  if (evaluatePush({ pushLines: mainPush, receipt: scoped, scopedCoverage: () => ({ ok: true }), baseAncestry: okBase }).blocked) throw new Error("self-test: valid scoped receipt should allow");
   if (!evaluatePush({ pushLines: mainPush, receipt: scoped }).blocked) throw new Error("self-test: unvalidated scoped receipt should block");
   // red result -> blocked
   if (!evaluatePush({ pushLines: mainPush, receipt: { sha, mode: "all", result: "red" } }).blocked) throw new Error("self-test: red receipt should block");
   // receipt for a different sha -> blocked
-  if (!evaluatePush({ pushLines: mainPush, receipt: { sha: other, mode: "all", result: "green" } }).blocked) throw new Error("self-test: wrong-sha receipt should block");
+  if (!evaluatePush({ pushLines: mainPush, receipt: { sha: other, mode: "all", result: "green", screenshots: "skipped" } }).blocked) throw new Error("self-test: wrong-sha receipt should block");
+
+  // screenshot coverage is EVIDENCE: skipped-with-ui-diff never authorizes main
+  // F-C: `base` + okBase are LOAD-BEARING. Without them computeBaseAncestry
+  // rejects the fixture first, the screenshot branch is never reached, and this
+  // assertion passes even when the whole gate is deleted.
+  const uiDiff = { sha, base: other, mode: "all", result: "green", screenshots: "skipped-with-ui-diff" };
+  if (!evaluatePush({ pushLines: mainPush, receipt: uiDiff, baseAncestry: okBase }).blocked) {
+    throw new Error("self-test: skipped-with-ui-diff must block a main push");
+  }
+  for (const state of ["yes", "skipped"]) {
+    if (evaluatePush({ pushLines: mainPush, receipt: { sha, base: other, mode: "all", result: "green", screenshots: state }, baseAncestry: okBase }).blocked) {
+      throw new Error(`self-test: screenshots=${state} must still authorize main`);
+    }
+  }
+  // an android-covering receipt with no recorded coverage is not evidence
+  if (!evaluatePush({ pushLines: mainPush, receipt: { sha, base: other, mode: "all", result: "green" }, baseAncestry: okBase }).blocked) {
+    throw new Error("self-test: android-covering receipt with no screenshots field must block");
+  }
+  // a scoped receipt that does NOT cover android is unaffected by the screenshot gate
+  if (evaluatePush({
+    pushLines: mainPush,
+    receipt: { sha, base: other, jobs: ["common", "backend"], mode: "scoped", result: "green", screenshots: "not-applicable" },
+    scopedCoverage: () => ({ ok: true }),
+    baseAncestry: okBase,
+  }).blocked) {
+    throw new Error("self-test: a non-android scoped receipt must not be screenshot-gated");
+  }
+  // ...but a scoped receipt that DOES cover android with a ui-diff still blocks
+  if (!evaluatePush({
+    pushLines: mainPush,
+    receipt: { sha, base: other, jobs: ["common", "android"], mode: "scoped", result: "green", screenshots: "skipped-with-ui-diff" },
+    scopedCoverage: () => ({ ok: true }),
+    baseAncestry: okBase,
+  }).blocked) {
+    throw new Error("self-test: a scoped android receipt with skipped-with-ui-diff must block");
+  }
+  // ── BASE PROVENANCE (HOLE B) ────────────────────────────────────────────
+  // The exact receipt `GOATOS_CI_BASE=HEAD make ci-local` used to produce:
+  // genuinely green, mode:"all", screenshots:"skipped" — and no base at all.
+  // It must not authorize main.
+  if (!evaluatePush({
+    pushLines: mainPush,
+    receipt: { sha, mode: "all", result: "green", screenshots: "skipped" },
+    baseAncestry: computeBaseAncestry,
+  }).blocked) {
+    throw new Error("self-test: a mode=all receipt with NO base must block a main push");
+  }
+  // ...and the ancestry rule itself, exercised against REAL git objects rather
+  // than a stub, so a broken merge-base call cannot pass this file.
+  const gitSha = (rev) => {
+    try {
+      return execFileSync("git", ["rev-parse", "--verify", `${rev}^{commit}`], { stdio: ["ignore", "pipe", "ignore"] }).toString("utf8").trim();
+    } catch { return ""; }
+  };
+  const headSha = gitSha("HEAD");
+  const parentSha = gitSha("HEAD~1");
+  if (headSha && parentSha) {
+    // legitimate: base is behind remote main
+    if (!computeBaseAncestry({ receipt: { base: parentSha }, remoteSha: headSha }).ok) {
+      throw new Error("self-test: an ancestor base must be accepted");
+    }
+    // legitimate: base IS remote main
+    if (!computeBaseAncestry({ receipt: { base: headSha }, remoteSha: headSha }).ok) {
+      throw new Error("self-test: base == remote main must be accepted");
+    }
+    // THE SPOOF: base ahead of remote main (GOATOS_CI_BASE=HEAD) diffs nothing
+    if (computeBaseAncestry({ receipt: { base: headSha }, remoteSha: parentSha }).ok) {
+      throw new Error("self-test: a base that is NOT an ancestor of remote main must be rejected");
+    }
+    // and the same spoof must block the whole push, not just fail a helper
+    if (!evaluatePush({
+      pushLines: [`refs/heads/main ${headSha} ${MAIN_REF} ${parentSha}`],
+      receipt: { sha: headSha, base: headSha, mode: "all", result: "green", screenshots: "skipped" },
+      baseAncestry: computeBaseAncestry,
+    }).blocked) {
+      throw new Error("self-test: a base-spoofed mode=all receipt must block a main push");
+    }
+  } else {
+    console.error("local-ci-evidence self-test: NOTE — no HEAD~1 available (shallow clone); live-git ancestry cases skipped");
+  }
+
   // pushing a non-main branch -> allowed even with no receipt
   if (evaluatePush({ pushLines: [`refs/heads/feature ${sha} refs/heads/feature ${other}`], receipt: null }).blocked) throw new Error("self-test: non-main push should not be gated");
   // deleting main (zero local sha) -> allowed
   if (evaluatePush({ pushLines: [`(delete) ${ZERO_SHA} ${MAIN_REF} ${other}`], receipt: null }).blocked) throw new Error("self-test: main delete should not be gated");
-
   for (const command of [
     "git mesha-push main",
     "git mesha-push HEAD:main",
@@ -346,6 +545,91 @@ function selfTest() {
     if (commandAttemptsDirectMainPush(command)) throw new Error(`self-test: safe command was blocked: ${command}`);
   }
 
+  // screenshot-coverage field: recorded + carried forward, never upgraded.
+  const tmpReceipt = receiptPath();
+  const restore = (() => { try { return readFileSync(tmpReceipt, "utf8"); } catch { return null; } })();
+  const runRecord = (argv) => {
+    try {
+      execFileSync(process.execPath, ["tools/ci/check-local-ci-evidence.mjs", ...argv], { stdio: "pipe" });
+      return 0;
+    } catch (error) {
+      return error.status ?? 1;
+    }
+  };
+  try {
+    // (i) a skipped receipt round-trips
+    if (runRecord(["--record", sha, "--base", other, "--mode", "all", "--jobs", "common,android", "--screenshots", "skipped"]) !== 0) {
+      throw new Error("self-test: recording a skipped-screenshot full receipt should succeed");
+    }
+    if (readReceipt()?.screenshots !== "skipped") throw new Error("self-test: screenshots field did not round-trip");
+    // (ii) reuseAfterRebase preserves `skipped` in the ALL branch
+    record(other, { mode: "all", base: sha, jobs: "common,android", screenshots: readReceipt().screenshots });
+    if (readReceipt()?.screenshots !== "skipped") throw new Error("self-test: all-branch reuse must preserve skipped");
+    // (iii) BEHAVIOURAL: drive the REAL reuseAfterRebase for BOTH re-record
+    // branches and assert the value it actually carries. This is deliberately
+    // NOT a source-shape assertion: a source regex is satisfied by
+    // `receipt.screenshots ?? "skipped"`, which would silently green a
+    // field-less receipt across a rebase. Here that patch changes the CARRIED
+    // VALUE, so the undefined case below fails.
+    const carried = (receiptOverrides, extra = {}) => {
+      writeFileSync(tmpReceipt, JSON.stringify({ sha: other, result: "green", ...receiptOverrides }) + "\n");
+      let seen; let calls = 0;
+      reuseAfterRebase({
+        oldSha: other,
+        newSha: sha,
+        newBase: "c".repeat(40),
+        ...extra,
+        recordFn: (recordedSha, options) => { calls += 1; seen = { recordedSha, options }; },
+      });
+      if (calls !== 1) throw new Error(`self-test: reuseAfterRebase must re-record exactly once (got ${calls})`);
+      if (seen.recordedSha !== sha) throw new Error("self-test: reuseAfterRebase must re-record against the NEW sha");
+      return seen.options;
+    };
+    for (const state of [...SCREENSHOT_STATES, undefined]) {
+      // ALL branch
+      const all = carried({ mode: "all", screenshots: state });
+      if (all.mode !== "all") throw new Error("self-test: all-branch reuse must stay mode=all");
+      if (all.screenshots !== state) {
+        throw new Error(`self-test: all-branch reuse carried screenshots=${JSON.stringify(all.screenshots)}, expected ${JSON.stringify(state)}`);
+      }
+      // SCOPED branch (jobs + rulesHash must match for it to reach the re-record)
+      const scopedOut = carried(
+        { mode: "scoped", screenshots: state, jobs: ["common", "backend"], rulesHash: currentRulesHash() },
+        { jobs: "backend,common" },
+      );
+      if (scopedOut.mode !== "scoped") throw new Error("self-test: scoped-branch reuse must stay mode=scoped");
+      if (scopedOut.screenshots !== state) {
+        throw new Error(`self-test: scoped-branch reuse carried screenshots=${JSON.stringify(scopedOut.screenshots)}, expected ${JSON.stringify(state)}`);
+      }
+    }
+    // (iv) an invalid value exits 2
+    if (runRecord(["--record", sha, "--base", other, "--mode", "all", "--jobs", "common", "--screenshots", "maybe"]) !== 2) {
+      throw new Error("self-test: an invalid --screenshots value must exit 2");
+    }
+    // (v) android in scope with no --screenshots exits 2
+    if (runRecord(["--record", sha, "--base", other, "--mode", "all", "--jobs", "common,android"]) !== 2) {
+      throw new Error("self-test: android coverage without --screenshots must exit 2");
+    }
+    // (vi) the ui-diff state is recordable and round-trips, so the blocking
+    // check above is reachable from a real run and survives a rebase carry.
+    if (runRecord(["--record", sha, "--base", other, "--mode", "all", "--jobs", "common,android", "--screenshots", "skipped-with-ui-diff"]) !== 0) {
+      throw new Error("self-test: recording skipped-with-ui-diff should succeed (it is blocked at push time, not record time)");
+    }
+    if (readReceipt()?.screenshots !== "skipped-with-ui-diff") throw new Error("self-test: ui-diff state must round-trip");
+    // (vii) a receipt with NO base is unrecordable in BOTH modes — the record
+    // side of the base-provenance rule, so a run cannot mint the unvalidatable
+    // receipt in the first place.
+    if (runRecord(["--record", sha, "--mode", "all", "--jobs", "common", "--screenshots", "skipped"]) !== 2) {
+      throw new Error("self-test: recording a mode=all receipt without --base must exit 2");
+    }
+    if (runRecord(["--record", sha, "--mode", "scoped", "--jobs", "common", "--screenshots", "skipped"]) !== 2) {
+      throw new Error("self-test: recording a mode=scoped receipt without --base must exit 2");
+    }
+  } finally {
+    if (restore !== null) writeFileSync(tmpReceipt, restore);
+    else { try { unlinkSync(tmpReceipt); } catch { /* nothing to clean up */ } }
+  }
+
   console.log("local-ci-evidence guard: self-test passed");
 }
 
@@ -355,6 +639,7 @@ else if (args.includes("--record")) record(argValue(args, "--record"), {
   mode: argValue(args, "--mode", "all"),
   base: argValue(args, "--base"),
   jobs: argValue(args, "--jobs", ""),
+  screenshots: argValue(args, "--screenshots", "unknown"),
 });
 else if (args.includes("--reuse-after-rebase")) reuseAfterRebase({
   oldSha: argValue(args, "--old-sha"),
@@ -366,6 +651,6 @@ else if (args.includes("--verify")) verify();
 else if (args.includes("--pre-push")) prePush();
 else if (args.includes("--agent-hook")) agentHook();
 else {
-  console.error("usage: check-local-ci-evidence.mjs --record <sha> [--mode all|scoped --base <sha> --jobs <csv>] | --verify | --pre-push | --agent-hook | --self-test");
+  console.error("usage: check-local-ci-evidence.mjs --record <sha> [--mode all|scoped --base <sha> --jobs <csv> --screenshots yes|skipped|skipped-with-ui-diff|not-applicable] | --verify | --pre-push | --agent-hook | --self-test");
   process.exit(2);
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -17,6 +18,7 @@ export function ShedFilterBar({
 }) {
   const router = useRouter();
   const routerSearchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
   const current = routerSearchParams?.toString() ?? "";
   const searchValue = routerSearchParams?.get("sheds_q") ?? "";
@@ -30,7 +32,9 @@ export function ShedFilterBar({
     if (value) next.set("sheds_q", value);
     else next.delete("sheds_q");
     const qs = next.toString();
-    router.replace(qs ? `/vaccination?${qs}` : "/vaccination", { scroll: false });
+    startTransition(() => {
+      router.replace(qs ? `/vaccination?${qs}` : "/vaccination", { scroll: false });
+    });
   }
 
   return (
@@ -40,6 +44,7 @@ export function ShedFilterBar({
         <input
           name="sheds_q"
           defaultValue={searchValue}
+          disabled={isPending}
           placeholder={copy(pageContract, "filter.sheds.search")}
           aria-label={copy(pageContract, "filter.sheds.search")}
         />

@@ -14,6 +14,17 @@ This is the active rule for the Mesha admin-web rebuild.
   Ownership source = department (Goat OS HR); see
   `docs/decisions/user-module-ownership-and-nav-chrome.md`.
 
+## Weighing is mobile only (2026-08-03)
+
+Weighing has **no admin-web surface**. The `/weighing` route, the
+`features/weighing/**` feature, and its `lib/api/server.ts` fetchers were deleted
+on 2026-08-03 (maintainer decision); the route had already been a hard redirect
+to `/vaccination`. Weighing runs on Android only. Backend weighing APIs and read
+models stay — the mobile app is their client. Do not add a `/weighing` admin-web
+page, nav leaf, or page contract without a new maintainer decision;
+`TestWeighingAdminWebSurfaceStaysMobileOnly` in
+`backend/internal/adminui/app/service_test.go` enforces this.
+
 ## Product Taxonomy (READ FIRST — fixed words)
 
 These words are not interchangeable:
@@ -368,6 +379,18 @@ this slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
 (`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
 ADG`, or `Count reconciliation` leaves for mock fidelity.
 
+`Milk` is its own sidebar group (maintainer decision 2026-08-11), holding
+`Milk Preparation` (`/counts/milk-preparation`). It was moved out of the Counts
+group for the same reason the phone split the kid-milk tasks out of its Counts
+module (2026-07-31, `bootstrap_copy.go` "milk"): Counts owns the herd-register
+events, while the daily milk round shares neither their grain nor their read
+models. The href is deliberately unchanged — this is a nav regrouping, not a
+route change, so deep links, the page contract's route id, and the live-smoke
+route list keep working. `SUPPORTED_COUNTS_HREFS` in
+`apps/admin-web/scripts/check-ia-guard.mjs` still allows the path, since it is
+an allowlist of where Counts labels may route, not a statement about which group
+owns the leaf.
+
 `Counts Breakdown` was reopened by explicit maintainer decision (2026-07-18),
 superseding the earlier rule that Herd Register was the only Counts page. It is
 the census surface: live head counts grouped by farm x stage x breed x gender x
@@ -379,6 +402,15 @@ the 5k-50k envelope — not a projection table. Its stage dimension is raw
 quality stays visible. The allowlist that enforces this lives in
 `apps/admin-web/scripts/check-ia-guard.mjs` (`SUPPORTED_COUNTS_HREFS`); widening
 it again is a scope decision that must be recorded here first.
+
+`Milk Preparation` was reopened by explicit maintainer decision (2026-07-29). It reuses the
+Feed Packing worklist anatomy and remains a current-day planning read: canonical live
+K1/K2/K3 head counts at physical park x shed x cohort grain multiplied by the approved session
+volume matrix. Its whole-scope milk and citric-acid totals never come from the visible page. It does
+not fabricate K0 colostrum or ICU/clinical quantities, does not reconstruct historical herd state,
+and does not move operator capture into admin-web. The page also renders backend-owned park-day
+verification state (`not_submitted`, `pending_verification`, `completed`, `rework`); completed means
+one verifier approved the full applicable two/five-video step package.
 
 It does not approve unrelated Counts modules, old Operations, global Goat
 Passport search, all-domain Calendar, Insights, HR, generic Parks, generic
@@ -442,22 +474,35 @@ These are the only current implemented admin-web product routes:
 /procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd               Herd Register for vaccination trigger closure
+/counts/breakdown          Counts Breakdown census
+/counts/milk-preparation   Current milk preparation worklist
 /operations/audit          Admin / Data Ops Audit Log (business surface)
 /config
 /sops
 /goats/{goat_id}
-/verification              Verification — authority review (Admin / Data Ops authority screen)
+/verify                   Verify — top-level cross-module verification evidence below Approvals
+/actions                  Compatibility redirect to /verify (route renamed 2026-08-12)
+/verification             Compatibility redirect to /verify
 ```
 
-`/verification` is a new Admin / Data Ops authority screen, same tier as
-`/config` and `/sops`: the Head/Director/CEO act surface for the generic
-Verification vertical's flagged (rejected) media items — see
-`context/architecture/verification-module-design.md`. It acts on the linked SOP
-task via the existing `/admin/tasks/{task_id}` rework/assign routes; it does not
-write the verifier's approve/reject verdict itself. Not yet nav-registered
-(reachable by direct route only, same as `/operations/dlq`); local literal copy
-until the backend page contract lands (documented exception in
-`context/frontend/admin-web-backend-ui-contract.md`).
+`/verify` serves TWO personas, split by the backend page contract's controls rather than by route
+(maintainer decision 2026-08-03). For the AUTHORITY (`verification.act`) it is the top-level screen
+described below. For the VERIFIER (`verification.review` without `act`) the whole admin-web contract
+narrows to a verifier-only workspace: the sidebar becomes the five registry-composed evidence
+modules (Vaccination, Weighing, Counts, Feed, Health), `/verify` gains the Approve / Reject+reason
+verdict card, the authority's rework/reassign cards are withheld, and every other page contract is
+dropped so a typed URL fails closed. Canonical rule:
+`context/architecture/verifier-app-and-flow.md` → "Verifier WEB workspace".
+
+`/verify` is a backend-composed top-level authority screen immediately below
+`/approvals` and above the Preventive Care/module groups. It browses the generic Verification vertical by
+registry-backed action type and disjoint Due/Approved/Rejected status, then opens
+same-page details with proof playback and signed video links. Linked SOP-task
+rework/reassignment continues through the existing `/admin/tasks/{task_id}`
+routes; the page does not write verifier verdicts. The `verification-review`
+page contract owns presentation copy/table anatomy and the top-level nav item;
+the shared top-bar date selector supplies its `business_date` filter.
+`/verification` redirects for compatibility.
 
 Implemented top-level command route:
 

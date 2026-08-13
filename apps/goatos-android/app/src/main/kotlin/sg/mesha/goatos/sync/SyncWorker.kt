@@ -16,18 +16,21 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.sync.SyncEngine
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
+import sg.mesha.goatos.core.data.sync.isLoopbackHttpBase
+import sg.mesha.goatos.di.ApiBaseUrl
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * OS-scheduled outbox drain. Unlike the in-process `ConnectivitySyncTrigger`, a WorkManager job
- * survives PROCESS DEATH: if the app is killed with queued writes, the OS still runs this under a
- * CONNECTED constraint and drains the outbox. [doWork] delegates to the SAME
+ * survives PROCESS DEATH: if the app is killed with queued writes, the OS still runs this under
+ * [SyncWorkScheduler.syncConstraints] and drains the outbox. [doWork] delegates to the SAME
  * [SyncEngine.drainOnce] (which reclaims stranded IN_FLIGHT rows first), so no drain logic lives
  * here — this is the ~10-line `CoroutineWorker` shim the `SyncEngine` KDoc always anticipated.
  */
@@ -37,6 +40,7 @@ class SyncWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val syncEngine: SyncEngine,
     private val syncWorkScheduler: SyncWorkScheduler,
+    private val crashReporter: CrashReporter,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result =
         try {
@@ -44,7 +48,7 @@ class SyncWorker @AssistedInject constructor(
                 syncWorkScheduler.clearScheduledRetry()
             }
             // drainOnce() returns false ONLY when the pass was aborted before attempting anything
-            // (offline at start) — nothing was scheduled, so re-run under the CONNECTED constraint.
+            // (offline at start) — nothing was scheduled, so re-run under the network constraint.
             // A completed pass returns true even if some rows failed transport: each failure has
             // already contributed to the earliest explicit retry work (SyncEngine ->
             // retryScheduler.scheduleAt). Returning success here means backed-off rows are driven
@@ -53,7 +57,8 @@ class SyncWorker @AssistedInject constructor(
             if (syncEngine.drainOnce()) Result.success() else Result.retry()
         } catch (cancellation: CancellationException) {
             throw cancellation // honour WorkManager's own cancellation — never swallow it.
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            crashReporter.recordException(error, "sync worker drain failed")
             // Durable rows survive + are reclaimed next pass; let WorkManager reschedule.
             Result.retry()
         }
@@ -61,18 +66,26 @@ class SyncWorker @AssistedInject constructor(
 
 /**
  * Registers the periodic, connectivity-gated outbox drain. Idempotent via
- * [ExistingPeriodicWorkPolicy.KEEP] so app relaunches never stack duplicate work.
+ * [ExistingPeriodicWorkPolicy.UPDATE] so app relaunches never stack duplicate work — and, unlike
+ * KEEP, cannot leave an install pinned to a stale network constraint (see [SyncWorkScheduler.schedule]).
  */
 @Singleton
 class SyncWorkScheduler @Inject constructor(
     @ApplicationContext private val context: Context,
+    @ApiBaseUrl private val apiBaseUrl: String,
 ) : SyncRetryScheduler, SyncJobsCanceller, SyncJobsScheduler {
     fun schedule() {
         val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_MINUTES, TimeUnit.MINUTES)
             .setConstraints(syncConstraints())
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            // UPDATE, not KEEP: WorkManager captures constraints at ENQUEUE time and this periodic
+            // work outlives app upgrades, so KEEP would pin an install forever to the constraint
+            // the very first launch enqueued — a build that changes API_BASE_URL (remote -> local
+            // proof run, or vice versa) would keep draining under the stale one. UPDATE re-applies
+            // the current build's constraint in place, keeping the same work id and next-run
+            // window, so the idempotence KEEP provided is preserved.
+            .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
     /** [SyncJobsScheduler] port — see its KDoc for why a fresh sign-in must call this. */
@@ -138,8 +151,24 @@ class SyncWorkScheduler @Inject constructor(
         clearScheduledRetry()
     }
 
-    private fun syncConstraints(): Constraints =
-        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+    /**
+     * The OS-level gate on whether this work may START — the layer ABOVE
+     * [sg.mesha.goatos.core.data.sync.ConnectivityGate], which only gets consulted once a worker
+     * is already running. The two must agree: `LocalBackendConnectivityGate` treats a loopback API
+     * base as online (an `adb reverse` proof run, or any device with no validated internet but a
+     * reachable localhost backend), so requiring a CONNECTED network here would veto the worker
+     * before that gate is ever reached and strand the operator's queued writes indefinitely.
+     *
+     * Keyed on the ACTUAL base URL, never on build type: a dev build pointed at a remote host
+     * still requires a network, and stg/prod are unchanged — real offline-first battery and retry
+     * behaviour must not regress.
+     */
+    internal fun syncConstraints(): Constraints =
+        Constraints.Builder()
+            .setRequiredNetworkType(
+                if (apiBaseUrl.isLoopbackHttpBase()) NetworkType.NOT_REQUIRED else NetworkType.CONNECTED,
+            )
+            .build()
 
     private fun retryPrefs() = context.getSharedPreferences(RETRY_PREFS_NAME, Context.MODE_PRIVATE)
 }

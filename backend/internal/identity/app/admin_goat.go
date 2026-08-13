@@ -132,13 +132,14 @@ func (s *Service) CreateAdminGoat(ctx context.Context, input CreateAdminGoatInpu
 	if len(fieldErrors) > 0 {
 		return nil, BadRequest("invalid_goat_create", fieldErrors[0].Message)
 	}
+	cmd.RequirePartitionGrain = true
 	raw, err := json.Marshal(normalized)
 	if err != nil {
-		return nil, Internal("goat create request normalization failed")
+		return nil, fmt.Errorf("goat create request normalization failed: %w", err)
 	}
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, createAdminGoatCommand, "/admin/goats", "", raw)
 	if err != nil {
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("goat create request hash failed: %w", err)
 	}
 	cmd.RequestHash = requestHash
 	cmd.StoredIdempotencyKey = fmt.Sprintf("%s:%s:%s", tenantID, createAdminGoatCommand, clientKey)
@@ -181,6 +182,7 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 	for i := range rows {
 		rowNumber := rows[i].RowNumber
 		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, input.TenantID, "", "", input.TraceID, &rows[i].Request)
+		cmd.RequirePartitionGrain = true
 		result := domain.AdminGoatBulkRowResult{
 			RowNumber:        rowNumber,
 			Decision:         "create",
@@ -236,7 +238,7 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 	response.Summary.Total = len(response.Rows)
 	response.PreviewToken, err = s.signAdminGoatBulkPreview(input.TenantID, body.FileHash, previewCommitRows(response.Rows))
 	if err != nil {
-		return nil, Internal("bulk preview token generation failed")
+		return nil, fmt.Errorf("bulk preview token generation failed: %w", err)
 	}
 	return response, nil
 }
@@ -284,6 +286,7 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 			continue
 		}
 		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, tenantID, actorID, clientKey, input.TraceID, request)
+		cmd.RequirePartitionGrain = true
 		rowResult.Normalized = normalized
 		if err != nil {
 			rowResult.Decision = "requires_review"
@@ -301,12 +304,12 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 		}
 		raw, err := json.Marshal(normalized)
 		if err != nil {
-			return nil, Internal("bulk row normalization failed")
+			return nil, fmt.Errorf("bulk row normalization failed: %w", err)
 		}
 		rowKey := rowIdempotencyKey(clientKey, rowNumber)
 		requestHash, err := CanonicalRequestHashWithSubject(tenantID, createAdminGoatCommand, "/admin/goats/bulk-commit", fmt.Sprintf("row:%d", rowNumber), raw)
 		if err != nil {
-			return nil, BadRequest("invalid_json", "bulk row must be valid JSON")
+			return nil, fmt.Errorf("bulk row hash failed: %w", err)
 		}
 		cmd.ClientIdempotencyKey = rowKey
 		cmd.StoredIdempotencyKey = fmt.Sprintf("%s:%s:%s:%s", tenantID, commitAdminGoatBulkCommand, clientKey, rowKey)
@@ -364,6 +367,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	errorsOut := make([]domain.FieldError, 0)
 	trimOptionalString(&normalized.AnimalIdentifier1)
 	trimOptionalString(&normalized.AnimalIdentifier2)
+	trimOptionalString(&normalized.TemporaryIdentifier)
 	trimOptionalString(&normalized.FarmID)
 	trimOptionalString(&normalized.FarmCode)
 	trimOptionalString(&normalized.ParkID)
@@ -375,6 +379,7 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	trimOptionalString(&normalized.HealthStatus)
 	trimOptionalString(&normalized.ReproductiveStatus)
 	trimOptionalString(&normalized.DamID)
+	trimOptionalString(&normalized.TimeOfBirth)
 	trimOptionalString(&normalized.SireOrLot)
 	trimOptionalString(&normalized.PhotoURL)
 	trimOptionalString(&normalized.SourceRecordID)
@@ -386,8 +391,14 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		estimated := false
 		normalized.DOBEstimated = &estimated
 	}
-	if normalized.AnimalIdentifier1 == nil {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_1", Code: "required", Message: "Animal ID 1 is required"})
+	// Exactly one primary identity is required: a permanent animal_identifier_1 (the RFID) OR a
+	// temporary_identifier (a provisional tag for a newborn not yet permanently tagged). A temp-only
+	// goat has no active animal_identifier_1 and is promoted to a permanent RFID later.
+	if normalized.AnimalIdentifier1 == nil && normalized.TemporaryIdentifier == nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "animal_identifier_1", Code: "required", Message: "a permanent identifier (animal_identifier_1) or a temporary_identifier is required"})
+	}
+	if normalized.AnimalIdentifier1 != nil && normalized.TemporaryIdentifier != nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "temporary_identifier", Code: "conflict", Message: "provide either a permanent animal_identifier_1 or a temporary_identifier, not both"})
 	}
 	// Animal ID 2 stays optional until the double RFID tagging rollout is live.
 	// That rollout must make it mandatory in app validation and with a DB invariant.
@@ -406,6 +417,23 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	}
 	if normalized.ShedID != nil && !uuidPattern.MatchString(*normalized.ShedID) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "shed_id", Code: "invalid", Message: "shed_id must be a UUID"})
+	}
+	// A partition names a pen INSIDE a shed, so it is meaningless without one, and it must never
+	// be the "whole" matching sentinel -- that is a comparison key, not a place (oploc.WholeSentinel).
+	// Existence against shed_partitions is checked in the repository, inside the create transaction,
+	// where the shed row is already being read.
+	if normalized.PartitionLabel != nil {
+		label := strings.TrimSpace(*normalized.PartitionLabel)
+		switch {
+		case label == "":
+			errorsOut = append(errorsOut, domain.FieldError{Field: "partition_label", Code: "invalid", Message: "partition_label must not be blank; omit it for a shed-level placement"})
+		case strings.EqualFold(label, "whole"):
+			errorsOut = append(errorsOut, domain.FieldError{Field: "partition_label", Code: "invalid", Message: `partition_label must not be "whole"; omit it for a shed-level placement`})
+		case normalized.ShedID == nil && normalized.ShedCode == nil:
+			errorsOut = append(errorsOut, domain.FieldError{Field: "partition_label", Code: "invalid", Message: "partition_label requires a shed"})
+		default:
+			normalized.PartitionLabel = &label
+		}
 	}
 	if normalized.FarmID != nil && !uuidPattern.MatchString(*normalized.FarmID) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "farm_id", Code: "invalid", Message: "farm_id must be a UUID"})
@@ -458,6 +486,28 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.WeightKg != nil && *normalized.WeightKg < 0 {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "weight_kg", Code: "invalid", Message: "weight_kg must be non-negative"})
 	}
+	if normalized.OriginType == "birth" {
+		if normalized.Breed == nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "breed", Code: "required", Message: "breed is required for a birth"})
+		}
+		if normalized.DamID == nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "dam_id", Code: "required", Message: "mother RFID is required for a birth"})
+		}
+		if normalized.LitterSize == nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "litter_size", Code: "required", Message: "litter_size is required for a birth"})
+		} else if *normalized.LitterSize < 1 || *normalized.LitterSize > 3 {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "litter_size", Code: "invalid", Message: "litter_size must be 1, 2, or 3"})
+		}
+	} else if normalized.LitterSize != nil {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "litter_size", Code: "invalid", Message: "litter_size is only valid for birth-origin goats"})
+	}
+	// time_of_birth is optional HH:MM (24h, IST wall clock). Present-but-invalid is rejected, never
+	// silently dropped or defaulted (validate-or-reject rule).
+	if normalized.TimeOfBirth != nil {
+		if _, err := time.Parse("15:04", *normalized.TimeOfBirth); err != nil {
+			errorsOut = append(errorsOut, domain.FieldError{Field: "time_of_birth", Code: "invalid", Message: "time_of_birth must be HH:MM in 24-hour format"})
+		}
+	}
 	if err := validateEvidenceRefs(normalized.EvidenceRefs, true); err != nil {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "evidence_refs", Code: "invalid", Message: err.Error()})
 	}
@@ -467,6 +517,12 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	}
 	if normalized.AnimalIdentifier2 != nil {
 		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "animal_identifier_2", IdentifierValue: *normalized.AnimalIdentifier2, NormalizedValue: normalizeIdentifier("animal_identifier_2", *normalized.AnimalIdentifier2), ScopeKey: "global", IsPrimary: false})
+	}
+	if normalized.TemporaryIdentifier != nil {
+		// Primary within its own type: a temp-tagged goat's working identity is the temporary tag,
+		// but it deliberately does NOT occupy the animal_identifier_1 slot, so the goat still reads as
+		// untagged (needing a permanent RFID) until promotion.
+		identifiers = append(identifiers, ports.AdminGoatCreateIdentifier{IdentifierType: "temporary_tag", IdentifierValue: *normalized.TemporaryIdentifier, NormalizedValue: normalizeIdentifier("temporary_tag", *normalized.TemporaryIdentifier), ScopeKey: "global", IsPrimary: true})
 	}
 	cmd := ports.CreateAdminGoatCommand{
 		TenantID:             tenantID,
@@ -486,6 +542,8 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 		HealthStatus:         normalized.HealthStatus,
 		WeightKg:             normalized.WeightKg,
 		DamID:                normalized.DamID,
+		LitterSize:           normalized.LitterSize,
+		TimeOfBirth:          normalized.TimeOfBirth,
 		SireOrLot:            normalized.SireOrLot,
 		PhotoURL:             normalized.PhotoURL,
 		SourceRecordID:       normalized.SourceRecordID,
@@ -499,17 +557,21 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 
 func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, normalized *domain.AdminGoatCreateRequest, cmd *ports.CreateAdminGoatCommand) ([]domain.FieldError, []domain.Warning, error) {
 	validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
-		TenantID:             cmd.TenantID,
-		StoredIdempotencyKey: cmd.StoredIdempotencyKey,
-		RequestHash:          cmd.RequestHash,
-		Identifiers:          cmd.Identifiers,
-		FarmID:               normalized.FarmID,
-		FarmCode:             normalized.FarmCode,
-		ParkID:               normalized.ParkID,
-		ParkCode:             normalized.ParkCode,
-		ShedID:               normalized.ShedID,
-		ShedCode:             normalized.ShedCode,
-		ManagementStage:      normalized.ManagementStage,
+		TenantID:              cmd.TenantID,
+		StoredIdempotencyKey:  cmd.StoredIdempotencyKey,
+		RequestHash:           cmd.RequestHash,
+		Identifiers:           cmd.Identifiers,
+		FarmID:                normalized.FarmID,
+		FarmCode:              normalized.FarmCode,
+		ParkID:                normalized.ParkID,
+		ParkCode:              normalized.ParkCode,
+		ShedID:                normalized.ShedID,
+		ShedCode:              normalized.ShedCode,
+		PartitionLabel:        normalized.PartitionLabel,
+		RequirePartitionGrain: cmd.RequirePartitionGrain,
+		ManagementStage:       normalized.ManagementStage,
+		BirthDamRef:           birthDamRef(normalized),
+		Species:               normalized.Species,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -521,7 +583,21 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 	cmd.FarmID = validation.FarmID
 	cmd.ParkID = validation.ParkID
 	cmd.ShedID = validation.ShedID
+	// The repository returns the catalog's HUMAN label, so preview, commit, storage, events and the
+	// immediate response all carry the same value ("Part 3", never the matching key "3").
+	normalized.PartitionLabel = validation.PartitionLabel
+	cmd.PartitionLabel = validation.PartitionLabel
+	if normalized.OriginType == "birth" {
+		cmd.DamID = validation.DamGoatID
+	}
 	return nil, validation.Warnings, nil
+}
+
+func birthDamRef(request *domain.AdminGoatCreateRequest) *string {
+	if request.OriginType != "birth" {
+		return nil
+	}
+	return request.DamID
 }
 
 func decodeCreateAdminGoat(raw []byte) (*domain.AdminGoatCreateRequest, error) {
@@ -645,7 +721,11 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 			break
 		}
 		if err != nil {
-			return nil, BadRequest("invalid_csv", "csv could not be parsed")
+			// parseAdminGoatCSV is a pure parser: it has no ctx and no request input, so the
+			// cause travels back to the caller in the error instead of being logged here.
+			// Wrapping keeps WHY the CSV was rejected ("unterminated quote", "wrong field
+			// count") instead of collapsing every parse failure into one opaque message.
+			return nil, BadRequest("invalid_csv", fmt.Sprintf("csv could not be parsed: %v", err))
 		}
 		if csvRecordBlank(rec) {
 			continue
@@ -661,6 +741,7 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 			ParkCode:           optionalCSV(rec, headers, "park"),
 			ShedID:             optionalCSV(rec, headers, "shed_id"),
 			ShedCode:           optionalCSV(rec, headers, "shed"),
+			PartitionLabel:     optionalCSV(rec, headers, "partition_label"),
 			Breed:              optionalCSV(rec, headers, "breed"),
 			ManagementStage:    optionalCSV(rec, headers, "management_stage"),
 			ReproductiveStatus: optionalCSV(rec, headers, "reproductive_status"),
@@ -1011,6 +1092,8 @@ func normalizeHeader(value string) string {
 		return "animal_identifier_2"
 	case "management_stage", "managementstage", "animal_stage", "animalstage", "stage":
 		return "management_stage"
+	case "partition", "partition_label", "partitionlabel", "pen", "pen_label", "penlabel":
+		return "partition_label"
 	case "reproductive_status", "reproductivestatus", "repro_status", "reprostatus":
 		return "reproductive_status"
 	case "weightkg", "weight_kg":

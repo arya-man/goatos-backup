@@ -23,14 +23,41 @@ die() {
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+if [[ "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
+  [[ "$origin_url" == "git@github.com:vgoats/goatos.git" || "$origin_url" == "ssh://git@github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos" ]] \
+    || die "staging releases must run from vgoats/goatos; got origin=$origin_url"
+  git fetch origin main --quiet
+  main_sha="$(git rev-parse --verify origin/main)"
+  head_sha="$(git rev-parse --verify HEAD)"
+  [[ "$head_sha" == "$main_sha" ]] \
+    || die "refusing staging release from non-main commit: HEAD=$head_sha origin/main=$main_sha. Land on main first, or set GOATOS_ALLOW_NON_MAIN_STG_RELEASE=1 for an explicit break-glass release."
+fi
+
 if [[ "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
   git diff --quiet || die "working tree has unstaged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
   git diff --cached --quiet || die "working tree has staged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
 fi
 
+# Accounts permitted to release Goat OS staging. Deliberately an EXPLICIT NAMED LIST, not a
+# `*@mesha.sg` domain test and not an environment override: staging deploys are authorised
+# per person, and the list of people is reviewable in this file's git history. Anyone added
+# here can build and push images and roll out Cloud Run staging services and jobs, so adding
+# an entry IS the act of granting deploy authority -- treat it as a maintainer decision.
+#
+# 2026-08-05: manohark@mesha.sg added alongside ravi@mesha.sg at the maintainer's request.
+STG_DEPLOY_ACCOUNTS=(
+  "ravi@mesha.sg"
+  "manohark@mesha.sg"
+)
+
 active_account="$(gcloud config get-value account 2>/dev/null)"
 active_project="$(gcloud config get-value project 2>/dev/null)"
-[[ "$active_account" == "ravi@mesha.sg" ]] || die "active gcloud account must be ravi@mesha.sg, got $active_account"
+account_allowed=0
+for allowed in "${STG_DEPLOY_ACCOUNTS[@]}"; do
+  [[ "$active_account" == "$allowed" ]] && account_allowed=1 && break
+done
+[[ "$account_allowed" == "1" ]] || die "active gcloud account must be one of: ${STG_DEPLOY_ACCOUNTS[*]}; got $active_account"
 [[ "$active_project" == "$PROJECT_ID" ]] || die "active gcloud project must be $PROJECT_ID, got $active_project"
 
 commit_sha="$(git rev-parse --short=12 HEAD)"
@@ -38,7 +65,7 @@ registry="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}"
 backend_image="${registry}/backend:${commit_sha}"
 migration_image="${registry}/migrate:${commit_sha}"
 admin_web_image="${registry}/admin-web:${commit_sha}"
-release_id="${RELEASE_ID:-goatos-stg-${commit_sha}-$(date -u +%Y%m%d%H%M%S)}"
+release_id="${RELEASE_ID:-r-${commit_sha}-$(date -u +%H%M%S)}"
 
 echo "Creating Goat OS staging Cloud Deploy release"
 echo "account=$active_account"
@@ -158,6 +185,9 @@ verify_stg_images() {
 if [[ "$WAIT_FOR_ROLLOUT" == "1" ]]; then
   wait_for_rollout
   verify_stg_images
+  ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
+    tools/release/create-release-tag.sh
 else
   echo "Rollout wait skipped by GOATOS_STG_RELEASE_WAIT=0; image parity not verified."
+  die "release tag creation requires verified rollout/image parity; rerun with GOATOS_STG_RELEASE_WAIT=1"
 fi

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // ---------------------------------------------------------------------------
@@ -155,6 +157,7 @@ func materializeRow(
 		ParkLabel:              in.Config.ParkLabel,
 		ShedID:                 shed.ShedID,
 		ShedLabel:              shed.ShedLabel,
+		PartitionLabel:         shed.PartitionLabel,
 		ShedTag:                daily.ShedTag,
 		Breed:                  daily.Breed,
 		RationGroup:            daily.RationGroup,
@@ -228,6 +231,7 @@ func blockedSessionItemsRow(in GenerateInput, shed ShedInput, daily DailyRow, se
 		ParkLabel:              in.Config.ParkLabel,
 		ShedID:                 shed.ShedID,
 		ShedLabel:              shed.ShedLabel,
+		PartitionLabel:         shed.PartitionLabel,
 		ShedTag:                daily.ShedTag,
 		Breed:                  daily.Breed,
 		RationGroup:            daily.RationGroup,
@@ -279,6 +283,7 @@ func blockedSessionRows(in GenerateInput, shed ShedInput, dailyRows []DailyRow) 
 			ParkLabel:              in.Config.ParkLabel,
 			ShedID:                 shed.ShedID,
 			ShedLabel:              shed.ShedLabel,
+			PartitionLabel:         shed.PartitionLabel,
 			ShedTag:                daily.ShedTag,
 			Breed:                  daily.Breed,
 			RationGroup:            daily.RationGroup,
@@ -395,9 +400,22 @@ func kgStringToGrams(kg string) (int64, bool) {
 // blocked. It is NOT packed from the resolved remainder, because a partially resolved line looks
 // like a complete instruction and would send the shed short.
 func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
+	// ONE BAG PER OPERATIONAL LOCATION, per session -- so the partition is part of the key, not just
+	// a label carried on the row. Keyed by (shedID, sessionNo) alone until 2026-08-08, which merged
+	// every partition of a shed into a single line and stamped it with whichever partition's row
+	// happened to arrive first: Castro 1 and Castro 2 became one "Castro - 1" bag carrying BOTH pens'
+	// quantities, and Castro 2 vanished from the worklist entirely.
+	//
+	// partitionKey, not the raw label, so an authoring variant ("Part 3" vs "part 3") cannot split
+	// one pen into two bags -- the same normalization the experiment config and the projection use.
+	//
+	// sessionNo is BACK in this key (maintainer decision 2026-08-11, reverting 2026-08-10). It was
+	// briefly removed to show a pen's whole day as one card; a pen's morning and evening shares are
+	// two separate bags, each packed and each filmed on its own, so they are two lines.
 	type lineKey struct {
-		shedID    string
-		sessionNo int32
+		shedID       string
+		partitionKey string
+		sessionNo    int32
 	}
 	type line struct {
 		order   int
@@ -413,16 +431,27 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 	lines := map[lineKey]*line{}
 	order := 0
 	for _, row := range rows {
-		key := lineKey{shedID: row.ShedID, sessionNo: row.SessionNo}
+		key := lineKey{
+			shedID:       row.ShedID,
+			partitionKey: PartitionMatchKey(row.PartitionLabel),
+			sessionNo:    row.SessionNo,
+		}
 		l, ok := lines[key]
 		if !ok {
 			l = &line{
 				order: order,
 				row: PackingRow{
-					ParkID:       row.ParkID,
-					ParkLabel:    row.ParkLabel,
-					ShedID:       row.ShedID,
-					ShedLabel:    row.ShedLabel,
+					ParkID:         row.ParkID,
+					ParkLabel:      row.ParkLabel,
+					ShedID:         row.ShedID,
+					ShedLabel:      row.ShedLabel,
+					PartitionLabel: row.PartitionLabel,
+					// Backend-composed so every surface renders the pen identically; admin-web fell
+					// through to a bare "Castro" for all three of Castro's pens while this was absent.
+					OperationalLocationDisplay: oploc.OperationalLocation{
+						ShedName:       row.ShedLabel,
+						PartitionLabel: row.PartitionLabel,
+					}.Display(),
 					SessionNo:    row.SessionNo,
 					SessionLabel: row.SessionLabel,
 					Workflow:     row.Workflow,
@@ -556,7 +585,7 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 // draw it reports is by construction the sum of the lines a packer works through. Re-deriving it
 // from the grains would be a second computation that could disagree with the printed worklist.
 //
-// projection-review: membership=every PackingRow the caller built for the filtered scope, which the service guarantees by building the worklist over the full shed scope before paging; group_key=NormalizeConfigKey(feed item label), the same normalization BuildPackingRows used to merge grains into each line's bag, so a line's cell and its contribution to the total share one bucket; join_cardinality=no joins -- a pure in-memory fold, and because BuildPackingRows already collapsed grains to one cell per (shed, session, item) there is no fan-out for a shed's multiple grains to double-count; pagination=INVARIANT to limit/offset, the fold runs over the whole filtered scope and the page is sliced afterwards; scope=tenant + park + target_date, identical to the predicates that selected the lines
+// projection-review: membership=every PackingRow the caller built for the filtered scope, which the service guarantees by building the worklist over the full shed scope before paging; group_key=NormalizeConfigKey(feed item label), the same normalization BuildPackingRows used to merge grains into each line's bag, so a line's cell and its contribution to the total share one bucket; join_cardinality=no joins -- a pure in-memory fold, and because BuildPackingRows already collapsed grains to one cell per (shed, partition, session, item) there is no fan-out for a pen's multiple grains to double-count; the fold ranges over lines, and a pen's morning and evening are two SEPARATE lines, so the day's store draw is the sum of both without the fold having to descend into a nested breakdown; pagination=INVARIANT to limit/offset, the fold runs over the whole filtered scope and the page is sliced afterwards; scope=tenant + park + target_date, identical to the predicates that selected the lines
 func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 	summary := PackingSummary{
 		Scope:     SummaryScopeFiltered,
@@ -574,6 +603,11 @@ func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 		if line.Status == PackingStatusBlocked {
 			summary.BlockedLineCount++
 		}
+		// A pen's morning and evening are two separate LINES, so folding the lines already sums the
+		// day's store draw -- what the packer physically carries out is the morning bag PLUS the
+		// evening bag, and both are in this loop. BlockedCount is a CELL count, so a feed item
+		// blocked in both sessions counts twice: two cells a packer cannot fill, which is what the
+		// number means.
 		for _, item := range line.Items {
 			key := NormalizeConfigKey(item.FeedItem)
 			labels[key] = item.FeedItem

@@ -1,0 +1,1274 @@
+package notificationbridge
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+)
+
+// Weighing lifecycle push notifications: UP and DOWN for every state change that
+// was previously silent.
+//
+// The pre-existing WeighingSubmissionEventConsumer covered only two states
+// (submitted -> upward, reopened -> both ways). Publish, verdict, and close fired
+// no push at all, so an operator was never told a bucket had been assigned to
+// them, a rejected proof never reached the person who has to re-shoot it, and
+// leadership never learned that work had been ended. This consumer closes those:
+//
+//	weighing.campaign_published    -> DOWNWARD to each assigned bucket operator
+//	                                  (ONLY their own buckets) + UPWARD to
+//	                                  growth_director + ceo_internal
+//	weighing.observation.verified  -> UPWARD to growth_director + ceo_internal;
+//	                                  the operator is pushed ONLY when the verdict
+//	                                  left them an action (it does not)
+//	weighing.observation.rework    -> LUMP-SUM ONLY (one capture per shed, so already
+//	                                  one push per shed): DOWNWARD to the assigned
+//	                                  operator + UPWARD to the owning director. An
+//	                                  INDIVIDUAL bounce pushes nothing here -- see below.
+//	weighing.observation.rework_digest
+//	                               -> the BATCHED per-shed rework push, same audience.
+//	                                  Individual bounces arrive one event at a time and
+//	                                  the operator makes ONE trip back to the shed, so
+//	                                  the weighing-rework-digest sweeper debounces them
+//	                                  per bucket and this is the single push naming the
+//	                                  animals to re-capture.
+//	weighing.shed.closed           -> UPWARD to leadership; DOWNWARD to the assigned
+//	                                  operator when their bucket was closed with
+//	                                  work that was never accepted
+//	weighing.campaign.closed       -> UPWARD to leadership; DOWNWARD to each
+//	                                  operator whose bucket was closed not accepted
+//
+// Every recipient resolves from role-grant / assigned-operator truth:
+// ResolvePositionRecipients for leadership positions, ResolveMemberRecipients for
+// the operator id carried on the event (which the weighing writer read from
+// weighing_campaign_sheds.operator_user_id). No name, phone, token, or member id
+// is hardcoded anywhere in this file.
+const (
+	EventWeighingCampaignPublished   = "weighing.campaign_published"
+	EventWeighingObservationVerified = "weighing.observation.verified"
+	EventWeighingObservationRework   = "weighing.observation.rework"
+	// EventWeighingObservationReworkDigest is the BATCHED per-shed rework push
+	// (maintainer decision 2026-08-03: "batch per shed would be better").
+	//
+	// A rework verdict arrives per observation, one event at a time, and nothing in the
+	// product marks "the verifier finished reviewing this shed", so a verifier bouncing
+	// five of a shed's fifteen captures used to send the operator five pushes for one
+	// trip back to one shed. The weighing-rework-digest sweeper debounces those bounces
+	// per bucket and emits ONE of these naming the animals to re-capture, so the
+	// individual rework event no longer pushes to the operator at all.
+	//
+	// Lump-sum is NOT routed here: one capture covers the whole shed, so its rework push
+	// was already one-per-shed and stays on the immediate EventWeighingObservationRework
+	// path.
+	EventWeighingObservationReworkDigest = "weighing.observation.rework_digest"
+	EventWeighingShedClosed              = "weighing.shed.closed"
+	EventWeighingCampaignClosed          = "weighing.campaign.closed"
+
+	// The NORMAL completion path. Distinct event types from the *.closed pair
+	// above because they mean the opposite thing to the person receiving the
+	// push: "your work was accepted and this is finished" versus "a leader ended
+	// this". Collapsing them would have the operator's phone announce a
+	// successful day as an intervention.
+	EventWeighingShedVerifiedClosed     = "weighing.shed.verified_closed"
+	EventWeighingCampaignVerifiedClosed = "weighing.campaign.verified_closed"
+
+	// WEIGHING PHASE 2 kernel cadences. Same consumer, not a parallel one:
+	//
+	//	day_start      -> DOWNWARD to the assigned operator ONLY, and only their
+	//	                  own buckets. No leadership noise for routine daily work.
+	//	rolled_forward -> DOWNWARD to the assigned operator (the work is still
+	//	                  executable today) + UPWARD to leadership (the plan slipped).
+	//	delayed        -> UPWARD escalation to growth_director + ceo_internal only.
+	//	                  The operator already has the work in their day-start list;
+	//	                  a delay is a leadership signal, not a second nudge.
+	EventWeighingWorkItemDayStart      = "weighing.work_item.day_start"
+	EventWeighingWorkItemRolledForward = "weighing.work_item.rolled_forward"
+	EventWeighingWorkItemDelayed       = "weighing.work_item.delayed"
+
+	// A carry-over that landed on a shed another task already covered that day.
+	// The carried-over item was CLOSED; the task already planned for that day
+	// carries on. The operator whose item closed must hear it from the app rather
+	// than discover an empty day, so this is routed DOWNWARD to them.
+	EventWeighingWorkItemMergedOnCarryOver = "weighing.work_item.merged_on_carry_over"
+
+	// scopeTenant is the workforce position scope for tenant-wide leadership seats,
+	// matching the existing weighing/verification consumers.
+	scopeTenant = "tenant"
+
+	roleLabelOperator       = "operator"
+	roleLabelGrowthDirector = "growth_director"
+	roleLabelCEO            = "ceo"
+
+	campaignClosedOperatorLabelSampleLimit = 5
+)
+
+type weighingPublishedBucketPayload struct {
+	CampaignShedID      string `json:"campaign_shed_id"`
+	ShedID              string `json:"shed_id"`
+	ShedLabel           string `json:"shed_label"`
+	OperatorID          string `json:"operator_id"`
+	WeighingCategory    string `json:"weighing_category"`
+	ExpectedAnimalCount int    `json:"expected_animal_count"`
+}
+
+type weighingCampaignPublishedPayload struct {
+	TenantID          string                           `json:"tenant_id"`
+	CampaignID        string                           `json:"campaign_id"`
+	ParkID            string                           `json:"park_id"`
+	PublishedBy       string                           `json:"published_by"`
+	PeriodStartDate   string                           `json:"period_start_date"`
+	PeriodEndDate     string                           `json:"period_end_date"`
+	StartBusinessDate string                           `json:"start_business_date"`
+	Buckets           []weighingPublishedBucketPayload `json:"buckets"`
+}
+
+type weighingObservationVerdictPayload struct {
+	TenantID           string  `json:"tenant_id"`
+	CampaignID         string  `json:"campaign_id"`
+	CampaignShedID     string  `json:"campaign_shed_id"`
+	ObservationID      string  `json:"observation_id"`
+	RefType            string  `json:"ref_type"`
+	ParkID             string  `json:"park_id"`
+	ShedID             string  `json:"shed_id"`
+	ShedLabel          string  `json:"shed_label"`
+	OperatorID         string  `json:"operator_id"`
+	ScannedIdentifier  string  `json:"scanned_identifier"`
+	WeightKg           float64 `json:"weight_kg"`
+	VerifiedBy         string  `json:"verified_by"`
+	Reason             string  `json:"reason"`
+	VerificationStatus string  `json:"verification_status"`
+	OperatorActionable bool    `json:"operator_actionable"`
+	DecidedAt          string  `json:"decided_at"`
+}
+
+type weighingShedClosedPayload struct {
+	TenantID         string   `json:"tenant_id"`
+	CampaignID       string   `json:"campaign_id"`
+	CampaignShedID   string   `json:"campaign_shed_id"`
+	ParkID           string   `json:"park_id"`
+	ShedID           string   `json:"shed_id"`
+	ShedLabel        string   `json:"shed_label"`
+	OperatorID       string   `json:"operator_id"`
+	ClosedBy         string   `json:"closed_by"`
+	Reason           string   `json:"reason"`
+	NotAcceptedCount int      `json:"not_accepted_count"`
+	NotAccepted      []string `json:"not_accepted"`
+	ClosedAt         string   `json:"closed_at"`
+}
+
+// weighingVerifiedClosurePayload is the body of the two NORMAL-completion
+// events. It carries no reason and no closed_by: nobody ended this work, the
+// last verifier approval settled it. SettledBy names that verifier.
+type weighingVerifiedClosurePayload struct {
+	TenantID       string `json:"tenant_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ParkID         string `json:"park_id"`
+	ShedID         string `json:"shed_id"`
+	ShedLabel      string `json:"shed_label"`
+	OperatorID     string `json:"operator_id"`
+	SettledBy      string `json:"settled_by"`
+	ClosureKind    string `json:"closure_kind"`
+	VerifiedCount  int    `json:"verified_count"`
+	ClosedAt       string `json:"closed_at"`
+}
+
+type weighingClosedBucketPayload struct {
+	CampaignShedID string `json:"campaign_shed_id"`
+	ShedID         string `json:"shed_id"`
+	ShedLabel      string `json:"shed_label"`
+	OperatorID     string `json:"operator_id"`
+	PreviousStatus string `json:"previous_status"`
+}
+
+type weighingClosedOperatorPayload struct {
+	OperatorID  string   `json:"operator_id"`
+	BucketCount int      `json:"bucket_count"`
+	ShedLabels  []string `json:"shed_labels"`
+}
+
+type weighingCampaignClosedPayload struct {
+	TenantID         string                          `json:"tenant_id"`
+	CampaignID       string                          `json:"campaign_id"`
+	ParkID           string                          `json:"park_id"`
+	ClosedBy         string                          `json:"closed_by"`
+	Reason           string                          `json:"reason"`
+	NotAcceptedCount int                             `json:"not_accepted_count"`
+	Operators        []weighingClosedOperatorPayload `json:"operators"`
+	Buckets          []weighingClosedBucketPayload   `json:"buckets"`
+	ClosedAt         string                          `json:"closed_at"`
+}
+
+// WeighingLifecycleEventConsumer turns weighing publish/verdict/close events into
+// idempotent FCM requests, routed up to leadership and down to the one operator
+// who owns the affected bucket.
+type WeighingLifecycleEventConsumer struct {
+	recipients RecipientResolver
+	queue      NotificationQueue
+	logger     *slog.Logger
+}
+
+func NewWeighingLifecycleEventConsumer(
+	recipients RecipientResolver,
+	queue NotificationQueue,
+	logger *slog.Logger,
+) *WeighingLifecycleEventConsumer {
+	return &WeighingLifecycleEventConsumer{recipients: recipients, queue: queue, logger: logger}
+}
+
+var _ eventbus.Handler = (*WeighingLifecycleEventConsumer)(nil)
+
+func (c *WeighingLifecycleEventConsumer) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventWeighingCampaignPublished, c)
+	bus.Subscribe(EventWeighingObservationVerified, c)
+	bus.Subscribe(EventWeighingObservationRework, c)
+	bus.Subscribe(EventWeighingObservationReworkDigest, c)
+	bus.Subscribe(EventWeighingShedClosed, c)
+	bus.Subscribe(EventWeighingCampaignClosed, c)
+	bus.Subscribe(EventWeighingShedVerifiedClosed, c)
+	bus.Subscribe(EventWeighingCampaignVerifiedClosed, c)
+	bus.Subscribe(EventWeighingWorkItemDayStart, c)
+	bus.Subscribe(EventWeighingWorkItemRolledForward, c)
+	bus.Subscribe(EventWeighingWorkItemMergedOnCarryOver, c)
+	bus.Subscribe(EventWeighingWorkItemDelayed, c)
+}
+
+func (c *WeighingLifecycleEventConsumer) HandleEvent(ctx context.Context, event eventbus.Event) error {
+	if c == nil || c.recipients == nil || c.queue == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	switch event.Type {
+	case EventWeighingCampaignPublished:
+		return c.handlePublished(ctx, event)
+	case EventWeighingObservationVerified, EventWeighingObservationRework:
+		return c.handleVerdict(ctx, event)
+	case EventWeighingObservationReworkDigest:
+		return c.handleReworkDigest(ctx, event)
+	case EventWeighingShedClosed:
+		return c.handleShedClosed(ctx, event)
+	case EventWeighingCampaignClosed:
+		return c.handleCampaignClosed(ctx, event)
+	case EventWeighingShedVerifiedClosed, EventWeighingCampaignVerifiedClosed:
+		return c.handleVerifiedClosure(ctx, event)
+	case EventWeighingWorkItemDayStart, EventWeighingWorkItemRolledForward, EventWeighingWorkItemDelayed,
+		EventWeighingWorkItemMergedOnCarryOver:
+		return c.handleWorkItemCadence(ctx, event)
+	default:
+		return nil
+	}
+}
+
+// handlePublished pushes each operator a note about ONLY their own buckets, and
+// leadership one campaign-level note.
+func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, event eventbus.Event) error {
+	var payload weighingCampaignPublishedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing publish notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignID := strings.TrimSpace(payload.CampaignID)
+	if tenantID == "" || campaignID == "" {
+		return nil
+	}
+
+	// One bucket has exactly ONE operator, so grouping by operator id yields the
+	// per-operator bucket list. An operator must never be told about another
+	// operator's bucket, which is why the fan-out is per operator rather than one
+	// broadcast carrying every bucket.
+	byOperator := map[string][]string{}
+	for _, bucket := range payload.Buckets {
+		operatorID := strings.TrimSpace(bucket.OperatorID)
+		label := strings.TrimSpace(bucket.ShedLabel)
+		if operatorID == "" || label == "" {
+			continue
+		}
+		byOperator[operatorID] = append(byOperator[operatorID], label)
+	}
+	for _, operatorID := range sortedKeys(byOperator) {
+		labels := byOperator[operatorID]
+		sort.Strings(labels)
+		// scale-guard:ignore: bounded fan-out over the DISTINCT operators of one campaign's buckets (one park's sheds, tens at most); each operator needs a private message listing only their own buckets, so a single batched read cannot replace it
+		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+		if err != nil {
+			return fmt.Errorf("weighing publish notification: resolve operator %s recipients: %w", operatorID, err)
+		}
+		eventKey := EventWeighingCampaignPublished + ":" + campaignID + ":" + operatorID
+		body := "Weighing work is assigned to you: " + strings.Join(labels, ", ") + "."
+		// scale-guard:ignore: bounded per-operator write over the DISTINCT operators of one campaign's buckets (one park's sheds). Each message carries a DIFFERENT body and a DIFFERENT recipient set, because an operator must be told only about their own buckets, so a single batched write would either leak other operators' buckets or lose the per-operator idempotency key.
+		if _, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+			TenantID:         tenantID,
+			CalendarEventID:  "weighing:" + campaignID,
+			TargetType:       "weighing_campaign",
+			TargetID:         campaignID,
+			NotificationType: "advance_notice",
+			Channel:          channelPushFCM,
+			Priority:         priorityNormal,
+			Title:            "New weighing work", // notification-copy:ignore: body variable names the operator's own shed labels
+			Body:             body,
+			TraceID:          eventKey,
+			EventKey:         eventKey,
+			Context: map[string]string{
+				"type":         "weighing_campaign_published",
+				"screen":       "weighing",
+				"target":       "/weighing",
+				"message_key":  "weighing.assigned_operator",
+				"shed_labels":  strings.Join(labels, ", "),
+				"campaign_id":  campaignID,
+				"park_id":      payload.ParkID,
+				"start_date":   payload.StartBusinessDate,
+				"group_key":    "weighing:" + tenantID + ":campaign_published",
+				"collapse_key": "weighing:" + tenantID + ":campaign_published",
+				"priority":     priorityNormal,
+			},
+			Recipients: toQueueRecipients(devices, roleLabelOperator),
+		}); err != nil {
+			return err
+		}
+	}
+
+	leadership, err := c.leadershipRecipients(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("weighing publish notification: %w", err)
+	}
+	c.warnIfNoRecipients(ctx, leadership, "weighing_publish_notification_no_leadership_recipients", tenantID, campaignID)
+	eventKey := EventWeighingCampaignPublished + ":" + campaignID
+	// Leadership needs to know WHICH sheds and WHEN, not just how many: a bare count
+	// ("a weighing plan with 4 sheds is now live") tells a director nothing they can act on.
+	// The shed list is capped so the push stays readable; the full set is on the overview.
+	allShedLabels := make([]string, 0, len(payload.Buckets))
+	for _, bucket := range payload.Buckets {
+		if label := strings.TrimSpace(bucket.ShedLabel); label != "" {
+			allShedLabels = append(allShedLabels, label)
+		}
+	}
+	sort.Strings(allShedLabels)
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + campaignID,
+		TargetType:       "weighing_campaign",
+		TargetID:         campaignID,
+		NotificationType: "advance_notice",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Weighing plan published", // notification-copy:ignore: weighingPlanPublishedBody names the sheds and the start date
+		Body:             weighingPlanPublishedBody(allShedLabels, payload.StartBusinessDate),
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":   "weighing_campaign_published",
+			"screen": "weighing_overview",
+			// The task itself, not the module landing: this push exists to tell leadership a
+			// PARTICULAR plan is live, and "/weighing" answered that with the recipient's own
+			// (empty) operator work list.
+			"target":       weighingTaskTarget(campaignID),
+			"message_key":  "weighing.plan_published",
+			"shed_count":   strconv.Itoa(len(payload.Buckets)),
+			"campaign_id":  campaignID,
+			"park_id":      payload.ParkID,
+			"start_date":   payload.StartBusinessDate,
+			"group_key":    "weighing:" + tenantID + ":campaign_published",
+			"collapse_key": "weighing:" + tenantID + ":campaign_published",
+			"priority":     priorityNormal,
+		},
+		Recipients: leadership,
+	})
+	return err
+}
+
+// handleVerdict routes an approved/rework verdict. Approved goes UPWARD only,
+// because an approval leaves the operator nothing to do; the operator is included
+// solely when the event says an action is needed. Rework goes DOWNWARD to the
+// operator who must re-shoot, plus UPWARD to the owning director.
+func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, event eventbus.Event) error {
+	var payload weighingObservationVerdictPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing verdict notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	observationID := strings.TrimSpace(payload.ObservationID)
+	if tenantID == "" || observationID == "" {
+		return nil
+	}
+	rework := event.Type == EventWeighingObservationRework
+
+	// BATCHED PER SHED. An INDIVIDUAL bounce no longer pushes here: it is one of possibly
+	// many the verifier will send while working through the same shed, and the operator
+	// makes ONE trip back. The weighing-rework-digest sweeper debounces the shed's
+	// un-delivered bounces and emits one weighing.observation.rework_digest naming them,
+	// which handleReworkDigest turns into the single push (to the same operator, and the
+	// same upward escalation to the owning director).
+	//
+	// A LUMP-SUM bounce still pushes immediately: that capture is the whole shed, so it was
+	// never one of several, and debouncing it would only delay a message that was never
+	// duplicated.
+	if rework && !isLumpSumRefType(payload.RefType) {
+		return nil
+	}
+
+	recipients := []calendarports.NotificationRecipient(nil)
+	if rework || payload.OperatorActionable {
+		operatorID := strings.TrimSpace(payload.OperatorID)
+		if operatorID != "" {
+			devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+			if err != nil {
+				return fmt.Errorf("weighing verdict notification: resolve operator recipients: %w", err)
+			}
+			recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
+		}
+	}
+	if rework {
+		// Rework escalates to the owning director only; a bounced proof is an
+		// execution problem, not a CEO event.
+		directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionGrowthDirector)
+		if err != nil {
+			return fmt.Errorf("weighing verdict notification: resolve growth director recipients: %w", err)
+		}
+		recipients = append(recipients, toQueueRecipients(directorDevices, roleLabelGrowthDirector)...)
+	} else {
+		leadership, err := c.leadershipRecipients(ctx, tenantID)
+		if err != nil {
+			return fmt.Errorf("weighing verdict notification: %w", err)
+		}
+		recipients = append(recipients, leadership...)
+	}
+	recipients = dedupeQueueRecipients(recipients)
+
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	title := "Weighing proof approved"
+	body := shedLabel + " weighing proof was approved."
+	notificationType := "verification_approved"
+	screen := "weighing_overview"
+	priority := priorityNormal
+	messageKey := "weighing.verdict.approved"
+	reworkReason := ""
+	if rework {
+		title = "Weighing proof needs redo"
+		body = shedLabel + " weighing proof was sent back. Please capture it again."
+		if reason := strings.TrimSpace(payload.Reason); reason != "" {
+			body = shedLabel + " weighing proof was sent back: " + reason
+			reworkReason = reason
+		}
+		notificationType = NotificationTypeRework
+		screen = "weighing"
+		priority = priorityHigh
+		messageKey = "weighing.verdict.rework"
+	}
+	// An APPROVED verdict is an evidence fact for leadership, so it opens the bucket whose proof
+	// was accepted. A REWORK is work: its audience is the operator who must re-capture, and their
+	// capture entry point is the module landing -- one push carries one target, and sending the
+	// person who has to act to a read-only record would be the worse trade.
+	verdictTarget := weighingBucketTarget(payload.CampaignID, payload.CampaignShedID)
+	if rework {
+		verdictTarget = weighingModuleTarget
+	}
+	eventKey := event.Type + ":" + observationID
+	_, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + payload.CampaignShedID,
+		TargetType:       "weighing_campaign_shed",
+		TargetID:         payload.CampaignShedID,
+		NotificationType: notificationType,
+		Channel:          channelPushFCM,
+		Priority:         priority,
+		Title:            title,
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":             "weighing_" + payload.VerificationStatus,
+			"screen":           screen,
+			"target":           verdictTarget,
+			"message_key":      messageKey,
+			"shed_label":       shedLabel,
+			"rework_reason":    reworkReason,
+			"campaign_id":      payload.CampaignID,
+			"campaign_shed_id": payload.CampaignShedID,
+			"observation_id":   observationID,
+			"park_id":          payload.ParkID,
+			"shed_id":          payload.ShedID,
+			"decided_at":       payload.DecidedAt,
+			"group_key":        "weighing:" + tenantID + ":verdict",
+			"collapse_key":     "weighing:" + tenantID + ":verdict",
+			"priority":         priority,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+// handleShedClosed tells leadership a bucket was ended, and tells the bucket's one
+// operator only when their work was closed WITHOUT being accepted -- that is the
+// case where the operator's outstanding work silently disappears from their app.
+func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, event eventbus.Event) error {
+	var payload weighingShedClosedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing close notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignShedID := strings.TrimSpace(payload.CampaignShedID)
+	if tenantID == "" || campaignShedID == "" {
+		return nil
+	}
+
+	recipients, err := c.leadershipRecipients(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("weighing close notification: %w", err)
+	}
+	if payload.NotAcceptedCount > 0 {
+		operatorID := strings.TrimSpace(payload.OperatorID)
+		if operatorID != "" {
+			devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+			if err != nil {
+				return fmt.Errorf("weighing close notification: resolve operator recipients: %w", err)
+			}
+			recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
+		}
+	}
+	recipients = dedupeQueueRecipients(recipients)
+
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	body := shedLabel + " weighing was closed."
+	if payload.NotAcceptedCount > 0 {
+		body = fmt.Sprintf("%s weighing was closed with %d animals not weighed.", shedLabel, payload.NotAcceptedCount)
+	}
+	if reason := strings.TrimSpace(payload.Reason); reason != "" {
+		body += " Reason: " + reason
+	}
+	const (
+		title       = "Weighing shed closed"
+		contextType = "weighing_shed_closed"
+		messageKey  = "weighing.shed_closed"
+	)
+	// Keyed on the ACTUAL event type so two lifecycle facts about the same bucket
+	// can never collapse onto one notification key.
+	eventKey := event.Type + ":" + campaignShedID + ":" + event.ID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + campaignShedID,
+		TargetType:       "weighing_campaign_shed",
+		TargetID:         campaignShedID,
+		NotificationType: "verification_closed",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            title,
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":   contextType,
+			"screen": "weighing_overview",
+			// A closed bucket has no capture left to do for anyone, so both audiences want the
+			// same thing: the record of the bucket that was closed.
+			"target":             weighingBucketTarget(payload.CampaignID, campaignShedID),
+			"message_key":        messageKey,
+			"shed_label":         shedLabel,
+			"reason":             strings.TrimSpace(payload.Reason),
+			"campaign_id":        payload.CampaignID,
+			"campaign_shed_id":   campaignShedID,
+			"park_id":            payload.ParkID,
+			"shed_id":            payload.ShedID,
+			"not_accepted_count": fmt.Sprintf("%d", payload.NotAcceptedCount),
+			"closed_at":          payload.ClosedAt,
+			"group_key":          "weighing:" + tenantID + ":shed_closed",
+			"collapse_key":       "weighing:" + tenantID + ":shed_closed",
+			"priority":           priorityNormal,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+// handleVerifiedClosure is the push for the NORMAL completion path: every piece
+// of submitted evidence in a shed (or in a whole task) was approved, and the
+// scope closed itself.
+//
+// It goes UPWARD to leadership — this is the answer the CEO board could not give
+// before, because approval was invisible on every weighing read — and DOWNWARD
+// to the operator whose work it was. The downward leg is deliberate and is the
+// mirror image of the rework push: an operator who is told when their video is
+// bounced and never when it is accepted only ever hears from the system when
+// something is wrong.
+//
+// It is NOT operator-actionable. Nothing is owed; the notification closes a loop
+// rather than opening one.
+func (c *WeighingLifecycleEventConsumer) handleVerifiedClosure(ctx context.Context, event eventbus.Event) error {
+	var payload weighingVerifiedClosurePayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing verified-closure notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignID := strings.TrimSpace(payload.CampaignID)
+	if tenantID == "" || campaignID == "" {
+		return nil
+	}
+	campaignShedID := strings.TrimSpace(payload.CampaignShedID)
+	taskGrain := event.Type == EventWeighingCampaignVerifiedClosed
+	if !taskGrain && campaignShedID == "" {
+		return nil
+	}
+
+	recipients, err := c.leadershipRecipients(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("weighing verified-closure notification: %w", err)
+	}
+	if operatorID := strings.TrimSpace(payload.OperatorID); operatorID != "" {
+		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+		if err != nil {
+			return fmt.Errorf("weighing verified-closure notification: resolve operator recipients: %w", err)
+		}
+		recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
+	}
+	recipients = dedupeQueueRecipients(recipients)
+
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	title := "Weighing shed complete"
+	body := shedLabel + " weighing is complete — all submitted work was verified."
+	contextType := "weighing_shed_verified_closed"
+	messageKey := "weighing.shed_verified_closed"
+	targetType := "weighing_campaign_shed"
+	targetID := campaignShedID
+	if taskGrain {
+		title = "Weighing task complete"
+		body = "Weighing task is complete — every shed was verified and closed."
+		contextType = "weighing_campaign_verified_closed"
+		messageKey = "weighing.campaign_verified_closed"
+		targetType = "weighing_campaign"
+		targetID = campaignID
+	}
+
+	// Keyed on the ACTUAL event type and scope: a verified closure and a
+	// leadership close of the same scope are different facts and must not
+	// collapse onto one notification key.
+	eventKey := event.Type + ":" + targetID + ":" + event.ID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + targetID,
+		TargetType:       targetType,
+		TargetID:         targetID,
+		NotificationType: "verification_closed",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            title,
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":             contextType,
+			"screen":           "weighing_overview",
+			"target":           "/weighing",
+			"message_key":      messageKey,
+			"shed_label":       shedLabel,
+			"closure_kind":     strings.TrimSpace(payload.ClosureKind),
+			"campaign_id":      campaignID,
+			"campaign_shed_id": campaignShedID,
+			"park_id":          payload.ParkID,
+			"shed_id":          payload.ShedID,
+			"verified_count":   fmt.Sprintf("%d", payload.VerifiedCount),
+			"closed_at":        payload.ClosedAt,
+			"group_key":        "weighing:" + tenantID + ":verified_closed",
+			"collapse_key":     "weighing:" + tenantID + ":verified_closed",
+			"priority":         priorityNormal,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+func campaignClosedOperatorsFromLegacyBuckets(buckets []weighingClosedBucketPayload) []weighingClosedOperatorPayload {
+	byOperator := map[string]*weighingClosedOperatorPayload{}
+	for _, bucket := range buckets {
+		operatorID := strings.TrimSpace(bucket.OperatorID)
+		if operatorID == "" {
+			continue
+		}
+		summary := byOperator[operatorID]
+		if summary == nil {
+			summary = &weighingClosedOperatorPayload{OperatorID: operatorID}
+			byOperator[operatorID] = summary
+		}
+		summary.BucketCount++
+		if label := strings.TrimSpace(bucket.ShedLabel); label != "" && len(summary.ShedLabels) < campaignClosedOperatorLabelSampleLimit {
+			summary.ShedLabels = append(summary.ShedLabels, label)
+		}
+	}
+	operatorIDs := sortedClosedOperatorKeys(byOperator)
+	operators := make([]weighingClosedOperatorPayload, 0, len(operatorIDs))
+	for _, operatorID := range operatorIDs {
+		operator := *byOperator[operatorID]
+		sort.Strings(operator.ShedLabels)
+		operators = append(operators, operator)
+	}
+	return operators
+}
+
+func trimmedNonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			if len(out) >= campaignClosedOperatorLabelSampleLimit {
+				break
+			}
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func campaignClosedOperatorBody(bucketCount int, labels []string) string {
+	if bucketCount <= 0 {
+		bucketCount = len(labels)
+	}
+	if bucketCount <= 0 {
+		return "Weighing was closed before you finished."
+	}
+	if len(labels) == 0 {
+		return fmt.Sprintf("Weighing was closed before you finished %d sheds.", bucketCount)
+	}
+	if bucketCount > len(labels) {
+		return fmt.Sprintf("Weighing was closed before you finished %d sheds, including %s.", bucketCount, strings.Join(labels, ", "))
+	}
+	return "Weighing was closed before you finished: " + strings.Join(labels, ", ") + "."
+}
+
+// handleCampaignClosed tells leadership the whole task ended, and tells each
+// operator whose bucket was closed without acceptance -- one message per operator,
+// naming only their own buckets.
+func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Context, event eventbus.Event) error {
+	var payload weighingCampaignClosedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing campaign close notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignID := strings.TrimSpace(payload.CampaignID)
+	if tenantID == "" || campaignID == "" {
+		return nil
+	}
+
+	operators := payload.Operators
+	if len(operators) == 0 && len(payload.Buckets) > 0 {
+		operators = campaignClosedOperatorsFromLegacyBuckets(payload.Buckets)
+	}
+	for _, operator := range operators {
+		operatorID := strings.TrimSpace(operator.OperatorID)
+		if operatorID == "" {
+			continue
+		}
+		labels := trimmedNonEmpty(operator.ShedLabels)
+		sort.Strings(labels)
+		bucketCount := operator.BucketCount
+		if bucketCount < len(labels) {
+			bucketCount = len(labels)
+		}
+		// scale-guard:ignore: fan-out is one bounded notification per affected operator. Producer sends exact per-operator bucket_count plus a capped shed-label sample, never every bucket label.
+		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+		if err != nil {
+			return fmt.Errorf("weighing campaign close notification: resolve operator %s recipients: %w", operatorID, err)
+		}
+		eventKey := EventWeighingCampaignClosed + ":" + campaignID + ":" + operatorID
+		body := campaignClosedOperatorBody(bucketCount, labels)
+		if reason := strings.TrimSpace(payload.Reason); reason != "" {
+			body += " Reason: " + reason
+		}
+		// scale-guard:ignore: bounded per-operator write. Each message targets exactly one operator and uses a capped shed-label sample with an exact count.
+		if _, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+			TenantID:         tenantID,
+			CalendarEventID:  "weighing:" + campaignID,
+			TargetType:       "weighing_campaign",
+			TargetID:         campaignID,
+			NotificationType: "verification_closed",
+			Channel:          channelPushFCM,
+			Priority:         priorityNormal,
+			Title:            "Weighing closed", // notification-copy:ignore: body variable names the shed and its not-accepted work
+			Body:             body,
+			TraceID:          eventKey,
+			EventKey:         eventKey,
+			Context: map[string]string{
+				"type":         "weighing_campaign_closed",
+				"screen":       "weighing",
+				"target":       "/weighing",
+				"campaign_id":  campaignID,
+				"park_id":      payload.ParkID,
+				"closed_at":    payload.ClosedAt,
+				"group_key":    "weighing:" + tenantID + ":campaign_closed",
+				"collapse_key": "weighing:" + tenantID + ":campaign_closed",
+				"priority":     priorityNormal,
+			},
+			Recipients: toQueueRecipients(devices, roleLabelOperator),
+		}); err != nil {
+			return err
+		}
+	}
+
+	leadership, err := c.leadershipRecipients(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("weighing campaign close notification: %w", err)
+	}
+	c.warnIfNoRecipients(ctx, leadership, "weighing_campaign_close_notification_no_leadership_recipients", tenantID, campaignID)
+	body := "A weighing task was closed."
+	if payload.NotAcceptedCount > 0 {
+		body = fmt.Sprintf("A weighing task was closed with %d sheds not completed.", payload.NotAcceptedCount)
+	}
+	if reason := strings.TrimSpace(payload.Reason); reason != "" {
+		body += " Reason: " + reason
+	}
+	eventKey := EventWeighingCampaignClosed + ":" + campaignID + ":" + event.ID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + campaignID,
+		TargetType:       "weighing_campaign",
+		TargetID:         campaignID,
+		NotificationType: "verification_closed",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            "Weighing task closed", // notification-copy:ignore: body variable names each closed bucket's shed
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":               "weighing_campaign_closed",
+			"screen":             "weighing_overview",
+			"target":             weighingTaskTarget(campaignID),
+			"message_key":        "weighing.campaign_closed",
+			"campaign_id":        campaignID,
+			"park_id":            payload.ParkID,
+			"not_accepted_count": fmt.Sprintf("%d", payload.NotAcceptedCount),
+			"closed_at":          payload.ClosedAt,
+			"group_key":          "weighing:" + tenantID + ":campaign_closed",
+			"collapse_key":       "weighing:" + tenantID + ":campaign_closed",
+			"priority":           priorityNormal,
+		},
+		Recipients: leadership,
+	})
+	return err
+}
+
+// leadershipRecipients resolves the UPWARD audience from active role grants for the
+// growth_director and ceo_internal positions. Never a hardcoded person.
+func (c *WeighingLifecycleEventConsumer) leadershipRecipients(ctx context.Context, tenantID string) ([]calendarports.NotificationRecipient, error) {
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionGrowthDirector)
+	if err != nil {
+		return nil, fmt.Errorf("resolve growth director recipients: %w", err)
+	}
+	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionCEOInternal)
+	if err != nil {
+		return nil, fmt.Errorf("resolve CEO recipients: %w", err)
+	}
+	return dedupeQueueRecipients(append(
+		toQueueRecipients(directorDevices, roleLabelGrowthDirector),
+		toQueueRecipients(ceoDevices, roleLabelCEO)...,
+	)), nil
+}
+
+func (c *WeighingLifecycleEventConsumer) warnIfNoRecipients(ctx context.Context, recipients []calendarports.NotificationRecipient, message, tenantID, targetID string) {
+	if len(recipients) > 0 || c.logger == nil {
+		return
+	}
+	c.logger.WarnContext(ctx, message, "tenant_id", tenantID, "target_id", targetID)
+}
+
+// sortedKeys keeps the per-operator fan-out deterministic so a redelivery produces
+// the same message order (and the same idempotency keys) every time.
+func sortedKeys(byOperator map[string][]string) []string {
+	keys := make([]string, 0, len(byOperator))
+	for key := range byOperator {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedClosedOperatorKeys(byOperator map[string]*weighingClosedOperatorPayload) []string {
+	keys := make([]string, 0, len(byOperator))
+	for key := range byOperator {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// weighingWorkItemBucketPayload is one bucket named in a cadence event. Every
+// field is READ below; nothing is accepted and discarded.
+type weighingWorkItemBucketPayload struct {
+	CampaignShedID      string `json:"campaign_shed_id"`
+	ShedID              string `json:"shed_id"`
+	ShedLabel           string `json:"shed_label"`
+	PlannedBusinessDate string `json:"planned_business_date"`
+	DueBusinessDate     string `json:"due_business_date"`
+}
+
+// weighingWorkItemCadencePayload is the shared payload of the three PHASE 2
+// cadence events. OperatorID is the assignment-row operator the weighing writer
+// read from weighing_campaign_sheds.operator_user_id; it is the ONLY downward
+// routing key. Leadership resolves from active role grants. No name, phone, token,
+// member id, or seed-time route is present anywhere.
+type weighingWorkItemCadencePayload struct {
+	TenantID     string                          `json:"tenant_id"`
+	CampaignID   string                          `json:"campaign_id"`
+	ParkID       string                          `json:"park_id"`
+	OperatorID   string                          `json:"operator_id"`
+	BusinessDate string                          `json:"business_date"`
+	Buckets      []weighingWorkItemBucketPayload `json:"buckets"`
+}
+
+// handleWorkItemCadence routes the day-start / rolled-forward / delayed cadences.
+//
+// Direction per event is fixed by the event type, never by a payload flag, so a
+// malformed producer cannot accidentally page the CEO for routine daily work.
+func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Context, event eventbus.Event) error {
+	var payload weighingWorkItemCadencePayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing work item cadence notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignID := strings.TrimSpace(payload.CampaignID)
+	if tenantID == "" || campaignID == "" || len(payload.Buckets) == 0 {
+		return nil
+	}
+
+	labels := make([]string, 0, len(payload.Buckets))
+	shedIDs := make([]string, 0, len(payload.Buckets))
+	shedScopeIDs := make([]string, 0, len(payload.Buckets))
+	earliestPlanned := ""
+	dueDate := strings.TrimSpace(payload.BusinessDate)
+	for _, bucket := range payload.Buckets {
+		if label := strings.TrimSpace(bucket.ShedLabel); label != "" {
+			labels = append(labels, label)
+		}
+		if id := strings.TrimSpace(bucket.ShedID); id != "" {
+			shedIDs = append(shedIDs, id)
+		}
+		if id := strings.TrimSpace(bucket.CampaignShedID); id != "" {
+			shedScopeIDs = append(shedScopeIDs, id)
+		}
+		planned := strings.TrimSpace(bucket.PlannedBusinessDate)
+		if planned != "" && (earliestPlanned == "" || planned < earliestPlanned) {
+			earliestPlanned = planned
+		}
+		if due := strings.TrimSpace(bucket.DueBusinessDate); due != "" && dueDate == "" {
+			dueDate = due
+		}
+	}
+	sort.Strings(labels)
+	sort.Strings(shedIDs)
+	sort.Strings(shedScopeIDs)
+	shedList := strings.Join(labels, ", ")
+
+	notifyOperator := event.Type != EventWeighingWorkItemDelayed
+	notifyLeadership := event.Type != EventWeighingWorkItemDayStart
+
+	recipients := []calendarports.NotificationRecipient(nil)
+	if notifyOperator {
+		operatorID := strings.TrimSpace(payload.OperatorID)
+		if operatorID != "" {
+			devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+			if err != nil {
+				return fmt.Errorf("weighing work item cadence notification: resolve operator recipients: %w", err)
+			}
+			recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
+		}
+	}
+	if notifyLeadership {
+		leadership, err := c.leadershipRecipients(ctx, tenantID)
+		if err != nil {
+			return fmt.Errorf("weighing work item cadence notification: %w", err)
+		}
+		c.warnIfNoRecipients(ctx, leadership, "weighing_work_item_cadence_no_leadership_recipients", tenantID, campaignID)
+		recipients = append(recipients, leadership...)
+	}
+	recipients = dedupeQueueRecipients(recipients)
+
+	title := "Weighing due today"
+	body := "Weighing is due today: " + shedList + "."
+	notificationType := "due_today"
+	screen := "weighing"
+	priority := priorityNormal
+	contextType := "weighing_work_item_day_start"
+	messageKey := "weighing.work_item.due_today"
+	switch event.Type {
+	case EventWeighingWorkItemRolledForward:
+		title = "Weighing moved to today"
+		body = "Weighing not finished yesterday has moved to today: " + shedList + "."
+		if earliestPlanned != "" {
+			body = "Weighing first planned for " + earliestPlanned + " has moved to today: " + shedList + "."
+		}
+		notificationType = "reminder"
+		contextType = "weighing_work_item_rolled_forward"
+		messageKey = "weighing.work_item.rolled_forward"
+	case EventWeighingWorkItemMergedOnCarryOver:
+		// NOT a transfer, and the copy must not imply one: nothing moved to anybody,
+		// the shed was simply already covered by the task planned for that day. What
+		// this operator needs to know is that the shed left THEIR list and who has it
+		// now, so they do not walk to a shed somebody else is standing at.
+		title = "Shed already covered today"
+		body = "Carried-over weighing closed — another task already covers " + shedList + " today."
+		notificationType = "reminder"
+		contextType = "weighing_work_item_merged_on_carry_over"
+		messageKey = "weighing.work_item.merged_on_carry_over"
+	case EventWeighingWorkItemDelayed:
+		title = "Weighing is running late"
+		body = "Weighing is past its planned day: " + shedList + "."
+		if earliestPlanned != "" {
+			body = "Weighing planned for " + earliestPlanned + " is still not done: " + shedList + "."
+		}
+		notificationType = "escalation"
+		screen = "weighing_overview"
+		priority = priorityHigh
+		contextType = "weighing_work_item_delayed"
+		messageKey = "weighing.work_item.delayed"
+	}
+
+	// One durable request per (event type, campaign, operator, business date): the
+	// same key the producer used, so an at-least-once redelivery collapses instead
+	// of pushing the operator twice for the same business day.
+	eventKey := event.Type + ":" + campaignID + ":" + strings.TrimSpace(payload.OperatorID) + ":" + strings.TrimSpace(payload.BusinessDate)
+	_, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + campaignID,
+		TargetType:       "weighing_campaign",
+		TargetID:         campaignID,
+		NotificationType: notificationType,
+		Channel:          channelPushFCM,
+		Priority:         priority,
+		Title:            title,
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":              contextType,
+			"screen":            screen,
+			"target":            "/weighing",
+			"message_key":       messageKey,
+			"shed_list":         shedList,
+			"campaign_id":       campaignID,
+			"campaign_shed_ids": strings.Join(shedScopeIDs, ","),
+			"park_id":           payload.ParkID,
+			"shed_ids":          strings.Join(shedIDs, ","),
+			"business_date":     strings.TrimSpace(payload.BusinessDate),
+			"due_date":          dueDate,
+			"planned_date":      earliestPlanned,
+			"bucket_count":      fmt.Sprintf("%d", len(payload.Buckets)),
+			"group_key":         "weighing:" + tenantID + ":work_item_cadence",
+			"collapse_key":      "weighing:" + tenantID + ":" + contextType,
+			"priority":          priority,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+// weighingPlanPublishedBody names the sheds and the start date so a director can act on the
+// push itself. A bare count is not actionable; see docs/decisions/2026-08-02-meaningful-notification-copy.md.
+func weighingPlanPublishedBody(shedLabels []string, startBusinessDate string) string {
+	const maxNamedSheds = 4
+	when := strings.TrimSpace(startBusinessDate)
+	if when == "" {
+		when = "the planned start date"
+	}
+	if len(shedLabels) == 0 {
+		return "Weighing starts " + when + "."
+	}
+	named := shedLabels
+	suffix := ""
+	if len(named) > maxNamedSheds {
+		remaining := len(named) - maxNamedSheds
+		named = named[:maxNamedSheds]
+		suffix = fmt.Sprintf(" and %d more", remaining)
+	}
+	return fmt.Sprintf("Weighing starts %s: %s%s.", when, strings.Join(named, ", "), suffix)
+}
+
+// ---------------------------------------------------------------------------
+// Batched per-shed rework push.
+// ---------------------------------------------------------------------------
+
+// isLumpSumRefType reports whether the bounced capture was the whole-shed lump-sum proof.
+// Lump-sum has exactly one capture per shed, so its rework push is already one-per-shed and
+// stays on the immediate path instead of going through the debounce.
+func isLumpSumRefType(refType string) bool {
+	return strings.TrimSpace(refType) == "weighing_shed_observation"
+}
+
+type weighingReworkDigestItemPayload struct {
+	ObservationID     string  `json:"observation_id"`
+	ScannedIdentifier string  `json:"scanned_identifier"`
+	WeightKg          float64 `json:"weight_kg"`
+}
+
+type weighingReworkDigestPayload struct {
+	TenantID       string                            `json:"tenant_id"`
+	CampaignID     string                            `json:"campaign_id"`
+	CampaignShedID string                            `json:"campaign_shed_id"`
+	ParkID         string                            `json:"park_id"`
+	ShedID         string                            `json:"shed_id"`
+	ShedLabel      string                            `json:"shed_label"`
+	OperatorID     string                            `json:"operator_id"`
+	Items          []weighingReworkDigestItemPayload `json:"items"`
+	TotalCount     int                               `json:"total_count"`
+	Reason         string                            `json:"reason"`
+	DecidedAt      string                            `json:"decided_at"`
+}
+
+// handleReworkDigest sends ONE push naming every animal the operator has to re-capture in a
+// shed, replacing the per-animal storm.
+//
+// Audience is unchanged from the per-animal push it replaces: DOWNWARD to the bucket's one
+// operator (who makes the trip) and UPWARD to the owning growth director (a bounced proof is
+// an execution problem, not a CEO event).
+//
+// Idempotency is the existing notification_requests event_key: the sweeper only ever emits a
+// digest for observations it stamped as delivered inside the same transaction, and the key
+// carries the digest event id, so a redelivered digest event collapses onto the rows already
+// written and re-notifies nobody.
+func (c *WeighingLifecycleEventConsumer) handleReworkDigest(ctx context.Context, event eventbus.Event) error {
+	var payload weighingReworkDigestPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing rework digest notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignShedID := strings.TrimSpace(payload.CampaignShedID)
+	if tenantID == "" || campaignShedID == "" || payload.TotalCount <= 0 {
+		return nil
+	}
+
+	recipients := []calendarports.NotificationRecipient(nil)
+	if operatorID := strings.TrimSpace(payload.OperatorID); operatorID != "" {
+		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+		if err != nil {
+			return fmt.Errorf("weighing rework digest notification: resolve operator recipients: %w", err)
+		}
+		recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
+	}
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeTenant, tenantID, positionGrowthDirector)
+	if err != nil {
+		return fmt.Errorf("weighing rework digest notification: resolve growth director recipients: %w", err)
+	}
+	recipients = append(recipients, toQueueRecipients(directorDevices, roleLabelGrowthDirector)...)
+	recipients = dedupeQueueRecipients(recipients)
+
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	body := weighingReworkDigestBody(shedLabel, payload)
+	reworkReason := strings.TrimSpace(payload.Reason)
+
+	// The digest EVENT id is the batch identity: one flush -> one event -> one push per
+	// device. A later, separate flush for the same shed is a different event and gets its
+	// own rows, which is exactly what makes a late rejection still reach the operator.
+	eventKey := EventWeighingObservationReworkDigest + ":" + campaignShedID + ":" + event.ID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + campaignShedID,
+		TargetType:       "weighing_campaign_shed",
+		TargetID:         campaignShedID,
+		NotificationType: NotificationTypeRework,
+		Channel:          channelPushFCM,
+		Priority:         priorityHigh,
+		Title:            "Weighing proof needs redo", // notification-copy:ignore: weighingReworkDigestBody names the shed and each animal's tag
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":   "weighing_rework",
+			"screen": "weighing",
+			// Tap route is unchanged: the operator lands on weighing and the shed is
+			// carried alongside, exactly as the per-animal push carried it.
+			"target":           "/weighing",
+			"message_key":      "weighing.verdict.rework_digest",
+			"shed_label":       shedLabel,
+			"rework_reason":    reworkReason,
+			"rework_count":     strconv.Itoa(payload.TotalCount),
+			"rework_tags":      strings.Join(weighingReworkDigestTags(payload), ", "),
+			"campaign_id":      payload.CampaignID,
+			"campaign_shed_id": campaignShedID,
+			"park_id":          payload.ParkID,
+			"shed_id":          payload.ShedID,
+			"decided_at":       payload.DecidedAt,
+			"group_key":        "weighing:" + tenantID + ":verdict",
+			"collapse_key":     "weighing:" + tenantID + ":rework:" + campaignShedID,
+			"priority":         priorityHigh,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+// weighingReworkDigestTags renders the named subset of the batch. The sweeper already capped
+// Items; this only formats them.
+func weighingReworkDigestTags(payload weighingReworkDigestPayload) []string {
+	tags := make([]string, 0, len(payload.Items))
+	for _, item := range payload.Items {
+		if tag := strings.TrimSpace(item.ScannedIdentifier); tag != "" {
+			tags = append(tags, "Tag "+tag+" ("+strconv.FormatFloat(item.WeightKg, 'f', 1, 64)+" kg)")
+		}
+	}
+	return tags
+}
+
+// weighingReworkDigestBody is the one sentence that replaces N pushes.
+//
+// It NAMES the animals rather than counting them -- an operator who is told "5 weighings were
+// sent back" has to open the app to learn which, which is the exact defect the per-animal push
+// was introduced to fix. But it is BOUNDED: a shed can hold fifty bounced captures and a
+// notification body must never render fifty tags, so it names the first few (the sweeper's
+// NamedLimit) and says honestly how many more are waiting.
+func weighingReworkDigestBody(shedLabel string, payload weighingReworkDigestPayload) string {
+	tags := weighingReworkDigestTags(payload)
+	if len(tags) == 0 {
+		// No scanned identity survived (should not happen for individual captures, which
+		// require one) -- still say which shed and how many, never a bare count.
+		return fmt.Sprintf("%s: %d weighing proofs were sent back. Please capture them again.", shedLabel, payload.TotalCount)
+	}
+	named := strings.Join(tags, ", ")
+	if more := payload.TotalCount - len(tags); more > 0 {
+		named += fmt.Sprintf(" and %d more", more)
+	}
+	noun := "proof was"
+	if payload.TotalCount > 1 {
+		noun = "proofs were"
+	}
+	body := fmt.Sprintf("%s in %s: weighing %s sent back. Please capture again.", named, shedLabel, noun)
+	if reason := strings.TrimSpace(payload.Reason); reason != "" {
+		body = fmt.Sprintf("%s in %s: weighing %s sent back: %s", named, shedLabel, noun, reason)
+	}
+	return body
+}
+
+// weighingReworkSubject names the bounced capture for the operator who must re-shoot it.
+//
+// Individual: the scanned tag and the weight the verifier rejected, inside the shed --
+// "Tag 901007000504407 (12.0 kg) in Godel 1". Lump-sum: no per-animal identity exists in
+// free-flow, so it names the shed's total instead of inventing one.
+func weighingReworkSubject(payload weighingObservationVerdictPayload) string {
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	weight := strconv.FormatFloat(payload.WeightKg, 'f', 1, 64) + " kg"
+	if tag := strings.TrimSpace(payload.ScannedIdentifier); tag != "" {
+		return "Tag " + tag + " (" + weight + ") in " + shedLabel
+	}
+	if payload.WeightKg > 0 {
+		return shedLabel + " total " + weight
+	}
+	return shedLabel
+}

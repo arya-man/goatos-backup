@@ -89,6 +89,62 @@ func (f *fakeToolbox) Call(_ context.Context, _ domain.Actor, tool string, _ map
 	return r, nil
 }
 
+type fakeFailingMetrics struct {
+	specs []ports.MetricSpec
+	calls int
+}
+
+func (f *fakeFailingMetrics) Metrics(_ context.Context) ([]ports.MetricSpec, error) {
+	return f.specs, nil
+}
+
+func (f *fakeFailingMetrics) Query(_ context.Context, _ domain.Actor, req ports.MetricQuery) (domain.ToolResult, error) {
+	f.calls++
+	return domain.ToolResult{
+		Surface:  "Cube · " + req.Metric,
+		Route:    domain.RouteCube,
+		ToolName: req.Metric,
+		Err:      errors.New("cube local unavailable"),
+	}, nil
+}
+
+func TestCubeVaccinationFailureFallsThroughToAPIAndCharts(t *testing.T) {
+	metrics := &fakeFailingMetrics{specs: []ports.MetricSpec{{Name: "vaccination_overdue"}}}
+	exec := &fakeExec{
+		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
+			{Label: "Vaccinations overdue", Value: "12", Scope: "Castro / Gandhi"},
+			{Label: "Vaccinations overdue", Value: "7", Scope: "Castro / Godell 1"},
+		}},
+	}
+	reg := NewRegistry(metrics, nil, nil)
+	reg.Register(exec)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "vaccination_overdue", Route: domain.RouteCube, Params: map[string]any{"group_by": "shed_label"}},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "show vaccination overdue by shed as graph"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.calls != 1 {
+		t.Fatalf("expected Cube to be tried first, got %d calls", metrics.calls)
+	}
+	if exec.calls != 1 {
+		t.Fatalf("expected failed Cube vaccination metric to retry the API reader, got %d calls", exec.calls)
+	}
+	if strings.Contains(ans.Answer, "could not be retrieved") || !strings.Contains(ans.Answer, "12") {
+		t.Fatalf("expected API fallback facts in answer, got %q", ans.Answer)
+	}
+	if ans.Chart == nil {
+		t.Fatal("expected graph-ready response to include a chart")
+	}
+	if ans.Chart.Type != "bar" || len(ans.Chart.X) != 2 || ans.Chart.Series[0].Data[0] != 12 {
+		t.Fatalf("unexpected chart payload: %+v", ans.Chart)
+	}
+}
+
 func TestAPITierFailureFallsThroughToToolbox(t *testing.T) {
 	exec := &fakeErroringExec{spec: ports.ToolSpec{Name: "feed_direction_today", Route: domain.RouteAPI}}
 	toolbox := &fakeToolbox{

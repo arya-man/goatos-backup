@@ -53,6 +53,30 @@ func (s *Service) CreateUpload(ctx context.Context, in domain.CreateUpload) (dom
 	return target, nil
 }
 
+func (s *Service) ListUploadedProofs(ctx context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	query.TenantID = strings.TrimSpace(query.TenantID)
+	query.ScopeType = strings.TrimSpace(query.ScopeType)
+	query.ScopeID = strings.TrimSpace(query.ScopeID)
+	query.ClientTaskKey = strings.TrimSpace(query.ClientTaskKey)
+	query.FieldKey = strings.TrimSpace(query.FieldKey)
+	if !uuidutil.IsUUIDString(query.TenantID) || !uuidutil.IsUUIDString(query.ScopeID) {
+		return nil, ErrInvalid
+	}
+	if !oneOf(query.ScopeType, "tenant", "farm", "park", "shed", "cohort", "batch", "task", "goat") {
+		return nil, ErrInvalid
+	}
+	if query.ClientTaskKey == "" {
+		return nil, ErrInvalid
+	}
+	if query.Limit <= 0 || query.Limit > 20 {
+		query.Limit = 20
+	}
+	if !query.AllAuthorizedParks && len(query.AuthorizedParkIDs) == 0 {
+		return nil, ports.ErrForbidden
+	}
+	return s.repo.ListUploadedProofs(ctx, query)
+}
+
 func (s *Service) CompleteUpload(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error) {
 	normalizeComplete(&in)
 	if err := validateComplete(in); err != nil {
@@ -116,6 +140,40 @@ func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string
 	return proof, url, nil
 }
 
+// EnsureObjectAvailable proves that ONE proof's stored bytes are still retrievable, without
+// downloading them.
+//
+// Scope discipline: this is for a caller that is about to take an IRREVERSIBLE decision about a
+// SINGLE record (verification approve). It must never be called per row of a list/queue read — that
+// is the N+1 the read paths deliberately avoid. Callers that only need a link keep using
+// DownloadURL/DownloadArtifact.
+//
+// Returns ports.ErrObjectMissing when the row exists but the object does not (terminal, do not
+// retry), ports.ErrNotFound when the proof row itself is gone, and any other error when the check
+// itself could not be completed.
+func (s *Service) EnsureObjectAvailable(ctx context.Context, tenantID, proofID string) error {
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
+		return ErrInvalid
+	}
+	proof, err := s.repo.GetProof(ctx, tenantID, proofID)
+	if err != nil {
+		return err
+	}
+	if statter, ok := s.storage.(ports.ObjectStatter); ok {
+		return statter.StatObject(ctx, proof)
+	}
+	if opener, ok := s.storage.(ports.LocalOpener); ok {
+		reader, openErr := opener.Open(ctx, proof)
+		if openErr != nil {
+			return openErr
+		}
+		return reader.Close()
+	}
+	// No storage adapter can answer the question. Fail CLOSED for the caller by saying so
+	// explicitly rather than returning nil, which would read as "the evidence is there".
+	return ports.ErrUnsupported
+}
+
 func (s *Service) OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error) {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
 		return domain.Artifact{}, nil, ErrInvalid
@@ -133,6 +191,25 @@ func (s *Service) OpenLocalDownload(ctx context.Context, tenantID, proofID strin
 		return domain.Artifact{}, nil, err
 	}
 	return proof, reader, nil
+}
+
+func (s *Service) DeleteUpload(ctx context.Context, tenantID, proofID, actorID string) error {
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
+		return ErrInvalid
+	}
+	if !uuidutil.IsUUIDString(actorID) {
+		return ErrInvalid
+	}
+	proof, err := s.repo.DeleteUnattachedProof(ctx, tenantID, proofID, actorID)
+	if err != nil {
+		return err
+	}
+	if deleter, ok := s.storage.(ports.DeletingStorage); ok {
+		if err := deleter.Delete(ctx, proof); err != nil && !errors.Is(err, ports.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) ResolveProofRefs(ctx context.Context, tenantID string, binding sopdomain.ProofBinding, refs []sopdomain.ProofReference) ([]sopdomain.ProofReference, error) {

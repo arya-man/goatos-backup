@@ -1,0 +1,30 @@
+// telemetry:exempt: build config only, no product code — AnalyticsPort/AnalyticsEvents wiring for
+// Health lives in AddHealthCaseViewModel (HEALTH_CASE_SUBMITTED / HEALTH_WRITE_FAILURE /
+// HEALTH_READ_FAILURE).
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.compose)
+}
+
+android {
+    namespace = "sg.mesha.goatos.feature.health"
+    compileSdk = 36
+    defaultConfig { minSdk = 29 }
+    buildFeatures { compose = true }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation(project(":core:core-designsystem"))
+    implementation(project(":core:core-ui"))
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.paging.compose)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+}

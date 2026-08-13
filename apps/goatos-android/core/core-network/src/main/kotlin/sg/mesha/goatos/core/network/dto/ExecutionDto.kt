@@ -27,18 +27,22 @@ data class VaccinationExecutionRowDto(
     @SerialName("shedId") val shedId: String = "",
     @SerialName("shedName") val shedName: String = "",
     @SerialName("physicalShed") val physicalShed: String = "",
+    // `partition` is the LEGACY raw value and carries the 'whole' sentinel, which is a
+    // matching key and must never be shown. Render operationalLocationDisplay instead --
+    // the backend composes it with oploc.Display() so every surface agrees.
     @SerialName("partition") val partition: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("source_shed_name") val sourceShedName: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("animalStage") val animalStage: String = "",
     @SerialName("targetCount") val targetCount: Int = 0,
     @SerialName("openCount") val openCount: Int = 0,
     @SerialName("doneCount") val doneCount: Int = 0,
+    @SerialName("acceptedCount") val acceptedCount: Int? = null,
+    @SerialName("reviewCount") val reviewCount: Int? = null,
     @SerialName("driveId") val driveId: String? = null,
     @SerialName("driveName") val driveName: String? = null,
-    @SerialName("effectiveScheduleDate") val effectiveScheduleDate: String? = null,
-    @SerialName("currentAssignmentDate") val currentAssignmentDate: String? = null,
-    @SerialName("assignmentPlannedDate") val assignmentPlannedDate: String? = null,
-    @SerialName("plannedDate") val plannedDate: String? = null,
-    @SerialName("scheduledDate") val scheduledDate: String? = null,
+    @SerialName("vaccineLabels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("dueDate") val dueDate: String? = null,
     // Enums modeled as String (see VaccinationExecutionWorkState / *Severity / *SOPStatus /
     // *ProofStatus / *VerificationStatus in app-api.yaml). Kept as String so an
@@ -63,19 +67,12 @@ data class VaccinationExecutionRowDto(
 /**
  * Current operator-day schedule date for vaccination execution surfaces.
  *
- * The backend may keep original medical due dates for audit/history. Android must render the
- * current effective drive date when the backend sends one, and only fall back to legacy `dueDate`
- * for older responses that do not yet expose assignment-aware fields.
+ * The OpenAPI `VaccinationExecutionRow` contract currently exposes only `dueDate`.
+ * Assignment-aware schedule fields must be added to backend/OpenAPI/generated clients
+ * before Android consumes them.
  */
 val VaccinationExecutionRowDto.currentScheduleDate: String?
-    get() = listOf(
-        effectiveScheduleDate,
-        currentAssignmentDate,
-        assignmentPlannedDate,
-        plannedDate,
-        scheduledDate,
-        dueDate,
-    ).firstOrNull { !it.isNullOrBlank() }
+    get() = dueDate
 
 @Serializable
 data class VaccinationExecutionResponseDto(
@@ -151,6 +148,8 @@ data class VaccinationExecutionShedDrilldownDto(
     @SerialName("parkName") val parkName: String = "",
     @SerialName("shedId") val shedId: String = "",
     @SerialName("shedName") val shedName: String = "",
+    @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("operationalLocationDisplay") val operationalLocationDisplay: String = "",
     @SerialName("animalStages") val animalStages: List<String> = emptyList(),
     @SerialName("drives") val drives: List<VaccinationExecutionDriveSummaryDto> = emptyList(),
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),

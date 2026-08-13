@@ -102,15 +102,15 @@ func approveShifting(
 	})
 }
 
-// completeShifting drives the production completion path.
+// completeShifting drives operator completion after Park Head approval. Under the 2026-07-28 rule
+// completion is the second business gate here, so it atomically relocates and returns applied.
 func completeShifting(
 	repo *Repository, ctx context.Context, key, shiftingEventID string,
 ) (domain.ShiftingExecutionResult, bool, error) {
 	return completeShiftingWithTag(repo, ctx, key, shiftingEventID, "")
 }
 
-// completeShiftingWithTag drives completion carrying an explicit destination cohort tag, as an
-// operator does when shifting animals into an empty shed.
+// completeShiftingWithTag carries an explicit destination cohort tag for the profile cross-check.
 func completeShiftingWithTag(
 	repo *Repository, ctx context.Context, key, shiftingEventID, destinationTag string,
 ) (domain.ShiftingExecutionResult, bool, error) {
@@ -119,6 +119,7 @@ func completeShiftingWithTag(
 		ShiftingEventID:    shiftingEventID,
 		CompletedByUserID:  countsOperator,
 		CompletedAt:        time.Now().In(biztime.DefaultLocation()),
+		ProofRef:           "proof-artifact-" + key,
 		DestinationTag:     destinationTag,
 		IdempotencyKey:     "complete-" + key,
 		RequestFingerprint: "complete-fp-" + key + ":" + destinationTag,
@@ -331,8 +332,9 @@ SELECT event_status, applied_at, applied_by::text FROM shifting_events WHERE shi
 		t.Fatalf("event_status=%q, want applied", eventStatus)
 	}
 	if appliedAt == nil || appliedBy == nil || *appliedBy != countsOperator {
-		t.Fatalf("applied stamp=(%v,%v), want the completing operator %s -- "+
-			"shifting_events_applied_shape_check should have made this unrepresentable",
+		t.Fatalf("applied stamp=(%v,%v), want the completing OPERATOR %s -- under the 2026-07-28 rule "+
+			"the second approval/completion gate applies the move and verification is evidence-only; "+
+			"shifting_events_applied_shape_check should have made a stampless applied row unrepresentable",
 			appliedAt, appliedBy, countsOperator)
 	}
 
@@ -424,6 +426,7 @@ func TestCompleteShiftingIsIdempotentOnReplay(t *testing.T) {
 		ShiftingEventID:    shiftingEventID,
 		CompletedByUserID:  countsApprover,
 		CompletedAt:        time.Now().In(biztime.DefaultLocation()),
+		ProofRef:           "proof-artifact-someone-else",
 		IdempotencyKey:     "complete-someone-else",
 		RequestFingerprint: "complete-fp-someone-else",
 	}); err != nil {
@@ -511,8 +514,7 @@ SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type =
 		t.Fatalf("outbox messages after rolled-back completion=%d, want 0", got)
 	}
 	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
-		t.Fatalf("event_status=%q after failed completion, want it still %q so a human can retry",
-			got, domain.ShiftingEventStatusAuthorized)
+		t.Fatalf("event_status=%q after failed atomic completion, want authorized for operator retry", got)
 	}
 	// The completion stamp must not have been left behind either.
 	var appliedAt *time.Time
@@ -586,8 +588,7 @@ SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type =
 		t.Fatalf("outbox messages after rolled-back stale completion=%d, want 0", got)
 	}
 	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
-		t.Fatalf("event_status=%q after failed stale completion, want it still %q for reconciliation",
-			got, domain.ShiftingEventStatusAuthorized)
+		t.Fatalf("event_status=%q after failed stale completion, want authorized for reconciliation", got)
 	}
 }
 
@@ -760,7 +761,7 @@ func TestCompleteShiftingIntoUnconfiguredShedFailsClosed(t *testing.T) {
 		t.Fatalf("mover management_stage=%q after rejected completion, want it unchanged at K0", got)
 	}
 	if got := shiftingEventStatus(t, ctx, pool, shiftingEventID); got != domain.ShiftingEventStatusAuthorized {
-		t.Fatalf("event_status=%q after rejected completion, want it still %q", got, domain.ShiftingEventStatusAuthorized)
+		t.Fatalf("event_status=%q after failed completion into an unconfigured shed, want authorized", got)
 	}
 }
 

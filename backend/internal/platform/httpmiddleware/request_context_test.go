@@ -30,6 +30,10 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 		if got := LocaleTagFromContext(r.Context()); got != "hi" {
 			t.Fatalf("locale tag = %q", got)
 		}
+		client := ClientInfoFromContext(r.Context())
+		if client.AppVersion != "0.1.17" || client.AppVersionCode != "18" || client.DeviceID != "install-123" || client.OSVersion != "Android 14" {
+			t.Fatalf("client info = %+v", client)
+		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -39,6 +43,14 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-GoatOS-Actor-ID", "90000000-0000-4000-8000-000000000001")
 	req.Header.Set("Accept-Language", "hi-IN, en;q=0.8")
+	req.Header.Set(AppVersionHeader, "0.1.17")
+	req.Header.Set(AppVersionCodeHeader, "18")
+	req.Header.Set(BuildTypeHeader, "stgRelease")
+	req.Header.Set(GoatOSDeviceContextHeader, "install-123")
+	req.Header.Set(PlatformHeader, "android")
+	req.Header.Set(OSVersionHeader, "Android 14")
+	req.Header.Set(SDKVersionHeader, "34")
+	req.Header.Set(DeviceModelHeader, "Infinix X")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

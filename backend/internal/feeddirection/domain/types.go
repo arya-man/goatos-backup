@@ -135,6 +135,10 @@ type PreviewQuery struct {
 	// Workflow optionally narrows the served issue to one dispatch workflow (normal | experiment).
 	// Empty means both -- the read path unions the park-day's issues.
 	Workflow string
+	// Status optionally narrows to one verification-lifecycle bucket (SessionStatus* value). Empty
+	// means every status. Applied over the WHOLE scope BEFORE the shed paging, so a filtered page and
+	// its summary describe the same status set and pagination stays correct.
+	Status string
 	// Draft, when true, LIVE-COMPUTES a what-if sheet WITHOUT reading or writing any issue. It is the
 	// only path that may live-compute, and the response is stamped Draft so it is never mistaken for
 	// an issued sheet. It exists so someone tuning ration rates can preview the effect before issue.
@@ -143,6 +147,13 @@ type PreviewQuery struct {
 	// PreviewPage.
 	Limit  int32
 	Offset int32
+	// AuthorizedParkIDs is the caller's OWN park scope, resolved from their grants at the HTTP
+	// boundary. It bounds two things: which park an omitted park_id may default to, and which parks
+	// the response offers as filter vocabulary. EMPTY means unrestricted -- a tenant-wide principal
+	// (CEO/director) or an internal/service context -- matching
+	// httpmiddleware.ParkScopeDecision.ParkIDs, which is nil for exactly those cases. See
+	// FeedFilterOptions.Parks for why the vocabulary must be narrowed and not just the read.
+	AuthorizedParkIDs []string
 }
 
 // PackingQuery selects one park's packing worklist for one day.
@@ -150,17 +161,41 @@ type PackingQuery struct {
 	TenantID   string
 	ParkID     string
 	TargetDate time.Time
+	// SessionNo optionally narrows the worklist to a single feeding session. Zero means every
+	// session, mirroring PreviewQuery.SessionNo.
+	SessionNo int32
 	// Workflow optionally narrows the served issue to one dispatch workflow. Empty means both.
 	Workflow string
+	// Status optionally narrows to one verification-lifecycle bucket (SessionStatus* value). Empty
+	// means every status. Applied over the whole scope before paging, mirroring PreviewQuery.Status.
+	Status string
 	// Draft live-computes the worklist without touching any issue. See PreviewQuery.Draft.
 	Draft  bool
 	Limit  int32
 	Offset int32
+	// AuthorizedParkIDs is the caller's own park scope; empty means unrestricted. Same contract as
+	// PreviewQuery.AuthorizedParkIDs -- packing and direction share one filter builder, so they must
+	// share one scoping rule.
+	AuthorizedParkIDs []string
 }
 
 // ---------------------------------------------------------------------------
 // Result shapes
 // ---------------------------------------------------------------------------
+
+// ProofRef is one OPTIONAL video-proof reference attached to a feed-direction completion.
+//
+// It mirrors the SOP/procurement ProofReference shape (a proof_id plus descriptive fields), but the
+// feed module stores it OPAQUELY: the video bytes and the authoritative artifact live in the proof
+// module (minted through /app/proofs/*), and this record only keeps the pointer. Video is optional,
+// so a completion may carry zero refs.
+type ProofRef struct {
+	ProofID     string `json:"proof_id"`
+	ProofType   string `json:"proof_type,omitempty"`
+	SubjectType string `json:"subject_type,omitempty"`
+	SubjectID   string `json:"subject_id,omitempty"`
+	UploadState string `json:"upload_state,omitempty"`
+}
 
 // ItemQuantity is one feed item's quantity for one row.
 //
@@ -192,18 +227,30 @@ type BlockedReason struct {
 	Detail string `json:"detail"`
 }
 
-// DirectionRow is one generated instruction: what one ration grain in one shed gets in one
-// session.
+// DirectionRow is one feeding instruction in one session.
 //
-// The grain is (park, shed, shed_tag, ration_group) x session. SEX IS DELIBERATELY ABSENT: the
-// projected counts arrive at (park, shed, stage, breed, sex) grain, but sex is NOT part of the
-// ration lookup key, so the generator sums over it. Carrying sex into the output would split one
-// feeding instruction into two half-sized rows that an operator would have to re-add by hand.
+// IT HAS TWO GRAINS, AND THE DIFFERENCE IS DELIBERATE:
+//
+//   - As GENERATED and STORED in the frozen issue, the grain is (park, shed + partition, shed_tag,
+//     breed) x session -- the grain a ration rate is actually looked up at.
+//   - As SERVED on the direction sheet, the grain is (park, shed + partition) x session: ONE row per
+//     operational location (maintainer decision 2026-08-10), because an operator standing at a pen
+//     door feeds the pen. CollapseDirectionRowsByLocation performs that fold on the read path only,
+//     and its doc explains why it cannot move any earlier without changing what a packer packs.
+//
+// SEX IS DELIBERATELY ABSENT FROM BOTH: the projected counts arrive at (park, shed, stage, breed,
+// sex) grain, but sex is NOT part of the ration lookup key, so the generator sums over it. Carrying
+// sex into the output would split one feeding instruction into two half-sized rows that an operator
+// would have to re-add by hand.
 type DirectionRow struct {
 	ParkID    string `json:"park_id"`
 	ParkLabel string `json:"park_label"`
 	ShedID    string `json:"shed_id"`
 	ShedLabel string `json:"shed_label"`
+	// PartitionLabel is the row's operational partition ("1", "Part 3"), empty for a shed with no
+	// partitions. Clients render shed + partition per the operational-location rule ("Godel 2 -
+	// Part 3"); they must never print the 'whole' matching token, which never reaches this field.
+	PartitionLabel string `json:"partition_label,omitempty"`
 	// ShedTag is the authored tag label the live management_stage normalized onto -- the canonical
 	// spelling, not the raw source text.
 	//
@@ -257,9 +304,75 @@ type DirectionRow struct {
 	// Blocked is true when at least one item on this row could not be resolved. It is the flag that
 	// stops SessionTotalKg from being mistaken for a complete figure.
 	Blocked bool `json:"blocked"`
+	// BlockedReasons lists the distinct gaps behind Blocked, and it exists because the direction sheet
+	// is now one row per operational location (see CollapseDirectionRowsByLocation): a pen holding two
+	// ration groups where only one is authored PRINTS the configured quantity and names the gap here,
+	// so the operator feeds the animals they have a ration for instead of being handed a blank cell.
+	// Empty on a fully resolved row, and empty on the per-grain rows the generator produces -- there a
+	// single ItemQuantity.BlockedReason already says everything, because the row IS one ration grain.
+	//
+	// It does NOT soften the blocked-vs-zero contract: an item where NOTHING resolved still carries a
+	// nil QuantityKg and QuantityBlocked. The packing line is stricter still and blocks whole, because
+	// a bag packed from a partial number looks complete and would send the shed short.
+	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
 	// OverduePending mirrors the counts projection: a movement this row's head count already
 	// assumes came due days ago and still has not been executed.
 	OverduePending bool `json:"overdue_pending"`
+	// Completed is true when this shed-session has a recorded feed.direction.completed. It is the
+	// operator-action state the generator overlays onto the derived sheet: the ration numbers are
+	// still generated the same way, but the row also reports that the feeding was carried out. A
+	// whole shed-session is completed at once (that is the completion grain), so every ration grain
+	// of the same (shed, session) reports Completed together.
+	Completed bool `json:"completed"`
+	// LifecycleStatus is the verification-lifecycle bucket of this shed-session's feed-distribution
+	// completion, one of the three SessionStatus* values. It is the finer state Completed collapses:
+	// SessionStatusCompleted iff Completed is true. Set by the serve path from
+	// feed_distribution_completions; every ration grain of the same (shed, session) reports the same
+	// value. See SessionStatus* / NormalizeSessionStatus for the raw->bucket mapping.
+	LifecycleStatus string `json:"lifecycle_status"`
+}
+
+// Session lifecycle status buckets (maintainer decision 2026-07-26). A shed-session's
+// feed-distribution / feed-packing completion moves through these client-visible buckets. The raw
+// table has a fourth state, 'rework' (verifier rejected), which is INTENTIONALLY merged into
+// SessionStatusPending here: from the operator's list it is "needs my action again", the same bucket
+// as never-submitted. See NormalizeSessionStatus.
+const (
+	// SessionStatusPending: the operator has not submitted proof yet (no completion row), OR the
+	// verifier bounced it back for rework. Either way the next action is the operator's.
+	SessionStatusPending = "pending"
+	// SessionStatusAwaitingVerification: the operator submitted proof and a verifier has not acted
+	// (raw 'pending_verification'). The next action is the verifier's.
+	SessionStatusAwaitingVerification = "pending_verification"
+	// SessionStatusCompleted: a verifier approved the proof (raw 'completed'). Terminal.
+	SessionStatusCompleted = "completed"
+)
+
+// NormalizeSessionStatus maps a raw completion-row status onto the three client-visible buckets. An
+// empty/unknown raw status (including the absence of a completion row) and raw 'rework' both map to
+// SessionStatusPending; 'pending_verification' and 'completed' pass through. This is the single
+// producer of the bucket vocabulary, so a status filter and the row chip can never diverge.
+func NormalizeSessionStatus(raw string) string {
+	switch raw {
+	case SessionStatusCompleted:
+		return SessionStatusCompleted
+	case SessionStatusAwaitingVerification:
+		return SessionStatusAwaitingVerification
+	default:
+		// "", "rework", and any unexpected value are all "operator must (re)act" == pending.
+		return SessionStatusPending
+	}
+}
+
+// IsValidSessionStatusFilter reports whether raw is a status the read APIs accept as a filter. The
+// empty string ("all statuses") is valid; every other accepted value is one of the three buckets.
+func IsValidSessionStatusFilter(raw string) bool {
+	switch raw {
+	case "", SessionStatusPending, SessionStatusAwaitingVerification, SessionStatusCompleted:
+		return true
+	default:
+		return false
+	}
 }
 
 // PreviewPage is one page of generated rows plus the WHOLE-SCOPE summary.
@@ -282,11 +395,15 @@ type PreviewPage struct {
 	Lifecycle Lifecycle `json:"lifecycle"`
 	// Draft is true only for the deliberate live-compute escape hatch (draft=true). An issued,
 	// amended, locked, pending or not_issued response is never draft.
-	Draft      bool   `json:"draft"`
-	TargetDate string `json:"target_date"`
-	Limit      int32  `json:"limit"`
-	Offset     int32  `json:"offset"`
-	HasMore    bool   `json:"has_more"`
+	Draft bool `json:"draft"`
+	// Filters is the backend-owned park/shed filter vocabulary plus the served park id. Present on
+	// every response so a client can render the farm/shed pickers without holding its own location
+	// list and can show which park it is currently viewing.
+	Filters    FeedFilterOptions `json:"filters"`
+	TargetDate string            `json:"target_date"`
+	Limit      int32             `json:"limit"`
+	Offset     int32             `json:"offset"`
+	HasMore    bool              `json:"has_more"`
 }
 
 // SummaryScopeFiltered is the only scope this module reports.
@@ -356,7 +473,7 @@ type PreviewSummary struct {
 
 // PackingSummary rolls up the whole filtered worklist, on exactly the same terms as PreviewSummary.
 //
-// It is a distinct type because its RowCount counts PACKING LINES (shed x session), not ration
+// It is a distinct type because its LineCount counts PACKING LINES (pen x session), not ration
 // grains -- a packer's unit of work is the bag, and reporting the preview's grain count here would
 // overstate the job. Every other field carries the same meaning and the same whole-scope guarantee.
 type PackingSummary struct {
@@ -364,7 +481,7 @@ type PackingSummary struct {
 	Scope string `json:"scope"`
 	// ShedCount is the number of distinct sheds in the whole filtered scope.
 	ShedCount int32 `json:"shed_count"`
-	// LineCount is the number of shed x session packing lines in the whole filtered scope.
+	// LineCount is the number of packing lines (pen x session) in the whole filtered scope.
 	LineCount int32 `json:"line_count"`
 	// TotalKgByFeedItem sums the RESOLVED per-shed quantities across the whole filtered scope.
 	TotalKgByFeedItem []FeedItemTotal `json:"total_kg_by_feed_item"`
@@ -374,6 +491,51 @@ type PackingSummary struct {
 	BlockedShedCount int32 `json:"blocked_shed_count"`
 	// BlockedLineCount is the number of packing lines that cannot be packed as printed.
 	BlockedLineCount int32 `json:"blocked_line_count"`
+}
+
+// FeedFilterPark is one park a caller may generate a sheet for. The park is REQUIRED on every feed
+// read (one park per sheet, never mixed), so a client needs this vocabulary to offer a farm filter
+// and to know which park it is currently looking at.
+type FeedFilterPark struct {
+	ParkID string `json:"park_id"`
+	Label  string `json:"label"`
+}
+
+// FeedFilterShed is one shed within the served park. Carries ParkID so a client that caches several
+// parks' sheds can still narrow the shed picker to the selected park.
+type FeedFilterShed struct {
+	ShedID string `json:"shed_id"`
+	Label  string `json:"label"`
+	ParkID string `json:"park_id"`
+}
+
+// FeedFilterOptions is the backend-owned filter vocabulary for the feed screens, so the client
+// holds no park/shed list of its own (the golden frontend rule). It is bounded by physical
+// infrastructure — parks and one park's shed catalog — never by herd size.
+//
+// Parks is narrowed to the CALLER'S OWN authorized scope, not the tenant catalog. The route already
+// refuses a park outside that scope (403 park_scope_forbidden), so offering the others put dead
+// choices in an operator's farm dropdown: selecting one returned an error instead of a sheet. A
+// filter dropdown is a statement about what this principal may do, so an option they cannot open is
+// not offered. A tenant-wide principal has no park restriction and still sees every park.
+//
+// ServedParkID is the park this response was actually generated for. It equals the requested
+// park_id, or — when the request omitted park_id — the default park the server selected, so the
+// client can show the right park as active without guessing.
+type FeedFilterOptions struct {
+	ServedParkID string              `json:"served_park_id"`
+	Parks        []FeedFilterPark    `json:"parks"`
+	Sheds        []FeedFilterShed    `json:"sheds"`
+	Sessions     []FeedFilterSession `json:"sessions"`
+}
+
+// FeedFilterSession is one feeding session in the served park's active split (session 1, session 2,
+// ...), the backend-owned vocabulary a client renders its session picker from. The label is the
+// authored session_label; the number is what the client sends back as the `session` filter param.
+// Ordered by display order then session number, matching the generator's own iteration order.
+type FeedFilterSession struct {
+	SessionNo int32  `json:"session_no"`
+	Label     string `json:"label"`
 }
 
 // FeedItemTotal is one feed item's page total. A slice of pairs rather than a map so the order is
@@ -386,30 +548,75 @@ type FeedItemTotal struct {
 	BlockedCells int32 `json:"blocked_cells"`
 }
 
-// PackingRow is one shed/session line of the packing worklist.
+// PackingRow is ONE packing line: one operational location's share for ONE feeding session -- the
+// bag a packer fills and films.
+//
+// Grain is (park, shed, partition, SESSION, workflow, feed day). The SESSION IS PART OF THE
+// IDENTITY. It was briefly removed on 2026-08-10 to show a pen's whole day as one card backed by one
+// video, and that was REVERTED on 2026-08-11 (maintainer decision): a pen's morning and evening
+// shares are two separate pieces of work, each packed and each filmed on its own. Do not re-collapse
+// them -- a single day-total card cannot distinguish a crew that packed the morning share twice from
+// one that packed both correctly, and one video cannot prove two bags.
+//
+// The PARTITION is part of the identity for a different and equally load-bearing reason. Castro 1
+// and Castro 2 are physically different pens holding different animals with different rations;
+// merging them is the 2026-08-08 defect (migration 000137), where one Castro - 1 clip closed out all
+// three pens.
 type PackingRow struct {
-	ParkID       string `json:"park_id"`
-	ParkLabel    string `json:"park_label"`
-	ShedID       string `json:"shed_id"`
-	ShedLabel    string `json:"shed_label"`
-	SessionNo    int32  `json:"session_no"`
-	SessionLabel string `json:"session_label"`
-	Workflow     string `json:"workflow"`
+	ParkID    string `json:"park_id"`
+	ParkLabel string `json:"park_label"`
+	ShedID    string `json:"shed_id"`
+	ShedLabel string `json:"shed_label"`
+	// PartitionLabel is the operational partition this bag is for ("1", "Part 3"), empty for a shed
+	// with no partitions. A packing line is grouped at the same OPERATIONAL LOCATION grain as the
+	// direction row it is built from, so Castro 1 and Castro 2 are two separate bags. Without it a
+	// packer sees two identical "Castro" lines and cannot tell which pen either bag belongs to --
+	// and one shed's partitions can carry very different quantities when some are on an authored
+	// experiment and the rest on the per-head grid.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the backend-composed shed+pen label ("Castro - 2",
+	// "Godel 1 - Part 3", bare "Yashoda" when undivided), built with platform/oploc so every surface
+	// renders the pen the same way. The contract has REQUIRED this field since the packing schema was
+	// written, but the struct never carried it, so admin-web fell through to its `|| shed_label`
+	// branch and printed a bare "Castro" against all three of Castro's pens.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	SessionNo                  int32  `json:"session_no"`
+	SessionLabel               string `json:"session_label"`
+	Workflow                   string `json:"workflow"`
 	// ExperimentArm is the trial group of a hand-authored experiment shed, empty on normal lines.
 	// Carried here as well as on DirectionRow so the packer knows which trial a bag belongs to
 	// without cross-referencing the direction sheet -- the same authored value, never a shed tag.
 	ExperimentArm string `json:"experiment_arm"`
-	// HeadCount is the shed's projected head count, summed across its ration grains.
+	// HeadCount is the pen's projected head count, summed across its ration grains. It is the pen's
+	// population and is therefore the SAME on every session of the day -- the same animals are fed
+	// morning and evening. It is a denominator, never a quantity: summing it across a pen's sessions
+	// would report twice the animals the pen holds.
 	HeadCount int64 `json:"head_count"`
-	// Items is the SHED-level expected quantity per feed item -- the grains are already summed,
-	// because a packer fills one bag per item per shed, not one per ration grain.
+	// Items is the per-SESSION expected quantity per feed item -- the grains are already summed,
+	// because a packer fills one bag per item per session, not one per ration grain.
 	Items []ItemQuantity `json:"items"`
-	// TotalKg sums the resolved items.
+	// TotalKg sums this session's resolved items.
 	TotalKg string `json:"total_kg"`
-	// Status is the packing state. Read-only for now: there is no proof capture and no video on
-	// this surface, so it is derived from the generation result rather than from any recorded
-	// packing action.
+	// Status is the packing state (ready | blocked | empty), derived from the generation result.
 	Status string `json:"status"`
+	// Completed is true when this shed-SESSION has a verifier-approved packing completion. Orthogonal
+	// to Status: a completed line was still ready/blocked/empty underneath, so a client can show a
+	// "completed" badge without losing the packing state.
+	Completed bool `json:"completed"`
+	// LifecycleStatus is the verification-lifecycle bucket of this shed-SESSION's feed-PACKING
+	// completion (one of the SessionStatus* values), the finer state Completed collapses. Orthogonal
+	// to Status (the ready/blocked/empty ration state): a line can be blocked underneath and still be
+	// pending_verification. Set by the serve path from feed_packing_completions.
+	LifecycleStatus string `json:"lifecycle_status"`
+	// ReworkReason is the backend-composed sentence telling the packer WHY this line came back to
+	// them, present only while LifecycleStatus is rework. Two very different things land in that one
+	// state and the state alone cannot tell them apart: a verifier rejected the video, or the
+	// afternoon correction changed how many animals the pen feeds and the old video no longer proves
+	// the right quantity (maintainer decision 2026-08-10). Without this the operator is shown the
+	// same bare "needs another video" card for both and has no way to know the numbers moved.
+	//
+	// Backend owns this copy per the golden frontend rule; clients render it verbatim.
+	ReworkReason string `json:"rework_reason,omitempty"`
 	// BlockedReasons lists the distinct gaps behind a blocked status.
 	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
 }
@@ -435,10 +642,13 @@ type PackingPage struct {
 	Items   []PackingRow   `json:"items"`
 	Summary PackingSummary `json:"summary"`
 	// Lifecycle and Draft carry the same issue-state metadata as PreviewPage.
-	Lifecycle  Lifecycle `json:"lifecycle"`
-	Draft      bool      `json:"draft"`
-	TargetDate string    `json:"target_date"`
-	Limit      int32     `json:"limit"`
-	Offset     int32     `json:"offset"`
-	HasMore    bool      `json:"has_more"`
+	Lifecycle Lifecycle `json:"lifecycle"`
+	Draft     bool      `json:"draft"`
+	// Filters is the backend-owned park/shed filter vocabulary plus the served park id, on the same
+	// terms as PreviewPage.Filters.
+	Filters    FeedFilterOptions `json:"filters"`
+	TargetDate string            `json:"target_date"`
+	Limit      int32             `json:"limit"`
+	Offset     int32             `json:"offset"`
+	HasMore    bool              `json:"has_more"`
 }

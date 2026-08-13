@@ -10,17 +10,23 @@ import {
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import type { RouteSearchParams } from "@/lib/search-params";
+import { fmtDate } from "@/lib/format";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { FeedQuantityCell, FeedWorkflowTag, isBlockedItem } from "./feed-quantity";
 import { isNothingToFeed, visibleOperationalFeedItems } from "./feed-quantity-state";
-import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
+import { feedHref, feedLimit, feedOffset, resolveFeedPackingScope } from "./feed-scope";
 
 // Feed -> Feed Packing. The same generated day as Feed Direction, collapsed to the line a packer
-// actually works from: one row per shed per session, with the shed's ration grains already summed,
-// because a packer fills one bag per feed item per shed rather than one per grain.
+// actually works from: one group per pen per session, with the pen's ration grains already summed,
+// because a packer fills one bag per feed item per pen rather than one per grain.
+//
+// ONE ROW PER PEN PER SESSION, which is what the backend serves again (maintainer decision
+// 2026-08-11, reverting the 2026-08-10 pen-day row). Between those dates the backend nested the
+// sessions inside a pen-day row and this table flattened them straight back out; the flattening is
+// gone because a row IS a session line once more.
 //
 // READ-ONLY, and deliberately so. Nothing on this screen is recorded: there is no proof capture, no
 // video, and no stored packing state. `status` is DERIVED from the generation result, not stored.
@@ -67,7 +73,9 @@ export async function FeedPackingPage({
   const sp = searchParams ?? {};
 
   const locations = await getCensusLocations();
-  const scope = resolveFeedScope(sp, "fp_park", "fp_date", locations.parks);
+  // Feed Packing browses by the PACKING day (defaults to today, back up to 30 days). The backend is
+  // asked for feed day = packing day + 1; the caption states that feed day so the axis relabel is clear.
+  const scope = resolveFeedPackingScope(sp, "fp_park", "fp_date", locations.parks);
 
   const pageSizeOptions = tablePageSizes(pageContract, "packing-worklist");
   const limit = feedLimit(sp, "fp_limit", pageSizeOptions, DEFAULT_PAGE_SIZE);
@@ -90,21 +98,23 @@ export async function FeedPackingPage({
   const rows = worklist?.items ?? [];
   const summary = worklist?.summary;
   const lifecycle = worklist?.lifecycle;
-  // The worklist takes no shed/session filter, so an empty result is never a filter exclusion — an
-  // empty page here is always the lifecycle's own "nothing was issued" state.
+  // This page sends only park and day, so an empty result is never a filter exclusion — an empty
+  // page here is always the lifecycle's own "nothing was issued" state.
   const lifecycleEmpty = lifecycle ? isLifecycleEmpty(lifecycle, rows.length) : false;
 
   const cols = tableLabels(pageContract, "packing-worklist");
 
-  // The worklist endpoint takes only park and day — it has no shed or session parameter — so those
-  // filters are not rendered. A control that cannot narrow the backend result would be decoration.
+  // Only park and day are rendered. The endpoint has no shed parameter at all, and while it does
+  // accept `session`, this sheet deliberately does not offer it: the web packing worklist is printed
+  // and read down in one pass, and hiding half the day's bags from it would understate what the crew
+  // must carry out. The phone, which captures one bag at a time, is where the session matters.
   const filterFields: FeedFilterField[] = [
     {
       kind: "date",
       param: "fp_date",
       label: copy(pageContract, "filter.date_label"),
-      value: scope.targetDate,
-      // Bound to [today, tomorrow] — see the twin note on Feed Direction.
+      // The picker value/bounds are the PACKING day: default today, capped at today, back 30 days.
+      value: scope.packingDay,
       min: scope.minDate,
       max: scope.maxDate,
     },
@@ -119,6 +129,8 @@ export async function FeedPackingPage({
     },
   ];
 
+  // A row is ONE pen-session, so its own items are the cells. A pen's morning and evening arrive as
+  // two rows and are both counted here, which is what a packer's cell count means.
   const blockedCellsOnPage = rows.reduce(
     (total, row) => total + row.items.filter((item) => isBlockedItem(item)).length,
     0,
@@ -166,6 +178,13 @@ export async function FeedPackingPage({
           fields={filterFields}
           pageContract={pageContract}
         />
+
+        {/* The packing day is the picker's axis; this states the FEED day it is for (packing day + 1),
+            so the operator reads "packed today, for tomorrow" without doing the arithmetic. The template
+            is backend-owned copy; only the date is client-formatted. */}
+        <div className="note" style={{ marginBottom: 16, fontWeight: 600 }}>
+          {copy(pageContract, "caption.feed_for").replace("{date}", fmtDate(scope.targetDate))}
+        </div>
 
         {/* Issue -> amend -> lock status of the served park-day. For a not-yet-issued day the banner
             IS the content — the KPIs/worklist below are suppressed rather than showing an empty bar. */}
@@ -262,7 +281,9 @@ export async function FeedPackingPage({
                   const visibleItems = visibleOperationalFeedItems(row.items);
                   const nothingToFeed = isNothingToFeed(row.items);
                   const span = itemLineCount(visibleItems);
-                  const rowKey = `${row.shed_id}|${row.session_no}`;
+                  // Full line identity: the pen AND its session. Keying on the pen alone would give
+                  // a pen's morning and evening the same React key.
+                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
@@ -275,7 +296,7 @@ export async function FeedPackingPage({
                               park is named by the Park filter above. */}
                           <td rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>{row.shed_label}</span>
+                              <span style={{ fontWeight: 650 }}>{row.operational_location_display || row.shed_label}</span>
                               <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                               {/* No experiment arm here. A packer's unit of work is the bag: the
                                   Experiment tag already says this shed's quantity is hand-authored
@@ -315,6 +336,10 @@ export async function FeedPackingPage({
                       {index === 0 ? (
                         <td rowSpan={span}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {/* This line's own status and total. A row IS one pen-session, so a
+                                perfectly packable morning stays OK even when the same pen's evening
+                                is short, and each row prints its own bag's weight rather than the
+                                day's. */}
                             <span
                               className={statusTone(row.status)}
                               title={copy(

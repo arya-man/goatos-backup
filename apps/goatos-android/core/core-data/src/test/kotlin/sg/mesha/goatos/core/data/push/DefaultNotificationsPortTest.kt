@@ -35,6 +35,18 @@ class DefaultNotificationsPortTest {
         port.registerToken("fcm-token-1")
 
         runCurrent()
+        assertEquals(emptyList<RegisterDeviceRequestDto>(), api.registerRequests)
+        assertNull(deviceStore.deviceId())
+
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(emptyList<RegisterDeviceRequestDto>(), api.registerRequests)
+        assertNull(deviceStore.deviceId())
+
+        advanceTimeBy(20_000)
+        runCurrent()
+
         assertEquals(1, api.registerRequests.size)
         assertNull(deviceStore.deviceId())
 
@@ -44,6 +56,58 @@ class DefaultNotificationsPortTest {
         assertEquals(2, api.registerRequests.size)
         assertEquals("fcm-token-1", api.registerRequests.last().fcmToken)
         assertEquals("device-after-retry", deviceStore.deviceId())
+    }
+
+    @Test
+    fun registerTokenReusesDeviceIdWhenBootstrapRegistersDuringDeferredRetry() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val api = RecordingAppApi()
+        val deviceStore = FakeDeviceStore()
+        val port = DefaultNotificationsPort(
+            api = api,
+            deviceStore = deviceStore,
+            appScope = scope,
+            appVersion = "0.1.0-stg",
+            osVersion = "Android 16",
+        )
+
+        port.registerToken("fcm-token-1")
+        runCurrent()
+        assertEquals(emptyList<RegisterDeviceRequestDto>(), api.registerRequests)
+
+        deviceStore.setDeviceId("device-from-bootstrap")
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(emptyList<RegisterDeviceRequestDto>(), api.registerRequests)
+        assertEquals(listOf("device-from-bootstrap" to "fcm-token-1"), api.heartbeatRequests)
+    }
+
+    @Test
+    fun registerTokenFallsBackToRegisterAfterBootstrapGraceWindow() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = TestScope(dispatcher)
+        val api = RecordingAppApi()
+        val deviceStore = FakeDeviceStore()
+        val port = DefaultNotificationsPort(
+            api = api,
+            deviceStore = deviceStore,
+            appScope = scope,
+            appVersion = "0.1.0-stg",
+            osVersion = "Android 16",
+        )
+
+        port.registerToken("fcm-token-1")
+        runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
+        advanceTimeBy(20_000)
+        runCurrent()
+
+        assertEquals(1, api.registerRequests.size)
+        assertEquals("fcm-token-1", api.registerRequests.last().fcmToken)
+        assertEquals("device-first", deviceStore.deviceId())
     }
 
     @Test

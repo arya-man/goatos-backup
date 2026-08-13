@@ -10,15 +10,25 @@
 //     manager-tier vaccination operators, not support-only/park-head-only
 //     users. Therefore vaccination_operator_* positions are explicit
 //     pc.vaccination execute duty rows.
-//   - duty_type = 'execute' for surfaced vaccination operator positions even
+//   - duty_type = 'execute' for surfaced vaccination_operator_* positions even
 //     when their HR/title tier is manager/head; that tier does not remove them
-//     from drive execution. Other modules still use 'manage' for supervisory
-//     tiers (manager | head | director | cxo), else 'execute'.
+//     from drive execution (see isInflatedTierVaccinationOperator). Every other
+//     pc.vaccination seat -- preventive_care_manager, park_head, shed_manager --
+//     uses 'manage' for supervisory tiers (manager | head | director | cxo),
+//     same as every other module, else 'execute'. pc.vaccination is NOT
+//     blanket-excluded from 'manage': reminder_cadence.go documents and
+//     resolves a real manage audience for that module.
 //   - capability_code is the execution permission a temporary backup grant for
 //     that seat confers. Only pc.vaccination is a built + surfaced module today
 //     (scope-lock), so only the preventive_care prefix carries
 //     'vaccination.execute'; every other module's capability_code is NULL until
 //     that module is built.
+//   - duty_type = 'verify' rows are emitted for the tenant Video Verification Team
+//     seat (VerifierPositionCode), one per module that routes a pending-proof
+//     notification (notificationbridge.PendingNotificationDutyModules). Without these
+//     the verify join in ResolveModuleDutyRecipients matches nothing and every
+//     verifier push resolves to zero devices. The run ends with a closeout assertion
+//     that every such module has a reachable verify duty holder.
 //
 // It is idempotent: the unique index (tenant_id, position_code, module_code,
 // duty_type, effective_from) plus INSERT ... ON CONFLICT DO NOTHING means a
@@ -42,6 +52,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -53,6 +64,7 @@ const defaultTenantID = "00000000-0000-4000-8000-000000000001"
 // ONLY built-module capability today (scope-lock: pc.vaccination is the only
 // built + surfaced module).
 const vaccinationExecuteCapability = "vaccination.execute"
+const weighingExecuteCapability = "weighing.execute"
 
 // modulePrefix maps a workforce_positions.position_code PREFIX to the operational
 // module_code the seat works in, and the execution capability (if any) a backup
@@ -71,6 +83,8 @@ var modulePrefixes = []modulePrefix{
 	{prefix: "backup_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "shed_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "park_head", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
+	{prefix: "breeding_growth_director", moduleCode: "weighing", capability: weighingExecuteCapability},
+	{prefix: "weighing_operator", moduleCode: "weighing", capability: weighingExecuteCapability},
 	{prefix: "health_kidding", moduleCode: "health.kidding"},
 	{prefix: "feeding", moduleCode: "feed.direction"},
 	{prefix: "packaging", moduleCode: "packaging"},
@@ -78,6 +92,26 @@ var modulePrefixes = []modulePrefix{
 	{prefix: "farming", moduleCode: "farming"},
 	{prefix: "milk", moduleCode: "milk"},
 }
+
+// VerifierPositionCode is the tenant Video Verification Team seat. The verifier is
+// TENANT-level (one verifier reviews proof for every park and shed), but
+// ResolveModuleDutyRecipients resolves verify duty holders at CENTER scope with the
+// item's park id, so the seat is held by the same member at every center rather than
+// once at tenant scope. See backend/cmd/seed-roster-real (seedVerifierSeats).
+const VerifierPositionCode = "video_verifier"
+
+// dutyTypeVerify is the duty_type ResolveModuleDutyRecipients
+// (workforce/adapters/postgres/roster_repository.go) joins on to find who reviews a
+// module's proofs.
+//
+// THIS SEEDER NEVER EMITTED IT. deriveDuties produces only 'execute' and 'manage', so
+// position_module_duties held zero verify rows, so that join matched nothing, so EVERY
+// verifier push -- vaccination and weighing included, not just the new modules --
+// resolved to zero devices. Nothing failed: the notification tests stubbed recipient
+// resolution, the consumer logged "no recipients" at WARN, and the proof sat unreviewed.
+// deriveVerifierDuties below is the fix; assertVerifyDutyCoverage is what stops it
+// regressing into silence again.
+const dutyTypeVerify = "verify"
 
 // manageTiers is the set of position_tier values that MANAGE their module (as
 // opposed to executing it). Matches workforce_positions_tier_check.
@@ -155,6 +189,9 @@ func run(args []string) error {
 	}
 
 	duties, st := deriveDuties(positions)
+	notifiedModules := notificationbridge.PendingNotificationDutyModules()
+	duties = append(duties, deriveVerifierDuties(positions, notifiedModules)...)
+	st.DutiesDerived = len(duties)
 
 	fmt.Printf("derived position duties:\n"+
 		"  position_codes_scanned=%d backup_skipped=%d unmapped_skipped=%d duties_derived=%d\n",
@@ -174,8 +211,15 @@ func run(args []string) error {
 	st.DutiesInserted = inserted
 
 	fmt.Printf("seeded position duties:\n"+
-		"  duties_inserted=%d duties_already_present=%d\n",
-		st.DutiesInserted, st.DutiesDerived-st.DutiesInserted)
+		"  duties_inserted=%d duties_already_present=%d verify_modules=%v\n",
+		st.DutiesInserted, st.DutiesDerived-st.DutiesInserted, notifiedModules)
+
+	// Closeout runs LAST and is not advisory: a seed that leaves a notified module without a
+	// verify duty holder has produced a notification path that is green in tests and dead in
+	// the field, which is the exact failure this command exists to prevent.
+	if err := assertVerifyDutyCoverage(ctx, pool, *tenantID, notifiedModules); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -236,6 +280,18 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 			st.BackupSkipped++
 			continue
 		}
+		// The verifier seat is deliberately absent from modulePrefixes: its duties are
+		// 'verify' rows minted by deriveVerifierDuties from the notification routing map,
+		// not a module-prefix projection. Adding it to modulePrefixes would mint a bogus
+		// EXECUTE duty for the verifier and break separation of duty (the person who
+		// reviews the proof would carry the capability to perform the work). Skipping it
+		// here (rather than letting it fall through to the unmapped branch) is what stops
+		// -strict -- which BOTH real invocations use, Makefile seed-vaccination-real and
+		// seed-vaccination-cpt-operator-drive -- from aborting the whole run before
+		// insertDuties and leaving position_module_duties completely empty.
+		if p.positionCode == VerifierPositionCode {
+			continue
+		}
 		mp, ok := matchModule(p.positionCode)
 		if !ok {
 			st.UnmappedSkipped++
@@ -243,7 +299,7 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 			continue
 		}
 		dutyType := "execute"
-		if mp.moduleCode != "pc.vaccination" && manageTiers[p.positionTier] {
+		if manageTiers[p.positionTier] && !isInflatedTierVaccinationOperator(p.positionCode) {
 			dutyType = "manage"
 		}
 		out = append(out, dutyRow{
@@ -262,6 +318,176 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 		return out[i].moduleCode < out[j].moduleCode
 	})
 	return out, st
+}
+
+// deriveVerifierDuties emits one 'verify' duty row per notified module for the Video
+// Verification Team seat, so ResolveModuleDutyRecipients can actually find a reviewer.
+//
+// The module list is NOT re-typed here: it comes from
+// notificationbridge.PendingNotificationDutyModules(), the same map the push consumer
+// routes from. A hand-copied list would drift, and drift in this exact place is what left
+// the verify join empty.
+//
+// capability_code stays NULL: a verify duty confers no execution capability, so a backup
+// grant covering the verifier seat must not hand anyone a scanner.
+func deriveVerifierDuties(positions []positionRow, modules []string) []dutyRow {
+	held := false
+	for _, p := range positions {
+		if p.positionCode == VerifierPositionCode {
+			held = true
+			break
+		}
+	}
+	if !held {
+		// Do not invent a duty for a seat that does not exist. The closeout assertion
+		// reports it as uncovered, which is the loud failure this seeder owes the caller.
+		return nil
+	}
+	out := make([]dutyRow, 0, len(modules))
+	for _, module := range modules {
+		out = append(out, dutyRow{positionCode: VerifierPositionCode, moduleCode: module, dutyType: dutyTypeVerify})
+	}
+	return out
+}
+
+// assertVerifyDutyCoverage is the SEED CLOSEOUT: every module that routes a pending-proof
+// push must have at least one REACHABLE verify duty holder -- an active duty row on an
+// active seat held by an active member. It counts what the notification path itself
+// resolves, minus the device join, so "seeded but nobody holds the seat" fails here rather
+// than in the field as a silent non-delivery.
+// It must count what the RUNTIME counts, not a looser superset. ResolveModuleDutyRecipients
+// (workforce/adapters/postgres/roster_repository.go) resolves verify duty holders at
+// scope_type='center' with the ITEM'S PARK ID, and applies the position (valid_from/valid_to)
+// and duty (effective_from/effective_to) windows. A closeout that filters only
+// tenant/module/duty_type/status therefore passes on a verifier seated at ONE park while
+// pushes at every OTHER park still resolve to zero devices -- the exact silent
+// non-delivery this assertion exists to prevent. So the check is per (module, park in scope),
+// with the same scope and temporal predicates the runtime query uses. The only runtime
+// predicate deliberately omitted is the device join: "seat held but phone not registered" is
+// a device-enrollment state, not a seeding defect.
+func assertVerifyDutyCoverage(ctx context.Context, pool *pgxpool.Pool, tenantID string, modules []string) error {
+	at := time.Now().UTC()
+	type gap struct{ module, park string }
+	var uncovered []gap
+	parksInScope := 0
+	for i, module := range modules {
+		rows, err := pool.Query(ctx, `
+WITH parks AS (
+  SELECT DISTINCT scope_id, scope_id::text AS park_id
+  FROM workforce_positions
+  WHERE tenant_id = $1::uuid
+    AND scope_type = 'center'
+    AND status = 'active'
+    AND valid_from <= $4::timestamptz
+    AND (valid_to IS NULL OR valid_to > $4::timestamptz)
+)
+SELECT COALESCE(l.location_code, parks.park_id) AS park,
+       EXISTS (
+         SELECT 1
+         FROM workforce_positions p
+         JOIN position_module_duties pmd
+           ON pmd.tenant_id = p.tenant_id
+          AND pmd.position_code = p.position_code
+          AND pmd.module_code = $2
+          AND pmd.duty_type = $3
+          AND pmd.status = 'active'
+          AND pmd.effective_from <= $4::timestamptz
+          AND (pmd.effective_to IS NULL OR pmd.effective_to > $4::timestamptz)
+         JOIN workforce_members m
+           ON m.tenant_id = p.tenant_id
+          AND m.workforce_member_id = p.workforce_member_id
+          AND m.status = 'active'
+         WHERE p.tenant_id = $1::uuid
+           AND p.scope_type = 'center'
+           AND p.scope_id = parks.scope_id
+           AND p.status = 'active'
+           AND p.valid_from <= $4::timestamptz
+           AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+       ) AS covered
+FROM parks
+LEFT JOIN locations l ON l.tenant_id = $1::uuid AND l.location_id = parks.scope_id
+ORDER BY 1`, tenantID, module, dutyTypeVerify, at)
+		if err != nil {
+			return fmt.Errorf("count verify duty holders for %s: %w", module, err)
+		}
+		parks := 0
+		for rows.Next() {
+			var park string
+			var covered bool
+			if err := rows.Scan(&park, &covered); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan verify duty coverage for %s: %w", module, err)
+			}
+			parks++
+			if !covered {
+				uncovered = append(uncovered, gap{module: module, park: park})
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return fmt.Errorf("count verify duty holders for %s: %w", module, err)
+		}
+		if i == 0 {
+			parksInScope = parks
+		}
+		if parks == 0 {
+			return fmt.Errorf(
+				"seed closeout FAILED: no active center-scope workforce position exists for tenant %s, so no park can hold a "+
+					"'%s' duty and every verifier push resolves to zero devices. Seed the roster (backend/cmd/seed-roster-real) first",
+				tenantID, dutyTypeVerify)
+		}
+	}
+	if len(uncovered) > 0 {
+		pairs := make([]string, 0, len(uncovered))
+		for _, g := range uncovered {
+			pairs = append(pairs, g.module+"@"+g.park)
+		}
+		return fmt.Errorf(
+			"seed closeout FAILED: module/park pair(s) %v route a pending-proof notification but have no active '%s' duty holder "+
+				"at scope_type='center' for that park, so every verifier push there resolves to zero devices. Seed the %q seat "+
+				"at every park in scope (backend/cmd/seed-roster-real) and re-run this seeder",
+			pairs, dutyTypeVerify, VerifierPositionCode)
+	}
+	fmt.Printf("verify duty coverage OK: %d module(s) x %d center-scope park(s)\n", len(modules), parksInScope)
+	return nil
+}
+
+// vaccinationExecuteOnlyPrefixes are pc.vaccination position_code prefixes that
+// always carry 'execute', never 'manage', regardless of their HR/title
+// position_tier:
+//   - "vaccination_operator": the reviewed CPT roster gives these seats an
+//     inflated HR/title tier (manager/head) that does not reflect
+//     drive-execution reality (commit cae41af63).
+//   - "backup_manager": a backup slot covers the absent manager's TASKS, not
+//     their supervisory role -- it never gains management authority over the
+//     module (see goatos-backup-manager-coverage memory / leave-coverage docs).
+var vaccinationExecuteOnlyPrefixes = []string{"vaccination_operator", "backup_manager"}
+
+// isInflatedTierVaccinationOperator reports whether positionCode is one of
+// vaccinationExecuteOnlyPrefixes, the ONLY cases where a supervisory
+// position_tier (manager | head | director | cxo) does not translate to a
+// 'manage' duty for pc.vaccination.
+//
+// This is narrower than "pc.vaccination gets no manage duty": that module DOES
+// have a real manage audience -- preventive_care_manager, park_head, and
+// shed_manager are documented as carrying pc.vaccination 'manage' in
+// backend/internal/kernelstages/reminder_cadence.go ("park_head /
+// preventive_care_manager / shed_manager (manager+ tiers) carry 'manage'"), and
+// reminderCadenceDutyTypes = []string{"execute", "manage"} means the reminder
+// ladder actively resolves that duty. Blanket-excluding the whole module (as a
+// prior revision did) silently starved that real audience and made
+// tools/dev/seed-closeout.sh's assert_reminder_audience_resolves check
+// unsatisfiable on any fresh database: closeout requires an ACTIVE seat holding
+// BOTH pc.vaccination execute AND manage, but no seeded position could ever earn
+// 'manage' for that module.
+func isInflatedTierVaccinationOperator(positionCode string) bool {
+	for _, prefix := range vaccinationExecuteOnlyPrefixes {
+		if positionCode == prefix || strings.HasPrefix(positionCode, prefix+"_") {
+			return true
+		}
+	}
+	return false
 }
 
 // matchModule returns the module mapping for a position_code by longest matching

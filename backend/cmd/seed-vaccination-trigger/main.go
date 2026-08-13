@@ -108,18 +108,19 @@ func validateTarget(env, databaseURL string) error {
 const seedSQL = `
 INSERT INTO animal_stage_lookup (
   animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days,
-  sort_order, status
+  sort_order, status, age_band
 ) VALUES
-  ('` + localStageK0ID + `', $1::uuid, 'K0', 'Newborn', 0, 1, 0, 'active'),
-  ('` + localStageK1ID + `', $1::uuid, 'K1', 'Milk training', 2, 7, 10, 'active'),
-  ('` + localStageK2ID + `', $1::uuid, 'K2', 'Milk drinking', 8, 42, 20, 'active'),
-  ('` + localStageK3ID + `', $1::uuid, 'K3', 'Weaned kids', 43, NULL, 30, 'active')
+  ('` + localStageK0ID + `', $1::uuid, 'K0', 'Newborn', 0, 1, 0, 'active', 'kid'),
+  ('` + localStageK1ID + `', $1::uuid, 'K1', 'Milk training', 2, 7, 10, 'active', 'kid'),
+  ('` + localStageK2ID + `', $1::uuid, 'K2', 'Milk drinking', 8, 42, 20, 'active', 'kid'),
+  ('` + localStageK3ID + `', $1::uuid, 'K3', 'Weaned kids', 43, NULL, 30, 'active', 'kid')
 ON CONFLICT (tenant_id, stage_code) DO UPDATE
 SET name = EXCLUDED.name,
     min_age_days = EXCLUDED.min_age_days,
     max_age_days = EXCLUDED.max_age_days,
     sort_order = EXCLUDED.sort_order,
     status = 'active',
+    age_band = EXCLUDED.age_band,
     updated_at = now();
 
 INSERT INTO locations (

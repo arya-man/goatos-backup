@@ -16,6 +16,7 @@ import (
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 type Repository struct {
@@ -199,6 +200,77 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	return items, next, nil
 }
 
+// ListTemporaryTaggedGoats returns one keyset page of goats that still carry an active temporary tag
+// (the operator "Awaiting RFID" list). The INNER JOIN to the active temporary_tag identifier is the
+// driving set -- kept small and index-selective by goat_identifiers_active_temporary_tag_idx -- and
+// the page is keyset-ordered by g.display_id exactly like SearchGoats so next_cursor is the last
+// row's display_id.
+func (r *Repository) ListTemporaryTaggedGoats(ctx context.Context, params ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	args := []any{params.TenantID, params.Limit + 1}
+	where := []string{"g.tenant_id = $1::uuid", "g.merged_into_goat_id IS NULL"}
+	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) != "" {
+		args = append(args, strings.TrimSpace(*params.Cursor))
+		where = append(where, fmt.Sprintf("g.display_id > $%d", len(args)))
+	}
+	// Optional location filter (operator "Awaiting RFID" park -> shed cascade). The bind param is
+	// cast to uuid, not the indexed column, so g.park_id / g.shed_id stay SARGable.
+	if strings.TrimSpace(params.ParkID) != "" {
+		args = append(args, strings.TrimSpace(params.ParkID))
+		where = append(where, fmt.Sprintf("g.park_id = $%d::uuid", len(args)))
+	}
+	if strings.TrimSpace(params.ShedID) != "" {
+		args = append(args, strings.TrimSpace(params.ShedID))
+		where = append(where, fmt.Sprintf("g.shed_id = $%d::uuid", len(args)))
+	}
+
+	query := `SELECT
+  g.goat_id::text,
+  g.display_id,
+  tt.identifier_value,
+  -- Shed first, then park, matching SearchGoats' location_display shape.
+  COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
+  g.row_version
+FROM goats g
+JOIN goat_identifiers tt ON tt.tenant_id = g.tenant_id
+  AND tt.goat_id = g.goat_id
+  AND tt.identifier_type = 'temporary_tag'
+  AND tt.status = 'active'
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+WHERE ` + strings.Join(where, " AND ") + `
+ORDER BY g.display_id ASC
+LIMIT $2`
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	items := make([]domain.TemporaryTaggedGoat, 0, params.Limit)
+	for rows.Next() {
+		var row domain.TemporaryTaggedGoat
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &row.TemporaryIdentifier, &row.LocationDisplay, &row.RowVersion); err != nil {
+			return nil, nil, err
+		}
+		items = append(items, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	var next *string
+	if len(items) > params.Limit {
+		cursor := items[params.Limit-1].DisplayID
+		next = &cursor
+		items = items[:params.Limit]
+	}
+	return items, next, nil
+}
+
 func (r *Repository) FindIdentifierMatches(ctx context.Context, params ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -340,6 +412,8 @@ LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = 
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
+-- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN LATERAL (
   SELECT (gie.payload->>'weight_kg')::float8 AS weight_kg
   FROM goat_identity_events gie
@@ -392,6 +466,10 @@ func goatSummaryColumns() string {
   g.cohort_id::text,
   cohort.location_code,
   cohort.name,
+  -- '' when not a real partition (NULL row or the 'whole' sentinel): never surface the sentinel.
+  CASE WHEN gsp.partition_label IS NULL OR lower(btrim(gsp.partition_label)) = 'whole'
+       THEN '' ELSE gsp.partition_label END,
+  COALESCE(gsp.source_shed_name, ''),
   latest_weight.weight_kg,
   g.species,
   g.merged_into_goat_id::text,
@@ -428,6 +506,8 @@ type sqlcGoatRow struct {
 	CohortID           string
 	CohortCode         string
 	CohortName         string
+	PartitionLabel     string
+	SourceShedName     string
 	WeightKg           *float64
 	Species            string
 	MergedIntoGoatID   string
@@ -450,9 +530,19 @@ func sqlcGoatRowFromID(row identitydb.GetGoatByIDRow) sqlcGoatRow {
 		HealthStatus:       row.HealthStatus,
 		LocationDisplay:    row.LocationDisplay,
 		FarmID:             row.FarmID,
+		FarmCode:           row.FarmCode,
+		FarmName:           row.FarmName,
 		ParkID:             row.ParkID,
+		ParkCode:           row.ParkCode,
+		ParkName:           row.ParkName,
 		ShedID:             row.ShedID,
+		ShedCode:           row.ShedCode,
+		ShedName:           row.ShedName,
 		CohortID:           row.CohortID,
+		CohortCode:         row.CohortCode,
+		CohortName:         row.CohortName,
+		PartitionLabel:     row.PartitionLabel,
+		SourceShedName:     row.SourceShedName,
 		Species:            row.Species,
 		MergedIntoGoatID:   row.MergedIntoGoatID,
 		RowVersion:         row.RowVersion,
@@ -475,9 +565,19 @@ func sqlcGoatRowFromDisplayID(row identitydb.GetGoatByDisplayIDRow) sqlcGoatRow 
 		HealthStatus:       row.HealthStatus,
 		LocationDisplay:    row.LocationDisplay,
 		FarmID:             row.FarmID,
+		FarmCode:           row.FarmCode,
+		FarmName:           row.FarmName,
 		ParkID:             row.ParkID,
+		ParkCode:           row.ParkCode,
+		ParkName:           row.ParkName,
 		ShedID:             row.ShedID,
+		ShedCode:           row.ShedCode,
+		ShedName:           row.ShedName,
 		CohortID:           row.CohortID,
+		CohortCode:         row.CohortCode,
+		CohortName:         row.CohortName,
+		PartitionLabel:     row.PartitionLabel,
+		SourceShedName:     row.SourceShedName,
 		Species:            row.Species,
 		MergedIntoGoatID:   row.MergedIntoGoatID,
 		RowVersion:         row.RowVersion,
@@ -499,25 +599,32 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 		ManagementStage:    pgTextPtr(row.ManagementStage),
 		HealthStatus:       pgTextPtr(row.HealthStatus),
 		LocationPath: domain.LocationPath{
-			Display:    row.LocationDisplay,
-			FarmID:     nonEmptyStringPtr(row.FarmID),
-			FarmCode:   nonEmptyStringPtr(row.FarmCode),
-			FarmName:   nonEmptyStringPtr(row.FarmName),
-			ParkID:     nonEmptyStringPtr(row.ParkID),
-			ParkCode:   nonEmptyStringPtr(row.ParkCode),
-			ParkName:   nonEmptyStringPtr(row.ParkName),
-			ShedID:     nonEmptyStringPtr(row.ShedID),
-			ShedCode:   nonEmptyStringPtr(row.ShedCode),
-			ShedName:   nonEmptyStringPtr(row.ShedName),
-			CohortID:   nonEmptyStringPtr(row.CohortID),
-			CohortCode: nonEmptyStringPtr(row.CohortCode),
-			CohortName: nonEmptyStringPtr(row.CohortName),
+			// Seeded with the bare shed/park label; applyLocationPartition overwrites it with the
+			// partition-aware composition when the animal is in a pen.
+			OperationalLocationDisplay: row.LocationDisplay,
+			FarmID:                     nonEmptyStringPtr(row.FarmID),
+			FarmCode:                   nonEmptyStringPtr(row.FarmCode),
+			FarmName:                   nonEmptyStringPtr(row.FarmName),
+			ParkID:                     nonEmptyStringPtr(row.ParkID),
+			ParkCode:                   nonEmptyStringPtr(row.ParkCode),
+			ParkName:                   nonEmptyStringPtr(row.ParkName),
+			ShedID:                     nonEmptyStringPtr(row.ShedID),
+			ShedCode:                   nonEmptyStringPtr(row.ShedCode),
+			ShedName:                   nonEmptyStringPtr(row.ShedName),
+			CohortID:                   nonEmptyStringPtr(row.CohortID),
+			CohortCode:                 nonEmptyStringPtr(row.CohortCode),
+			CohortName:                 nonEmptyStringPtr(row.CohortName),
 		},
 		WeightKg:         row.WeightKg,
 		RowVersion:       int32(row.RowVersion),
 		Warnings:         []domain.Warning{},
 		MergedIntoGoatID: nonEmptyStringPtr(row.MergedIntoGoatID),
 	}
+	applyLocationPartition(
+		&summary.LocationPath,
+		sql.NullString{String: row.PartitionLabel, Valid: strings.TrimSpace(row.PartitionLabel) != ""},
+		sql.NullString{String: row.SourceShedName, Valid: strings.TrimSpace(row.SourceShedName) != ""},
+	)
 	return summary, row.Species, nonEmptyStringPtr(row.MergedIntoGoatID), int(row.RowVersion)
 }
 
@@ -566,6 +673,8 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		cohortID          sql.NullString
 		cohortCode        sql.NullString
 		cohortName        sql.NullString
+		partitionLabel    sql.NullString
+		sourceShedName    sql.NullString
 		weightKg          sql.NullFloat64
 		species           string
 		mergedInto        sql.NullString
@@ -584,7 +693,7 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		&growth,
 		&management,
 		&health,
-		&summary.LocationPath.Display,
+		&summary.LocationPath.OperationalLocationDisplay,
 		&farmID,
 		&farmCode,
 		&farmName,
@@ -597,6 +706,8 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		&cohortID,
 		&cohortCode,
 		&cohortName,
+		&partitionLabel,
+		&sourceShedName,
 		&weightKg,
 		&species,
 		&mergedInto,
@@ -629,10 +740,33 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 	summary.LocationPath.CohortID = stringPtr(cohortID)
 	summary.LocationPath.CohortCode = stringPtr(cohortCode)
 	summary.LocationPath.CohortName = stringPtr(cohortName)
+	applyLocationPartition(&summary.LocationPath, partitionLabel, sourceShedName)
 	summary.WeightKg = floatPtr(weightKg)
 	summary.RowVersion = int32(rowVersion)
 	summary.Warnings = []domain.Warning{}
 	return summary, species, stringPtr(mergedInto), rowVersion, nil
+}
+
+// applyLocationPartition recomposes LocationPath.Display as an oploc.OperationalLocation so a
+// partitioned shed renders "Castro 2" / "Godel 1 - Part 3" instead of the bare shed name, and
+// stamps PartitionLabel/SourceShedName/OperationalLocationDisplay. Non-partitioned sheds and
+// shed-less animals are left exactly as the caller's COALESCE(shed.name, park.name, ...)
+// composed them -- oploc.Display() only changes output when a real partition is present.
+func applyLocationPartition(loc *domain.LocationPath, partitionLabel, sourceShedName sql.NullString) {
+	if partitionLabel.Valid && strings.TrimSpace(partitionLabel.String) != "" {
+		label := partitionLabel.String
+		loc.PartitionLabel = &label
+	}
+	if sourceShedName.Valid && strings.TrimSpace(sourceShedName.String) != "" {
+		src := sourceShedName.String
+		loc.SourceShedName = &src
+	}
+	if loc.ShedID != nil && loc.PartitionLabel != nil && loc.ShedName != nil {
+		loc.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       *loc.ShedName,
+			PartitionLabel: *loc.PartitionLabel,
+		}.Display()
+	}
 }
 
 func scanIdentifier(row scanner) (domain.GoatIdentifier, error) {
@@ -694,6 +828,8 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		cohortID          sql.NullString
 		cohortCode        sql.NullString
 		cohortName        sql.NullString
+		partitionLabel    sql.NullString
+		sourceShedName    sql.NullString
 		weightKg          sql.NullFloat64
 		species           string
 		mergedInto        sql.NullString
@@ -723,7 +859,7 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		&growth,
 		&management,
 		&health,
-		&summary.LocationPath.Display,
+		&summary.LocationPath.OperationalLocationDisplay,
 		&farmID,
 		&farmCode,
 		&farmName,
@@ -736,6 +872,8 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		&cohortID,
 		&cohortCode,
 		&cohortName,
+		&partitionLabel,
+		&sourceShedName,
 		&weightKg,
 		&species,
 		&mergedInto,
@@ -770,6 +908,7 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 	summary.LocationPath.CohortID = stringPtr(cohortID)
 	summary.LocationPath.CohortCode = stringPtr(cohortCode)
 	summary.LocationPath.CohortName = stringPtr(cohortName)
+	applyLocationPartition(&summary.LocationPath, partitionLabel, sourceShedName)
 	summary.WeightKg = floatPtr(weightKg)
 	summary.Warnings = []domain.Warning{}
 	summary.MergedIntoGoatID = stringPtr(mergedInto)

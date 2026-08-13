@@ -26,11 +26,18 @@ import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsEvidenceRefDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_PERMANENT
+import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
 import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
+import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
+import sg.mesha.goatos.rfid.ScanSource
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /**
@@ -59,11 +66,18 @@ import javax.inject.Inject
  * Medical guardrail: the death path targets identity's critical-death exit, where
  * `lifecycle_status="dead"` + `exit_reason="died"` is enforced server-side. This ViewModel sends
  * the DTO's constants and never lets the operator choose another pairing.
+ *
+ * The birth path's two permanent identifiers can be SCANNED rather than typed: [scanSource] is the
+ * same BT-HID keyboard-wedge port (`docs/mobile/rfid-keyboard-reader.md`) the Submit recording form
+ * uses, so no Bluetooth/InputManager API reaches this layer. A scan is applied through the SAME
+ * [onEditField] path a typed value takes, so the draft guard and submit gate cannot diverge between
+ * the two input methods.
  */
 @HiltViewModel
 class BirthDeathViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val countsRepository: CountsRepository,
+    private val scanSource: ScanSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
@@ -80,6 +94,7 @@ class BirthDeathViewModel @Inject constructor(
     val state: StateFlow<BirthDeathUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var scanJob: Job? = null
 
     init {
         // A ViewModel recreated after process death resumes following its already-queued write
@@ -87,6 +102,8 @@ class BirthDeathViewModel @Inject constructor(
         outboxItemId.value?.let(::observeOutboxItem)
         observeDestinations()
         refreshDestinations()
+        observeBreedOptions()
+        refreshBreedOptions()
         recomputeSubmitGate()
     }
 
@@ -94,22 +111,29 @@ class BirthDeathViewModel @Inject constructor(
         when (event) {
             is BirthDeathEvent.SelectMode -> onSelectMode(event.mode)
             is BirthDeathEvent.EditField -> onEditField(event.field, event.value)
+            is BirthDeathEvent.ToggleRfidScan -> toggleScan(event.field)
             is BirthDeathEvent.SelectPark -> onSelectPark(event.parkId)
             is BirthDeathEvent.SelectShed -> onSelectShed(event.shedId)
             is BirthDeathEvent.EditAnimalQuery -> onEditAnimalQuery(event.value)
             BirthDeathEvent.LookupAnimals -> lookupAnimals()
             is BirthDeathEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             BirthDeathEvent.Submit -> submit()
+            BirthDeathEvent.RecordAnother -> onRecordAnother()
             BirthDeathEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
 
     private fun onSelectMode(mode: BirthDeathMode) {
         if (_state.value.result.isCommitted) return
+        // Death has no permanent-identifier field; never leave the reader listening into a form
+        // that has nowhere to put a tag.
+        stopScanning()
         // Switching mode makes this a different write; drop the draft key so the new event can
         // never inherit the other mode's identity.
         idempotencyKey.invalidate()
-        _state.update { it.copy(mode = mode, result = CountsWriteResultUi(), validationMessage = null) }
+        _state.update {
+            it.copy(mode = mode, result = CountsWriteResultUi(), validationMessage = null, lastRecordedMessage = null)
+        }
         recomputeSubmitGate()
     }
 
@@ -128,15 +152,23 @@ class BirthDeathViewModel @Inject constructor(
             statusJob?.cancel()
             _state.update { it.copy(result = CountsWriteResultUi()) }
         }
+        // Starting the next entry dismisses the "Recorded" confirmation left by the previous write.
+        if (_state.value.lastRecordedMessage != null) {
+            _state.update { it.copy(lastRecordedMessage = null) }
+        }
         return true
     }
 
     private fun onEditField(field: BirthDeathField, value: String) {
         if (!beginEdit()) return
+        // Switching to the temporary-tag path hides both permanent-RFID fields (a provisional tag
+        // has nothing to read), so any scan in progress has lost its destination.
+        if (field == BirthDeathField.ID_KIND && value == BIRTH_ID_KIND_TEMPORARY) stopScanning()
         _state.update { current ->
             when (field) {
+                BirthDeathField.ID_KIND -> current.copy(idKind = value)
                 BirthDeathField.TAG -> current.copy(tag = value)
-                BirthDeathField.SECOND_TAG -> current.copy(secondTag = value)
+                BirthDeathField.TAG2 -> current.copy(tag2 = value)
                 BirthDeathField.SPECIES -> current.copy(species = value)
                 BirthDeathField.SEX -> current.copy(sex = value)
                 BirthDeathField.BREED -> current.copy(breed = value)
@@ -147,6 +179,67 @@ class BirthDeathViewModel @Inject constructor(
             }
         }
         recomputeSubmitGate()
+    }
+
+    // -----------------------------------------------------------------------
+    // Bluetooth RFID scan — one permanent-identifier field at a time
+    // -----------------------------------------------------------------------
+
+    /**
+     * Hands the BT-HID reader to [field], or stops it when [field] is already the one listening.
+     * A completed tag fills that field and STOPS the reader: an ear tag is one identifier, so
+     * leaving capture running would let the next animal's tag silently overwrite it.
+     *
+     * Only the two permanent identifiers are scannable; any other field is ignored rather than
+     * silently starting a reader whose read has nowhere to land.
+     */
+    private fun toggleScan(field: BirthDeathField) {
+        if (field != BirthDeathField.TAG && field != BirthDeathField.TAG2) return
+        if (_state.value.result.isCommitted) return // the birth is durable; nothing left to edit
+        if (_state.value.scanningField == field) {
+            stopScanning()
+            return
+        }
+        stopScanning()
+        _state.update { it.copy(scanningField = field) }
+        scanSource.start()
+        analytics.track(
+            AnalyticsEvents.COUNTS_RFID_SCAN_STARTED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to "birth",
+                AnalyticsEvents.Params.FIELD to field.name.lowercase(),
+            ),
+        )
+        scanJob = viewModelScope.launch {
+            scanSource.tags.collect { tag ->
+                // Through the ordinary edit path: same draft/re-key guard and submit gate a typed
+                // identifier gets, so scanning can never bypass a validation a keyboard cannot.
+                onEditField(field, tag)
+                analytics.track(
+                    AnalyticsEvents.COUNTS_RFID_SCAN_CAPTURED,
+                    mapOf(
+                        AnalyticsEvents.Params.KIND to "birth",
+                        AnalyticsEvents.Params.FIELD to field.name.lowercase(),
+                    ),
+                )
+                stopScanning()
+            }
+        }
+    }
+
+    private fun stopScanning() {
+        if (_state.value.scanningField == null) return
+        scanSource.stop()
+        scanJob?.cancel()
+        scanJob = null
+        _state.update { it.copy(scanningField = null) }
+    }
+
+    override fun onCleared() {
+        // Leaving the screen must release the reader: capture consumes hardware key events
+        // app-wide while enabled, so a leaked listener would eat another screen's input.
+        stopScanning()
+        super.onCleared()
     }
 
     // -----------------------------------------------------------------------
@@ -178,6 +271,56 @@ class BirthDeathViewModel @Inject constructor(
                 }
                 recomputeSubmitGate()
             }
+        }
+    }
+
+    /**
+     * Breed is chosen, not typed. The option list is the herd's OWN breed vocabulary, served by
+     * `GET /app/counts/breeds` on the operator surface — so the app never invents a breed vocabulary
+     * of its own, and a field operator (who holds CountsWrite but not the CountsRead the Counts
+     * Breakdown screen needs) still gets real options. Cache-first and reactive: it emits from Room
+     * immediately and re-emits after [refreshBreedOptions]. A refresh that drops the currently-selected
+     * breed clears it so submit can never name a breed the vocabulary no longer offers. The option's
+     * own `key` is what submits.
+     */
+    private fun observeBreedOptions() {
+        viewModelScope.launch {
+            countsRepository.observeBirthBreeds().collect { resource ->
+                val options = resource.data?.breeds
+                    ?.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+                    .orEmpty()
+                _state.update { current ->
+                    val breedStillOffered = options.any { it.key == current.breed }
+                    current.copy(
+                        breedOptions = options,
+                        breed = if (breedStillOffered) current.breed else "",
+                    )
+                }
+                recomputeSubmitGate()
+            }
+        }
+    }
+
+    /**
+     * Warms the breed vocabulary from `GET /app/counts/breeds` so the breed picker is usable even for
+     * a field operator with no Counts page access. [observeBreedOptions] reads only the Room-cached
+     * vocabulary, so without this fetch the picker stays disabled on a cold cache. The operator surface
+     * is deliberate: the Counts Breakdown breed facet is CountsRead and would 403 for the very users
+     * who record births. Failure is non-fatal: the picker falls back to whatever was already cached.
+     */
+    private fun refreshBreedOptions() {
+        viewModelScope.launch {
+            countsRepository.refreshBirthBreeds()
+                .onFailure { error ->
+                    crashReporter.recordException(error, "counts birth-death breed vocabulary refresh failed")
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_READ_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "birth_breed_vocabulary",
+                            AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
+                        ),
+                    )
+                }
         }
     }
 
@@ -218,12 +361,20 @@ class BirthDeathViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
-    private fun onSelectShed(shedId: String) {
+    /**
+     * [optionKey] is the composite `shedId|partitionLabel` dropdown key, not a shed id — the
+     * destinations feed returns one option per PARTITION, so a shed id does not identify a choice.
+     */
+    private fun onSelectShed(optionKey: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            // Guard the pairing at selection too: only a shed that belongs to the chosen park stores.
-            val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(shedId = shedId) else current
+            // Guard the pairing at selection too: only an option that belongs to the chosen park stores.
+            val option = current.shedsForSelectedPark.firstOrNull { it.optionKey == optionKey }
+            if (option != null) {
+                current.copy(shedId = option.shedId, partitionLabel = option.partitionLabel)
+            } else {
+                current
+            }
         }
         recomputeSubmitGate()
     }
@@ -294,6 +445,7 @@ class BirthDeathViewModel @Inject constructor(
     // -----------------------------------------------------------------------
 
     private fun submit() {
+        stopScanning() // the identifiers are settled; release the reader before the write
         val current = _state.value
         if (!current.canSubmit) return
         // One stable key for this draft, reused verbatim on every retry the sync engine makes.
@@ -336,17 +488,30 @@ class BirthDeathViewModel @Inject constructor(
         groupKey = current.tag.trim(),
         idempotencyKey = key,
         request = CountsBirthEventRequestDto(
-            animalIdentifier1 = current.tag.trim(),
-            animalIdentifier2 = current.secondTag.trim().ifBlank { null },
+            // Exactly one primary identity is sent: a permanent RFID or a provisional temporary tag,
+            // per the operator's toggle. The backend rejects both-or-neither.
+            animalIdentifier1 = current.tag.trim().takeIf { current.idKind == BIRTH_ID_KIND_PERMANENT },
+            temporaryIdentifier = current.tag.trim().takeIf { current.idKind == BIRTH_ID_KIND_TEMPORARY },
+            // An optional SECOND permanent RFID for a newborn given two ear tags. Permanent path only:
+            // a temporary tag never carries a second permanent RFID (the backend rejects that pairing).
+            animalIdentifier2 = current.tag2.trim()
+                .takeIf { current.idKind == BIRTH_ID_KIND_PERMANENT && it.isNotBlank() },
             species = current.species,
             // Placement ids come from the destinations catalog, not free text — never a typed UUID.
             parkId = current.parkId.ifBlank { null },
             shedId = current.shedId.ifBlank { null },
-            breed = current.breed.trim().ifBlank { null },
+            partitionLabel = current.partitionLabel?.takeIf { it.isNotBlank() },
+            // Breed is the selected facet key from the herd's own vocabulary, never typed.
+            breed = current.breed.trim(),
             sex = current.sex,
             dob = current.dob.trim(),
-            entryDate = current.entryDate.trim(),
-            damId = current.damId.trim().ifBlank { null },
+            // Entry date defaults to today's business date (Asia/Kolkata) — stamped on open so an
+            // offline entry keeps its real recording date, not the later sync date — but is editable
+            // via the M3 date picker, so the operator's chosen value is what ships. The backend
+            // stays the authority on dob <= entry_date.
+            entryDate = current.entryDate.trim().ifBlank { todayBusinessDate() },
+            damId = current.damId.trim(),
+            litterSize = 1,
             evidenceRefs = evidence,
         ),
     )
@@ -373,6 +538,44 @@ class BirthDeathViewModel @Inject constructor(
                 rowVersion = animal.rowVersion,
             ),
         )
+    }
+
+    /**
+     * Clears the form for the NEXT entry after a committed write. The committed row is durable in
+     * the outbox and syncs on its own, so we drop only THIS ViewModel's references to it: stop
+     * following its status, drop the persisted outbox id, and mint a fresh idempotency key so the
+     * next animal is a genuinely new write (never a duplicate under the previous draft's key). The
+     * draft resets to blank defaults while KEEPING the cached park/shed and breed vocabularies so the
+     * form is immediately usable, and re-stamps today's entry date (the screen only auto-stamps on a
+     * mode change, which does not happen here).
+     */
+    private fun onRecordAnother() = resetForNextEntry(confirmation = null)
+
+    /**
+     * Clears the form for the next entry. [confirmation], when non-null, is shown as a transient
+     * success banner above the fresh form — used by the auto-reset once the write is server-confirmed
+     * (synced) so the operator sees the record landed without the previous animal's values lingering
+     * on a locked form. The committed row is durable in the outbox and syncs on its own, so we drop
+     * only THIS ViewModel's references to it and mint a fresh idempotency key for the next animal.
+     * The draft resets to blank defaults while KEEPING the cached park/shed and breed vocabularies so
+     * the form is immediately usable, and re-stamps today's entry date.
+     */
+    private fun resetForNextEntry(confirmation: String?) {
+        stopScanning()
+        statusJob?.cancel()
+        statusJob = null
+        idempotencyKey.invalidate()
+        outboxItemId.value = null
+        _state.update { current ->
+            BirthDeathUiState(
+                mode = current.mode,
+                destinationParks = current.destinationParks,
+                breedOptions = current.breedOptions,
+                entryDate = todayBusinessDate(),
+                lastRecordedMessage = confirmation,
+            )
+        }
+        recomputeSubmitGate()
     }
 
     private fun onEnqueueFailed(mode: BirthDeathMode, error: AppResult.Err) {
@@ -406,9 +609,17 @@ class BirthDeathViewModel @Inject constructor(
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
                     item ?: return@collect
-                    _state.update {
-                        it.copy(result = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE))
+                    val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
+                    // Once the server confirms the write (synced), auto-clear the form for the next
+                    // entry and show a transient "Recorded" confirmation, instead of leaving the
+                    // previous animal's values on a locked form. A still-syncing (queued) write keeps
+                    // its saved-offline banner plus the manual "Record another" action, and a
+                    // terminally-rejected (failed) write keeps its error and values for correction.
+                    if (writeResult.status == sg.mesha.goatos.feature.counts.CountsWriteStatus.SYNCED) {
+                        resetForNextEntry(confirmation = writeResult.message)
+                        return@collect
                     }
+                    _state.update { it.copy(result = writeResult) }
                     recomputeSubmitGate()
                 }
         }
@@ -433,11 +644,19 @@ class BirthDeathViewModel @Inject constructor(
 
     private fun birthValidation(state: BirthDeathUiState): String? = when {
         state.tag.isBlank() -> "Enter the newborn's identifier."
+        // Optional second permanent RFID (permanent path only). When present it must differ from the
+        // first — the backend enforces this too, but catching it here saves the round trip.
+        state.idKind == BIRTH_ID_KIND_PERMANENT &&
+            state.tag2.isNotBlank() &&
+            state.tag2.trim().equals(state.tag.trim(), ignoreCase = true) ->
+            "The second RFID must differ from the first."
         !isIsoDate(state.dob) -> "Enter the date of birth as YYYY-MM-DD."
-        !isIsoDate(state.entryDate) -> "Enter the entry date as YYYY-MM-DD."
-        // Mirrors the backend rule so the operator sees it before the round trip; the server
-        // still enforces it independently.
-        state.dob > state.entryDate -> "Date of birth cannot be after the entry date."
+        // Entry date is auto-stamped to today's business date, so dob <= entry_date reduces to
+        // dob <= today. Mirrors the backend rule so the operator sees it before the round trip; the
+        // server still enforces it independently. String compare is safe on ISO YYYY-MM-DD dates.
+        state.dob.trim() > todayBusinessDate() -> "Date of birth cannot be in the future."
+        state.breed.isBlank() -> "Choose the newborn's breed."
+        state.damId.isBlank() -> "Scan or enter the mother's RFID."
         // Placement is REQUIRED and chosen from the catalog — a newborn is never recorded into no
         // shed, and the ids can only ever be real park/shed ids the picker offered.
         state.parkId.isBlank() -> "Choose the park the newborn is placed in."
@@ -456,6 +675,14 @@ class BirthDeathViewModel @Inject constructor(
 
     /** Shape-only check; the backend parses and validates the calendar date itself. */
     private fun isIsoDate(value: String): Boolean = ISO_DATE.matches(value.trim())
+
+    /**
+     * Today's business date in India-business-calendar terms (Asia/Kolkata), as ISO `YYYY-MM-DD`.
+     * Per AGENTS.md time semantics, a Goat OS business day is never defined by UTC. Used both as the
+     * auto entry date on the birth write and as the "not in the future" ceiling for the date of birth.
+     */
+    private fun todayBusinessDate(): String =
+        LocalDate.now(ZoneId.of("Asia/Kolkata")).format(DateTimeFormatter.ISO_LOCAL_DATE)
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsBirthDeath.idempotencyKey"

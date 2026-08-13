@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="login_brand_name">Mesha</string>
     <string name="login_tagline">క్షేత్ర కార్యకలాపాలు</string>
@@ -40,4 +43,14 @@
     <string name="perm_status_granted">మంజూరైంది</string>
     <string name="perm_status_needed">అవసరం</string>
     <string name="perm_status_open_settings">సెట్టింగ్‌లు తెరవండి</string>
+
+    <string name="mandatory_permissions_title">పని చేయడానికి అనుమతులను ఇవ్వండి</string>
+    <string name="mandatory_permissions_body">పని ప్రారంభించడానికి ఈ ఫోన్‌కు ఈ అనుమతులు అవసరమవుతాయి. వీటి లేకుండా యాప్ పనిచేయదు.</string>
+    <string name="mandatory_permissions_why">కెమెరా ప్రతి జంతువుకు రుజువు వీడియోను రికార్డ్ చేస్తుంది. నోటిఫికేషన్‌లు పని గడువు వచ్చినప్పుడు చెబుతాయి. సమీప పరికరాలు మీ RFID రీడర్ కనెక్ట్ చేస్తాయి.</string>
+    <string name="mandatory_permissions_grant">అనుమతులను ఇవ్వండి</string>
+    <string name="mandatory_permissions_settings">సెట్టింగ్‌లు తెరవండి</string>
+    <string name="mandatory_permissions_settings_help">మీ ఫోన్ మళ్లీ అడగదు. కింద నుండి సెట్టింగ్‌ల యాప్ తెరిచి. Mesha కనుగొనండి, అనుమతులను ట్యాప్ చేసి, అవసరమైన అనుమతులను ఎనేబల్ చేయండి. చేసిన తర్వాత ఈ యాప్‌కు ఉంటారు.</string>
+    <string name="mandatory_permissions_retry_help">మీ ఫోన్ ఇంకా అడగగలదు. పైన ఉన్న బటన్ నొక్కి అనుమతించు ఎంచుకోండి — అన్ని అనుమతులు ఆన్ అయ్యే వరకు పని ప్రారంభం కాదు.</string>
+    <string name="perm_label_location">లొకేషన్</string>
+    <string name="perm_rationale_location">పని ఏ పార్క్ మరియు షెడ్‌లో జరిగిందో చూపిస్తుంది.</string>
 </resources>

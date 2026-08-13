@@ -13,12 +13,49 @@ const (
 	StatusPending  = "pending"
 	StatusApproved = "approved"
 	StatusRejected = "rejected"
+	// StatusWithdrawn is the verdict-FREE terminal status a producing module puts
+	// on its own still-pending items when the source record they point at is
+	// superseded (see Repository.WithdrawItemsBySource). It is not a decision: no
+	// verifier, no verdict, no reason. It has always existed in the database;
+	// naming it here lets the retraction event and its consumers branch on the
+	// same constant the write path uses.
+	StatusWithdrawn = "withdrawn"
 )
 
 // Decision values accepted by RecordVerdict.
 const (
 	DecisionApproved = "approved"
 	DecisionRejected = "rejected"
+)
+
+// VerdictState is what the item is DOING right now, as opposed to Status, which
+// is only what the verifier decided.
+//
+// The two are not the same thing and conflating them is what made W-18 dangerous.
+// A verdict is applied asynchronously: RecordVerdict writes the decision and an
+// outbox row, and the producing module's own record does not change until the
+// durable event is consumed. Status flips the instant the verifier taps; the
+// world does not. Between those two moments the item is neither awaiting review
+// nor settled, and a surface that only knows Status has no way to say so -- it
+// drops the item out of the pending queue and shows the verifier an empty list,
+// which reads as "done" when nothing has happened yet.
+//
+// VerdictState is derived (see Item.VerdictState), never stored: it is a reading
+// of applier_ack_expected + applied_at + status, so there is exactly one source
+// of truth and no state machine to keep in sync.
+const (
+	// VerdictStateAwaitingReview: no verifier has decided this yet.
+	VerdictStateAwaitingReview = "awaiting_review"
+	// VerdictStateApplying: the verifier decided, and the producing module has
+	// NOT yet confirmed it wrote that outcome onto its own record. This is a
+	// normal, usually brief state -- but it is also exactly what a stopped
+	// relay, a lagging consumer, or a dead-lettered event looks like, which is
+	// why it has to be visible rather than inferred from an empty queue.
+	VerdictStateApplying = "applying"
+	// VerdictStateSettled: the decision has been applied by the producing
+	// module, or the producing module does not participate in the ack protocol
+	// (applier_ack_expected=false) so there is nothing to wait on here.
+	VerdictStateSettled = "settled"
 )
 
 var (
@@ -53,48 +90,119 @@ type SourceRef struct {
 	RefID        string  `json:"ref_id"`
 }
 
+// ContextRow is one backend-composed label/value pair describing what the reviewed work was
+// EXPECTED to be -- "Expected ration" / "Maize 12.5 kg · Soya 4 kg".
+//
+// It exists because a verification item said WHICH work was done and never WHAT was expected of it,
+// so a feed packing verifier could confirm a video existed but not that the right feed was packed
+// (STG 2026-08-09). It is generic on purpose: the queue is module-agnostic, so each producer
+// attaches its own context rather than verification growing a column per vertical.
+//
+// Both fields are DISPLAY STRINGS the producer composes in farm language and the client renders
+// verbatim -- never a config token, never parsed back into business logic. Order is the producer's
+// and is preserved.
+type ContextRow struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
-	ItemID        string
-	TenantID      string
-	Vertical      string
-	Module        string
-	Category      string
-	SubjectLabel  *string
-	Source        SourceRef
-	MediaRefs     []string // proof_artifact IDs; signed URLs resolved at read time.
-	Status        string
-	VerdictReason *string
-	OperatorID    *string
-	OperatorName  *string // backend-owned display label for OperatorID
-	ShedID        *string
-	ShedLabel     *string // backend-owned display label for ShedID
-	ParkID        *string
-	ParkLabel     *string // backend-owned display label for ParkID
-	CapturedAt    time.Time
-	VerifiedBy    *string
-	VerifiedAt    *time.Time
-	ClosedBy      *string
-	ClosedAt      *time.Time
-	RowVersion    int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ItemID       string
+	TenantID     string
+	Vertical     string
+	Module       string
+	Category     string
+	SubjectLabel *string
+	// SubjectNote is optional free text from whoever RAISED the underlying work, shown to the
+	// verifier during review. Kept separate from SubjectLabel on purpose: the label is
+	// system-composed identity ("Shed move · 12 animals"), this is a human's words about it.
+	SubjectNote *string
+	// ContextRows is what the work was EXPECTED to be, composed by the producing module at enqueue
+	// and rendered verbatim. See ContextRow.
+	ContextRows    []ContextRow
+	Source         SourceRef
+	MediaRefs      []string // proof_artifact IDs; signed URLs resolved at read time.
+	Status         string
+	VerdictReason  *string
+	OperatorID     *string
+	OperatorName   *string // backend-owned display label for OperatorID
+	ShedID         *string
+	ShedLabel      *string // backend-owned display label for ShedID
+	PartitionLabel *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
+	// NOTE: there is deliberately NO OperationalLocationDisplay field here. The composed
+	// display is built at the WIRE boundary (adapters/http/handler.go) from ShedLabel +
+	// PartitionLabel via oploc.Display(), so there is one composition site rather than a
+	// domain field that every future construction path must remember to populate. A field
+	// declared here and left nil reads to the next author as already wired -- that exact
+	// shape (scaffolded, never populated) is why this module carried a partition column,
+	// a decoder, an OpenAPI field and two client DTOs while the repository touched none of it.
+	ParkID         *string
+	ParkLabel      *string // backend-owned display label for ParkID
+	CapturedAt     time.Time
+	VerifiedBy     *string
+	VerifiedByName *string // backend-owned display label for VerifiedBy
+	VerifiedAt     *time.Time
+	ClosedBy       *string
+	ClosedAt       *time.Time
+	// ApplierAckExpected is the producing module's declaration that it runs an
+	// applier which acks back. Producers that have not wired an ack leave it
+	// false and their items never enter VerdictStateApplying -- better silent
+	// than falsely alarming on every decided item they own.
+	ApplierAckExpected bool
+	// AppliedAt / AppliedByModule are the producing module's receipt: it wrote
+	// the verdict outcome onto its OWN record. Stamped by MarkVerdictApplied
+	// from the applier, after that applier's transaction committed.
+	AppliedAt       *time.Time
+	AppliedByModule *string
+	RowVersion      int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// VerdictState reads the item's real position between "a verifier decided" and
+// "the farm's records changed". See the VerdictState* constants for why Status
+// alone cannot answer that.
+func (i Item) VerdictState() string {
+	if i.Status == StatusPending {
+		return VerdictStateAwaitingReview
+	}
+	// A withdrawn item carries no verdict at all -- the producing module retracted
+	// the source record, so there is no outcome for an applier to apply and
+	// nothing to wait on. Without this it would sit in "applying" forever.
+	if i.Status == StatusWithdrawn {
+		return VerdictStateSettled
+	}
+	if i.ApplierAckExpected && i.AppliedAt == nil {
+		return VerdictStateApplying
+	}
+	return VerdictStateSettled
 }
 
 // CreateItem is the input a producer supplies to enqueue one verification item.
 type CreateItem struct {
-	TenantID       string
-	Vertical       string
-	Module         string
-	Category       string
-	SubjectLabel   *string
+	TenantID     string
+	Vertical     string
+	Module       string
+	Category     string
+	SubjectLabel *string
+	SubjectNote  *string
+	// ContextRows is what this work was EXPECTED to be, for the verifier to judge the proof
+	// against. Compose it in farm language; it is rendered verbatim. Nil is valid -- a producer
+	// with no expectation to state simply attaches none.
+	ContextRows    []ContextRow
 	Source         SourceRef
 	MediaRefs      []string
 	OperatorID     *string
 	ShedID         *string
+	PartitionLabel *string // operational location partition (e.g. "Part 3"); NULL for undivided sheds
 	ParkID         *string
 	CapturedAt     time.Time
 	IdempotencyKey string
+	// ApplierAckExpected: set true only if this producer actually runs an applier
+	// that calls MarkVerdictApplied. Setting it true without wiring the ack would
+	// park every decided item of yours in VerdictStateApplying permanently.
+	ApplierAckExpected bool
 }
 
 // CreateItemResult reports whether CreateItem minted a new row (false = idempotent replay no-op,
@@ -162,21 +270,121 @@ type VaccinationBatchClosure struct {
 	PendingVideos  int    `json:"pending_videos"`
 	ShedCount      int    `json:"shed_count"`
 	Ready          bool   `json:"ready"`
+	// Closed marks a drive whose work is finished AND already closed. Such drives stay in the
+	// response instead of vanishing: a card that simply disappears on Close gives the director no
+	// confirmation the drive closed, who closed it, or when -- indistinguishable from a dead
+	// button, which is exactly how it was read on 2026-08-08. Clients render a closed drive as a
+	// read-only state, never as an action.
+	Closed   bool   `json:"closed"`
+	ClosedAt string `json:"closed_at,omitempty"`
 }
 
 type LocationFilterOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	// ParkID/ParkLabel exist because a shed NAME is not unique across the farm: Castro, Gandhi,
+	// Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in BOTH parks, so on
+	// 2026-08-12 nine of the sixty-seven shed options in the STG queue were exact duplicate
+	// labels sitting adjacent under ORDER BY label -- two "Castro - 1" rows with nothing to
+	// separate them. The option's ID was always the right shed (a UUID, never a name), so the
+	// filter itself was correct; what the reader could not do was tell which one she was
+	// picking, and the park with more pens read as the only park present. Clients group the
+	// list by park rather than concatenating this into the label, so the shed's own operational
+	// location stays exactly what oploc composes.
+	ParkID                     string  `json:"park_id,omitempty"`
+	ParkLabel                  string  `json:"park_label,omitempty"`
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display,omitempty"`
+}
+
+// QueuePageOption is one backend-defined page tab within the selected verifier drawer module.
+// Categories are disjoint queue filters over verification-item grain; the UI never adds tabs.
+type QueuePageOption struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Category string `json:"category"`
+}
+
+// QueueModuleOption is one backend-registered verification MODULE — the grain the phone's verifier
+// drawer groups by (Vaccination, Weighing, Feed, Counts, Milk, Health), each covering one or more
+// disjoint categories. It exists so a cross-module renderer can offer module chips without deriving
+// the vocabulary, the labels, or the order from the action-type list itself: the registry owns all
+// three, and Feed alone spans three categories, so a per-category chip row is not the same filter.
+//
+// Key is the NavigationModule key and is what a caller sends back as `nav_module`; the service
+// expands it into that module's category set, which stays the only queue predicate.
+type QueueModuleOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// QueueStatusOption is one backend-defined secondary tab.
+//
+// The single-status tabs are disjoint at verification-item grain: pending (Due), approved, and
+// rejected. The "All" tab carries an EMPTY Status, which is omitted from the payload — a renderer
+// selecting it must send no status query parameter, and the queue then returns every status
+// together (maintainer request 2026-07-30: the Actions page needs to see all actions at once).
+type QueueStatusOption struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Status string `json:"status,omitempty"`
+}
+
+// QueueActionTypeOption is one backend-registered verification action type exposed to
+// cross-module renderers such as admin-web. Category is the disjoint queue predicate; the
+// remaining fields are presentation and grouping metadata owned by the registry.
+type QueueActionTypeOption struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Category    string `json:"category"`
+	ModuleKey   string `json:"module_key"`
+	ModuleLabel string `json:"module_label"`
 }
 
 type QueueFilterOptions struct {
-	Parks []LocationFilterOption `json:"parks"`
-	Sheds []LocationFilterOption `json:"sheds"`
+	ModuleKey            string                  `json:"module_key,omitempty"`
+	ModuleLabel          string                  `json:"module_label,omitempty"`
+	Modules              []QueueModuleOption     `json:"modules"`
+	ActionTypes          []QueueActionTypeOption `json:"action_types"`
+	Pages                []QueuePageOption       `json:"pages"`
+	Statuses             []QueueStatusOption     `json:"statuses"`
+	Parks                []LocationFilterOption  `json:"parks"`
+	Sheds                []LocationFilterOption  `json:"sheds"`
+	Counts               QueueStatusCounts       `json:"counts"`
+	SelectedBusinessDate string                  `json:"selected_business_date,omitempty"`
+	BusinessTimezone     string                  `json:"business_timezone"`
+	MissedOnly           bool                    `json:"missed_only"`
+	HasMissed            bool                    `json:"has_missed"`
+}
+
+// QueueStatusCounts is a whole-filter aggregate row count per verification_item status
+// (pending/approved/rejected), scoped identically to the paginated queue read — tenant,
+// category/vertical/module, park, shed, business date — but computed by ONE indexed GROUP BY query
+// in the repository. It must never be derived by fetching a page and grouping in app/service/
+// frontend state (goatos-code-review scale anti-pattern: "capped read-time rollup presented as
+// truth"), because that silently undercounts once the in-scope backlog exceeds the fetched page.
+//
+// projection-review: membership=verification_items rows with status IN (pending, approved,
+// rejected), unique key (tenant_id, item_id) — one row per verification item;
+// group_key=status; join_cardinality=none — the count query reads a single table, no joined side
+// to fan out; pagination=whole-filter, no LIMIT/OFFSET/cursor, independent of the queue page's
+// keyset window; scope=tenant_id + category + vertical + module + park_id + shed_id + partition +
+// captured_at window, identical to the queue page's own predicates minus status. Disjointness: pending,
+// approved, and rejected are mutually exclusive values of the single `status` column (CHECK-
+// constrained to pending/approved/rejected/withdrawn, withdrawn excluded by the count query) — a
+// verification_items row is in exactly one bucket, so the three counts partition (never overlap)
+// the in-scope backlog.
+type QueueStatusCounts struct {
+	Pending  int `json:"pending"`
+	Approved int `json:"approved"`
+	Rejected int `json:"rejected"`
 }
 
 // MediaItem is one resolved, streamable media reference for display.
 type MediaItem struct {
 	ProofID     string `json:"proof_id"`
+	Label       string `json:"label,omitempty"`
+	Answer      string `json:"answer,omitempty"`
 	DownloadURL string `json:"download_url"`
 	MimeType    string `json:"mime_type,omitempty"`
 	DurationMS  *int64 `json:"duration_ms,omitempty"`
@@ -184,7 +392,12 @@ type MediaItem struct {
 
 // QueueRow is one queue listing row: the item plus its resolved media.
 type QueueRow struct {
-	Item              Item
-	Media             []MediaItem
-	EvidenceAvailable bool
+	Item  Item
+	Media []MediaItem
+	// EvidenceLinkResolved reports that EVERY media_ref on the item resolved to a signed download
+	// link at read time. It is a LINK-RESOLUTION claim, NOT a byte-retrievability guarantee: the
+	// queue read deliberately does not stat the stored objects (see resolveMedia). Terminal
+	// unavailability is discovered on the download path, which answers 410 proof_object_missing
+	// with retryable=false. Serialized as `evidence_available` for wire compatibility.
+	EvidenceLinkResolved bool
 }

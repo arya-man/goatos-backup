@@ -60,21 +60,41 @@ function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: 
   );
 }
 
-export async function ShedExecutionDetailPage({ shedId, scope, asOf, pageContract }: { shedId: string; scope?: Scope; asOf?: string; pageContract: AdminUiPageContract }) {
-  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf });
+export async function ShedExecutionDetailPage({
+  shedId,
+  partitionLabel,
+  scope,
+  asOf,
+  pageContract,
+}: {
+  shedId: string;
+  partitionLabel?: string;
+  scope?: Scope;
+  asOf?: string;
+  pageContract: AdminUiPageContract;
+}) {
+  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf, partitionLabel });
   const fallbackBackHref = scope ? `${scopeHref("/vaccination", scope)}#execution` : "/vaccination#execution";
   if (!result.ok) {
     return <NotFoundOrError shedId={shedId} message={result.error.message} backHref={fallbackBackHref} pageContract={pageContract} />;
   }
   const shed = result.data;
   if (scope && scope.mode !== "park" && shed.parkId) {
-    redirect(scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope, { mode: "park", park: shed.parkId }));
+    redirect(
+      scopeHref(
+        `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`,
+        scope,
+        { mode: "park", park: shed.parkId },
+        { partition_label: partitionLabel },
+      ),
+    );
   }
   const backHref = scope ? `${scopeHref("/vaccination", scope, { mode: "park", park: shed.parkId })}#execution` : "/vaccination#execution";
 
   const s = shed.summary;
   // Owner chain comes from the most-at-risk row so the drilldown header shows the live accountable chain.
   const owner = shed.rows.find((r) => r.owner?.operatorName)?.owner ?? shed.rows[0]?.owner;
+  const shedDisplayLabel = shed.operationalLocationDisplay;
   const blockers = shed.rows.filter((r) => r.blockerReason);
   const driveRowLabels = tableLabels(pageContract, "shed-drive-rows");
 
@@ -86,11 +106,11 @@ export async function ShedExecutionDetailPage({ shedId, scope, asOf, pageContrac
             <Link href={backHref} className="lk">
               {copy(pageContract, "crumb")}
             </Link>{" "}
-            · {shed.parkName} · <b>{shed.shedName}</b>
+            · {shed.parkName} · <b>{shedDisplayLabel}</b>
           </div>
-          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }} data-shed-id={shed.shedId}>
             <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            {shed.parkName} · {shed.shedName}
+            {shed.parkName} · {shedDisplayLabel}
           </h1>
           <div className="sub">{copy(pageContract, "label.animal_stages")}: {shed.animalStages.join(" · ") || copy(pageContract, "label.placeholder")}</div>
         </div>

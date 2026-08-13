@@ -17,6 +17,9 @@ const TESTS = {
   scope: /(?:ScopeHierarchy|ParkScope|CohortScope)/,
   status: /(?:StatusMatrix|EveryStatus|StatusBuckets)/,
 };
+const PROCESS_INTEGRITY_REPO = "backend/internal/processintegrity/adapters/postgres/repository.go";
+const SOP_REPO = "backend/internal/sop/adapters/postgres/repository.go";
+const VACCINATION_EXECUTION_REPO = "backend/internal/vaccinationexecution/adapters/postgres/repository.go";
 
 function git(args, allowFailure = false) {
   try {
@@ -84,7 +87,16 @@ export function inspectFixture(sourceHunks, changedTests) {
   if (candidates.length === 0) return [];
   const failures = [];
   for (const [index, candidate] of candidates.entries()) {
-    if (!MARKER.test(candidate.visible)) failures.push(`aggregate hunk ${index + 1}: missing complete projection-review marker`);
+    // A real marker is prose and wraps across several comment lines; the MARKER fields are
+    // `[^;\n]+`, so a wrapped `membership=...` never matched and the guard demanded a marker that
+    // was already there. Normalise the comment block to one line first: strip `//` / `--` / `*`
+    // prefixes and collapse the wrapping, then match. This changes only what the guard can SEE,
+    // never what it requires — all five fields are still mandatory, and a genuinely absent or
+    // partial marker still fails (asserted in the self-test).
+    const unwrapped = candidate.visible
+      .replace(/^[ \t]*(?:\/\/|--|\*)[ \t]?/gm, "")
+      .replace(/\n[ \t]*/g, " ");
+    if (!MARKER.test(unwrapped)) failures.push(`aggregate hunk ${index + 1}: missing complete projection-review marker`);
   }
   const requirements = new Set(["cardinality", "pagination"]);
   const joined = candidates.map((h) => h.visible).join("\n");
@@ -97,14 +109,79 @@ export function inspectFixture(sourceHunks, changedTests) {
   return failures;
 }
 
+function inspectProcessIntegrityShedGrain(source) {
+  const failures = [];
+  const badTaskState = /task_state\s+IN\s*\(\s*'submitted'\s*,\s*'needs_review'\s*\)/i;
+  const shedProjection = /submission_state|completion_recorded|proof_count|verification_state/i;
+  if (badTaskState.test(source) && shedProjection.test(source)) {
+    failures.push(
+      "process-integrity shed-grain state must not derive proof/verification/submitted from shared parent task_state; use submission_state/completion/proof facts",
+    );
+  }
+  const bareParentSubmission = /FROM\s+sop_submissions\s+sub[\s\S]{0,500}?sub\.task_id\s*=\s*COALESCE\s*\(\s*oi\.sop_task_id\s*,\s*ob\.sop_task_id\s*\)/i;
+  if (bareParentSubmission.test(source)) {
+    failures.push(
+      "process-integrity shed-grain submission lookup must join sop_submission_items by current goat before reading sop_submissions; latest parent submission leaks across sibling sheds",
+    );
+  }
+  return failures;
+}
+
+function inspectShedSubmitTerminalState(source) {
+  const failures = [];
+  const submitTask = source.match(/func \(r \*Repository\) SubmitTask[\s\S]*?\nfunc /);
+  const body = submitTask?.[0] ?? "";
+  if (!body) return failures;
+  if (/WHERE\s+tenant_id\s*=\s*\$1::uuid[\s\S]{0,160}?state\s+IN\s*\([^)]*'accepted'[^)]*\)/i.test(body)) {
+    failures.push("SubmitTask must not include accepted in the writeable sop_tasks state set; accepted is terminal except exact idempotency replay");
+  }
+  const insertIndex = body.indexOf("INSERT INTO sop_submissions");
+  const acceptedCheckIndex = body.search(/currentState\s*==\s*"accepted"|state\s*=\s*'accepted'/i);
+  if (insertIndex >= 0 && (acceptedCheckIndex < 0 || acceptedCheckIndex > insertIndex)) {
+    failures.push("SubmitTask must reject accepted tasks before inserting sop_submissions, fanouts, audits, or movement side effects");
+  }
+  return failures;
+}
+
+function inspectVaccinationExecutionDimensionFanout(source) {
+  const failures = [];
+  const directProtocolDimensionJoin =
+    /\bJOIN\s+protocol_rule_dimensions\s+\w+\s+ON\s+\w+\.tenant_id\s*=\s*pr\.tenant_id\s+AND\s+\w+\.rule_id\s*=\s*pr\.rule_id/i;
+  if (directProtocolDimensionJoin.test(source)) {
+    failures.push(
+      "vaccination execution counts must not join protocol_rule_dimensions directly; collapse/deduplicate dimensions before counting drive animals or shed cards will explode (e.g. 120 -> 480)",
+    );
+  }
+  return failures;
+}
+
 function selfTest() {
   const sql = `-- projection-review: membership=batch_members; group_key=batch_id; join_cardinality=dimensions pre-aggregated; pagination=one tenant aggregate before paging; scope=explicit park/shed/cohort CASE\nSELECT park_id, status, due_date, COUNT(*) FROM obligations JOIN dimensions USING (rule_id) GROUP BY park_id, status, due_date`;
   const hunk = { visible: sql, added: sql };
   const goodTests = "TestDriveOneToMany TestDrivePageBoundary TestDriveDateShift TestDriveScopeHierarchy TestDriveStatusMatrix";
   const bad = inspectFixture([{ visible: sql.replace(/-- projection-review.*\n/, ""), added: sql }], "");
   const good = inspectFixture([hunk], goodTests);
-  if (bad.length !== 6 || good.length !== 0) {
-    console.error("aggregate-projection-guard self-test failed", { bad, good });
+  const badShedGrain = inspectProcessIntegrityShedGrain("CASE WHEN task_state IN ('submitted', 'needs_review') THEN 'uploaded' END\nsubmission_state");
+  const goodShedGrain = inspectProcessIntegrityShedGrain("CASE WHEN submission_state IN ('submitted', 'needs_review') THEN 'uploaded' END\ntask_state");
+  const badParentSubmission = inspectProcessIntegrityShedGrain("FROM sop_submissions sub\nWHERE sub.tenant_id = oi.tenant_id\n  AND sub.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)");
+  const goodParentSubmission = inspectProcessIntegrityShedGrain("FROM sop_submission_items si\nJOIN sop_submissions sub ON sub.submission_id = si.submission_id\nWHERE si.goat_id = oi.target_id");
+  const badAcceptedSubmit = inspectShedSubmitTerminalState("func (r *Repository) SubmitTask() {\nINSERT INTO sop_submissions\nUPDATE sop_tasks SET state=$3 WHERE tenant_id = $1::uuid AND state IN ('queued','accepted')\n}\nfunc next() {}");
+  const goodAcceptedSubmit = inspectShedSubmitTerminalState("func (r *Repository) SubmitTask() {\nif currentState == \"accepted\" { return ports.ErrConflict }\nINSERT INTO sop_submissions\nUPDATE sop_tasks SET state=$3 WHERE state IN ('queued','needs_review')\n}\nfunc next() {}");
+  const badVaccinationFanout = inspectVaccinationExecutionDimensionFanout("LEFT JOIN protocol_rule_dimensions prd\n  ON prd.tenant_id = pr.tenant_id\n AND prd.rule_id = pr.rule_id");
+  const goodVaccinationFanout = inspectVaccinationExecutionDimensionFanout("LEFT JOIN LATERAL (\n  SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code\n  FROM protocol_rule_dimensions dim\n  WHERE dim.tenant_id = pr.tenant_id\n    AND dim.rule_id = pr.rule_id\n) prd ON true");
+  if (
+    bad.length !== 6 ||
+    good.length !== 0 ||
+    badShedGrain.length !== 1 ||
+    goodShedGrain.length !== 0 ||
+    badParentSubmission.length !== 1 ||
+    goodParentSubmission.length !== 0 ||
+    badAcceptedSubmit.length !== 2 ||
+    goodAcceptedSubmit.length !== 0 ||
+    badVaccinationFanout.length !== 1 ||
+    goodVaccinationFanout.length !== 0
+  ) {
+    console.error("aggregate-projection-guard self-test failed", { bad, good, badShedGrain, goodShedGrain, badParentSubmission, goodParentSubmission, badAcceptedSubmit, goodAcceptedSubmit, badVaccinationFanout, goodVaccinationFanout });
     process.exit(1);
   }
   console.log("aggregate-projection-guard self-test: PASS");
@@ -123,7 +200,24 @@ function main() {
   );
   const testFiles = files.filter((file) => /(?:_test\.go|\.test\.[cm]?[jt]s|\.spec\.[cm]?[jt]s)$/.test(file));
   const sourceHunks = sourceFiles.flatMap((file) => hunks(diffFor(file, base, untracked)).filter(isCandidate).map((h) => ({ ...h, file })));
+  const shedGrainFailures = files.includes(PROCESS_INTEGRITY_REPO)
+    ? inspectProcessIntegrityShedGrain(readFileSync(resolve(repo, PROCESS_INTEGRITY_REPO), "utf8"))
+    : [];
+  const terminalSubmitFailures = files.includes(SOP_REPO)
+    ? inspectShedSubmitTerminalState(readFileSync(resolve(repo, SOP_REPO), "utf8"))
+    : [];
+  const vaccinationFanoutFailures = files.includes(VACCINATION_EXECUTION_REPO)
+    ? inspectVaccinationExecutionDimensionFanout(readFileSync(resolve(repo, VACCINATION_EXECUTION_REPO), "utf8"))
+    : [];
   if (sourceHunks.length === 0) {
+    if (shedGrainFailures.length || terminalSubmitFailures.length || vaccinationFanoutFailures.length) {
+      console.error("aggregate-projection-guard: FAIL");
+      for (const failure of shedGrainFailures) console.error(`  - ${failure}`);
+      for (const failure of terminalSubmitFailures) console.error(`  - ${failure}`);
+      for (const failure of vaccinationFanoutFailures) console.error(`  - ${failure}`);
+      console.error("\nSee docs/decisions/scale-anti-patterns.md");
+      process.exit(1);
+    }
     console.log("aggregate-projection-guard: PASS (no changed aggregate projection hunks)");
     return;
   }
@@ -133,6 +227,9 @@ function main() {
     hunks(diffFor(file, base, untracked)).map((hunk) => hunk.added),
   ).join("\n");
   const failures = inspectFixture(sourceHunks, changedTests);
+  failures.push(...shedGrainFailures);
+  failures.push(...terminalSubmitFailures);
+  failures.push(...vaccinationFanoutFailures);
   if (failures.length) {
     console.error("aggregate-projection-guard: FAIL");
     for (const hunk of sourceHunks) console.error(`  candidate: ${hunk.file}`);

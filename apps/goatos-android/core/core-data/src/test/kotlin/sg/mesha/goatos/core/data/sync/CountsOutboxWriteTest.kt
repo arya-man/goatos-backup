@@ -11,10 +11,10 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsEvidenceRefDto
-import sg.mesha.goatos.core.network.dto.CountsGoatLifecycleResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
 import java.io.IOException
@@ -61,17 +61,29 @@ class CountsOutboxWriteTest {
         override suspend fun recordCountsBirthEvent(
             idempotencyKey: String,
             request: CountsBirthEventRequestDto,
-        ): CountsGoatLifecycleResponseDto {
+        ): CountsApprovalSubmitResponseDto {
             birthKeys += idempotencyKey
-            return CountsGoatLifecycleResponseDto()
+            return CountsApprovalSubmitResponseDto(
+                approvalRequestId = "birth-approval-1",
+                requestType = "birth",
+                status = "pending",
+                raisedAt = "2026-07-28T12:24:17+05:30",
+                idempotentReplay = false,
+            )
         }
 
         override suspend fun recordCountsDeathEvent(
             idempotencyKey: String,
             request: CountsDeathEventRequestDto,
-        ): CountsGoatLifecycleResponseDto {
+        ): CountsApprovalSubmitResponseDto {
             deathKeys += idempotencyKey
-            return CountsGoatLifecycleResponseDto()
+            return CountsApprovalSubmitResponseDto(
+                approvalRequestId = "death-approval-1",
+                requestType = "death",
+                status = "pending",
+                raisedAt = "2026-07-28T12:24:17+05:30",
+                idempotentReplay = false,
+            )
         }
     }
 
@@ -105,9 +117,12 @@ class CountsOutboxWriteTest {
     private fun birthRequest() = CountsBirthEventRequestDto(
         animalIdentifier1 = "TAG-1",
         species = "goat",
+        breed = "beetal",
         sex = "female",
         dob = "2026-07-01",
         entryDate = "2026-07-01",
+        damId = "RFID-MOTHER-001",
+        litterSize = 1,
         evidenceRefs = listOf(CountsEvidenceRefDto(evidenceId = "counts-birth-death:draft-1")),
     )
 
@@ -154,6 +169,18 @@ class CountsOutboxWriteTest {
         assertTrue(second is AppResult.Ok)
         assertEquals((first as AppResult.Ok).value, (second as AppResult.Ok).value)
         assertEquals("exactly one queued birth", 1, repo.observeStatus().value.items.size)
+    }
+
+    @Test
+    fun `birth outbox retains the pending approval result for post-submit visibility`() = runBlocking {
+        val repo = repository(CountsApi())
+
+        repo.enqueueCountsBirth("TAG-1", "counts-birth-death:draft-visible", birthRequest())
+
+        val item = repo.observeStatus().value.items.single()
+        assertEquals(SyncItemStatus.SUCCEEDED, item.status)
+        assertTrue(item.resultJson.orEmpty().contains("\"approval_request_id\":\"birth-approval-1\""))
+        assertTrue(item.resultJson.orEmpty().contains("\"status\":\"pending\""))
     }
 
     @Test

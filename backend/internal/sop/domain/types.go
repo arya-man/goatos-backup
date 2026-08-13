@@ -292,6 +292,7 @@ type ProofBinding struct {
 type SubmitTaskRequest struct {
 	SOPVersionID   string           `json:"sop_version_id"`
 	IdempotencyKey string           `json:"idempotency_key"`
+	PartitionLabel string           `json:"partition_label,omitempty"`
 	Answers        map[string]any   `json:"answers"`
 	ProofRefs      []ProofReference `json:"proof_refs"`
 }

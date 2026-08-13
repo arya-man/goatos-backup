@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
@@ -48,10 +50,17 @@ const (
 	// recomputeObligationBatchStatusOnComplete) mirrors this same producer for its bypass-obligation-
 	// repository completion route; see that function's doc comment.
 	obligationInProgressEventType = "obligation.in_progress"
+	// obligationReopenedEventType is emitted by ReopenObligation when a verification rejection
+	// reopens a previously-completed obligation back to outstanding work (maintainer state-model:
+	// obligation axis reopens on rejection). Reuses the generic obligation lifecycle envelope shape
+	// via insertObligationLifecycleOutbox, same as obligation.in_progress/obligation.missed.
+	obligationReopenedEventType = "obligation.reopened"
 )
 
 // Repository is the Postgres-backed obligation repository.
 type Repository struct {
+	// Instance logger; package-level slog is banned outside platform/observability.
+	log          *slog.Logger
 	pool         *pgxpool.Pool
 	queries      *obligationdb.Queries
 	queryTimeout time.Duration
@@ -62,7 +71,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, queries: obligationdb.New(pool), queryTimeout: queryTimeout}
+	return &Repository{log: slog.Default(), pool: pool, queries: obligationdb.New(pool), queryTimeout: queryTimeout}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -106,9 +115,18 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 		return nil, fmt.Errorf("obligation: override reason is required")
 	}
 	original := businessDateOnly(override.OriginalDriveDate)
-	next := businessDateOnly(override.OverrideDate)
-	if next.Before(original) {
+	requested := businessDateOnly(override.OverrideDate)
+	if requested.Before(original) {
 		return nil, fmt.Errorf("obligation: override date must not be before the original drive date")
+	}
+	next := requested
+	shiftMeta := vaccinationDriveClinicalShift{}
+	if !requested.Equal(original) {
+		var err error
+		next, shiftMeta, err = r.clinicallySafeVaccinationDriveOverrideDate(ctx, override.TenantID, override.ParkID, vaccineCode, original, requested)
+		if err != nil {
+			return nil, err
+		}
 	}
 	createdAt := override.CreatedAt
 	if createdAt.IsZero() {
@@ -125,7 +143,11 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	}
 	nextCapacity := originalCapacity
 	if !next.Equal(original) {
-		nextCapacity, err = r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, next, next.AddDate(0, 0, 13))
+		nextCapacity, err = r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, next, next.AddDate(0, 0, vaccinationDriveOverrideSafeHorizonDays))
+		if err != nil {
+			return nil, err
+		}
+		nextCapacity, err = r.clinicallySafeVaccinationDriveAvailability(ctx, override.TenantID, override.ParkID, vaccineCode, original, nextCapacity)
 		if err != nil {
 			return nil, err
 		}
@@ -143,14 +165,15 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	var out domain.VaccineDriveDateOverride
 	if next.Equal(original) {
 		out = domain.VaccineDriveDateOverride{
-			TenantID:          override.TenantID,
-			ParkID:            override.ParkID,
-			VaccineCode:       vaccineCode,
-			OriginalDriveDate: original,
-			OverrideDate:      original,
-			Reason:            reason,
-			CreatedBy:         override.CreatedBy,
-			CreatedAt:         createdAt,
+			TenantID:              override.TenantID,
+			ParkID:                override.ParkID,
+			VaccineCode:           vaccineCode,
+			OriginalDriveDate:     original,
+			OverrideDate:          original,
+			RequestedOverrideDate: requested,
+			Reason:                reason,
+			CreatedBy:             override.CreatedBy,
+			CreatedAt:             createdAt,
 		}
 		var activeOverrideDate time.Time
 		err = tx.QueryRow(ctx, `
@@ -211,21 +234,28 @@ LIMIT 1`, tenant, park, vaccineCode, original).Scan(&activeOverrideDate)
 
 	err = tx.QueryRow(ctx, `
 INSERT INTO vaccination_drive_date_overrides (
-  tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date,
+  shift_reason, clinical_shift_metadata, reason, created_by, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
 ON CONFLICT (tenant_id, park_id, (lower(btrim(vaccine_code))), original_drive_date)
 WHERE canceled_at IS NULL
 DO UPDATE SET
   override_date = EXCLUDED.override_date,
+  requested_override_date = EXCLUDED.requested_override_date,
+  shift_reason = EXCLUDED.shift_reason,
+  clinical_shift_metadata = EXCLUDED.clinical_shift_metadata,
   reason = EXCLUDED.reason,
   created_by = EXCLUDED.created_by,
   created_at = EXCLUDED.created_at
-RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date, reason, created_by::text, created_at`,
-		tenant, park, vaccineCode, original, next, reason, createdBy, createdAt,
-	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate, &out.Reason, &out.CreatedBy, &out.CreatedAt)
+RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date,
+  requested_override_date, shift_reason, clinical_shift_metadata, reason, created_by::text, created_at`,
+		tenant, park, vaccineCode, original, next, requested, shiftMeta.reason(), shiftMeta.json(), reason, createdBy, createdAt,
+	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate,
+		&out.RequestedOverrideDate, &out.ShiftReason, &shiftMeta.raw, &out.Reason, &out.CreatedBy, &out.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: upsert vaccination drive date override: %w", err)
 	}
+	shiftMeta.applyTo(&out)
 	if !hasActiveOverride || !businessDateOnly(activeOverrideDate).Equal(next) {
 		if err := replanVaccinationDriveAssignmentsForDateMoveTx(ctx, tx, tenant, park, vaccineCode, original, next, nextCapacity); err != nil {
 			return nil, err
@@ -250,23 +280,27 @@ func (r *Repository) ActiveVaccinationDriveDateOverride(ctx context.Context, ten
 		return nil, fmt.Errorf("obligation: park id: %w", err)
 	}
 	var out domain.VaccineDriveDateOverride
+	var meta vaccinationDriveClinicalShift
 	err = r.pool.QueryRow(ctx, `
-SELECT tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date, reason, created_by::text, created_at
+SELECT tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date,
+       requested_override_date, shift_reason, clinical_shift_metadata, reason, created_by::text, created_at
 FROM vaccination_drive_date_overrides
 WHERE tenant_id = $1
   AND park_id = $2
   AND lower(btrim(vaccine_code)) = lower(btrim($3))
   AND original_drive_date = $4
-  AND canceled_at IS NULL
+	AND canceled_at IS NULL
 LIMIT 1`,
 		tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(originalDate),
-	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate, &out.Reason, &out.CreatedBy, &out.CreatedAt)
+	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate,
+		&out.RequestedOverrideDate, &out.ShiftReason, &meta.raw, &out.Reason, &out.CreatedBy, &out.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("obligation: active vaccination drive date override: %w", err)
 	}
+	meta.applyTo(&out)
 	return &out, nil
 }
 
@@ -923,6 +957,54 @@ func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Contex
 // write the context->'*_repair' stock-reconciliation JSONB bookkeeping those flows use — see the inline
 // comment at the detach site for why that was judged out of scope here.
 func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
+	return r.rescheduleObligationByID(ctx, tenantID, obligationID, idempotencyKey, authorizedParkIDs, dueAt, windowStart, windowEnd, occurredAt, "mobile_reschedule")
+}
+
+// RealignOpenObligationForGeneration moves an existing stable-key adult campaign row onto the
+// newly-discovered normal repeat cohort. The stable key prevents duplicate work; this explicit
+// reschedule makes a later history import converge the already-persisted row instead of leaving it
+// on its original standalone date. Terminal/in-flight rows remain immutable.
+func (r *Repository) RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (domain.ObligationRef, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var ref domain.ObligationRef
+	read := func() error {
+		return r.pool.QueryRow(ctx, `
+SELECT obligation_id::text, status, due_at, row_version
+FROM obligation_instances
+WHERE tenant_id = $1::uuid
+  AND idempotency_key = $2`, tenantID, idempotencyKey).Scan(
+			&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion,
+		)
+	}
+	if err := read(); errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	} else if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read adult campaign realignment target: %w", err)
+	}
+	if (ref.Status != "scheduled" && ref.Status != "due") || ref.DueAt.Equal(dueAt) {
+		return ref, false, nil
+	}
+	realignKey := idempotencyKey + ":adult_campaign_date_realigned:" + dueAt.UTC().Format(time.RFC3339)
+	_, replay, err := r.rescheduleObligationByID(ctx, tenantID, ref.ObligationID, realignKey, nil,
+		dueAt, dueAt, windowEnd, occurredAt, "adult_campaign_date_realigned")
+	if errors.Is(err, ports.ErrNotFound) {
+		// A concurrent terminal transition wins. Return its stored state rather than rewriting it.
+		if readErr := read(); readErr != nil {
+			return domain.ObligationRef{}, false, readErr
+		}
+		return ref, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, err
+	}
+	if err := read(); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read realigned adult campaign: %w", err)
+	}
+	return ref, !replay, nil
+}
+
+func (r *Repository) rescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time, reason string) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1094,7 +1176,7 @@ WHERE ob.tenant_id = $1 AND ob.batch_id = $2::uuid`, tenant, lockedBatchID); err
 				return "", false, fmt.Errorf("obligation: rescheduled obligation id: %w", err)
 			}
 			payload, _ := json.Marshal(map[string]string{
-				"reason":     "mobile_reschedule",
+				"reason":     reason,
 				"new_due_at": dueAt.UTC().Format(time.RFC3339),
 			})
 			// EventType "scheduled" (not a new "rescheduled" type) deliberately matches the established
@@ -1818,7 +1900,8 @@ WHERE ob.tenant_id = $1
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
 	) SELECT $1, obligation_id, $2, $3, $4, idempotency_key
-	FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
+	FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)
+	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
 			return 0, fmt.Errorf("obligation: bulk insert cancel events: %w", err)
 		}
 	}
@@ -4800,8 +4883,9 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	// no sibling obligation on the batch remains open; otherwise planned -> in_progress. Already-
 	// terminal batches (completed/canceled/superseded) are left untouched by the WHERE guard below.
 	var batchID pgtype.UUID
+	var rowVersion int64
 	if err := tx.QueryRow(ctx, `
-SELECT batch_id FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2`, tenant, obl).Scan(&batchID); err != nil {
+SELECT batch_id, row_version FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2`, tenant, obl).Scan(&batchID, &rowVersion); err != nil {
 		return false, fmt.Errorf("obligation: completed batch lookup: %w", err)
 	}
 	if batchID.Valid {
@@ -4899,7 +4983,15 @@ RETURNING obligation_id::text`, tenant, batchID, obl)
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
 ) SELECT $1, obligation_id, 'in_progress', $2, $3, idempotency_key
-FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
+FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)
+-- Idempotent by design. The key is (obligation_id + ':in_progress'), so a SECOND submission
+-- touching the same obligation -- i.e. every rework rescan of a rejected animal -- replays the
+-- identical key. Without this the insert raised a duplicate-key error that aborted the WHOLE
+-- submission fanout, so the operator's redo recorded completions and proofs but produced no
+-- verification item at all: the work vanished before it ever reached the verifier, with a
+-- success screen on the phone. The status event is a fact ("this obligation went in_progress"),
+-- not a counter, so re-asserting it must be a no-op rather than a failure.
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 				tenant, pgconv.Timestamptz(siblingNow), siblingPayload, siblingUUIDs, siblingKeys); err != nil {
 				return false, fmt.Errorf("obligation: bulk insert sibling in_progress events: %w", err)
 			}
@@ -4934,7 +5026,17 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 		}
 	}
 
-	idempotencyKey := obligationID + ":completed"
+	// Versioned by row_version (freshly incremented by the MarkObligationCompleted UPDATE above,
+	// n>0 already proved this is a genuine transition, never a replay -- a replay would have
+	// matched 0 rows and returned earlier): an obligation that completes, gets REOPENED by a
+	// verifier rejection (ReopenObligation bumps row_version too), and completes again on rework is
+	// a SECOND, real, distinct "completed" occurrence -- not a duplicate of the first. Before this
+	// fix the key was the bare obligation id ("<id>:completed"), permanently reserved on the FIRST
+	// completion and never released by ReopenObligation: every subsequent genuine re-completion of
+	// a reworked obligation hit ReserveIdempotencyKey's ON CONFLICT DO NOTHING, got pgx.ErrNoRows,
+	// and returned a hard error here -- aborting the WHOLE submission fanout and silently losing the
+	// operator's rework (the exact defect class this repository has been bitten by three times).
+	idempotencyKey := obligationID + ":completed:" + strconv.FormatInt(rowVersion, 10)
 	if _, err := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
 		IdempotencyKey: idempotencyKey,
 		TenantID:       tenant,
@@ -4970,7 +5072,7 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 	}); err != nil {
 		return false, fmt.Errorf("obligation: complete completed idempotency key: %w", err)
 	}
-	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID); err != nil {
+	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID, rowVersion); err != nil {
 		return false, err
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -4994,6 +5096,104 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("obligation: commit complete: %w", err)
+	}
+	return true, nil
+}
+
+// ReopenObligation reverses MarkCompleted: a verification rejection sends the animal's work back
+// to the operator's due list (maintainer state-model -- obligation reopens on rejection, closes on
+// record). Idempotent and terminal-safe: only a row currently 'completed' is touched, so a stale
+// replay, a rejection racing a second completion, or an obligation that moved on to some other
+// terminal status (waived/canceled/superseded) in the meantime is left alone.
+//
+// Deliberately narrower than MarkCompleted's batch/sibling recompute: reopening one obligation does
+// not need to walk the whole batch's other obligations back out of 'completed' -- those obligations
+// were closed by their OWN completions, which are still valid. Only the owning batch's own status is
+// recomputed here (a batch marked 'completed' because this was its last open obligation must go back
+// to 'in_progress' now that this one is due again); sibling obligation rows are untouched.
+func (r *Repository) ReopenObligation(ctx context.Context, tenantID, obligationID string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	obl, err := pgconv.UUID(obligationID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: obligation id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("obligation: begin reopen tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	n, err := qtx.ReopenObligation(ctx, obligationdb.ReopenObligationParams{TenantID: tenant, ObligationID: obl})
+	if err != nil {
+		return false, fmt.Errorf("obligation: reopen: %w", err)
+	}
+	if n == 0 {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return false, fmt.Errorf("obligation: commit noop reopen: %w", cerr)
+		}
+		return false, nil
+	}
+
+	var batchID pgtype.UUID
+	if err := tx.QueryRow(ctx, `
+SELECT batch_id FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2`, tenant, obl).Scan(&batchID); err != nil {
+		return false, fmt.Errorf("obligation: reopened batch lookup: %w", err)
+	}
+	if batchID.Valid {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET status = 'in_progress', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1 AND batch_id = $2 AND status = 'completed'`, tenant, batchID); err != nil {
+			return false, fmt.Errorf("obligation: reopen batch recompute: %w", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	idempotencyKey := obligationID + ":reopened:" + strconv.FormatInt(now.UnixNano(), 10)
+	// obligation_status_events_type_check does not include a "due"/"reopened" value -- the closest
+	// existing vocabulary entry for "this obligation is due again" is 'became_due' (used elsewhere
+	// for the scheduled->due transition), so reuse it rather than widen the CHECK constraint for a
+	// rejection-triggered reopen.
+	if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+		TenantID:       tenant,
+		ObligationID:   obl,
+		EventType:      "became_due",
+		OccurredAt:     pgconv.Timestamptz(now),
+		Payload:        []byte(`{"event":"reopened"}`),
+		IdempotencyKey: idempotencyKey,
+	}); err != nil {
+		return false, fmt.Errorf("obligation: reopened event: %w", err)
+	}
+	if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, obligationID, obligationReopenedEventType, "due", now, nil, "obligation.ReopenObligation"); err != nil {
+		return false, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorType:    "system",
+		Action:       obligationReopenedEventType,
+		ResourceType: "obligation_instance",
+		ResourceID:   obligationID,
+		ScopeType:    "obligation.status_event",
+		ScopeID:      obligationID,
+		AfterState: map[string]any{
+			"status":      "due",
+			"occurred_at": now.Format(time.RFC3339Nano),
+		},
+		Metadata: map[string]any{
+			"source": "obligation_reopen_on_verification_reject",
+		},
+		TraceID: obligationReopenedEventType + ":" + obligationID,
+	}); err != nil {
+		return false, fmt.Errorf("obligation: reopened audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("obligation: commit reopen: %w", err)
 	}
 	return true, nil
 }
@@ -5107,9 +5307,14 @@ ON CONFLICT DO NOTHING`,
 	return nil
 }
 
-func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) error {
-	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID)
-	idempotencyKey := "vaccination.completed:" + obligationID
+// rowVersion mirrors the versioned key MarkCompleted now uses for its own "completed" idempotency
+// reservation: a bare obligationID key would ON CONFLICT DO NOTHING away every completed-outbox
+// event after the FIRST for an obligation that is later reopened and re-completed (rework), so
+// downstream consumers (booster scheduling, notifications) would never learn the rework finished.
+func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string, rowVersion int64) error {
+	versionSuffix := ":" + strconv.FormatInt(rowVersion, 10)
+	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID + versionSuffix)
+	idempotencyKey := "vaccination.completed:" + obligationID + versionSuffix
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	payload := map[string]any{
 		"tenant_id":     tenantID,
@@ -5270,7 +5475,11 @@ func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, miss
 	reapBefore := time.Now().UTC().Add(-graceWindow)
 	if err := r.reapStrandedInProgress(ctx, tenantID, reapBefore, limit); err != nil {
 		// Log but don't fail: reaping is best-effort. Missing one sweep is recoverable.
-		_ = err
+		r.log.ErrorContext(ctx, "obligation_reap_stranded_in_progress_failed",
+			slog.String("tenant_id", tenantID),
+			slog.Time("reap_before", reapBefore),
+			slog.Int("limit", int(limit)),
+			slog.Any("error", err))
 	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -6028,4 +6237,25 @@ WHERE suffix > 0 AND suffix < 2000`, tenant, baseKey).Scan(&nextSuffix)
 		nextSuffix = 1
 	}
 	return nextSuffix, nil
+}
+
+// ResolveShedLocation resolves a shed to its operational location (name + partition).
+// Used by the passport service to enrich obligation data with location information.
+func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID string) (oploc.OperationalLocation, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return oploc.OperationalLocation{}, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	shed, err := pgconv.UUID(shedID)
+	if err != nil {
+		return oploc.OperationalLocation{}, fmt.Errorf("obligation: shed id: %w", err)
+	}
+	row := r.pool.QueryRow(ctx, oploc.ShedScopedLocationSQL, tenant, shed)
+	loc, err := oploc.ResolveShedLocation(ctx, row)
+	if err != nil {
+		return oploc.OperationalLocation{}, fmt.Errorf("obligation: resolve shed location: %w", err)
+	}
+	return loc, nil
 }

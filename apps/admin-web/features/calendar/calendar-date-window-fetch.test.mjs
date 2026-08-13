@@ -37,14 +37,14 @@ test("Calendar week view: selected past week drives fetch window", () => {
 });
 
 test("Calendar week view: today + offset drives fetch window for future selection", () => {
-  // User selects a date in the future (Thursday 2026-08-13)
-  const selectedDate = "2026-08-13";
+  // User selects a date in the future (Thursday 2026-08-20)
+  const selectedDate = "2026-08-20";
   const window = weekWindow(selectedDate);
 
   // The fetch must use THAT week's bounds, not today's
-  // For 2026-08-13 (Thursday), the week is 2026-08-10 (Monday) to 2026-08-16 (Sunday)
-  assert.equal(window.dateFrom, "2026-08-10", "fetch window starts on the Monday of selected week");
-  assert.equal(window.dateTo, "2026-08-16", "fetch window ends on the Sunday of selected week");
+  // For 2026-08-20 (Thursday), the week is 2026-08-17 (Monday) to 2026-08-23 (Sunday)
+  assert.equal(window.dateFrom, "2026-08-17", "fetch window starts on the Monday of selected week");
+  assert.equal(window.dateTo, "2026-08-23", "fetch window ends on the Sunday of selected week");
 
   // Verify no hardcoded `now` leaked into the window
   const today = new Date().toISOString().slice(0, 10);

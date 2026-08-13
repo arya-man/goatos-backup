@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">ताज़ा करें</string>
     <string name="sheds_title">टीकाकरण शेड</string>
+    <string name="sheds_park_pinned_fmt">पार्क: %1$s</string>
+    <string name="sheds_park_pinned_clear_description">सभी पार्क दिखाएं</string>
     <string name="sheds_count_fmt">%1$d शेड</string>
     <string name="sheds_due_fmt">%1$d खुले</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d पूर्ण</string>
@@ -14,7 +19,17 @@
     <string name="sheds_num_cell_in_shed">लक्षित</string>
     <string name="sheds_num_cell_due">शेष</string>
     <string name="sheds_num_cell_done">पूर्ण</string>
+    <string name="sheds_num_cell_accepted">स्वीकृत</string>
     <string name="sheds_partition_fmt">भाग %1$s</string>
+
+    <string name="sheds_status_done">पूर्ण</string>
+    <string name="sheds_status_in_progress">प्रगति में</string>
+    <string name="sheds_status_in_review">समीक्षा में</string>
+    <string name="sheds_status_submitted">सबमिट किया गया</string>
+    <string name="sheds_status_open">खुला</string>
+    <string name="sheds_status_overdue">समय से पीछे</string>
+    <string name="sheds_status_sent_back">वापस भेजा गया</string>
+    <string name="sheds_status_complete">पूर्ण</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">रोस्टर में बदलाव · इस ड्राइव के शेड्यूल होने के बाद से</string>

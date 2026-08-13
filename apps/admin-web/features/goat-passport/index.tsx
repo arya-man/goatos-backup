@@ -177,7 +177,7 @@ export async function GoatPassportPage({
               <MiniMetric label={copy(pageContract, "label.management")} value={dash(goat.summary.management_stage)} />
             </div>
             <div className="note" style={{ marginTop: 12 }}>
-              {copy(pageContract, "label.location")}: <b>{dash(goat.summary.location_path.display)}</b>
+              {copy(pageContract, "label.location")}: <b>{dash(goat.summary.location_path.operational_location_display)}</b>
               {goat.merged_into_goat_id ? (
                 <>
                   {" "}

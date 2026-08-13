@@ -24,7 +24,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
@@ -57,6 +61,7 @@ import sg.mesha.goatos.feature.submit.FormRunnerState
 import sg.mesha.goatos.feature.submit.ProofItemUi
 import sg.mesha.goatos.feature.submit.ShedCompletionSummary
 import sg.mesha.goatos.feature.submit.SubmitEvent
+import sg.mesha.goatos.feature.submit.SubmitSnackbarMessage
 import sg.mesha.goatos.feature.submit.SubmitSummaryItem
 import sg.mesha.goatos.feature.submit.SubmitUiState
 import sg.mesha.goatos.feature.submit.SyncState
@@ -109,6 +114,8 @@ class SubmitViewModel @Inject constructor(
     private val scanSource: ScanSource,
     private val proofCaptureSource: ProofCaptureSource,
     private val bootstrapRepository: BootstrapRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -135,6 +142,8 @@ class SubmitViewModel @Inject constructor(
     private var currentShedCompletionSummary: ShedCompletionSummaryDto? = null
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val routeShedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
+    private val routePartitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
+    private val routeSopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val selectedShedId = MutableStateFlow(routeShedId)
     private var statusJob: Job? = null
     private var outboxRecoveryKey: String? = null
@@ -147,6 +156,13 @@ class SubmitViewModel @Inject constructor(
 
     // Guards a double-tap firing two concurrent video captures for the same field.
     private var captureInFlightKey: String? = null
+
+    // Guards concurrent submit() invocations — true while a submission is in flight.
+    // Prevents multi-tap duplicate submissions by returning early on concurrent calls.
+    private var submitInFlight = false
+
+    // Show confirmation dialog before submitting
+    private var showSubmitConfirmation = false
 
     // Role gate (§5): null = not yet resolved; true = has an operator profile (ground
     // ground operator, capture allowed); false = viewer/verifier/leadership.
@@ -210,7 +226,13 @@ class SubmitViewModel @Inject constructor(
             return@launch
         }
         val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
-        captureAllowed = profile?.primaryRoleHint == OPERATOR_ROLE
+        // Backend-owned, never inferred from a role label: `vaccination_execute` is compiled by the
+        // backend from the caller's grants and is the same flag the shell uses to allow opening a
+        // shed for execution. A role literal here made every authorized non-operator (a director)
+        // read-only at submit even though the backend had already authorized the work.
+        captureAllowed = runCatching {
+            bootstrapRepository.loadNavState().featureFlags[VACCINATION_EXECUTE_FLAG] == true
+        }.getOrDefault(false)
         currentPrincipalId = profile?.operatorId?.ifBlank { null }
         // Cache-first: renders whatever Room already has (possibly nothing, on a cold install
         // or a task never opened before) immediately, then re-renders after every successful
@@ -238,7 +260,7 @@ class SubmitViewModel @Inject constructor(
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
                     selectedShedId
-                        .flatMapLatest { shedId -> repo.observeShedCompletionSummary(taskId, shedId) }
+                        .flatMapLatest { shedId -> repo.observeShedCompletionSummary(taskId, shedId, activePartitionLabel()) }
                         .collect { summary ->
                             currentShedCompletionSummary = summary
                             renderDraft()
@@ -249,7 +271,7 @@ class SubmitViewModel @Inject constructor(
         val refreshResult = repo.refreshTaskDetail(taskId)
         // Background refresh of the shed-completion summary; the observe() stream above re-emits
         // once Room is upserted. A failure leaves any cached summary on screen (offline-first).
-        repo.refreshShedCompletionSummary(taskId, selectedShedId.value)
+        repo.refreshShedCompletionSummary(taskId, selectedShedId.value, activePartitionLabel())
         if (refreshResult.isFailure && currentTask == null) {
             // Never synced, ever: no cache to fall back to. A stale cache (if any) stays on
             // screen instead — applyTaskResource already rendered it before this refresh ran.
@@ -271,7 +293,7 @@ class SubmitViewModel @Inject constructor(
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    scanCaptureRepository.observeAllForTask(taskId).collect { rows ->
+                    scanCaptureRepository.observeAllForTask(taskId, activePartitionLabel()).collect { rows ->
                         currentScans = rows
                         renderDraft()
                     }
@@ -281,7 +303,7 @@ class SubmitViewModel @Inject constructor(
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    proofCaptureRepository.observeProofs(taskId).collect { rows ->
+                    proofCaptureRepository.observeProofs(taskId, activePartitionLabel()).collect { rows ->
                         currentProofs = rows
                         renderDraft()
                     }
@@ -311,11 +333,11 @@ class SubmitViewModel @Inject constructor(
             _state.value = blockedState()
             return
         }
-        currentTask = detail.task
+        currentTask = detail.task.withRouteSopVersionFallback()
         currentForm = detail.form
         currentProofPolicy = detail.proofPolicy
-        resolveShedScopeFromTask(detail.task)
-        if (shouldRenderTerminalAck(detail.task)) {
+        resolveShedScopeFromTask(currentTask ?: detail.task)
+        if (shouldRenderTerminalAck(currentTask ?: detail.task)) {
             // The refreshed backend task is authoritative after a successful submit. Its row
             // version advances when the task enters review/accepted state, so trying to recover
             // the old pre-submit outbox key from the new row version would render a fresh,
@@ -324,10 +346,10 @@ class SubmitViewModel @Inject constructor(
             statusJob?.cancel()
             clearSavedSubmission()
             outboxRecoveryKey = null
-            _state.value = terminalAckState(detail.task, detail.form)
+            _state.value = terminalAckState(currentTask ?: detail.task, detail.form)
             return
         }
-        bindSubmissionKey(detail.task)
+        bindSubmissionKey(currentTask ?: detail.task)
         val queuedItemId = outboxItemId
         val key = idempotencyKey
         if (key != null && outboxRecoveryKey != key) {
@@ -335,7 +357,7 @@ class SubmitViewModel @Inject constructor(
             // SavedState reliably. Always reconcile the saved row id against the stable key:
             // the saved id itself may name a failed row that a retry already replaced.
             outboxRecoveryKey = key
-            _state.value = draftState(detail.task, detail.form).copy(canSubmit = false)
+            _state.value = draftState(currentTask ?: detail.task, detail.form).copy(canSubmit = false)
             viewModelScope.launch {
                 when (val recovered = syncRepository.findOutboxItemByIdempotencyKey(key)) {
                     is AppResult.Ok -> {
@@ -350,6 +372,13 @@ class SubmitViewModel @Inject constructor(
                         }
                     }
                     is AppResult.Err -> {
+                        // Answers: did outbox-row recovery after a process recreation actually
+                        // fail, vs. simply finding no row — needed to diagnose a stuck submit
+                        // banner that never resumes after a kill.
+                        crashReporter.recordException(
+                            recovered.cause ?: IllegalStateException(recovered.message),
+                            "SubmitViewModel.applyTaskResource outbox recovery lookup failed",
+                        )
                         if (queuedItemId != null) observeOutboxItem(queuedItemId) else renderDraft()
                     }
                 }
@@ -374,7 +403,7 @@ class SubmitViewModel @Inject constructor(
         if (selectedShedId.value == scopedShedId) return
         selectedShedId.value = scopedShedId
         viewModelScope.launch {
-            repo.refreshShedCompletionSummary(task.taskId, scopedShedId)
+            repo.refreshShedCompletionSummary(task.taskId, scopedShedId, activePartitionLabel())
         }
     }
 
@@ -382,6 +411,8 @@ class SubmitViewModel @Inject constructor(
         when (event) {
             SubmitEvent.Submit -> submit()
             SubmitEvent.Retry -> retry()
+            SubmitEvent.ConfirmSubmit -> confirmSubmit()
+            SubmitEvent.DismissSubmitConfirmation -> dismissSubmitConfirmation()
             is SubmitEvent.FormToggle -> updateAnswer(event.key, JsonPrimitive(event.checked))
             is SubmitEvent.FormText -> updateAnswer(event.key, JsonPrimitive(event.value))
             is SubmitEvent.FormPick -> updateAnswer(event.key, JsonPrimitive(event.value))
@@ -402,6 +433,9 @@ class SubmitViewModel @Inject constructor(
         renderDraft()
     }
 
+    private fun TaskSummaryDto.withRouteSopVersionFallback(): TaskSummaryDto =
+        if (sopVersionId.isNotBlank()) this else copy(sopVersionId = routeSopVersionId.orEmpty())
+
     /** Starts/stops the BT-HID [scanSource] for [key]'s `goat_scan` field. Only one field
      *  scans at a time — Android owns a single BT-HID connection either way. Each completed tag
      *  is written to Room FIRST via [ScanCaptureRepository.recordScan]; the UI only updates once
@@ -419,7 +453,12 @@ class SubmitViewModel @Inject constructor(
         scanSource.start()
         scanTagJob = viewModelScope.launch {
             scanSource.tags.collect { tag ->
-                scanCaptureRepository.recordScan(task.taskId, key, tag)
+                scanCaptureRepository.recordScan(
+                    taskId = task.taskId,
+                    fieldKey = key,
+                    tag = tag,
+                    partitionLabel = activePartitionLabel(),
+                )
             }
         }
         renderDraft()
@@ -456,7 +495,18 @@ class SubmitViewModel @Inject constructor(
         captureInFlightKey = key
         viewModelScope.launch {
             try {
-                val captured = if (source == "gallery_picker") proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
+                val caption = submitProofCaption(task, key)
+                val captured = if (source == "gallery_picker") {
+                    proofCaptureSource.pickVideo()
+                } else {
+                    proofCaptureSource.captureVideo(
+                        ProofCaptureContext(
+                            title = caption,
+                            primaryTag = submitProofLocationLabel(task).ifBlank { task.scopeId },
+                            workLabel = key,
+                        ),
+                    )
+                }
                 if (captured != null) {
                     val shedScopeId = selectedShedId.value
                         ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
@@ -467,13 +517,14 @@ class SubmitViewModel @Inject constructor(
                         subjectId = if (subject == ProofSubject.SHED) shedScopeId else null,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
-                        caption = null,
+                        caption = caption,
                         scopeType = if (subject == ProofSubject.SHED && !shedScopeId.isNullOrBlank()) "shed" else "task",
                         scopeId = if (subject == ProofSubject.SHED && !shedScopeId.isNullOrBlank()) shedScopeId else task.taskId,
                         capturedStartMs = captured.startedAtMs,
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = currentPrincipalId,
                         proofPolicy = currentProofPolicy.copy(captureSource = captured.captureSource),
+                        partitionLabel = activePartitionLabel(),
                     )
                 }
             } finally {
@@ -491,7 +542,25 @@ class SubmitViewModel @Inject constructor(
     private fun removeProof(proofId: String) {
         val task = currentTask ?: return
         if (outboxItemId != null) return
-        viewModelScope.launch { proofCaptureRepository.remove(task.taskId, proofId) }
+        viewModelScope.launch {
+            when (val result = proofCaptureRepository.remove(task.taskId, proofId)) {
+                is AppResult.Ok -> {
+                    _state.update { it.copy(lastError = null) }
+                    repo.refreshShedCompletionSummary(task.taskId, selectedShedId.value, activePartitionLabel())
+                }
+                is AppResult.Err -> {
+                    // Answers: did a proof-removal request actually fail (vs. the operator just
+                    // never tapping remove) — otherwise a stuck "remove" affordance is invisible.
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException(result.message),
+                        "SubmitViewModel.removeProof failed",
+                    )
+                    _state.update {
+                        it.copy(lastError = result.message.ifBlank { "Could not remove proof video. Try again." })
+                    }
+                }
+            }
+        }
     }
 
     private fun retryProofUpload(proofId: String) {
@@ -522,6 +591,9 @@ class SubmitViewModel @Inject constructor(
     private fun submit() {
         val current = currentTask ?: return
         if (captureAllowed == false) return
+        // Guard against concurrent submit() calls (double-tap or rapid re-entry).
+        // State-based in-flight check prevents duplicate submissions at the ViewModel level.
+        if (submitInFlight) return
         // Already enqueued (e.g. a double tap, or a recreation that raced load()) — never enqueue
         // a second time; just follow the existing row. The outbox is also key-idempotent, so this
         // is belt-and-suspenders on top of the persisted key.
@@ -537,7 +609,7 @@ class SubmitViewModel @Inject constructor(
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
         if (currentShedCompletionSummary != null) {
             val proofReadiness = currentShedProofReadiness()
-            val formBlock = buildFormRunnerState(currentForm, current)?.blockedReason
+            val formBlock = if (currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(currentForm, current)?.blockedReason
             val ready = if (currentProofPolicy.isShedLevelVideo) {
                 currentShedCompletionSummary?.handledCount == currentShedCompletionSummary?.expectedCount &&
                     proofReadiness.blockingReason == null &&
@@ -545,14 +617,65 @@ class SubmitViewModel @Inject constructor(
             } else {
                 currentShedCompletionSummary?.submitEnabled == true && formBlock == null
             }
-            if (!ready) return
-        } else if (buildFormRunnerState(currentForm, current)?.blockedReason != null) {
-            return
+            if (!ready) {
+                // Distinguishes "operator tapped a blocked submit" from "never tried" — the
+                // disabled-button dead end previously recorded nothing at all.
+                val reason = proofReadiness.blockingReason ?: formBlock ?: "shed_not_ready"
+                AnalyticsFunnels.trackSubmitBlocked(analytics, current.taskId, reason)
+                return
+            }
+        } else {
+            val blockedReason = buildFormRunnerState(currentForm, current)?.blockedReason
+            if (blockedReason != null) {
+                // Distinguishes "operator tapped a blocked submit" from "never tried".
+                AnalyticsFunnels.trackSubmitBlocked(analytics, current.taskId, blockedReason)
+                return
+            }
         }
         stopScanning()
-        val key = idempotencyKey ?: stableSubmissionKey(current).also { idempotencyKey = it }
+        val sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() }
+        if (sopVersionId.isBlank()) {
+            _state.update {
+                it.copy(
+                    syncState = SyncState.CONFLICT,
+                    syncLabel = "Task version missing. Please reopen this shed.",
+                    canSubmit = false,
+                    lastError = "Task version missing. Please reopen this shed.",
+                    isQueueFailed = true,
+                    isRetryFailed = false,
+                )
+            }
+            return
+        }
+        // Raise the gate. The flag must reach the EMITTED state, not just this field: a private
+        // var the screen never observes is invisible, which is exactly why the dialog never
+        // appeared the first time this was wired.
+        showSubmitConfirmation = true
+        _state.value = _state.value.copy(showSubmitConfirmation = true)
+    }
+
+    fun confirmSubmit() {
+        // ONLY proceeds when the gate is actually open. submit() runs every validation first and
+        // raises the gate only if the shed may really be submitted; without this check, confirming
+        // would skip straight past those guards -- a pending proof, a read-only task or a
+        // not-ready shed would submit anyway. The gate must be a pause in front of the checks,
+        // never a way around them.
+        if (!showSubmitConfirmation) return
+        val current = currentTask ?: return
+        if (captureAllowed == false) return
+        if (submitInFlight) return
+        showSubmitConfirmation = false
+        _state.value = _state.value.copy(showSubmitConfirmation = false)
+        submitInFlight = true
+        val activeShedId = activeShedScopeId(current)
+        val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId, activePartitionLabel()).also { idempotencyKey = it }
+        // Answers: did the operator actually attempt the final submit (vs. leaving the shed
+        // with a fully-scanned roster but never confirming) — the funnel's last-mile event.
+        AnalyticsFunnels.trackSubmitAttempted(analytics, current.taskId)
         statusJob?.cancel()
         viewModelScope.launch {
+            // State update clears snackbar before enqueuing; snackbar will be shown when
+            // outbox item status changes to QUEUED/SUCCEEDED/CONFLICT/DEAD_LETTER
             _state.update {
                 it.copy(
                     syncState = SyncState.QUEUED,
@@ -564,14 +687,19 @@ class SubmitViewModel @Inject constructor(
                     lastError = null,
                     isQueueFailed = false,
                     isRetryFailed = false,
+                    snackbarMessage = null,
                 )
             }
             // groupKey = the shed/scope this submission belongs to, so the outbox drains all
             // of a shed's writes in order (TRD: outbox is "ordered per shed").
-            val groupKey = current.scopeId.ifBlank { current.taskId }
+            val groupKey = listOf(
+                activeShedId ?: current.scopeId.ifBlank { current.taskId },
+                activePartitionLabel()?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole",
+            ).joinToString("|")
             val request = SubmitTaskRequestDto(
-                sopVersionId = current.sopVersionId,
+                sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() },
                 idempotencyKey = key,
+                partitionLabel = activePartitionLabel(),
                 answers = answersForSubmission(currentForm, formAnswers, currentScans),
                 proofRefs = proofRefsForSubmission(currentProofs),
             )
@@ -590,6 +718,16 @@ class SubmitViewModel @Inject constructor(
                 is AppResult.Err -> {
                     // Keep it honest: a write that can't even be queued is a visible error,
                     // never a silent drop.
+                    // Answers: did the submit fail to even reach the offline outbox (the biggest
+                    // gap before this pass — this reached neither GA4 nor Crashlytics).
+                    result.cause?.let {
+                        crashReporter.recordException(it, "SubmitViewModel.confirmSubmit enqueue failed")
+                    }
+                    AnalyticsFunnels.trackSubmitFailed(
+                        analytics,
+                        current.taskId,
+                        result.message.ifBlank { "enqueue_failed" },
+                    )
                     _state.update {
                         it.copy(
                             syncState = SyncState.DEAD_LETTER,
@@ -605,21 +743,36 @@ class SubmitViewModel @Inject constructor(
         }
     }
 
+    fun dismissSubmitConfirmation() {
+        // Cancel changes nothing else: no outbox row, no submit, no navigation.
+        showSubmitConfirmation = false
+        _state.value = _state.value.copy(showSubmitConfirmation = false)
+    }
+
     private fun retry() {
         val itemId = outboxItemId
         when {
             itemId != null -> viewModelScope.launch {
-                // Do not byte-replay a known-invalid shed payload forever. The replacement is
-                // built from Room + SavedState and retains the stable task/row idempotency key.
-                when (syncRepository.deleteOutboxItem(itemId)) {
-                    is AppResult.Ok -> {
-                        statusJob?.cancel()
-                        statusJob = null
-                        outboxItemId = null
-                        submit()
-                    }
-                    is AppResult.Err -> _state.update {
-                        it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                when (val retryResult = syncRepository.retry(itemId)) {
+                    is AppResult.Ok -> Unit
+                    is AppResult.Err -> {
+                        // Answers: did an operator-initiated retry of a dead-lettered submit
+                        // itself fail to re-enqueue — a second, silent failure on top of the
+                        // first would otherwise never surface.
+                        crashReporter.recordException(
+                            retryResult.cause ?: IllegalStateException(retryResult.message),
+                            "SubmitViewModel.retry re-enqueue failed",
+                        )
+                        currentTask?.let {
+                            AnalyticsFunnels.trackSubmitFailed(
+                                analytics,
+                                it.taskId,
+                                retryResult.message.ifBlank { "retry_failed" },
+                            )
+                        }
+                        _state.update {
+                            it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                        }
                     }
                 }
             }
@@ -632,10 +785,25 @@ class SubmitViewModel @Inject constructor(
                     submit()
                     return@launch
                 }
-                when (syncRepository.deleteFailedOutboxItemByIdempotencyKey(key)) {
+                when (val deleteResult = syncRepository.deleteFailedOutboxItemByIdempotencyKey(key)) {
                     is AppResult.Ok -> submit()
-                    is AppResult.Err -> _state.update {
-                        it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                    is AppResult.Err -> {
+                        // Answers: did the recovery-path cleanup of a failed outbox row block a
+                        // retry attempt (the operator taps Retry and nothing visibly happens).
+                        crashReporter.recordException(
+                            deleteResult.cause ?: IllegalStateException(deleteResult.message),
+                            "SubmitViewModel.retry cleanup-before-resubmit failed",
+                        )
+                        currentTask?.let {
+                            AnalyticsFunnels.trackSubmitFailed(
+                                analytics,
+                                it.taskId,
+                                deleteResult.message.ifBlank { "retry_cleanup_failed" },
+                            )
+                        }
+                        _state.update {
+                            it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                        }
                     }
                 }
             }
@@ -644,20 +812,30 @@ class SubmitViewModel @Inject constructor(
     }
 
     private fun bindSubmissionKey(task: TaskSummaryDto) {
-        val submissionScope = submissionScope(task)
+        val submissionScope = submissionScope(task, activeShedScopeId(task), activePartitionLabel())
         val previousScope = savedStateHandle.get<String>(KEY_SUBMISSION_SCOPE)
         if (previousScope != submissionScope) {
             savedStateHandle[KEY_SUBMISSION_SCOPE] = submissionScope
-            idempotencyKey = stableSubmissionKey(task)
+            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task), activePartitionLabel())
+            // A new scope/round has NO submission evidence yet, whatever the old round did.
+            scopeSubmissionAcked = false
             outboxItemId = null
             outboxRecoveryKey = null
             formAnswers = emptyMap()
             return
         }
         if (idempotencyKey == null) {
-            idempotencyKey = stableSubmissionKey(task)
+            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task), activePartitionLabel())
         }
     }
+
+    private fun activeShedScopeId(task: TaskSummaryDto): String? =
+        selectedShedId.value
+            ?.takeIf { it.isNotBlank() }
+            ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
+
+    private fun activePartitionLabel(): String? =
+        routePartitionLabel?.trim()?.takeIf { it.isNotBlank() }
 
     private fun clearSavedSubmission() {
         savedStateHandle.remove<String>(KEY_SUBMISSION_SCOPE)
@@ -673,44 +851,104 @@ class SubmitViewModel @Inject constructor(
             // window in observeStatus() — otherwise a close can wait forever once the row ages out
             // of the window before its terminal status is seen.
             syncRepository.observeItem(itemId)
-                .filterNotNull()
                 .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-                .collect { item -> item?.let { applyItemStatus(it) } }
+                .collect { item ->
+                    if (item == null) {
+                        if (outboxItemId == itemId) {
+                            outboxItemId = null
+                            renderDraft()
+                        }
+                    } else {
+                        applyItemStatus(item)
+                    }
+                }
         }
     }
 
+    /**
+     * POSITIVE evidence that a submission for the CURRENT scope actually reached the backend:
+     * an outbox row keyed by [stableSubmissionKey] that reached SUCCEEDED. Reset whenever the
+     * scope changes (a rescan after a rejection is a NEW round and carries no evidence yet).
+     */
+    private var scopeSubmissionAcked: Boolean = false
+
     private fun applyItemStatus(item: SyncQueueItem) {
+        val activeKey = idempotencyKey
+        val activeItemId = outboxItemId
+        if (item.id != activeItemId && (activeKey == null || item.idempotencyKey != activeKey)) return
+        val analyticsTaskId = currentTask?.taskId ?: item.groupKey
+        val submitStatus = when {
+            item.status == SyncItemStatus.QUEUED -> "queued"
+            item.status == SyncItemStatus.IN_FLIGHT -> "syncing"
+            item.status == SyncItemStatus.SUCCEEDED -> "synced"
+            item.conflict -> "conflict"
+            item.isDeadLetter -> "dead_letter"
+            else -> "retrying"
+        }
+        AnalyticsFunnels.trackSubmitStatus(
+            analytics = analytics,
+            taskId = analyticsTaskId,
+            status = submitStatus,
+            reason = item.lastError,
+            attemptCount = item.attemptCount,
+            maxAttempts = item.maxAttempts,
+        )
+        if (item.status == SyncItemStatus.SUCCEEDED) scopeSubmissionAcked = true
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
-                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
+                it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.QUEUED)
             }
             item.status == SyncItemStatus.IN_FLIGHT -> _state.update {
-                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false)
+                it.copy(syncState = SyncState.SYNCING, syncLabel = "", syncProgress = 0.6f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false, snackbarMessage = null)
             }
             item.status == SyncItemStatus.SUCCEEDED -> {
                 val task = currentTask
-                if (task != null && shouldRenderTerminalAck(task)) {
-                    _state.value = terminalAckState(task, currentForm)
+                submitInFlight = false
+                // Answers: did the enqueued submit actually reach and get accepted by the
+                // backend — closes the funnel's last stage, previously invisible.
+                AnalyticsFunnels.trackSubmitSucceeded(analytics, analyticsTaskId)
+                if (task != null) {
+                    _state.value = terminalAckState(task, currentForm).copy(snackbarMessage = SubmitSnackbarMessage.SUCCEEDED)
                 } else {
                     outboxItemId = null
                     renderDraft()
                 }
             }
-            item.conflict -> _state.update {
-                it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false)
-            }
-            item.isDeadLetter -> _state.update {
-                it.copy(
-                    syncState = SyncState.DEAD_LETTER,
-                    syncLabel = "",
-                    canSubmit = false,
-                    attemptCount = item.attemptCount,
-                    maxAttempts = item.maxAttempts,
-                    lastError = item.lastError,
-                    isQueueFailed = false,
-                    isRetryFailed = false,
+            item.conflict -> {
+                submitInFlight = false
+                // Answers: did the backend reject the submission (missing answers/proof) — a
+                // failure mode this pass previously reported to neither GA4 nor Crashlytics.
+                crashReporter.recordException(
+                    IllegalStateException(item.lastError ?: "conflict"),
+                    "SubmitViewModel submit rejected (conflict)",
                 )
+                AnalyticsFunnels.trackSubmitFailed(analytics, analyticsTaskId, item.lastError?.ifBlank { "conflict" } ?: "conflict")
+                _state.update {
+                    it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.CONFLICT)
+                }
+            }
+            item.isDeadLetter -> {
+                submitInFlight = false
+                // Answers: did the submit exhaust its transport retries without ever reaching
+                // the backend — the other half of the "submit failure reaches nobody" gap.
+                crashReporter.recordException(
+                    IllegalStateException(item.lastError ?: "dead_letter"),
+                    "SubmitViewModel submit dead-lettered",
+                )
+                AnalyticsFunnels.trackSubmitFailed(analytics, analyticsTaskId, item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
+                _state.update {
+                    it.copy(
+                        syncState = SyncState.DEAD_LETTER,
+                        syncLabel = "",
+                        canSubmit = false,
+                        attemptCount = item.attemptCount,
+                        maxAttempts = item.maxAttempts,
+                        lastError = item.lastError,
+                        isQueueFailed = false,
+                        isRetryFailed = false,
+                        snackbarMessage = SubmitSnackbarMessage.DEAD_LETTER,
+                    )
+                }
             }
             else -> _state.update {
                 // FAILED but still inside its retry budget — SyncEngine will auto-retry with
@@ -725,6 +963,7 @@ class SubmitViewModel @Inject constructor(
                     lastError = item.lastError,
                     isQueueFailed = false,
                     isRetryFailed = false,
+                    snackbarMessage = null,
                 )
             }
         }
@@ -829,12 +1068,11 @@ class SubmitViewModel @Inject constructor(
             formRunner = formRunner,
             syncState = SyncState.DRAFT,
             syncLabel = "",
-            // Vaccination shed acknowledgement: when a backend shed-completion summary is present,
-            // Submit is gated on its submit_enabled flag (all expected animals handled + proof
-            // ready) AND any residual form gate. Generic tasks with no shed summary keep the
-            // pre-existing form-only gate.
-            canSubmit = summaryReady && formRunner?.blockedReason == null,
-            blockingReason = summaryBlock ?: formRunner?.blockedReason,
+            // Per-goat video proof is captured on the scan rows; once the backend shed summary says
+            // the acknowledgement is ready, stale local proof/outbox rows must not repaint this
+            // screen as Retry after navigating away and back.
+            canSubmit = summaryReady && (summary != null && currentProofPolicy.isPerGoatVideo || formRunner?.blockedReason == null),
+            blockingReason = summaryBlock ?: formRunner?.blockedReason?.takeUnless { summary != null && currentProofPolicy.isPerGoatVideo },
             syncProgress = 0f,
             proofSummaryTitle = proofSummary.title,
             proofSummarySyncedLabel = proofSummary.label,
@@ -889,12 +1127,80 @@ class SubmitViewModel @Inject constructor(
     }
 
     private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
-        if (!task.state.isSubmissionTerminal()) return false
-        if (!currentProofPolicy.isShedLevelVideo) return true
-        if (currentShedCompletionSummary?.submitState?.isSubmissionTerminal() != true) return false
-        val readiness = currentShedProofReadiness()
-        if (readiness.uploading > 0 || readiness.failed > 0) return false
-        return readiness.blockingReason == null
+        val summary = currentShedCompletionSummary
+        if (summary != null) {
+            // The backend's readiness gate is authoritative and reflects the CURRENT round
+            // (e.g. a rescan after a per-goat rejection reopens obligations for a fresh
+            // submission). `submit_state` is a coarse, terminal-sounding word derived from the
+            // whole task's historical state (see ShedCompletionSummary docs) and can still read
+            // "verified"/"submitted" from an EARLIER round even while THIS round's readiness is
+            // submit_enabled=true with no blocking reason. Never let that stale wording render a
+            // "Submitted" screen over work that was never actually sent — submit_enabled=true
+            // means the operator must be able to submit, full stop.
+            // Scoped deliberately to a CLOSED-OUT round. "needs_review"/"submitted" mean a
+            // submission for this round is already with the verifier -- that screen must stay
+            // acknowledged even though submit_enabled can still be true (e.g. an optional extra
+            // shed video is uploading). Only "verified"/"closed" mean the previous round is
+            // finished, so submit_enabled there is the signal that a NEW round (a rescan after a
+            // rejection) is ready and must be sendable. That is the live defect: Gandhi 1 read
+            // task.state="accepted" + submit_state="verified" + submit_enabled=true, and the
+            // screen rendered "Submitted / Synced - record on file" over three rescanned animals
+            // whose proof videos were already uploaded. Finalize never reached submit(), no
+            // SHED_SUBMIT was ever enqueued, and the operator was told the job was done.
+            if (summary.submitEnabled && summary.submitState.isRoundClosedOut()) return false
+            if (!task.state.isSubmissionTerminal()) return false
+            // The shed-scoped summary IS per-shed truth, so "needs_review"/"submitted" here means
+            // THIS shed's round is with the verifier -- a legitimate acknowledged state.
+            if (!summary.submitState.isSubmissionTerminal()) return false
+            // ROUND-IDENTITY GATE (closes the former KNOWN GAP below). submit_state alone cannot
+            // distinguish "submitted THIS round" from "submitted the PREVIOUS round, then reopened
+            // by a verifier rejection" -- both used to arrive as submitState=needs_review with
+            // submit_enabled=true. The backend now derives round_submitted from shed-scoped facts
+            // (a live pending verification item, an unaccepted completion, or accepted history for
+            // this shed's current round -- see domain.ShedCompletionSummary.RoundSubmitted) instead
+            // of the shared park-level sop_tasks.state, so it is false exactly when this shed's
+            // round was reopened and a fresh submission is still owed. Trust it over the coarse
+            // submit_state word: a reopened shed must reach the submit form, never the ack screen.
+            if (!summary.roundSubmitted) return false
+            if (currentProofPolicy.isShedLevelVideo) {
+                val readiness = currentShedProofReadiness()
+                if (readiness.uploading > 0 || readiness.failed > 0) return false
+                return readiness.blockingReason == null
+            }
+            return true
+        }
+        // NO backend shed summary. This is EVERY weighing submit -- the shed-completion summary
+        // endpoint is vaccination-only, so `summary` is always null here for weighing, the block
+        // above never runs, and this line used to `return task.state.isSubmissionTerminal()`:
+        // success inferred from the ABSENCE of a negative. A task left `needs_review` by an
+        // EARLIER round is "terminal", so the screen rendered "Shed record submitted · Synced ·
+        // record on file" while the database held no submission, no completion and no
+        // verification item, and the operator was told the job was done. It shipped twice --
+        // once for vaccination (see the comment above) and once here.
+        //
+        // Require POSITIVE evidence instead: an outbox row for THIS scope's stable submission key
+        // that actually reached SUCCEEDED. Absence of evidence is never acknowledgement.
+        //
+        // Scoped to SHED-scoped submits, which is where rounds exist. A task-level submit has no
+        // round below it, so there the task's own terminal state IS the answer and still acks
+        // (an operator reopening an already-submitted task must not be handed a blank form that
+        // invites a duplicate submission).
+        // `task.state` may ONLY answer for a task that is ITSELF the submission unit.
+        //
+        // A vaccination drive task is PARK-scoped and shared by every shed in the drive -- AGENTS.md:
+        // "Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/batch-level
+        // sop_tasks.state must not be used as per-shed submitted/proof/verification truth." An
+        // earlier round leaves that shared parent `needs_review`, so reading it here acknowledged a
+        // shed whose own round was never sent. Scoping the guard to `scopeType == "shed"` was not
+        // enough: the live task is park-scoped, so the guard never fired and the lie came straight
+        // back on the next attempt.
+        //
+        // So: anything scoped ABOVE the submission (park, batch, drive) requires positive evidence.
+        // Only a self-contained task with no shed selected under it may speak for itself.
+        val taskIsItsOwnSubmissionUnit =
+            activeShedScopeId(task) == null &&
+                (task.scopeType.isBlank() || task.scopeType.equals("task", ignoreCase = true))
+        return if (taskIsItsOwnSubmissionUnit) task.state.isSubmissionTerminal() else scopeSubmissionAcked
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
@@ -930,6 +1236,33 @@ class SubmitViewModel @Inject constructor(
 
     /** Generic non-vaccination forms may still map named media subjects. Vaccination goat
      *  clips are captured from the scan row with [ProofSubject.GOAT] and never use this mapper. */
+    private fun submitProofCaption(task: TaskSummaryDto, fieldKey: String): String =
+        proofOverlayContextLine(
+            feature = task.presentation?.title?.takeIf { it.isNotBlank() }
+                ?: task.title.ifBlank { "Proof" },
+            parkLabel = task.contextString("parkLabel")
+                ?: task.contextString("park_label")
+                ?: task.contextString("parkName")
+                ?: task.contextString("park_name"),
+            locationLabel = submitProofLocationLabel(task),
+            extraLabel = currentForm.fields.firstOrNull { it.key == fieldKey }?.label?.takeIf { it.isNotBlank() }
+                ?: fieldKey.replace('_', ' '),
+        )
+
+    private fun submitProofLocationLabel(task: TaskSummaryDto): String =
+        task.contextString("operational_location_display")
+            ?: task.contextString("operationalLocationDisplay")
+            ?: task.contextString("shedLabel")
+            ?: task.contextString("shed_label")
+            ?: task.contextString("shedName")
+            ?: task.contextString("shed_name")
+            ?: activePartitionLabel()
+            ?: selectedShedId.value
+            ?: ""
+
+    private fun TaskSummaryDto.contextString(key: String): String? =
+        (context[key] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+
     // R50-027: derive subject from the task's proof policy expectedSubjects, not hardcoded.
     // Falls back to per-key hardcoded mapping only when policy has no explicit mapping.
     private fun subjectForFieldKey(key: String): ProofSubject {
@@ -1254,7 +1587,7 @@ class SubmitViewModel @Inject constructor(
         syncStatus = syncStatus.name,
     )
 
-    private companion object {
+    internal companion object {
         // SavedStateHandle keys — survive process death so the idempotency key + enqueued row id
         // + draft answers are never lost to a ViewModel recreation (which would otherwise double-
         // submit or silently drop the operator's in-progress form).
@@ -1267,10 +1600,42 @@ class SubmitViewModel @Inject constructor(
 
         fun stableSubmissionKey(task: TaskSummaryDto): String = "shed-submit:${submissionScope(task)}"
 
-        fun submissionScope(task: TaskSummaryDto): String = "${task.taskId}:rv:${task.rowVersion}"
+        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?): String =
+            "shed-submit:${submissionScope(task, activeShedId)}"
+
+        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String =
+            "shed-submit:${submissionScope(task, activeShedId, partitionLabel)}"
+
+        fun submissionScope(task: TaskSummaryDto): String =
+            submissionScope(task, activeShedId = null)
+
+        fun submissionScope(task: TaskSummaryDto, activeShedId: String?): String {
+            val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
+            return "${task.taskId}:scope:$scopeId:rv:${task.rowVersion}"
+        }
+
+        fun submissionScope(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String {
+            val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
+            val partitionKey = partitionLabel?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole"
+            return "${task.taskId}:scope:$scopeId:partition:$partitionKey:rv:${task.rowVersion}"
+        }
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
-            "submitted", "needs_review", "accepted", "closed", "completed" -> true
+            "submitted", "needs_review", "accepted", "verified", "closed", "completed" -> true
+            else -> false
+        }
+
+        /**
+         * A round that is FINISHED, as opposed to one still with the verifier.
+         *
+         * "submitted"/"needs_review" mean this round's work is already sent and awaiting a
+         * verdict — the acknowledged screen is correct there. "verified"/"closed"/"accepted"
+         * mean the previous round is done, so a backend `submit_enabled=true` alongside one of
+         * these is the signal that a NEW round exists (a rescan after a rejection) and must be
+         * sendable rather than hidden behind a "Submitted" screen.
+         */
+        fun String.isRoundClosedOut(): Boolean = when (lowercase()) {
+            "verified", "closed", "completed", "accepted" -> true
             else -> false
         }
 
@@ -1309,10 +1674,14 @@ class SubmitViewModel @Inject constructor(
             }
         }.toMap()
 
-        /** Every completed backend proof (across every `video_proof` field) as the wire proof-ref
-         *  list. Submit gating requires [serverProofId] to be present; never send a local Room id
-         *  as a proof ref, because the backend review path requires completed server proof rows. */
-        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.mapNotNull { row ->
+        /** Completed backend proof refs for submit. Goat-level replacement keeps old proof rows for
+         *  audit, but only the latest completed proof per goat is the active proof sent to backend. */
+        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs
+            .filter { row ->
+                row.syncStatus == CaptureSyncStatus.SYNCED && !row.serverProofId.isNullOrBlank()
+            }
+            .latestActiveProofs()
+            .mapNotNull { row ->
             val serverProofId = row.serverProofId
                 ?.takeIf { row.syncStatus == CaptureSyncStatus.SYNCED && it.isNotBlank() }
                 ?: return@mapNotNull null
@@ -1328,10 +1697,20 @@ class SubmitViewModel @Inject constructor(
                 },
             )
         }
+
+        private fun List<ProofCaptureRow>.latestActiveProofs(): List<ProofCaptureRow> {
+            val goatProofs = filter { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+                .groupBy { "${it.fieldKey}:${it.subjectId}" }
+                .values
+                .mapNotNull { rows -> rows.maxByOrNull { it.capturedAtMs } }
+            val nonGoatProofs = filterNot { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
+            return nonGoatProofs + goatProofs
+        }
     }
 }
 
-private const val OPERATOR_ROLE = "operator"
+/** Backend-compiled execution grant for vaccination; see workforce bootstrap feature flags. */
+private const val VACCINATION_EXECUTE_FLAG = "vaccination_execute"
 
 private fun FormSpec.rosterScanTargetFieldKey(): String? =
     fields.singleOrNull { it.type == FormFieldType.GOAT_SCAN }?.key

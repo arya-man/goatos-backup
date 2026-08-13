@@ -31,14 +31,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.feature.profile.R
 
 // ---------------------------------------------------------------------------
@@ -170,7 +169,11 @@ fun ProfileScreen(
     state: ProfileUiState,
     onEvent: (ProfileEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    appVersionLabel: String? = null,
 ) {
+    // chrome-guard:ignore: renders identity/settings already carried by the bootstrap contract
+    // plus live on-device reader state; there is no independent server read for this screen to
+    // re-fetch, so a resume-triggered refresh would call nothing.
     val settingRows = state.rows.filter { it.kind != SettingKind.SIGN_OUT }
     val signOut = state.rows.firstOrNull { it.kind == SettingKind.SIGN_OUT }
     val localizedSettingsTitle = stringResource(R.string.profile_settings_label)
@@ -186,8 +189,7 @@ fun ProfileScreen(
             Text(
                 text = localizedSettingsTitle.uppercase(),
                 color = MeshaColors.Faint,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.sectionLabel,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
             )
         }
@@ -196,6 +198,9 @@ fun ProfileScreen(
         }
         signOut?.let { row ->
             item { SignOutButton(row = row, onEvent = onEvent) }
+        }
+        appVersionLabel?.takeIf { it.isNotBlank() }?.let { label ->
+            item { AppVersionFooter(label) }
         }
     }
 }
@@ -224,8 +229,7 @@ private fun ProfileHeader(state: ProfileUiState) {
                 Text(
                     text = state.initials,
                     color = MeshaColors.OnBrand,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.W800,
+                    style = MeshaType.avatarInitials,
                 )
             }
             Spacer(Modifier.width(12.dp))
@@ -233,13 +237,12 @@ private fun ProfileHeader(state: ProfileUiState) {
                 Text(
                     text = state.name,
                     color = MeshaColors.Ink,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.headerTitle,
                 )
                 Text(
                     text = state.scopeLabel,
                     color = MeshaColors.Muted,
-                    fontSize = 12.sp,
+                    style = MeshaType.cardSubtitle,
                 )
             }
         }
@@ -301,10 +304,10 @@ private fun SettingRowItem(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
             Text(
                 text = localizedTitle,
                 color = MeshaColors.Muted,
-                fontSize = 13.sp,
+                style = MeshaType.rowLabel,
             )
             displaySubtitle?.let {
-                Text(text = it, color = MeshaColors.Faint, fontSize = 11.sp)
+                Text(text = it, color = MeshaColors.Faint, style = MeshaType.rowCaption)
             }
         }
         Spacer(Modifier.width(10.dp))
@@ -333,12 +336,11 @@ private fun SettingRowTrailing(row: SettingRow, onEvent: (ProfileEvent) -> Unit)
             Text(
                 text = it,
                 color = if (row.valueEmphasis) MeshaColors.BrandD else MeshaColors.Muted,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.rowValue,
             )
             Spacer(Modifier.width(6.dp))
         }
-        Text(text = "›", color = MeshaColors.Faint, fontSize = 16.sp)
+        Text(text = "›", color = MeshaColors.Faint, style = MeshaType.glyphSmall)
     }
 }
 
@@ -367,12 +369,24 @@ private fun SignOutButton(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
         Text(
             text = localizedTitle,
             color = MeshaColors.Danger,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cardTitle,
             textAlign = TextAlign.Center,
             fontFamily = FontFamily.Default,
         )
     }
+}
+
+@Composable
+private fun AppVersionFooter(label: String) {
+    Text(
+        text = label,
+        color = MeshaColors.Faint,
+        style = MeshaType.overline,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp),
+    )
 }
 
 @Preview(backgroundColor = 0xFF0B100D, showBackground = true)
@@ -396,11 +410,6 @@ private fun ProfileScreenPreview() {
                         title = "RFID reader",
                         value = "Chainway R3",
                         valueEmphasis = true,
-                    ),
-                    SettingRow(
-                        kind = SettingKind.TIMETABLE,
-                        title = "Timetable",
-                        subtitle = "Shift roster (read-only)",
                     ),
                     SettingRow(
                         kind = SettingKind.SIGN_OUT,

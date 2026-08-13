@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
+<!--
   Sheds module (v-sheds) chrome strings. Operators and leadership see the same
   screen; all visible labels and status come from the backend. These strings cover
   the static chrome: header navigation, status labels, table column labels, empty/
@@ -9,6 +12,11 @@
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">Refresh</string>
     <string name="sheds_title">Vaccination sheds</string>
+    <!-- Shown when this screen was drilled into from a Calendar drive card for a specific
+         park (a parkId nav arg pinned the list to one park). Lets the user see why they are
+         seeing only one park and clear back to all parks. -->
+    <string name="sheds_park_pinned_fmt">Park: %1$s</string>
+    <string name="sheds_park_pinned_clear_description">Show all parks</string>
 
     <!-- Header count/summary chrome. NOTE: ShedsUiState currently exposes these only as
          VM-baked label strings (shedCountLabel/dueLabel/daySummary), not raw Int fields, so
@@ -26,7 +34,19 @@
     <string name="sheds_num_cell_in_shed">TARGETED</string>
     <string name="sheds_num_cell_due">OPEN</string>
     <string name="sheds_num_cell_done">DONE</string>
+    <!-- Verifier-side count, distinct from DONE (the operator's own submitted work). -->
+    <string name="sheds_num_cell_accepted">ACCEPTED</string>
     <string name="sheds_partition_fmt">Part %1$s</string>
+
+    <!-- Status chips -->
+    <string name="sheds_status_done">Done</string>
+    <string name="sheds_status_in_progress">In progress</string>
+    <string name="sheds_status_in_review">In review</string>
+    <string name="sheds_status_submitted">Submitted</string>
+    <string name="sheds_status_open">Open</string>
+    <string name="sheds_status_overdue">Overdue</string>
+    <string name="sheds_status_sent_back">Sent back</string>
+    <string name="sheds_status_complete">Complete</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">Roster changes · since this drive was scheduled</string>

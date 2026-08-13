@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { assignSopTask, getSopTask, requestSopTaskRework } from "@/lib/api/server";
+import { assignSopTask, getSopTask, recordVerificationVerdict, requestSopTaskRework, type VerificationDecision } from "@/lib/api/server";
 
-const PATHNAME = "/verification";
+const PATHNAME = "/verify";
 
 // A rework/re-assign on the source SOP task ripples across every screen that reads the
 // process-integrity model (same fan-out as features/process-integrity/actions.ts).
@@ -25,6 +25,55 @@ function withFeedback(url: URL, status: "success" | "error", code: string): stri
   url.searchParams.set("va_code", code);
   const qs = url.searchParams.toString();
   return qs ? `${url.pathname}?${qs}` : url.pathname;
+}
+
+// recordVerificationVerdictAction is the VERIFIER's act: approve or reject the proof video itself.
+// It is the counterpart to the two authority actions below, which touch the source SOP task instead.
+//
+// row_version comes from the rendered item because it guards THAT row (unlike the rework/reassign
+// actions below, whose row_version belongs to a different row and so must be re-fetched). A stale
+// value is the correct failure here: it means someone recorded a verdict since this page rendered,
+// and the backend's 409 is what stops this submit from silently overwriting it.
+export async function recordVerificationVerdictAction(formData: FormData): Promise<void> {
+  const url = redirectTarget(formData);
+  const itemId = String(formData.get("item_id") ?? "").trim();
+  const decision = String(formData.get("decision") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const rowVersion = Number(formData.get("row_version") ?? "");
+
+  if (!itemId || (decision !== "approved" && decision !== "rejected")) {
+    redirect(withFeedback(url, "error", !itemId ? "missing_item_handle" : "invalid_decision"));
+  }
+  if (!Number.isInteger(rowVersion) || rowVersion < 1) {
+    redirect(withFeedback(url, "error", "missing_row_version"));
+  }
+  // The backend owns this rule (422 on a reasonless rejection); checking here too keeps the
+  // operator from losing a page round-trip to learn it.
+  if (decision === "rejected" && !reason) {
+    redirect(withFeedback(url, "error", "missing_reason"));
+  }
+
+  // Idempotency identity for this verdict. Derived, not random, so a double-click or a retried
+  // Server Action is ONE write: the same (item, row_version, decision) is the same logical act.
+  // row_version makes it self-expiring — once the verdict lands the row moves on, so a later,
+  // legitimately different verdict can never collide with this key.
+  const idempotencyKey = `verification-verdict-${itemId}-${rowVersion}-${decision}`;
+  const result = await recordVerificationVerdict(
+    itemId,
+    {
+      decision: decision as VerificationDecision,
+      // Send reason only when rejecting: the schema marks it required-when-rejected, and an empty
+      // string on an approval is a value the contract does not ask for.
+      ...(decision === "rejected" ? { reason } : {}),
+      row_version: rowVersion,
+    },
+    idempotencyKey,
+  );
+  revalidateVaccinationViews();
+  if (!result.ok) {
+    redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
+  }
+  redirect(withFeedback(url, "success", decision === "approved" ? "verdict_approved" : "verdict_rejected"));
 }
 
 // reworkVerificationItemAction requests SOP rework on the verification item's SOURCE task. The
@@ -77,3 +126,11 @@ export async function reassignVerificationItemAction(formData: FormData): Promis
   }
   redirect(withFeedback(url, "success", "reassigned"));
 }
+
+// loadReassignPositionsAction was REMOVED with the re-assign picker (maintainer decision
+// 2026-08-07). The verifier's screen carries only her verdict now, so nothing on it reads the
+// staff roster -- which also retires the 500-row SSR fetch this page used to make on every load.
+//
+// reworkVerificationItemAction / reassignVerificationItemAction above are deliberately KEPT: they
+// are real, wired writes (requestSopTaskRework / assignSopTask) belonging to the authority surface
+// that owns source-task action. Only their placement on the verifier's review screen was wrong.

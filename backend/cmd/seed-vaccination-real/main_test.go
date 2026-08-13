@@ -262,6 +262,25 @@ func TestSeedPartitionLineageOneToManyPaginationScheduledDateScopeHierarchyStatu
 	}
 }
 
+func TestCBECPTRunOneToManyPageBoundaryDateShiftStatusMatrix(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read seed source: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"projection-review: membership=obligation_instances",
+		"pagination=none",
+		"GROUP BY target_id, rule_id",
+		"target_type = 'goat'",
+		"oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("CBE/CPT seed projection review missing %q", want)
+		}
+	}
+}
+
 func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	got := buildEntryDateMapping([]goatRecord{
 		{RFID: "rfid-dob-only", DOB: "2026-01-01"},
@@ -651,6 +670,43 @@ func TestCPTPublicationMatrixCanExcludePPRFor2026SeedPacket(t *testing.T) {
 	}
 }
 
+func TestSeedPublicationMatrixCanExcludeConfiguredVaccines(t *testing.T) {
+	t.Setenv("GOATOS_SEED_EXCLUDE_VACCINES", "blue_tongue,ppr")
+	matrix := buildSeedPublicationVaccinationMatrix()
+	for _, vaccine := range []string{"Blue tongue", "PPR"} {
+		if _, ok := matrix[vaccine]; ok {
+			t.Fatalf("%s present in excluded seed publication matrix", vaccine)
+		}
+	}
+	for _, vaccine := range []string{"ET+TT", "FMD", "HS", "Goat Pox", "Sheep Pox"} {
+		if _, ok := matrix[vaccine]; !ok {
+			t.Fatalf("%s missing from excluded seed publication matrix", vaccine)
+		}
+	}
+	if _, ok := buildCanonicalVaccinationMatrix()["Blue tongue"]; !ok {
+		t.Fatalf("canonical matrix must still include Blue tongue for source/history mapping")
+	}
+	if _, ok := buildCanonicalVaccinationMatrix()["PPR"]; !ok {
+		t.Fatalf("canonical matrix must still include PPR for source/history mapping")
+	}
+}
+
+func TestIdentifierSlotsIncludesRFID2AndOldTagAliases(t *testing.T) {
+	primary, aliases := identifierSlots("901007000503826", "901007000504788", "200", "CJB")
+	if primary != "901007000503826" {
+		t.Fatalf("primary = %q, want RFID", primary)
+	}
+	want := []string{"901007000504788", "CJB-200"}
+	if len(aliases) != len(want) {
+		t.Fatalf("aliases = %v, want %v", aliases, want)
+	}
+	for i := range want {
+		if aliases[i] != want[i] {
+			t.Fatalf("aliases = %v, want %v", aliases, want)
+		}
+	}
+}
+
 // TestSeedSchedulePathClassifiesByDoseDateNotCurrentAge is the R50-001 regression guard.
 // A kid-age (15-week) dose administration on an animal that is NOW 30+ weeks old (well past the
 // 16/20-week kid-course cutoff, so no longer a "continuation" case even with a kid-stage tag) must
@@ -943,7 +999,7 @@ func TestValidateSeedReconciliation(t *testing.T) {
 			t.Fatal("validate corrupt reconciliation returned nil")
 		}
 		for _, want := range []string{
-			"accepted source history=3388 want=3389",
+			"accepted source history=3388 want_at_least=3389",
 			"accepted completion/status mismatches=1",
 			"duplicate active goat/rule groups=2",
 			"active primary obligations already satisfied by accepted history=3",

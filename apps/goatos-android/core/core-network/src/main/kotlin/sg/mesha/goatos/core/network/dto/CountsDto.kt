@@ -60,6 +60,8 @@ data class CountsBreakdownRowDto(
     @SerialName("park_label") val parkLabel: String = "",
     @SerialName("shed_id") val shedId: String? = null,
     @SerialName("shed_label") val shedLabel: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("management_stage") val managementStage: String = "",
     @SerialName("breed") val breed: String = "",
     @SerialName("sex") val sex: String = "",
@@ -85,6 +87,19 @@ data class CountsBreakdownSeriesPointDto(
     @SerialName("key") val key: String = "",
     @SerialName("label") val label: String = "",
     @SerialName("count") val count: Int = 0,
+)
+
+/**
+ * Response of `GET /app/counts/breeds` — the breed vocabulary the operator birth form's breed
+ * picker renders. Same shape as the Counts Breakdown `breeds` facet ([key]=[label]=`goats.breed`,
+ * with a herd head [count]), but served on the operator (CountsWrite) surface: the read-only Counts
+ * Breakdown that also exposes breeds is CountsRead, which a field operator does not hold, so the
+ * birth form must NOT source its breeds from `/counts/breakdown`. Default empty list per this file's
+ * lenient-decode rule, so an older backend degrades the picker to disabled rather than crashing.
+ */
+@Serializable
+data class CountsBreedsResponseDto(
+    @SerialName("breeds") val breeds: List<CountsBreakdownSeriesPointDto> = emptyList(),
 )
 
 @Serializable
@@ -180,6 +195,9 @@ data class CountsBreakdownResponseDto(
 data class CountsDestinationShedDto(
     @SerialName("shed_id") val shedId: String = "",
     @SerialName("name") val name: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("management_stages") val managementStages: List<String> = emptyList(),
 )
 
 @Serializable
@@ -192,6 +210,7 @@ data class CountsDestinationParkDto(
 @Serializable
 data class CountsShiftingDestinationsResponseDto(
     @SerialName("parks") val parks: List<CountsDestinationParkDto> = emptyList(),
+    @SerialName("management_stages") val managementStages: List<String> = emptyList(),
 )
 
 /**
@@ -215,6 +234,9 @@ data class CountsShiftingDestinationsResponseDto(
  *  - `source_park_id` / `source_shed_id` — the animal's CURRENT location is fetched with the
  *    animal and shown read-only, so there is nothing for the operator to type and nothing for the
  *    client to assert. The server reads the source from the animal itself.
+ *  - `management_stage_mode` / `target_management_stage` — the movement adopts the DESTINATION
+ *    SHED's cohort, resolved server-side at raise time. The operator is not asked, so the client
+ *    sends nothing. These are not optional-and-ignored: the server rejects them as unknown fields.
  *
  * `priority` and `category` are now always sent EXPLICITLY (`normal`/`emergency` and
  * `routine`/`pregnancy`/`medical`/`quarantine`), because the screen defaults them visibly. A
@@ -224,9 +246,17 @@ data class CountsShiftingDestinationsResponseDto(
 data class CountsShiftingEventRequestDto(
     @SerialName("destination_park_id") val destinationParkId: String,
     @SerialName("destination_shed_id") val destinationShedId: String,
+    @SerialName("destination_partition_label") val destinationPartitionLabel: String? = null,
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("proof_ref") val proofRef: String? = null,
+    /**
+     * The raiser's optional note on why the animals are moving. Null (not "") when the operator
+     * wrote nothing: the field is omitempty on the wire, and sending an empty string would make
+     * "left blank" and "typed then cleared" two different requests for the same intent — which
+     * would also change the idempotency fingerprint of an otherwise identical resubmission.
+     */
+    @SerialName("comment") val comment: String? = null,
     @SerialName("goat_ids") val goatIds: List<String> = emptyList(),
 )
 
@@ -234,6 +264,165 @@ data class CountsShiftingEventRequestDto(
 data class CountsShiftingEventResponseDto(
     @SerialName("shifting_event_id") val shiftingEventId: String = "",
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
+// READ — GET /app/counts/shifting-events/pending-execution
+// ---------------------------------------------------------------------------
+
+/**
+ * One raised/authorized/evidence-rework movement — a row of the operator's Actions screen.
+ *
+ * Field names are verbatim from `contracts/openapi/app-api.yaml`
+ * (`CountsShiftingPendingExecutionItem` / the backend's `appShiftingPendingExecutionItem`). Every
+ * field carries a default so a contract addition never breaks decode of an already-cached Room row.
+ *
+ * [animalCount] is the FULL size of the movement; [animals] is a bounded preview of at most 5. The
+ * client renders the count as truth and the preview for recognition — it never treats the preview
+ * length as the movement size (that is [animalsTruncated]'s job).
+ */
+@Serializable
+data class CountsShiftingPendingExecutionItemDto(
+    @SerialName("shifting_event_id") val shiftingEventId: String = "",
+    @SerialName("event_status") val eventStatus: String = "",
+    @SerialName("verification_state") val verificationState: String = "unverified",
+    @SerialName("primary_action_key") val primaryActionKey: String = "none",
+    @SerialName("priority") val priority: String = "",
+    @SerialName("category") val category: String = "",
+    @SerialName("source_park_id") val sourceParkId: String? = null,
+    @SerialName("source_park_name") val sourceParkName: String? = null,
+    @SerialName("source_shed_id") val sourceShedId: String? = null,
+    @SerialName("source_shed_name") val sourceShedName: String? = null,
+    @SerialName("source_partition_label") val sourcePartitionLabel: String? = null,
+    @SerialName("destination_park_id") val destinationParkId: String = "",
+    @SerialName("destination_park_name") val destinationParkName: String = "",
+    @SerialName("destination_shed_id") val destinationShedId: String = "",
+    @SerialName("destination_shed_name") val destinationShedName: String = "",
+    @SerialName("destination_partition_label") val destinationPartitionLabel: String? = null,
+    /**
+     * Backend-composed labels for each end of the movement ("Castro - 1" -> "Castro - 2"). Render
+     * these; do not rebuild them from shed name + partition. Both were added 2026-08-06 together
+     * with the server fields that populate them — until then this DTO's partition fields were
+     * declared but nothing ever sent them, so approve/execute read "Castro -> Castro".
+     */
+    @SerialName("source_operational_location_display") val sourceOperationalLocationDisplay: String? = null,
+    @SerialName("destination_operational_location_display") val destinationOperationalLocationDisplay: String = "",
+    @SerialName("approved_by_user_id") val approvedByUserId: String? = null,
+    @SerialName("approved_at") val approvedAt: String? = null,
+    @SerialName("approved_at_ist") val approvedAtIst: String? = null,
+    @SerialName("raised_by_user_id") val raisedByUserId: String = "",
+    @SerialName("raised_at") val raisedAt: String = "",
+    @SerialName("raised_at_ist") val raisedAtIst: String = "",
+    @SerialName("effective_at") val effectiveAt: String = "",
+    @SerialName("animal_count") val animalCount: Int = 0,
+    @SerialName("animals_truncated") val animalsTruncated: Boolean = false,
+    @SerialName("animals") val animals: List<CountsShiftingPendingExecutionAnimalDto> = emptyList(),
+    @SerialName("feed_requirement") val feedRequirement: CountsShiftingFeedRequirementDto? = null,
+)
+
+@Serializable
+data class CountsShiftingFeedRequirementDto(
+    val status: String = "blocked",
+    @SerialName("blocked_reason") val blockedReason: String? = null,
+    val fingerprint: String? = null,
+    @SerialName("target_management_stage") val targetManagementStage: String? = null,
+    @SerialName("animal_count") val animalCount: Int = 0,
+    val items: List<CountsShiftingFeedRequirementItemDto> = emptyList(),
+)
+
+@Serializable
+data class CountsShiftingFeedRequirementItemDto(
+    @SerialName("feed_item_label") val feedItemLabel: String = "",
+    @SerialName("quantity_grams") val quantityGrams: String = "0",
+)
+
+/** One animal preview on a pending-execution row: enough to find it in a shed. */
+@Serializable
+data class CountsShiftingPendingExecutionAnimalDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("display_id") val displayId: String = "",
+    @SerialName("tag") val tag: String? = null,
+)
+
+/**
+ * One keyset page of the Pending tab. [nextCursor] is absent on the last page. Keyset, not offset:
+ * the queue is drained by several operators at once, so an offset page would skip or repeat rows.
+ */
+@Serializable
+data class CountsShiftingPendingExecutionResponseDto(
+    @SerialName("items") val items: List<CountsShiftingPendingExecutionItemDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("status_counts") val statusCounts: CountsShiftingActionStatusCountsDto = CountsShiftingActionStatusCountsDto(),
+    @SerialName("previous_dates") val previousDates: List<CountsShiftingPreviousDateDto> = emptyList(),
+)
+
+@Serializable data class CountsShiftingActionStatusCountsDto(
+    val all: Int = 0, val pending: Int = 0, val authorized: Int = 0,
+    val rework: Int = 0, val completed: Int = 0,
+)
+@Serializable data class CountsShiftingPreviousDateDto(
+    val date: String = "", @SerialName("action_count") val actionCount: Int = 0,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /app/counts/shifting-events/{id}/complete  and  /cancel
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete/cancel outcome (`CountsShiftingExecutionResponse` / the backend's
+ * `appShiftingExecutionResponse`). THIS is the response for the "Mark done" action that relocates
+ * the animals.
+ *
+ * [idempotentReplay] is true when the result came from a previous identical completion rather than
+ * a new relocation — the outbox replays under one stable key on every retry, so this is the normal
+ * outcome of a resend, not an error. A movement moved once and confirmed twice returns the original
+ * result; it never moves the herd onward.
+ */
+@Serializable
+data class CountsShiftingExecutionResponseDto(
+    @SerialName("shifting_event_id") val shiftingEventId: String = "",
+    @SerialName("event_status") val eventStatus: String = "",
+    @SerialName("destination_park_id") val destinationParkId: String = "",
+    @SerialName("destination_shed_id") val destinationShedId: String = "",
+    @SerialName("destination_partition_label") val destinationPartitionLabel: String? = null,
+    @SerialName("source_park_id") val sourceParkId: String = "",
+    @SerialName("source_shed_id") val sourceShedId: String = "",
+    @SerialName("source_partition_label") val sourcePartitionLabel: String? = null,
+    @SerialName("moved_goat_ids") val movedGoatIds: List<String> = emptyList(),
+    @SerialName("moved_count") val movedCount: Int = 0,
+    @SerialName("applied_at") val appliedAt: String? = null,
+    @SerialName("applied_at_ist") val appliedAtIst: String? = null,
+    @SerialName("applied_by") val appliedBy: String? = null,
+    @SerialName("canceled_at") val canceledAt: String? = null,
+    @SerialName("canceled_at_ist") val canceledAtIst: String? = null,
+    @SerialName("canceled_by") val canceledBy: String? = null,
+    @SerialName("cancel_reason") val cancelReason: String? = null,
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+/** The optional cancel body (`reason` is REQUIRED server-side). */
+@Serializable
+data class CountsShiftingCancelRequestDto(
+    @SerialName("reason") val reason: String? = null,
+)
+
+/**
+ * The optional complete body. `destination_tag` is only consulted when the destination shed is
+ * empty; for an occupied shed the server derives the cohort and a supplied value must agree. The
+ * mobile operator flow leaves it null and lets the server derive it.
+ */
+@Serializable
+data class CountsShiftingCompleteRequestDto(
+    /**
+     * MANDATORY (maintainer decision, 2026-07-26): the proof_artifact id of the operator's video.
+     * Approval and completion are independent gates; the second gate applies the move. Verification
+     * reviews this video afterward. A blank/absent value is rejected 422 proof_required.
+     */
+    @SerialName("proof_ref") val proofRef: String,
+    @SerialName("feed_packing_proof_ref") val feedPackingProofRef: String? = null,
+    @SerialName("feed_given_proof_ref") val feedGivenProofRef: String? = null,
+    @SerialName("feed_config_fingerprint") val feedConfigFingerprint: String? = null,
+    @SerialName("destination_tag") val destinationTag: String? = null,
 )
 
 // ---------------------------------------------------------------------------
@@ -277,16 +466,35 @@ data class CountsEvidenceRefDto(
  */
 @Serializable
 data class CountsBirthEventRequestDto(
-    @SerialName("animal_identifier_1") val animalIdentifier1: String,
+    // Exactly one of animal_identifier_1 (permanent RFID) or temporary_identifier (provisional tag)
+    // is sent; the backend rejects both-or-neither. Nullable so a temporary-tagged newborn omits it.
+    @SerialName("animal_identifier_1") val animalIdentifier1: String? = null,
+    @SerialName("temporary_identifier") val temporaryIdentifier: String? = null,
     @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
     @SerialName("species") val species: String,
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
+    /**
+     * The pen within [shedId] the newborn is placed into ("1", "Part 3"). Null = shed-level
+     * placement, which is exactly the pre-2026-08-06 behaviour, so this is additive. Without it a
+     * birth into "Godel 1 - 3" could only ever be recorded as "Godel 1", and the destination feed
+     * returns one option PER PARTITION, so [shedId] alone does not identify the chosen option.
+     */
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("breed") val breed: String? = null,
     @SerialName("sex") val sex: String,
     @SerialName("dob") val dob: String,
+    /**
+     * Optional birth time (`HH:MM`, 24-hour, IST wall clock — docs/decisions/birth-death-workflows.md).
+     * Stored as `goats.time_of_birth` and used by the birth follow-up workflow to anchor its
+     * time-offset steps; absent means unknown and the backend falls back to 07:00 IST.
+     */
+    @SerialName("time_of_birth") val timeOfBirth: String? = null,
     @SerialName("entry_date") val entryDate: String,
-    @SerialName("dam_id") val damId: String? = null,
+    /** Mother RFID on first submit; the server resolves and stores the canonical mother goat id. */
+    @SerialName("dam_id") val damId: String,
+    /** Number born in this delivery. One submit creates this many distinct canonical children. */
+    @SerialName("litter_size") val litterSize: Int,
     @SerialName("sire_or_lot") val sireOrLot: String? = null,
     @SerialName("weight_kg") val weightKg: Double? = null,
     @SerialName("management_stage") val managementStage: String? = null,
@@ -326,26 +534,82 @@ data class CountsDeathEventRequestDto(
 }
 
 /**
- * Lenient response envelope shared by the birth and death routes (identity's
- * `AdminGoatResponse`). Only the fields the app actually surfaces are bound — the full response
- * also carries identifiers, decision, events, and idempotency metadata that mobile does not
- * render.
+ * Result of raising a birth/death approval request. Birth submission creates canonical children
+ * immediately and returns them in [children], while approval controls only their count eligibility.
+ * Death continues to apply its lifecycle exit only after approval and therefore returns no children.
  */
 @Serializable
-data class CountsGoatLifecycleResponseDto(
-    @SerialName("goat") val goat: CountsGoatSummaryDto = CountsGoatSummaryDto(),
-    @SerialName("generation_status") val generationStatus: String = "",
-    @SerialName("trace_id") val traceId: String = "",
+data class CountsApprovalSubmitResponseDto(
+    @SerialName("approval_request_id") val approvalRequestId: String,
+    @SerialName("request_type") val requestType: String,
+    @SerialName("status") val status: String,
+    @SerialName("raised_at") val raisedAt: String,
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean,
+    @SerialName("children") val children: List<CountsBirthChildResultDto> = emptyList(),
+)
+
+/** One canonical child created by a birth submission. */
+@Serializable
+data class CountsBirthChildResultDto(
+    @SerialName("goat_id") val goatId: String,
+    @SerialName("temporary_identifier") val temporaryIdentifier: String,
+    @SerialName("child_ordinal") val childOrdinal: Int,
+)
+
+// ---------------------------------------------------------------------------
+// READ — GET /app/counts/goats/temporary-tagged  ("Awaiting RFID" list)
+// ---------------------------------------------------------------------------
+
+/**
+ * One goat awaiting a permanent RFID: it still carries an active temporary tag. Every field has a
+ * default so a later contract addition never breaks decode of an already-cached Room row.
+ *
+ * [rowVersion] is the goat's optimistic-concurrency token; it is echoed back verbatim in the promote
+ * call so a stale in-hand row is rejected instead of clobbering a newer change.
+ */
+@Serializable
+data class TemporaryTaggedGoatDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("display_id") val displayId: String = "",
+    @SerialName("temporary_identifier") val temporaryIdentifier: String = "",
+    @SerialName("location_display") val locationDisplay: String = "",
+    @SerialName("row_version") val rowVersion: Int = 0,
 )
 
 /**
- * The bound slice of `GoatSummary`. Deliberately NOT carrying `row_version`: the contract's
- * `GoatSummary` does not expose one, so the death write's optimistic-concurrency guard cannot be
- * round-tripped from a previous response and must be supplied by the caller.
+ * One keyset page of the "Awaiting RFID" list. [nextCursor] is absent on the last page; it is the
+ * last row's display_id. Keyset, not offset: several operators may retag at once.
  */
 @Serializable
-data class CountsGoatSummaryDto(
+data class TemporaryTaggedGoatsResponseDto(
+    @SerialName("items") val items: List<TemporaryTaggedGoatDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /app/counts/goats/{goat_id}/promote-identifier
+// ---------------------------------------------------------------------------
+
+/**
+ * Assign a permanent RFID to a temporary-tagged goat. The temporary tag to retire is found
+ * server-side, so only the permanent RFID and the goat's current [rowVersion] are sent.
+ */
+@Serializable
+data class CountsPromoteIdentifierRequestDto(
+    @SerialName("permanent_identifier") val permanentIdentifier: String,
+    // Optional second permanent RFID (animal_identifier_2), like the birth flow. Null/absent = only
+    // the primary is attached.
+    @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
+    @SerialName("row_version") val rowVersion: Int,
+)
+
+/**
+ * The promote outcome. [idempotentReplay] is true when the result came from a previous identical
+ * promotion rather than a new one — the outbox replays under one stable key on every retry, so this
+ * is the normal outcome of a resend, not an error.
+ */
+@Serializable
+data class CountsPromoteIdentifierResponseDto(
     @SerialName("goat_id") val goatId: String = "",
-    @SerialName("display_id") val displayId: String = "",
-    @SerialName("lifecycle_status") val lifecycleStatus: String = "",
+    @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
 )

@@ -1,9 +1,29 @@
 #!/usr/bin/env node
 // Validates vaccination HRMS source data before seeding.
+// Coupling review 2026-08-05: migration 000109 adds animal_stage_lookup.age_band
+// ('kid'/'adult'/NULL) so a shifting stamps the destination cohort's kid/adult band onto the
+// animals it moves. NO CHANGE to this file's contract: age_band lives on the stage VOCABULARY,
+// not on the HRMS roster or vaccination source rows validated here, and the fixture ships no
+// stage-catalog rows. Deliberately NOT derived from source DOB or from min_age_days/max_age_days
+// -- F2 fattening cohorts stay kid to 67 weeks -- so do not add a source-date-derived age band.
+// 2026-08-05: unchanged by the SOP rework-reopen work. Source validation covers the
+// IMPORT contract; task state transitions after import are the SOP module's own.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
 // Coupling review 2026-07-25: migration 000045's nullable capacity shot-cap override is not
 // part of the source fixture — seed leaves it NULL and the sweeper uses rule_dsl/default — so
 // source validation is unchanged by the caps-editable feature.
+// Coupling review 2026-07-30: migration 000057 adds growth_director as a
+// Weighing-only role hint/catalog row. It is not a vaccination source field and
+// must not create vaccination capacity during HRMS fixture validation.
+// Coupling review 2026-08-04: seed-roster-real's defaultDepartmentModules now grants
+// health -> aas_health + counts + milk + feed_direction + vaccination, and pairs milk with
+// counts everywhere counts is granted. Those are department -> module GRANT rows derived at
+// seed time from department codes, not source-spreadsheet fields, so no header, raw byte,
+// file hash, row count, vaccination date anchor or schedule-path selection changes here.
+// Coupling review 2026-08-05: CBE/CPT seed-port imports may preserve optional
+// rfid2 aliases, and port-specific publication can exclude vaccines such as
+// Blue Tongue/PPR until stock/manual scheduling is confirmed. Source validation
+// keeps the canonical full-fixture bytes and source-history contract unchanged.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +52,10 @@ import {
   OPERATOR_ROSTER_VERIFIER_ROLE,
   ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
+  ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE,
+  VACCINATION_MEDICAL_DATE_FIELD,
+  OPTIONAL_SECONDARY_RFID_FIELD,
+  SEED_PUBLICATION_VACCINE_EXCLUSION_ENV,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -43,6 +67,18 @@ if (!OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY) {
 }
 if (!ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END) {
   throw new Error("adult campaign seed contract must include same-business-day accepted history during generation");
+}
+if (!ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE) {
+  throw new Error("adult blank-history seed contract must automatically join the normal generated drive");
+}
+if (VACCINATION_MEDICAL_DATE_FIELD !== "vaccination_completions.administered_at") {
+  throw new Error("vaccination repeat timing must use the operator-administered medical date");
+}
+if (OPTIONAL_SECONDARY_RFID_FIELD !== "rfid2") {
+  throw new Error("optional secondary RFID seed field must stay named rfid2");
+}
+if (SEED_PUBLICATION_VACCINE_EXCLUSION_ENV !== "GOATOS_SEED_EXCLUDE_VACCINES") {
+  throw new Error("seed vaccine exclusion env contract changed");
 }
 
 const INPUT_FILES = [
@@ -227,6 +263,32 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     "warning",
   ));
 
+  // Partition resolution check: validate that seeded animals in partitioned sheds have partition assignments.
+  // Source shed names like "Godel 1 - Part 3" or "Gandhi 1" are normalized to physical shed + partition.
+  // During seed, every animal placed in a partitioned shed must have a matching goat_shed_partitions entry,
+  // so downstream queries (verification_items, weighing_campaign_sheds, health_cases) can resolve the
+  // partition_label via the canonical goat_shed_partitions table or equivalent shed_partitions catalog lookup.
+  // This is documented to assert the invariant: unresolvable partitions leave partition_label NULL and render
+  // as the plain shed name, never fabricated partition values.
+  const partitionResolutionProblems = [];
+  const partitionedShedNames = new Set();
+  for (const goat of goatByKey.values()) {
+    const rawShed = cell(goat.row, goatColumns, "shed");
+    const normalizedShed = normalizeShedPartitionName(rawShed);
+    // Track partitioned sheds so we can document the partition assignment requirement
+    if (normalizedShed.partition !== "whole") {
+      partitionedShedNames.add(`${cell(goat.row, goatColumns, "farm")} / ${normalizedShed.physical} partition ${normalizedShed.partition}`);
+    }
+  }
+  checks.push(makeCheck(
+    "partition_resolution_contract",
+    0,
+    "Every animal placed in a partitioned shed (non-whole partition_label) must have a goat_shed_partitions entry during seed. Unresolvable partitions remain NULL (plain shed name rendered) rather than being fabricated.",
+    "Seed/import must populate goat_shed_partitions for every animal in a subdivided shed so verification_items, weighing_campaign_sheds, and health_cases can backfill partition_label correctly. This is a seed data contract, not a source-file requirement: sources may use source-native partition naming, but canonical DB must have the partition mapping.",
+    Array.from(partitionedShedNames).slice(0, 8),
+    "warning",
+  ));
+
   const vaccByKey = new Map();
   const vaccinationIdentityProblems = [];
   const unknownVaccinationAnimals = [];
@@ -387,6 +449,29 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       if (value && !value.startsWith("Fixture ")) pushSample(nonSyntheticNames, `shed-manager row ${index + 1}:${field}`);
     }
   }
+  // pc.vaccination MANAGE coverage. seed-closeout fails the whole stack unless an active seat holds
+  // BOTH `execute` and `manage` for pc.vaccination, because the reminder ladder
+  // (kernelstages/reminder_cadence.go) resolves both duty types. seed-position-duties derives
+  // `manage` ONLY from manager-tier seats that are not operators and not backups --
+  // vaccination_operator_* stays `execute` (a drive operator whose HR title reads manager is still
+  // executing) and backup_manager stays `execute` (a backup covers the absent manager's tasks, not
+  // their authority). So a source whose shed-manager mapping names only operators/backups seeds no
+  // manage holder, and the failure surfaces LATE, as a local stack that loops
+  // "Local database preparation failed". Catch it here, at source-validation time, instead.
+  const manageCapableRoles = [];
+  for (let index = 1; index < managers.length; index += 1) {
+    const role = String(cell(managers[index], managerColumns, "manager_role") ?? "").trim().toLowerCase();
+    if (!role) continue;
+    if (role.includes("operator") || role.includes("backup")) continue;
+    manageCapableRoles.push(role);
+  }
+  // count is the number of PROBLEMS: zero manager-tier roles is one problem, otherwise none.
+  checks.push(makeCheck(
+    "pc.vaccination manage coverage",
+    manageCapableRoles.length > 0 ? 0 : 1,
+    "shed-manager mapping must name at least one manager-tier role outside operator/backup, or seed-position-duties derives no pc.vaccination `manage` holder and seed-closeout fails the stack",
+    "add a Preventive Care Manager / Park Head / shed manager seat to the source roster",
+  ));
   for (let index = 1; index < timetable.length; index += 1) {
     for (const column of [2, 3, 5]) {
       const value = String(timetable[index]?.[column] ?? "").trim();
@@ -709,6 +794,9 @@ function main() {
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
 
+// Coupling review 2026-07-29: seed-roster-real adds feed_direction to the preventive_care
+// department module grant. This changes runtime module/navigation authorization only; it does not
+// change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts.
 // Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
@@ -718,7 +806,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // canonical PPR history validation.
 // Coupling review 2026-07-24/25: Adult entry_date is never a vaccination
 // due-date anchor. Adult blank-history work must be generated as
-// campaign/catch-up cohort work packed by physical shed/partition, not as
+// ordinary generated drive work packed by physical shed/partition, not as
 // post_arrival singleton work; source validation still preserves kid/young
 // age-window checks and does not route singleton adult rows into make-up/defer
 // logic without an explicit source reason.
@@ -730,5 +818,32 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // is not a source-field contract. It is admin-authored runtime config that can
 // reassign open planned drive rows after seed; source validation continues to
 // validate only operator-roster presence/shape when cpt-operator-roster.json exists.
+// Coupling review 2026-07-25: migration 000002 is the additive live-DB repair
+// for the same runtime column. No validator input, hash, or row-count rule
+// changes because seed still leaves selected_operator_ids at its DB default.
+// Coupling review 2026-08-02: blank-history adult generation is automatic normal-drive
+// membership, not a manual approval lane, and operator administered_at remains the medical
+// date even when verification closes later. This changes derived generation semantics only;
+// source vaccination cells, HRMS rows, hashes, and validation counts stay unchanged.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
+
+// 2026-08-01 verify-duty seeding: position_module_duties gains verify rows per notification module.
+// This is derived seed state, not source data -- no HRMS-source column, row count or hash changes.
+// Source validation is unaffected; notification reachability is asserted by seed-position-duties.
+// Coupling review 2026-08-04: runtime vaccination drive safe-date override
+// metadata does not change the source validation contract. Requested/applied
+// dates and clinical-shift metadata are written after scheduling, while approved
+// combo helper sharing leaves source vaccination cells, HRMS rows, hashes, and
+// validation counts unchanged.
+// Coupling review 2026-08-05: CBE/CPT port controls are runtime seed/sweep
+// constraints, not source validation inputs. Primary/secondary RFID aliasing,
+// targeted dose-code sweeps, verifier-grant seeding, weighing duties, and active
+// position upserts do not alter HRMS source rows, hashes, or counts. Current
+// open obligation generation excludes Blue Tongue and PPR by policy until later
+// stock-confirmed scheduling.
+
+// Coupling review 2026-08-05 (preventive_care module grants): reviewed against this source audit and
+// found nothing to validate. Removing milk/aas_health from the preventive_care department affects
+// which modules that department is OFFERED in the app; it is not an HRMS/vaccination source input and
+// changes no column, row count, or hash this auditor reads.

@@ -13,6 +13,12 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
+	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
+	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -24,8 +30,11 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -51,6 +60,13 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	workforceRepo := workforcepg.NewRepository(pool, pgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
+	countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+	countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
+	feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
+	healthRepo := healthpg.NewRepository(pool, pgCfg.QueryTimeout)
+	weighingRepo := weighingpg.NewRepository(pool, pgCfg.QueryTimeout)
+	workflowService := eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -59,9 +75,42 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
-	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
+	// C-defect-B (2026-08-04): this is the DURABLE bus (Pub/Sub domain-event-consumer / kernel
+	// worker), the path that actually delivers a rework/approved push in production and in the
+	// E2E stack -- unlike internal/bootstrap/api.go's in-process bus, which is dev/local-only.
+	// Neither WithLocationNames nor WithVaccineLabels was ever chained here, so every push this
+	// bus produced degraded straight to the generic "The proof is ready for operational closure"/
+	// no-park copy, even after the enrichment itself was written (see verification_notify_consumer.go
+	// enrichApprovedNotificationCopy and handleVerdictRework's park-name prefix). Confirmed live: a
+	// real rework push carried no park name until this wiring was added.
+	verificationVaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
+	verificationLocationNames := notificationbridge.NewLocationNameResolver(pool)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(verificationVaccineLabels).WithLocationNames(verificationLocationNames).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
+	// operator, UP to the park head and the owning module's director.
+	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger)).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
+	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring
+	// guard compares this list with cmd/domain-event-consumer so a wrapper cannot hide bus drift.
+	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
+	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	// Weighing verdict applier: weighing enqueues a verification item for every
+	// observation, so without this consumer every approve/reject is a silent drop.
+	weighingapp.NewVerificationVerdictHandler(weighingRepo, logger).Register(bus)
+	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
+	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
+	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewGoatExitedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewIdentifierAddedWorkflowHandler(workflowService).Register(bus)
+	tasksapp.NewDeathVerificationHandler(workflowService, nil).Register(bus)
+	tasksapp.NewBirthVerificationHandler(workflowService, nil).Register(bus)
+	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {
 		logger.Info("kernelstages_domain_event_handlers_registered")

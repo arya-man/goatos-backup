@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 	"github.com/vgoats/goatos/backend/internal/sop/ports"
 )
@@ -912,12 +914,61 @@ func (r *Repository) RecordScanCapture(ctx context.Context, cmd ports.RecordScan
 	err := r.pool.QueryRow(ctx, `
 INSERT INTO sop_task_scan_captures (
   tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at
-) VALUES (
+)
+SELECT
   $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8::uuid, $9,
   COALESCE(to_timestamp(NULLIF($10::bigint, 0)::double precision / 1000.0), now())
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM obligation_instances oi
+  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+  LEFT JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+      AND (
+        assignment.partition_label = 'whole'
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
+      AND (
+        cardinality(assignment.vaccine_rule_ids) = 0
+        OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+      )
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.obligation_id = nullif($7, '')::uuid
+    AND oi.status = 'scheduled'
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) > now()
 )
-ON CONFLICT (tenant_id, task_id, field_key, normalized_tag) DO UPDATE
-SET updated_at = now()
+ON CONFLICT (tenant_id, task_id, field_key, normalized_tag, COALESCE(obligation_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE
+-- A re-scan of the SAME tag (retry of the same cycle, OR a genuinely new capture after a
+-- verifier rejection reopened the obligation — same obligation_id, only its row_version bumps)
+-- must overwrite the durable evidence with what was just scanned, not merely touch updated_at.
+-- The previous "DO UPDATE SET updated_at = now()" silently absorbed a legitimately new capture
+-- as an invisible timestamp bump: captured_at, goat_id, obligation_id, captured_by, and
+-- idempotency_key all stayed pinned to the FIRST-ever scan of this tag forever, so a re-scan
+-- days later still read back as the original capture — the server-side half of the accepted
+-- scan / never-durably-recorded defect (the Room-layer half is CaptureRepository.upsertScan).
+-- This is an unconditional "last scan wins" overwrite, matching the client's own replaceScan:
+-- a plain retry re-sends identical values (harmless no-op update) and a reopened cycle's re-scan
+-- correctly refreshes every column to the new capture.
+SET tag = EXCLUDED.tag,
+    goat_id = EXCLUDED.goat_id,
+    obligation_id = EXCLUDED.obligation_id,
+    captured_by = EXCLUDED.captured_by,
+    idempotency_key = EXCLUDED.idempotency_key,
+    captured_at = EXCLUDED.captured_at,
+    updated_at = now()
 RETURNING capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::text, ''), COALESCE(obligation_id::text, ''), captured_at`,
 		cmd.TenantID,
 		cmd.TaskID,
@@ -1028,7 +1079,7 @@ RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	return item, nil
 }
 
-func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
+func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {
@@ -1039,6 +1090,9 @@ func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, task
 	}
 	if maxProofs <= 0 {
 		maxProofs = 5
+	}
+	if err := r.validateShedPartition(ctx, nil, tenantID, shedID, partitionLabel); err != nil {
+		return ports.ShedCompletionReadiness{}, err
 	}
 	var expected, handled, proofReady int64
 	err := r.pool.QueryRow(ctx, `
@@ -1065,27 +1119,62 @@ target_shed AS (
 eligible AS (
   SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
   FROM obligation_instances oi
+  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   JOIN batch b ON b.batch_id = oi.batch_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN LATERAL (
+    SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
+    FROM vaccination_drive_assignments assignment
+    WHERE assignment.tenant_id = oi.tenant_id
+      AND assignment.batch_id = oi.batch_id
+      AND assignment.shed_id = g.shed_id
+      AND (
+        assignment.partition_label = 'whole'
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
+      AND (
+        cardinality(assignment.vaccine_rule_ids) = 0
+        OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+      )
+    ORDER BY assignment.planned_date ASC,
+             assignment.partition_label ASC,
+             assignment.operator_id ASC NULLS LAST,
+             assignment.assignment_id ASC
+    LIMIT 1
+  ) vda ON true
   CROSS JOIN target_shed target
   WHERE oi.tenant_id = $1::uuid
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+    AND (
+      NULLIF(BTRIM($5), '') IS NULL
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+    )
+    AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
 ),
 expected AS (
-  SELECT count(*) AS n
+  SELECT count(DISTINCT goat_id) AS n
   FROM eligible
 ),
 handled AS (
   SELECT count(DISTINCT c.goat_id) AS n
   FROM sop_task_scan_captures c
-  JOIN eligible e
-    ON e.obligation_id = c.obligation_id
-    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  CROSS JOIN target_shed target
   WHERE c.tenant_id = $1::uuid
     AND c.task_id = $2::uuid
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
+    AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+    AND (
+      NULLIF(BTRIM($5), '') IS NULL
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+    )
 ),
 proofed_goat AS (
   SELECT count(DISTINCT subject_id) AS n
@@ -1102,12 +1191,17 @@ proofed_shed AS (
   SELECT count(*) AS n
   FROM proof_artifacts p
   JOIN target_shed target ON target.shed_id IS NOT NULL AND p.scope_id = target.shed_id
-  WHERE p.tenant_id = $1::uuid
-    AND p.scope_type = 'shed'
-    AND p.subject_type = 'shed'
-    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
-    AND p.upload_state = 'completed'
-)
+	  WHERE p.tenant_id = $1::uuid
+	    AND p.scope_type = 'shed'
+	    AND p.subject_type = 'shed'
+	    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
+	    AND (
+	      NULLIF(BTRIM($5), '') IS NULL
+	      OR regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+	       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+	    )
+	    AND p.upload_state = 'completed'
+	)
 SELECT COALESCE((SELECT n FROM expected), 0),
        COALESCE((SELECT n FROM handled), 0),
        CASE WHEN $3 = 'shed'
@@ -1118,6 +1212,7 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 		taskID,
 		proofSubject,
 		shedID,
+		partitionLabel,
 	).Scan(&expected, &handled, &proofReady)
 	if err != nil {
 		return ports.ShedCompletionReadiness{}, err
@@ -1149,7 +1244,7 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 	return ports.ShedCompletionReadiness{Enabled: true}, nil
 }
 
-func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject string) ([]domain.ProofReference, error) {
+func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string) ([]domain.ProofReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {
@@ -1175,8 +1270,15 @@ WHERE p.tenant_id = $1::uuid
   AND (
     ($3 = 'shed'
       AND p.scope_type = 'shed'
-      AND ts.scope_type = 'shed'
-      AND p.scope_id = ts.scope_id
+      AND (
+        (nullif($4, '')::uuid IS NOT NULL AND p.scope_id = nullif($4, '')::uuid)
+        OR (nullif($4, '')::uuid IS NULL AND ts.scope_type = 'shed' AND p.scope_id = ts.scope_id)
+      )
+      AND (
+        nullif($5::text, '') IS NULL
+        OR regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+      )
       AND (p.subject_id IS NULL OR p.subject_id = p.scope_id))
     OR
     ($3 <> 'shed'
@@ -1189,6 +1291,8 @@ ORDER BY created_at, proof_id`,
 		tenantID,
 		taskID,
 		proofSubject,
+		shedID,
+		partitionLabel,
 	)
 	if err != nil {
 		return nil, err
@@ -1247,6 +1351,27 @@ func (r *Repository) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand
 		task, _, _, err := r.GetTask(ctx, cmd.TenantID, existing.TaskID)
 		return existing, task, true, err
 	}
+	var currentState, taskScopeType, taskScopeID string
+	if err := tx.QueryRow(ctx, `
+SELECT state, scope_type, scope_id::text
+FROM sop_tasks
+WHERE tenant_id = $1::uuid
+  AND task_id = $2::uuid`,
+		cmd.TenantID,
+		cmd.TaskID,
+	).Scan(&currentState, &taskScopeType, &taskScopeID); err != nil {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
+	}
+	submitShedID := shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
+	if submitShedID == "" && taskScopeType == "shed" {
+		submitShedID = taskScopeID
+	}
+	if err := r.validateShedPartition(ctx, tx, cmd.TenantID, submitShedID, cmd.Body.PartitionLabel); err != nil {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
+	}
+	if currentState == "accepted" {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, ports.ErrConflict
+	}
 	answers, err := json.Marshal(nonNilMap(cmd.Body.Answers))
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
@@ -1262,19 +1387,20 @@ func (r *Repository) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand
 	var submissionID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO sop_submissions (
-  tenant_id, task_id, sop_version_id, submitted_by, idempotency_key,
-  answers, proof_refs, state, validation_report, accepted_at
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5,
-  $6::jsonb, $7::jsonb, $8, $9::jsonb,
-  CASE WHEN $8 = 'accepted' THEN now() ELSE NULL END
-)
-RETURNING submission_id::text`,
+	  tenant_id, task_id, sop_version_id, submitted_by, idempotency_key,
+	  partition_label, answers, proof_refs, state, validation_report, accepted_at
+	) VALUES (
+	  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5,
+	  nullif(btrim($6), ''), $7::jsonb, $8::jsonb, $9, $10::jsonb,
+	  CASE WHEN $9 = 'accepted' THEN now() ELSE NULL END
+	)
+	RETURNING submission_id::text`,
 		cmd.TenantID,
 		cmd.TaskID,
 		cmd.Body.SOPVersionID,
 		cmd.ActorID,
 		cmd.Body.IdempotencyKey,
+		cmd.Body.PartitionLabel,
 		answers,
 		proofRefs,
 		cmd.TaskState,
@@ -1289,12 +1415,42 @@ RETURNING submission_id::text`,
 	var taskID string
 	err = tx.QueryRow(ctx, `
 UPDATE sop_tasks
-SET state = $3,
+SET state = CASE
+        WHEN state = 'accepted' THEN state
+        WHEN $3 <> 'needs_review' THEN $3
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM obligation_batches ob
+            WHERE ob.tenant_id = sop_tasks.tenant_id
+              AND ob.sop_task_id = sop_tasks.task_id
+        ) THEN $3
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM obligation_instances oi
+            JOIN obligation_batches ob
+              ON ob.tenant_id = oi.tenant_id
+             AND ob.batch_id = oi.batch_id
+            WHERE oi.tenant_id = sop_tasks.tenant_id
+              AND ob.sop_task_id = sop_tasks.task_id
+              AND oi.target_type = 'goat'
+              AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM sop_submission_items si
+                  WHERE si.tenant_id = oi.tenant_id
+                    AND si.task_id = sop_tasks.task_id
+                    AND si.goat_id = oi.target_id
+                    AND si.state IN ('accepted', 'needs_review')
+              )
+        ) THEN $3
+        WHEN state IN ('queued', 'assigned') THEN 'in_progress'
+        ELSE state
+    END,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid
-  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested')
+  AND state IN ('queued', 'assigned', 'in_progress', 'rework_requested', 'needs_review')
 RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.TaskState).Scan(&taskID)
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
@@ -1314,7 +1470,15 @@ ON CONFLICT (tenant_id, submission_id, command_type) DO NOTHING`, cmd.TenantID, 
 			return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 		}
 	}
-	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.submission.create", "sop_submission", submissionID, map[string]any{"task_id": cmd.TaskID, "state": cmd.TaskState}); err != nil {
+	// Mirrors weighing's auditAnimalObservation pattern: real ActorID always, plus
+	// device_id (when the client sent one) so the same operator submitting from
+	// multiple phones can be told apart when reconstructing "I submitted and
+	// nothing happened" reports.
+	submitAuditMetadata := map[string]any{"task_id": cmd.TaskID, "state": cmd.TaskState}
+	if strings.TrimSpace(cmd.DeviceID) != "" {
+		submitAuditMetadata["device_id"] = cmd.DeviceID
+	}
+	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.submission.create", "sop_submission", submissionID, submitAuditMetadata); err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1383,6 +1547,7 @@ RETURNING item_id::text`, tenantID, submissionID, goatID, actorID)
 	if err != nil {
 		return err
 	}
+
 	updatedItemIDs := make([]string, 0, 1)
 	for rows.Next() {
 		var itemID string
@@ -1397,6 +1562,34 @@ RETURNING item_id::text`, tenantID, submissionID, goatID, actorID)
 		return err
 	}
 	rows.Close()
+
+	// SUPERSEDE this goat's items in EARLIER submissions under the same task.
+	//
+	// A rejection makes the operator re-submit, and every re-submit creates a NEW submission
+	// carrying the same goats. The accept above is scoped to ONE submission_id, so approving the
+	// goat in the newest cycle left its items in the older cycles sitting at 'needs_review'
+	// forever -- nothing else ever visits them. Those stranded items then held the parent task
+	// open, so a drive whose every animal had a final APPROVED verdict never became closeable and
+	// no close button appeared for CEO/Director (observed 2026-08-08: G-006004 rejected 19:54,
+	// rejected again 20:53, approved 20:57, with three submissions left half-resolved).
+	//
+	// 'skipped', not 'accepted': these attempts were superseded, not verified. They are history.
+	// The task roll-up treats accepted+skipped as closed, so this is what lets the parent settle.
+	if _, err := tx.Exec(ctx, `
+UPDATE sop_submission_items si
+SET state = 'skipped'
+FROM sop_submissions s
+WHERE si.tenant_id = $1::uuid
+  AND si.submission_id = s.submission_id
+  AND s.tenant_id = si.tenant_id
+  AND s.task_id = (SELECT task_id FROM sop_submissions WHERE tenant_id = $1::uuid AND submission_id = $2::uuid)
+  AND si.goat_id = $3::uuid
+  AND si.submission_id <> $2::uuid
+  AND si.state = 'needs_review'
+  AND s.submitted_at < (SELECT submitted_at FROM sop_submissions WHERE tenant_id = $1::uuid AND submission_id = $2::uuid)`,
+		tenantID, submissionID, goatID); err != nil {
+		return fmt.Errorf("sop: supersede earlier verification items for goat: %w", err)
+	}
 
 	var matchingItems int
 	if err := tx.QueryRow(ctx, `
@@ -1473,12 +1666,157 @@ WHERE st.tenant_id = $1::uuid
       AND newer.task_id = st.task_id
       AND (newer.submitted_at, newer.submission_id) > (current.submitted_at, current.submission_id)
   )
+  -- A shared parent task is only done when EVERY submission under it is done. The remaining-item
+  -- count above is scoped to ONE submission_id, so without this a task covering two sheds was
+  -- accepted the moment the FIRST shed's submission closed, while the sibling shed still had
+  -- needs_review items. That accepted parent then hit SubmitTask's terminal-state guard and
+  -- refused the sibling's rework submission forever: the verifier's REJECT created real work the
+  -- operator was then forbidden to submit (observed on the CPT per-animal QA task, 2026-08-08,
+  -- where Mandela's 3 approvals accepted the task while Castro still had 2 open items).
+  --
+  -- 'rejected' is deliberately NOT a closing state here: a rejected item is open work.
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sop_submissions sib
+    JOIN sop_submission_items sibi
+      ON sibi.tenant_id = sib.tenant_id
+     AND sibi.submission_id = sib.submission_id
+    WHERE sib.tenant_id = st.tenant_id
+      AND sib.task_id = st.task_id
+      AND sibi.state NOT IN ('accepted', 'skipped')
+  )
 RETURNING st.task_id::text`, tenantID, taskID, actorID, submissionID).Scan(&acceptedTaskID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if acceptedTaskID != "" {
 		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.accepted", "sop_task", acceptedTaskID, map[string]any{"submission_id": submissionID}); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ReopenTaskForRework is AcceptSubmissionItemVerification's mirror for a REJECTED verdict: the
+// owning vertical (e.g. vaccination's RejectExisting) has already reopened the per-goat obligation
+// in its own transaction; this compensates the SOP aggregate so the write path stops refusing the
+// rework submission that must follow. SubmitTask's terminal-state guard
+// (`if currentState == "accepted" { return ports.ErrConflict }`, this file) only ever lets a
+// submission through when sop_tasks.state is one of queued/assigned/in_progress/
+// rework_requested/needs_review -- a task parked in 'accepted' forever refuses every future
+// submission, even when a verifier rejection has put real, scanned, proof-attached work back on
+// the operator's list. 'rework_requested' has been a valid sop_tasks_state_check value since the
+// baseline schema; nothing ever transitioned a task into it until now.
+//
+// Deliberately unconditional on submission/item counts (unlike AcceptSubmissionItemVerification's
+// roll-up, which waits for every item to close): ONE rejected goat is sufficient reason to reopen
+// the whole shed task for resubmission, because SubmitTask's own shed-completion proof gate
+// (ShedCompletionReadiness) is what decides whether a given resubmission is actually complete, not
+// this state flip. This method only removes the terminal-state trap; it never fabricates
+// completeness.
+//
+// Idempotent and safe against races: the UPDATE only fires from state = 'accepted'. A replayed
+// event, a task already reopened by a sibling rejection, or a task that moved on to some other
+// state in the meantime, is a no-op success -- never an error.
+func (r *Repository) ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+
+	var taskID string
+	err = tx.QueryRow(ctx, `
+SELECT ss.task_id::text
+FROM sop_submissions ss
+WHERE ss.tenant_id = $1::uuid
+  AND ss.submission_id = $2::uuid
+FOR UPDATE OF ss`, tenantID, submissionID).Scan(&taskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	// Mark the REJECTED item and its submission before touching the task. Until now the reject
+	// path set no SOP state at all: a rejected goat's sop_submission_item stayed 'needs_review'
+	// forever, and so did its submission, which is why a resubmit collided with an open submission
+	// and why the accept roll-up could never distinguish "still being reviewed" from "rejected,
+	// awaiting rework".
+	//
+	// VOCABULARY IS SCHEMA-CONSTRAINED, and this is easy to get wrong: only sop_tasks accepts
+	// 'rework_requested'. sop_submission_items allows accepted/needs_review/rejected/skipped, and
+	// sop_submissions allows submitted/accepted/needs_review/rejected/voided. So the item and the
+	// submission become 'rejected'; only the task becomes 'rework_requested'.
+	var rejectedItemID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_submission_items
+SET state = 'rejected'
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND goat_id = $3::uuid
+  AND state = 'needs_review'
+RETURNING item_id::text`, tenantID, submissionID, goatID).Scan(&rejectedItemID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if rejectedItemID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.submission_item.rejected", "sop_submission_item", rejectedItemID, map[string]any{
+			"submission_id": submissionID,
+			"goat_id":       goatID,
+			"reason":        "verification_rejected",
+		}); err != nil {
+			return err
+		}
+	}
+
+	var rejectedSubmissionID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_submissions
+SET state = 'rejected',
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND state IN ('needs_review', 'submitted')
+RETURNING submission_id::text`, tenantID, submissionID).Scan(&rejectedSubmissionID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if rejectedSubmissionID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.submission.rejected", "sop_submission", rejectedSubmissionID, map[string]any{
+			"task_id": taskID,
+			"goat_id": goatID,
+			"reason":  "verification_rejected",
+		}); err != nil {
+			return err
+		}
+	}
+
+	var reopenedTaskID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_tasks
+SET state = 'rework_requested',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND task_id = $2::uuid
+  -- 'needs_review' as well as 'accepted': a rejection can land before the parent has been
+  -- accepted at all, and that task must still move to rework so the operator can resubmit.
+  AND state IN ('accepted', 'needs_review')
+RETURNING task_id::text`, tenantID, taskID).Scan(&reopenedTaskID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if reopenedTaskID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.reopened_for_rework", "sop_task", reopenedTaskID, map[string]any{
+			"submission_id": submissionID,
+			"goat_id":       goatID,
+			"reason":        "verification_rejected",
+		}); err != nil {
 			return err
 		}
 	}
@@ -1691,11 +2029,12 @@ LIMIT 1`), cmd.TenantID, cmd.Body.SOPCode)
 
 func (r *Repository) existingSubmission(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, bool, error) {
 	var submissionID, taskID, answersRaw, proofRaw string
+	var partitionRaw pgtype.Text
 	err := tx.QueryRow(ctx, `
-SELECT submission_id::text, task_id::text, answers::text, proof_refs::text
-FROM sop_submissions
-WHERE tenant_id = $1::uuid AND idempotency_key = $2
-LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &answersRaw, &proofRaw)
+	SELECT submission_id::text, task_id::text, COALESCE(partition_label, ''), answers::text, proof_refs::text
+	FROM sop_submissions
+	WHERE tenant_id = $1::uuid AND idempotency_key = $2
+	LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &partitionRaw, &answersRaw, &proofRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.SubmissionSummary{}, false, nil
 	}
@@ -1704,7 +2043,10 @@ LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &a
 	}
 	answers, _ := json.Marshal(nonNilMap(cmd.Body.Answers))
 	proof, _ := json.Marshal(cmd.Body.ProofRefs)
-	if taskID != cmd.TaskID || !jsonEqual([]byte(answersRaw), answers) || !jsonEqual([]byte(proofRaw), proof) {
+	if taskID != cmd.TaskID ||
+		!oploc.SamePartition(partitionRaw.String, cmd.Body.PartitionLabel) ||
+		!jsonEqual([]byte(answersRaw), answers) ||
+		!jsonEqual([]byte(proofRaw), proof) {
 		return domain.SubmissionSummary{}, false, ports.ErrIdempotencyConflict
 	}
 	submissions, err := r.listSubmissions(ctx, cmd.TenantID, taskID)
@@ -1724,6 +2066,15 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 	if len(keys) == 0 {
 		keys = itemKeys(cmd.Body.Answers)
 	}
+	var err error
+	keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
+	if err != nil {
+		return err
+	}
+	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
+	if err != nil {
+		return err
+	}
 	for _, item := range keys {
 		resultMap := map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)}
 		if administeredAt := strings.TrimSpace(item.AdministeredAt); administeredAt != "" {
@@ -1739,6 +2090,190 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 		}
 	}
 	return nil
+}
+
+func filterSubmissionItemsToPartition(ctx context.Context, tx pgx.Tx, tenantID, partitionLabel string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		return keys, nil
+	}
+	goatIDs := make([]string, 0, len(keys))
+	for _, item := range keys {
+		if goatID := strings.TrimSpace(item.GoatID); goatID != "" {
+			goatIDs = append(goatIDs, goatID)
+		}
+	}
+	if len(goatIDs) == 0 {
+		return keys, nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT gsp.goat_id::text
+FROM goat_shed_partitions gsp
+WHERE gsp.tenant_id = $1::uuid
+  AND gsp.goat_id = ANY($2::uuid[])
+  AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`,
+		tenantID, goatIDs, partitionLabel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	allowed := map[string]struct{}{}
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, err
+		}
+		allowed[goatID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	filtered := keys[:0]
+	for _, item := range keys {
+		goatID := strings.TrimSpace(item.GoatID)
+		if goatID == "" {
+			filtered = append(filtered, item)
+			continue
+		}
+		if _, ok := allowed[goatID]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) != len(keys) {
+		return nil, ports.ErrInvalidFilter
+	}
+	return filtered, nil
+}
+
+func (r *Repository) validateShedPartition(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
+	shedID = strings.TrimSpace(shedID)
+	if shedID == "" {
+		return nil
+	}
+	const q = `
+SELECT
+  count(*) FILTER (WHERE status = 'active') AS active_partitions,
+  count(*) FILTER (
+    WHERE status = 'active'
+      AND regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+        = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+  ) AS matching_partitions
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid`
+	var active, matching int
+	var err error
+	if tx != nil {
+		err = tx.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching)
+	} else {
+		err = r.pool.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching)
+	}
+	if err != nil {
+		return err
+	}
+	if active == 0 {
+		if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+			return ports.ErrInvalidFilter
+		}
+		return nil
+	}
+	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) || matching == 0 {
+		return ports.ErrInvalidFilter
+	}
+	return nil
+}
+
+func filterSubmissionItemsToProofSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, idempotencyKey string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+	shedSubjectIDs := shedScopeIDs(refs, idempotencyKey)
+	if len(shedSubjectIDs) == 0 {
+		return keys, nil
+	}
+	goatIDs := make([]string, 0, len(keys))
+	for _, item := range keys {
+		if goatID := strings.TrimSpace(item.GoatID); goatID != "" {
+			goatIDs = append(goatIDs, goatID)
+		}
+	}
+	if len(goatIDs) == 0 {
+		return keys, nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT goat_id::text
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+  AND shed_id = ANY($3::uuid[])`,
+		tenantID, goatIDs, shedSubjectIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	allowed := map[string]struct{}{}
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, err
+		}
+		allowed[goatID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	filtered := keys[:0]
+	for _, item := range keys {
+		goatID := strings.TrimSpace(item.GoatID)
+		if goatID == "" {
+			filtered = append(filtered, item)
+			continue
+		}
+		if _, ok := allowed[goatID]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
+func shedProofSubjectIDs(refs []domain.ProofReference) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.SubjectType != "shed" || ref.SubjectID == nil || strings.TrimSpace(*ref.SubjectID) == "" {
+			continue
+		}
+		if ref.UploadState != "" && ref.UploadState != "completed" {
+			continue
+		}
+		id := strings.TrimSpace(*ref.SubjectID)
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func shedScopeIDs(refs []domain.ProofReference, idempotencyKey string) []string {
+	out := shedProofSubjectIDs(refs)
+	if shedID := shedScopeFromSubmissionKey(idempotencyKey); shedID != "" {
+		for _, existing := range out {
+			if existing == shedID {
+				return out
+			}
+		}
+		out = append(out, shedID)
+	}
+	return out
+}
+
+func shedScopeFromSubmissionKey(key string) string {
+	parts := strings.Split(key, ":")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "scope" && uuidutil.IsUUIDString(parts[i+1]) {
+			return strings.TrimSpace(parts[i+1])
+		}
+	}
+	return ""
 }
 
 func insertMovementForLatestSubmission(ctx context.Context, tx pgx.Tx, tenantID, taskID string) error {

@@ -391,6 +391,7 @@ export async function acceptIntakeAction(formData: FormData): Promise<void> {
       goat_ids: csvIds(formData, "goat_ids"),
       park_location_id: requiredString(formData, "park_location_id"),
       shed_location_id: requiredString(formData, "shed_location_id"),
+      partition_label: optionalString(formData, "partition_label") || null,
       entry_date: optionalString(formData, "entry_date") ?? null,
       intake_health_signal: optionalString(formData, "intake_health_signal")
         ? inEnum(optionalString(formData, "intake_health_signal"), INTAKE_SIGNALS, "intake_health_signal")

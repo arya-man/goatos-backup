@@ -46,6 +46,9 @@ EXEC_FILES=(
     tools/agent-hooks/repowise-setup.sh
     tools/agent-hooks/repowise-coverage.sh
     tools/agent-hooks/install-stg-push-guard.sh
+    tools/agent-docs/bootstrap-context7-secret.sh
+    tools/agent-docs/ensure-context7.sh
+    tools/agent-docs/refresh-if-needed.sh
     tools/ci/check-stg-promotion.mjs
     tools/ci/check-guardrail-registration.mjs
     tools/ci/check-local-ci-evidence.mjs

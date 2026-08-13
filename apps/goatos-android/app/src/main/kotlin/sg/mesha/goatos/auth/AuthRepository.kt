@@ -13,6 +13,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.core.analytics.CrashReporter
 import javax.inject.Inject
 
 /**
@@ -33,10 +34,15 @@ interface AuthRepository {
     /** Current signed-in user's email (Firebase Auth), or null if nobody is signed in / no email. */
     fun currentEmail(): String?
 
+    /** Current signed-in user's Firebase UID, or null if nobody is signed in. */
+    fun currentFirebaseUid(): String?
+
     fun signOut()
 }
 
-class FirebaseAuthRepository @Inject constructor() : AuthRepository {
+class FirebaseAuthRepository @Inject constructor(
+    private val crashReporter: CrashReporter,
+) : AuthRepository {
 
     private val firebaseAuth: FirebaseAuth
         get() = FirebaseAuth.getInstance()
@@ -82,14 +88,19 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
     override suspend fun currentIdToken(forceRefresh: Boolean): String? {
         val user = firebaseAuth.currentUser ?: return null
         return withContext(Dispatchers.IO) {
-            runCatching { Tasks.await(user.getIdToken(forceRefresh))?.token }.getOrNull()
+            runCatching { Tasks.await(user.getIdToken(forceRefresh))?.token }
+                .onFailure { crashReporter.recordException(it, "firebase id token refresh failed") }
+                .getOrNull()
         }
     }
 
     override fun currentEmail(): String? = firebaseAuth.currentUser?.email?.ifBlank { null }
 
+    override fun currentFirebaseUid(): String? = firebaseAuth.currentUser?.uid?.ifBlank { null }
+
     override fun signOut() {
         runCatching { firebaseAuth.signOut() }
+            .onFailure { crashReporter.recordException(it, "firebase sign out failed") }
     }
 
     /**

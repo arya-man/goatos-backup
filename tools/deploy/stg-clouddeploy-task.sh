@@ -75,6 +75,15 @@ PY
   gcloud storage cp results.json "$output_path/results.json" >/dev/null
 }
 
+write_failed_on_exit() {
+  local rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    write_results "FAILED" || true
+  fi
+}
+
+trap write_failed_on_exit EXIT
+
 image_from_resource_json() {
   python3 -c '
 import json
@@ -109,6 +118,80 @@ job_image() {
   gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
 }
 
+capture_serving_revisions() {
+  local service="$1"
+
+  gcloud run services describe "$service" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+for target in doc.get("status", {}).get("traffic", []):
+    if int(target.get("percent") or 0) <= 0:
+        continue
+    revision = target.get("revisionName")
+    if revision:
+        print(revision)
+'
+}
+
+latest_ready_revision() {
+  gcloud run services describe "$1" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --format='value(status.latestReadyRevisionName)'
+}
+
+wait_service_ready() {
+  local service="$1"
+  local expected_phase="${2:-ready}"
+  local attempt latest_created latest_ready ready_condition
+
+  for attempt in $(seq 1 60); do
+    read -r latest_created latest_ready ready_condition < <(
+      gcloud run services describe "$service" \
+        --project="$PROJECT_ID" \
+        --region="$REGION" \
+        --format='value(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.conditions[?type="Ready"].status)'
+    )
+    if [[ -n "$latest_created" && "$latest_created" == "$latest_ready" && "$ready_condition" == "True" ]]; then
+      return 0
+    fi
+    echo "waiting for $service $expected_phase revision readiness: created=${latest_created:-?} ready=${latest_ready:-?} condition=${ready_condition:-?} attempt=$attempt"
+    sleep 5
+  done
+  die "$service did not reach $expected_phase readiness before continuing"
+}
+
+drain_replaced_revisions() {
+  local service="$1"
+  shift
+  local latest revision serving_count=0
+
+  latest="$(latest_ready_revision "$service")"
+  [[ -n "$latest" ]] || die "$service has no latest ready revision after replacement"
+
+  while IFS= read -r revision; do
+    [[ -n "$revision" ]] || continue
+    serving_count=$((serving_count + 1))
+    [[ "$revision" == "$latest" ]] || die "$service still routes traffic to old revision $revision"
+  done < <(capture_serving_revisions "$service")
+  [[ "$serving_count" -eq 1 ]] || die "$service must route 100% to exactly one latest revision before migration"
+
+  for revision in "$@"; do
+    [[ -n "$revision" ]] || continue
+    [[ "$revision" != "$latest" ]] || continue
+    run gcloud run revisions delete "$revision" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --no-async \
+      --quiet
+  done
+}
+
 smoke_http() {
   local url="$1"
   local expected="$2"
@@ -136,7 +219,7 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=migrate,api,kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
+rollout_order=quiesce_api_and_kernel_worker,migrate,restore_api_and_kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"
@@ -153,6 +236,9 @@ deploy() {
 
   local backend_prefix="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/backend:"
   local updated_jobs=()
+  local old_api_revisions=()
+  local old_worker_revisions=()
+  local revision
 
   # Fail before touching the database when Terraform has not created every
   # release target. In particular, never migrate and then discover that the
@@ -162,6 +248,70 @@ deploy() {
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run jobs describe "$VACCINATION_SCHEDULE_PROJECTOR_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+
+  # Contract migrations may remove database arbiters used by the prior binary. Quiesce public
+  # writers first: admin-web is the public write entrypoint, and the API is also made internal
+  # before old API/worker revisions are drained.
+  run gcloud run services update "$ADMIN_WEB_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --ingress=internal \
+    --min=0 \
+    --max=1 \
+    --min-instances=0 \
+    --max-instances=1 \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
+    --quiet
+  wait_service_ready "$ADMIN_WEB_SERVICE" "pre-migration quiesce"
+
+  while IFS= read -r revision; do
+    [[ -n "$revision" ]] && old_api_revisions+=("$revision")
+  done < <(capture_serving_revisions "$API_SERVICE")
+  [[ "${#old_api_revisions[@]}" -gt 0 ]] || die "$API_SERVICE has no serving revision to quiesce"
+
+  run gcloud run services update "$API_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --ingress=internal \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
+    --quiet
+  run gcloud run services update-traffic "$API_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
+    --quiet
+  wait_service_ready "$API_SERVICE" "pre-migration quiesce"
+
+  # The worker has revision-level minimum instances, so lowering the next revision's minimum is
+  # not itself a drain. Replace it with the new image with stages disabled, route to that revision,
+  # then delete every previously serving revision before touching the schema.
+  while IFS= read -r revision; do
+    [[ -n "$revision" ]] && old_worker_revisions+=("$revision")
+  done < <(capture_serving_revisions "$KERNEL_WORKER_SERVICE")
+  [[ "${#old_worker_revisions[@]}" -gt 0 ]] || die "$KERNEL_WORKER_SERVICE has no serving revision to drain"
+
+  run gcloud run services update "$KERNEL_WORKER_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --min=0 \
+    --max=1 \
+    --min-instances=0 \
+    --max-instances=1 \
+    --cpu-throttling \
+    --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=false" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_drain" \
+    --quiet
+  run gcloud run services update-traffic "$KERNEL_WORKER_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
+    --quiet
+  wait_service_ready "$KERNEL_WORKER_SERVICE" "pre-migration drain"
+
+  drain_replaced_revisions "$API_SERVICE" "${old_api_revisions[@]}"
+  drain_replaced_revisions "$KERNEL_WORKER_SERVICE" "${old_worker_revisions[@]}"
 
   run gcloud run jobs update "$MIGRATE_JOB" \
     --project="$PROJECT_ID" \
@@ -194,19 +344,29 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
+    --ingress=all \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
+  run gcloud run services update-traffic "$API_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
+    --quiet
+  wait_service_ready "$API_SERVICE" "post-migration restore"
 
   run gcloud run services update "$KERNEL_WORKER_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
+    --min=2 \
+    --max=2 \
     --min-instances=2 \
     --max-instances=2 \
     --no-cpu-throttling \
     --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
+  wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
 
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
@@ -231,6 +391,11 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$ADMIN_WEB_IMAGE" \
+    --ingress=all \
+    --min=1 \
+    --max=4 \
+    --min-instances=1 \
+    --max-instances=4 \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
 
@@ -262,8 +427,4 @@ main() {
   esac
 }
 
-if ! main "$@"; then
-  rc=$?
-  write_results "FAILED" || true
-  exit "$rc"
-fi
+main "$@"

@@ -7,7 +7,7 @@ import { Syringe } from "lucide-react";
 import { copy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarEvent } from "./calendar-contract";
-import { driveClosedCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveVisibleProgress, drivePctFor, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 export function DriveProgressCard({ event, pageContract }: { event: CalendarEvent; pageContract: AdminUiPageContract }) {
   const summary = driveSummaryOf(event);
@@ -28,14 +28,19 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
     );
   }
 
-  // Coverage ring + the "N/N" headline prefer the DISTINCT-ANIMAL grain (total_animals /
-  // completed_animals): a goat due for several vaccines the same day is ONE animal, and is only
-  // "completed" once all its drive obligations are done. If a mixed-version response omits those
-  // fields (CDR-R1) they fall back to the obligation/dose counts, labelled accordingly. The
-  // status chips below always stay obligation-grain (dose work items).
-  const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
-  const pct = driveClosedCoveragePct(coverage.completed, coverage.total, event.status);
+  // Coverage ring + the "N/N" headline render the BACKEND-OWNED progress numerator, denominator and
+  // grain verbatim (progress_completed / progress_total / progress_basis / progress_pct). The same
+  // contract drives the Android card, so both surfaces always show the same number and the same ring
+  // percentage. Do NOT re-derive a numerator here. The status chips below stay obligation-grain
+  // and are explicitly labelled as doses so a multi-vaccine drive cannot look like duplicate animals.
+  const coverage = driveVisibleProgress(summary);
+  const submittedAnimals = "submitted_animals" in summary && typeof summary.submitted_animals === "number" ? summary.submitted_animals : 0;
+  const hasSubmittedPending = submittedAnimals > coverage.completed;
+  const pct = drivePctFor(summary, coverage);
   const chips = driveStatusChips(summary);
+  const vaccineLabels = summary.vaccine_labels.filter((label) => label.trim().length > 0);
+  const visibleVaccines = vaccineLabels.slice(0, 3);
+  const hiddenVaccineCount = Math.max(0, vaccineLabels.length - visibleVaccines.length);
 
   // Completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
   // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
@@ -73,18 +78,38 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
             <span className="big">{coverage.completed}</span>
             <span className="u"> / {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}</span>
           </div>
+          {hasSubmittedPending ? (
+            <div className="submitted-strip" title={`${submittedAnimals} ${copy(pageContract, "calendar.drive.verification_pending")}`}>
+              <span>{copy(pageContract, "calendar.drive.verification_pending")}</span>
+            </div>
+          ) : null}
           <div className="metric">
             <b>{summary.sheds_completed}</b> {copy(pageContract, "calendar.drive.of")} {summary.shed_count} {copy(pageContract, "calendar.drive.sheds_done_suffix")}
           </div>
-          <span className="pill">{summary.vaccine_labels.length} {copy(pageContract, "calendar.drive.vaccines_suffix")}</span>
         </div>
+      </div>
+      {visibleVaccines.length > 0 ? (
+        <div className="vaccine-chip-row" aria-label={vaccineLabels.join(", ")}>
+          {visibleVaccines.map((label) => (
+            <span key={label} className="vaccine-chip" title={label}>{label}</span>
+          ))}
+          {hiddenVaccineCount > 0 ? (
+            <span className="vaccine-chip vaccine-chip-more" title={vaccineLabels.join(", ")}>+{hiddenVaccineCount}</span>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="dft">
+        {copy(pageContract, "calendar.drive.name")} · {summary.drive_name}
+      </div>
+      <div className="dft">
+        {copy(pageContract, "calendar.drive.total")} · {summary.drive_total} {copy(pageContract, "calendar.drive.animals")}
       </div>
       {chips.length > 0 ? (
         <div className="chips">
           {chips.map((chip) => (
             <div key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
               <div className={`d c-${driveStatusClass(chip.key)}`} />
-              {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+              {chip.count} {copy(pageContract, "calendar.drive.doses").toLowerCase()} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
             </div>
           ))}
         </div>

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="scan_back_cd">ಹಿಂದಕ್ಕೆ</string>
     <string name="scan_header_eyebrow">ಲಸಿಕೆ</string>
@@ -11,6 +14,13 @@
     <string name="scan_search_empty">ಹೊಂದಿಕೆಯಾಗುವ ಪಶುವೆ ಇಲ್ಲ</string>
     <string name="scan_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="scan_loading_more">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="scan_scanned_goats_title">ಸ್ಕ್ಯಾನ್ ಮಾಡಿದ ಮೇಕೆಗಳು</string>
+    <string name="scan_scanned_goats_help">ಪ್ರತಿ ಮೇಕೆ ಸಾಲಿನಲ್ಲಿ ಪ್ರೂಫ್ ದಾಖಲಿಸಿ. ಒಂದು ಸ್ಪಷ್ಟ ಕ್ಯಾಮೆರಾ ಕ್ಲಿಪ್ ಆ ಮೇಕೆಗೆ ನೀಡಿದ ಎಲ್ಲಾ ಲಸಿಕೆಗಳನ್ನು ಕವರ್ ಮಾಡಬಹುದು.</string>
+    <string name="scan_one_animal_needs_proof">1 ಪ್ರಾಣಿಗೆ ಪ್ರೂಫ್ ಬೇಕು. ಸಲ್ಲಿಸುವ ಮೊದಲು ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಅದನ್ನು ಮತ್ತೆ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ.</string>
+    <string name="scan_many_animals_need_proof">%1$d ಪ್ರಾಣಿಗಳಿಗೆ ಪ್ರೂಫ್ ಬೇಕು. ಸಲ್ಲಿಸುವ ಮೊದಲು ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಅವುಗಳನ್ನು ಮತ್ತೆ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ.</string>
+    <string name="scan_proof_retry_action">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="scan_proof_replace_action">ಬದಲಿಸಿ</string>
+    <string name="scan_proof_replace_armed">ಪ್ರೂಫ್ ಬದಲಿಸಲು ಇದೇ ಟ್ಯಾಗ್ ಅನ್ನು ಮತ್ತೆ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ</string>
     <string name="scan_add_clip">ಕ್ಯಾಮೆರಾ ಕ್ಲಿಪ್ ಸೇರಿಸಿ</string>
     <string name="scan_proof_needed">ಕ್ಯಾಮೆರಾ ಪ್ರೂಫ್ ಅಗತ್ಯ</string>
     <string name="scan_proof_uploading">ಪ್ರೂಫ್ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
@@ -24,4 +34,24 @@
     </plurals>
     <string name="scan_proof_retry">ಅಪ್‌ಲೋಡ್ ವಿಫಲ · ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ</string>
     <string name="scan_submit_default">ಶೆಡ್ ಪೂರ್ಣಗೊಳಿಸಿ</string>
+    <string name="scan_switch_shed_title">ಶೆಡ್ ಬದಲಿಸಿ</string>
+    <string name="scan_switch_shed_subtitle">ಸಿಂಕ್ ಆದ ಪ್ರಗತಿಯನ್ನು ಕಳೆದುಕೊಳ್ಳದೆ ಯಾವುದೇ ಶೆಡ್‌ಗೆ ಮರಳಬಹುದು.</string>
+    <string name="scan_switch_shed_loading">ಡ್ರೈವ್ ಶೆಡ್‌ಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ…</string>
+    <string name="scan_switch_shed_empty">ಈ ಡ್ರೈವ್‌ನಲ್ಲಿ ಬೇರೆ ಶೆಡ್ ಲಭ್ಯವಿಲ್ಲ.</string>
+    <string name="scan_switch_shed_current">ಪ್ರಸ್ತುತ</string>
+    <string name="scan_switch_shed_progress_fmt">%1$d/%2$d ಸ್ಕ್ಯಾನ್ · %3$d ಕ್ಲಿಪ್‌ಗಳು · %4$d ಸಿಂಕ್</string>
+    <string name="scan_switch_shed_synced">ಡ್ರಾಫ್ಟ್ ಸಿಂಕ್ ಆಗಿದೆ</string>
+    <string name="scan_switch_shed_not_started">ಪ್ರಾರಂಭವಾಗಿಲ್ಲ</string>
+    <plurals name="scan_switch_shed_attention">
+        <item quantity="one">%1$d ಐಟಂಗೆ ಗಮನ ಬೇಕು</item>
+        <item quantity="other">%1$d ಐಟಂಗಳಿಗೆ ಗಮನ ಬೇಕು</item>
+    </plurals>
+    <plurals name="scan_switch_shed_syncing">
+        <item quantity="one">%1$d ಐಟಂ ಸಿಂಕ್ ಆಗುತ್ತಿದೆ</item>
+        <item quantity="other">%1$d ಐಟಂಗಳು ಸಿಂಕ್ ಆಗುತ್ತಿವೆ</item>
+    </plurals>
+    <string name="scan_submit_confirmation_title">ಈ ಶೆಡ್ ಅನ್ನು ಅಂತಿಮಗೊಳಿಸಬೇಕೇ?</string>
+    <string name="scan_submit_confirmation_subtitle">ಅಂತಿಮಗೊಳಿಸಿದ ನಂತರ, ಈ ಶೆಡ್ ಕೆಲಸ ಲಾಕ್ ಆಗುತ್ತದೆ. ನೀವು ಇದನ್ನು ನೀವಾಗಿಯೇ ಮತ್ತೆ ತೆರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ — ಕೇವಲ ಮ್ಯಾನೇಜರ್ ಅಥವಾ ಡೈರೆಕ್ಟರ್ ಮಾತ್ರ ತೆರೆಯಬಹುದು.</string>
+    <string name="scan_submit_confirmation_dismiss">ರದ್ದುಮಾಡಿ</string>
+    <string name="scan_submit_confirmation_confirm">ಅಂತಿಮಗೊಳಿಸಿ</string>
 </resources>

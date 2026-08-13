@@ -4,7 +4,6 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import java.nio.file.Files
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -16,6 +15,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,7 +26,11 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
+import sg.mesha.goatos.core.database.capture.ProofProcessingState
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.sync.GalleryProofSaver
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -88,9 +92,252 @@ class CaptureRepositoryTest {
             assertEquals(listOf("TAG-001", "TAG-002"), tags)
             assertEquals(2, repo.observeScannedCount("task-1", "goat_scan").first())
             assertEquals(2, sync.scanCalls.size)
-            assertEquals("scan:task-1:goat_scan:tag001", sync.scanCalls[0].idempotencyKey)
+            assertEquals("scan:task-1:goat_scan:tag001:obligation:obl-1:ov0", sync.scanCalls[0].idempotencyKey)
             assertEquals("goat-1", sync.scanCalls[0].request.goatId)
             assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `one scanned animal may persist multiple vaccine obligation captures while submitted tag stays distinct`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            repo.recordScan("task-1", "goat_scan", "TAG-001", goatId = "goat-1", obligationId = "et-tt", obligationRowVersion = 7)
+            repo.recordScan("task-1", "goat_scan", "TAG-001", goatId = "goat-1", obligationId = "ppr", obligationRowVersion = 3)
+
+            assertEquals("submit answers remain one animal/RFID scan", listOf("TAG-001"), repo.tagsForTask("task-1"))
+            assertEquals("durable proof state keeps both due vaccine obligations", 2, repo.observeScannedCount("task-1", "goat_scan").first())
+            assertEquals(listOf("et-tt", "ppr"), repo.observeScannedTags("task-1", "goat_scan").first().map { it.obligationId })
+            assertEquals(
+                listOf(
+                    "scan:task-1:goat_scan:tag001:obligation:et-tt:ov7",
+                    "scan:task-1:goat_scan:tag001:obligation:ppr:ov3",
+                ),
+                sync.scanCalls.map { it.idempotencyKey },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `sibling partitions of one task keep scan and proof evidence separate`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val scans = DefaultScanCaptureRepository(
+                db.scannedGoatDao(),
+                syncRepository = sync,
+                dispatchers = unconfinedDispatchers,
+            )
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            scans.recordScan(
+                taskId = "task-partitions",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-SHARED",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                partitionLabel = "Part 1",
+            )
+            scans.recordScan(
+                taskId = "task-partitions",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-SHARED",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                partitionLabel = "2",
+            )
+
+            val oneProofPerPartition = ProofPolicy(
+                proofMode = "shed_level_video",
+                subjectScope = "shed",
+                expectedSubjects = listOf("shed"),
+                maximumCount = 1,
+                maximumCountPerSubject = 1,
+            )
+            proofs.capture(
+                taskId = "task-partitions",
+                fieldKey = "shed_video",
+                subject = ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "file://part-1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = oneProofPerPartition,
+                partitionLabel = "Part 1",
+            )
+            proofs.capture(
+                taskId = "task-partitions",
+                fieldKey = "shed_video",
+                subject = ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "file://part-2.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 3L,
+                capturedEndMs = 4L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = oneProofPerPartition,
+                partitionLabel = "2",
+            )
+
+            assertEquals(listOf("goat-1"), scans.observeAllForTask("task-partitions", "1").first().map { it.goatId })
+            assertEquals(listOf("goat-2"), scans.observeAllForTask("task-partitions", "Part 2").first().map { it.goatId })
+            assertEquals(listOf("file://part-1.mp4"), proofs.observeProofs("task-partitions", "1").first().map { it.localUri })
+            assertEquals(listOf("file://part-2.mp4"), proofs.observeProofs("task-partitions", "Part 2").first().map { it.localUri })
+            assertEquals(listOf("1", "2"), sync.scanCalls.map { it.partitionKey })
+            assertTrue(sync.scanCalls[0].idempotencyKey.contains(":partition:1:"))
+            assertTrue(sync.scanCalls[1].idempotencyKey.contains(":partition:2:"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `accepted re-scan of a tag whose earlier SYNCED capture was reopened still enqueues`() = runTest {
+        // Reproduces the silent-data-loss defect: a tag was captured and SYNCED to the server in
+        // an earlier session (e.g. a verifier rejected the proof and the obligation reopened —
+        // the obligation KEEPS its id, only its status flips). A later ACCEPTED re-scan of the
+        // SAME tag for the SAME task/field must still produce BOTH a durable local capture row
+        // AND an enqueued backend scan-capture — not a silent no-op behind the unique
+        // (taskId, fieldKey, tag) index. On the pre-fix `dao.insert(OnConflictStrategy.IGNORE)`
+        // path this test FAILS: the second recordScan is swallowed, sync.scanCalls stays at 1,
+        // and the row's syncStatus/capturedAtMs are never refreshed for the new cycle.
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            // Session 1 (yesterday): tag captured for obligation "obl-1" at row_version 1 and
+            // acknowledged by the server (server-side idempotency_key ends "...:ov1").
+            repo.recordScan(
+                "task-1",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                obligationRowVersion = 1,
+                capturedAtMs = 1_000L,
+            )
+            repo.markLocalScanSynced("task-1", ROSTER_SCAN_FIELD_KEY, "901007000504418")
+
+            // Session 2 (today): the verifier rejected the proof, the SAME obligation "obl-1"
+            // reopened (row_version bumped 1 -> 2 server-side, echoed on the next roster fetch),
+            // and the operator's re-scan is ACCEPTED (roster reported it PENDING).
+            repo.recordScan(
+                "task-1",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                obligationRowVersion = 2,
+                capturedAtMs = 2_000L,
+            )
+
+            // 1) Durable local capture: still exactly one row for this tag (dedup preserved,
+            //    not duplicated), but it now reflects the NEW cycle.
+            val rows = repo.observeScannedTags("task-1", ROSTER_SCAN_FIELD_KEY).first()
+            assertEquals(1, rows.size)
+            assertEquals(2_000L, rows.single().capturedAtMs)
+            assertEquals(CaptureSyncStatus.PENDING, rows.single().syncStatus)
+
+            // 2) Enqueued backend capture: TWO scan-capture outbox writes now exist — the
+            //    original synced one and the fresh one for the reopened cycle.
+            assertEquals(2, sync.scanCalls.size)
+            assertEquals(2_000L, sync.scanCalls[1].request.capturedAtMs)
+            assertEquals("obl-1", sync.scanCalls[1].request.obligationId)
+
+            // 3) THE KEY POINT (maintainer-reported hole): the two outbox writes must carry
+            //    DIFFERENT idempotency keys. Same-tag/same-task/same-field alone builds an
+            //    IDENTICAL key across the reopen, which the backend then treats as a replay of
+            //    an already-recorded capture and silently drops — the request is sent (Room
+            //    layer fixed) but discarded on arrival. Keying on obligationRowVersion is what
+            //    makes cycle 2's capture a genuinely NEW key the server has never seen.
+            val keyCycle1 = sync.scanCalls[0].idempotencyKey
+            val keyCycle2 = sync.scanCalls[1].idempotencyKey
+            assertTrue("reopened-cycle capture must use a NEW idempotency key, got same key twice: $keyCycle1", keyCycle1 != keyCycle2)
+            assertTrue(keyCycle1.endsWith(":ov1"))
+            assertTrue(keyCycle2.endsWith(":ov2"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `network retry of the same scan cycle keeps the same idempotency key`() = runTest {
+        // Companion to the reopen test: retrying the SAME accepted scan (same obligationRowVersion
+        // — no domain reopen happened, just a dropped response / connectivity retry) must NOT mint
+        // a new key, or every retry would duplicate the capture server-side. This is the guardrail
+        // against "just add a timestamp" (explicitly rejected in the maintainer's brief).
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            repo.recordScan(
+                "task-2",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504419",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                obligationRowVersion = 1,
+                capturedAtMs = 1_000L,
+            )
+            // Local retry before the row synced: dedup at the DB layer keeps this a no-op (no
+            // second outbox call), independent of the server-side key story above.
+            repo.recordScan(
+                "task-2",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504419",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                obligationRowVersion = 1,
+                capturedAtMs = 1_050L,
+            )
+
+            assertEquals(1, sync.scanCalls.size)
+            assertTrue(sync.scanCalls[0].idempotencyKey.endsWith(":ov1"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `true repeat scan while original capture is still unsynced stays deduped`() = runTest {
+        // Companion to the reopen test above: the maintainer's explicit instruction is that a
+        // repeat read of the SAME tag in the SAME bucket before the original even reached the
+        // server must NOT weaken dedup. Only a SYNCED-then-rescanned row is treated as fresh.
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            repo.recordScan("task-1", "goat_scan", "TAG-900", goatId = "goat-9", obligationId = "obl-9", capturedAtMs = 1_000L)
+            repo.recordScan("task-1", "goat_scan", "TAG-900", goatId = "goat-9", obligationId = "obl-9", capturedAtMs = 1_500L)
+
+            val rows = repo.observeScannedTags("task-1", "goat_scan").first()
+            assertEquals(1, rows.size)
+            assertEquals(1_000L, rows.single().capturedAtMs) // untouched — still the first write
+            assertEquals(1, sync.scanCalls.size)
         } finally {
             db.close()
         }
@@ -118,6 +365,7 @@ class CaptureRepositoryTest {
                 outcome = RfidScanAttemptOutcome.ACCEPTED,
                 tagRole = RfidScanTagRole.PRIMARY,
                 reason = null,
+                capturedAtMs = 10_001L,
             )
             repo.recordAttempt(
                 taskId = "task-1",
@@ -128,14 +376,18 @@ class CaptureRepositoryTest {
                 outcome = RfidScanAttemptOutcome.DUPLICATE,
                 tagRole = RfidScanTagRole.SECONDARY,
                 reason = "goat_already_scanned",
+                capturedAtMs = 10_002L,
             )
 
             val attempts = repo.attemptsForTask("task-1")
             assertEquals(listOf("901007000504418", "901007000504419"), attempts.map { it.tag })
             assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), attempts.map { it.outcome })
+            assertEquals(listOf(10_001L, 10_002L), attempts.map { it.capturedAtMs })
             assertEquals(2, sync.attemptCalls.size)
             assertEquals("scan-attempt:task-1:attempt-0", sync.attemptCalls[0].idempotencyKey)
             assertEquals("scan-attempt:task-1:attempt-1", sync.attemptCalls[1].idempotencyKey)
+            assertEquals(10_001L, sync.attemptCalls[0].request.capturedAtMs)
+            assertEquals(10_002L, sync.attemptCalls[1].request.capturedAtMs)
             assertEquals("secondary", sync.attemptCalls[1].request.tagRole)
             assertEquals("goat_already_scanned", sync.attemptCalls[1].request.reason)
         } finally {
@@ -144,14 +396,14 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `goat proof is written to Room first and the 5-clip per-goat cap is enforced`() = runTest {
+    fun `goat proof replacement is written even after historical proof cap`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -170,12 +422,14 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 )
                 assertTrue("capture #$index (under the cap) must succeed", result is AppResult.Ok)
             }
             assertEquals(5, repo.observeProofs("task-9").first().size)
 
-            // 6th capture — over the cap — must be rejected, WITHOUT a Room write.
+            // Goat proof replacement must not be blocked by historical audit rows. The scan and
+            // submit surfaces select the latest synced proof as the active one for the goat.
             val sixth = repo.capture(
                 taskId = "task-9",
                 fieldKey = "vaccination_goat_proof",
@@ -183,18 +437,19 @@ class CaptureRepositoryTest {
                 subjectId = "goat-9",
                 localUri = "file://video-6.mp4",
                 mimeType = "video/mp4",
-                caption = "one too many",
+                caption = "replacement",
                 scopeType = "task",
                 scopeId = "task-9",
                 capturedStartMs = 1_000L,
                 capturedEndMs = 4_000L,
                 capturedByPrincipalId = "operator-1",
+                awaitUploadEnqueue = true,
             )
-            assertTrue(sixth is AppResult.Err)
-            assertEquals(5, repo.observeProofs("task-9").first().size)
+            assertTrue(sixth is AppResult.Ok)
+            assertEquals(6, repo.observeProofs("task-9").first().size)
 
             // Every capture queued a registration write through the SAME durable outbox path.
-            assertEquals(5, sync.enqueueCalls.size)
+            assertEquals(6, sync.enqueueCalls.size)
         } finally {
             db.close()
         }
@@ -208,7 +463,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -260,7 +515,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -317,7 +572,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -334,6 +589,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
             advanceUntilIdle()
@@ -361,7 +617,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -379,6 +635,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
 
@@ -404,6 +661,66 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `proof upload success retains app private preview files until row cleanup`() = runTest {
+        val db = newDb()
+        val originalFile = Files.createTempFile("goatos-proof-original-", ".mp4").toFile()
+        val processedFile = Files.createTempFile("goatos-proof-processed-", ".mp4").toFile()
+        try {
+            originalFile.writeText("original")
+            processedFile.writeText("processed")
+            val sync = FakeSyncRepository()
+            val processor = RecordingProofMediaProcessor(
+                ProofMediaProcessingResult(
+                    outputUri = processedFile.toURI().toString(),
+                    outputMimeType = "video/mp4",
+                    originalBytes = originalFile.length(),
+                    processedBytes = processedFile.length(),
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = processor,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-retain-preview",
+                    fieldKey = "feed_distribution_video",
+                    subject = ProofSubject.SHED,
+                    localUri = originalFile.toURI().toString(),
+                    mimeType = "video/mp4",
+                    caption = "Feed direction video",
+                    scopeType = "task",
+                    scopeId = "task-retain-preview",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
+            val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-retained"))
+            sync.emit(itemId!!, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+
+            val row = repo.observeProofs("task-retain-preview").first().single()
+            assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
+            assertEquals(processedFile.toURI().toString(), row.localUri)
+            assertTrue("original proof file is retained for explicit row cleanup", originalFile.exists())
+            assertTrue("processed proof file is retained for synced preview", processedFile.exists())
+        } finally {
+            db.close()
+            originalFile.delete()
+            processedFile.delete()
+        }
+    }
+
+    @Test
     fun `proof upload success without a server proof id is quarantined as failed`() = runTest {
         val db = newDb()
         try {
@@ -411,7 +728,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -429,6 +746,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
 
@@ -464,7 +782,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -476,6 +794,386 @@ class CaptureRepositoryTest {
             assertEquals("proof-upload:task-orphan:proof-orphan", sync.enqueueCalls.single().idempotencyKey)
             assertEquals("outbox-0", row?.outboxItemId)
             assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `observing proofs repairs pending proof with no outbox item`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-live-orphan",
+                    taskId = "task-live-orphan",
+                    fieldKey = "feed_distribution_water_video",
+                    idempotencyKey = "proof-upload:task-live-orphan:proof-live-orphan",
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            repo.observeProofs("task-live-orphan").first()
+            advanceUntilIdle()
+
+            val row = db.proofCaptureDao().findById("proof-live-orphan")
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("proof-upload:task-live-orphan:proof-live-orphan", sync.enqueueCalls.single().idempotencyKey)
+            assertEquals("outbox-0", row?.outboxItemId)
+            assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `observing proofs repairs pending proof whose outbox item is missing`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-stale-outbox",
+                    taskId = "task-stale-outbox",
+                    fieldKey = "feed_distribution_water_video",
+                    idempotencyKey = "proof-upload:task-stale-outbox:proof-stale-outbox",
+                    outboxItemId = "outbox-pruned-before-row-updated",
+                ).copy(
+                    localUri = "file://processed-water-video.mp4",
+                    originalUri = "file://original-water-video.mp4",
+                    processedUri = "file://processed-water-video.mp4",
+                    processingState = sg.mesha.goatos.core.database.capture.ProofProcessingState.PROCESSED.name,
+                    processingAttempted = true,
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            repo.observeProofs("task-stale-outbox").first()
+            advanceUntilIdle()
+
+            val row = db.proofCaptureDao().findById("proof-stale-outbox")
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("proof-upload:task-stale-outbox:proof-stale-outbox", sync.enqueueCalls.single().idempotencyKey)
+            assertEquals("file://processed-water-video.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("outbox-0", row?.outboxItemId)
+            assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `processed proof upload uses human RFID metadata and processed artifact path`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val processor = RecordingProofMediaProcessor(
+                ProofMediaProcessingResult(
+                    outputUri = "file://processed-proof.mp4",
+                    outputMimeType = "video/mp4",
+                    originalBytes = 12_000_000L,
+                    processedBytes = 2_000_000L,
+                    targetVideoBitrate = 6_000_000,
+                    targetAudioBitrate = 48_000,
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = processor,
+            )
+
+            repo.capture(
+                taskId = "task-vaccine",
+                fieldKey = "vaccination_goat_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = "44444444-4444-4444-4444-444444444444",
+                localUri = "file://original-proof.mp4",
+                mimeType = "video/mp4",
+                caption = "Vaccination · CPT · Castro 1 · ET+TT, PPR",
+                rfidTag = "C1-901007000504332",
+                scopeType = "task",
+                scopeId = "task-vaccine",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+                awaitUploadEnqueue = true,
+            )
+            advanceUntilIdle()
+
+            assertEquals("C1-901007000504332", processor.requests.single().rfidTag)
+            assertEquals("Vaccination · CPT · Castro 1 · ET+TT, PPR", processor.requests.single().caption)
+            assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("C1-901007000504332", sync.enqueueCalls.single().request.metadata["rfid_tag"]?.jsonPrimitive?.content)
+            assertEquals("Vaccination · CPT · Castro 1 · ET+TT, PPR", sync.enqueueCalls.single().request.metadata["caption"]?.jsonPrimitive?.content)
+            assertEquals("44444444-4444-4444-4444-444444444444", sync.enqueueCalls.single().request.subjectId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `gallery save happens once for final processed artifact across recovery reenqueues`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val gallery = RecordingGalleryProofSaver()
+            val processor = RecordingProofMediaProcessor(
+                ProofMediaProcessingResult(
+                    outputUri = "file://processed-proof.mp4",
+                    outputMimeType = "video/mp4",
+                    originalBytes = 12_000_000L,
+                    processedBytes = 2_000_000L,
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = processor,
+                galleryProofSaver = gallery,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-gallery-once",
+                    fieldKey = "feed_distribution_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://original-proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Feed direction proof",
+                    scopeType = "task",
+                    scopeId = "task-gallery-once",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            assertEquals(listOf("file://processed-proof.mp4"), gallery.paths)
+            assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("file://processed-proof.mp4", db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
+
+            db.proofCaptureDao().setOutboxItemId(captured.id, null)
+            repo.reconcileRecoverableUploadsNow()
+
+            assertEquals(listOf("file://processed-proof.mp4"), gallery.paths)
+            assertEquals(1, processor.requests.size)
+            assertEquals(1, sync.enqueueCalls.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `gallery save event suppresses duplicate gallery copy when saved marker is stale`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val gallery = RecordingGalleryProofSaver()
+            val entity = proofEntity(
+                id = "proof-gallery-stale-marker",
+                taskId = "task-gallery-stale-marker",
+                fieldKey = "feed_distribution_video",
+                idempotencyKey = "proof-upload:task-gallery-stale-marker:proof-gallery-stale-marker",
+            ).copy(
+                localUri = "file://processed-proof.mp4",
+                originalUri = "file://original-proof.mp4",
+                processedUri = "file://processed-proof.mp4",
+                processingState = ProofProcessingState.PROCESSED.name,
+                processingAttempted = true,
+                stateAttempt = 1,
+                originalBytes = 12_000_000L,
+                processedBytes = 2_000_000L,
+                gallerySavedUri = null,
+            )
+            db.proofCaptureDao().insert(entity)
+            db.proofCaptureDao().insertStateEvent(
+                ProofCaptureStateEventEntity(
+                    id = "event-gallery-completed",
+                    proofId = entity.id,
+                    fromState = ProofProcessingState.PROCESSED.name,
+                    toState = ProofProcessingState.PROCESSED.name,
+                    stage = "gallery_save_completed",
+                    attempt = 1,
+                    occurredAtMs = 2_000L,
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                galleryProofSaver = gallery,
+            )
+
+            repo.reconcileRecoverableUploadsNow()
+            advanceUntilIdle()
+
+            assertEquals(emptyList<String>(), gallery.paths)
+            assertEquals("file://processed-proof.mp4", db.proofCaptureDao().findById(entity.id)?.gallerySavedUri)
+            assertEquals(1, db.proofCaptureDao().countStateEvents(entity.id, "gallery_save_completed"))
+            assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `processor failure fallback saves and uploads original once across recovery reenqueues`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val gallery = RecordingGalleryProofSaver()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = ThrowingProofMediaProcessor(),
+                galleryProofSaver = gallery,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-gallery-fallback",
+                    fieldKey = "feed_distribution_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://original-proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Feed direction proof",
+                    scopeType = "task",
+                    scopeId = "task-gallery-fallback",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
+            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("true", sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content)
+            assertEquals("file://original-proof.mp4", db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
+
+            db.proofCaptureDao().setOutboxItemId(captured.id, null)
+            repo.reconcileRecoverableUploadsNow()
+
+            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
+            assertEquals(1, sync.enqueueCalls.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `processor success that reuses original path falls back to original instead of pretending processed`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val gallery = RecordingGalleryProofSaver()
+            val processor = RecordingProofMediaProcessor(
+                ProofMediaProcessingResult(
+                    outputUri = "file://original-proof.mp4",
+                    outputMimeType = "video/mp4",
+                    originalBytes = 12_000_000L,
+                    processedBytes = 12_000_000L,
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = processor,
+                galleryProofSaver = gallery,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-gallery-invalid-processed",
+                    fieldKey = "feed_distribution_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://original-proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Feed direction proof",
+                    scopeType = "task",
+                    scopeId = "task-gallery-invalid-processed",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
+            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals("true", sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content)
+            assertEquals("file://original-proof.mp4", row?.localUri)
+            assertEquals(true, row?.uploadOriginal)
+            assertEquals(null, row?.processedUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `observing proofs does not resurrect failed proof with no outbox item`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-failed-no-outbox",
+                    taskId = "task-failed-no-outbox",
+                    fieldKey = "feed_distribution_water_video",
+                    idempotencyKey = "proof-upload:task-failed-no-outbox:proof-failed-no-outbox",
+                ).copy(
+                    syncStatus = CaptureSyncStatus.FAILED.name,
+                    lastError = "upload failed permanently",
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            repo.observeProofs("task-failed-no-outbox").first()
+            advanceUntilIdle()
+
+            val row = db.proofCaptureDao().findById("proof-failed-no-outbox")
+            assertEquals(0, sync.enqueueCalls.size)
+            assertEquals(CaptureSyncStatus.FAILED.name, row?.syncStatus)
+            assertEquals("upload failed permanently", row?.lastError)
         } finally {
             db.close()
         }
@@ -516,7 +1214,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -553,7 +1251,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -586,7 +1284,7 @@ class CaptureRepositoryTest {
             val firstInstance = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -613,7 +1311,7 @@ class CaptureRepositoryTest {
             val secondInstance = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -637,7 +1335,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -655,6 +1353,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
 
@@ -687,7 +1386,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -705,6 +1404,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
 
@@ -742,7 +1442,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -759,6 +1459,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
             val outboxItemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId!!
@@ -781,7 +1482,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = syncWithFailure,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -799,6 +1500,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
 
@@ -823,7 +1525,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -865,7 +1567,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = FakeSyncRepository(),
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -945,7 +1647,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -966,6 +1668,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
             advanceUntilIdle()
@@ -1021,7 +1724,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -1045,7 +1748,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = spyDao,
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -1064,6 +1767,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
             ).value
             advanceUntilIdle()
@@ -1116,7 +1820,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
             )
@@ -1135,6 +1839,7 @@ class CaptureRepositoryTest {
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
                 ) as AppResult.Ok
                 ).value
 
@@ -1189,6 +1894,72 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `removing synced proof deletes server artifact before local row`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            val entity = proofEntity(
+                id = "proof-synced-remove",
+                taskId = "task-remove",
+                fieldKey = "shed_video",
+                idempotencyKey = "proof-upload:task-remove:proof-synced-remove",
+            ).copy(
+                syncStatus = CaptureSyncStatus.SYNCED.name,
+                serverProofId = "server-proof-remove",
+            )
+            db.proofCaptureDao().insert(entity)
+
+            val result = repo.remove("task-remove", "proof-synced-remove")
+
+            assertTrue(result is AppResult.Ok)
+            assertEquals(listOf("server-proof-remove"), sync.deleteUploadedProofCalls)
+            assertEquals(null, db.proofCaptureDao().findById("proof-synced-remove"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `removing synced proof keeps local row when server delete fails`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository(deleteUploadedProofFailure = "proof is already attached")
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+            )
+            val entity = proofEntity(
+                id = "proof-synced-keep",
+                taskId = "task-remove",
+                fieldKey = "shed_video",
+                idempotencyKey = "proof-upload:task-remove:proof-synced-keep",
+            ).copy(
+                syncStatus = CaptureSyncStatus.SYNCED.name,
+                serverProofId = "server-proof-keep",
+            )
+            db.proofCaptureDao().insert(entity)
+
+            val result = repo.remove("task-remove", "proof-synced-keep")
+
+            assertTrue(result is AppResult.Err)
+            assertEquals(listOf("server-proof-keep"), sync.deleteUploadedProofCalls)
+            assertEquals(entity, db.proofCaptureDao().findById("proof-synced-keep"))
+        } finally {
+            db.close()
+        }
+    }
 }
 
 private fun proofEntity(
@@ -1217,18 +1988,48 @@ private fun proofEntity(
     captureSource = captureSource,
 )
 
+private class RecordingProofMediaProcessor(
+    private val result: ProofMediaProcessingResult,
+) : ProofMediaProcessor {
+    val requests = mutableListOf<ProofMediaProcessingRequest>()
+
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
+        requests += request
+        return result
+    }
+}
+
+private class ThrowingProofMediaProcessor : ProofMediaProcessor {
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
+        error("processor failed")
+}
+
+private class RecordingGalleryProofSaver : GalleryProofSaver {
+    val paths = mutableListOf<String>()
+
+    override suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String) {
+        paths += localFilePath
+    }
+}
+
 /** Minimal, deterministic [SyncRepository] test double: records every
  *  [enqueueProofUpload] call and lets the test manually drive its outbox item's status via
  *  [emit], mirroring how [sg.mesha.goatos.core.data.sync.SyncEngine] would really transition it. */
 private class FakeSyncRepository(
     private val deleteOutboxItemFailure: String? = null,
     private val cancelOutboxItemFailure: String? = null,
+    private val deleteUploadedProofFailure: String? = null,
     // Simulates the guarded cancel losing the race to the dispatcher (item was IN_FLIGHT at the
     // instant of the DELETE): returns Ok(false) and removes nothing, regardless of observed status.
     private val cancelAlwaysMisses: Boolean = false,
 ) : SyncRepository {
-    data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
-    data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
+    data class EnqueueCall(
+        val idempotencyKey: String,
+        val outboxItemId: String,
+        val request: ProofUploadRequestDto,
+        val localFilePath: String,
+    )
+    data class ScanCall(val idempotencyKey: String, val partitionKey: String, val request: ScanCaptureRequestDto)
     data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
@@ -1241,6 +2042,7 @@ private class FakeSyncRepository(
     val retryCalls = mutableListOf<String>()
     val deleteOutboxCalls = mutableListOf<String>()
     val cancelCalls = mutableListOf<String>()
+    val deleteUploadedProofCalls = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -1288,9 +2090,10 @@ private class FakeSyncRepository(
         taskId: String,
         groupKey: String,
         idempotencyKey: String,
+        partitionKey: String,
         request: ScanCaptureRequestDto,
     ): AppResult<String> {
-        scanCalls += ScanCall(idempotencyKey, request)
+        scanCalls += ScanCall(idempotencyKey, partitionKey, request)
         return AppResult.Ok("scan-outbox-${scanCalls.size}")
     }
 
@@ -1320,7 +2123,7 @@ private class FakeSyncRepository(
         // Without this the fake handed out outbox-0 AND outbox-1 and the winner raced the assertions.
         enqueueCalls.firstOrNull { it.idempotencyKey == idempotencyKey }?.let { return AppResult.Ok(it.outboxItemId) }
         val id = "outbox-${nextId++}"
-        enqueueCalls += EnqueueCall(idempotencyKey, id, request)
+        enqueueCalls += EnqueueCall(idempotencyKey, id, request, localFilePath)
         status.value = status.value.copy(
             items = status.value.items + syncQueueItem(id, SyncItemStatus.QUEUED, groupKey = groupKey),
         )
@@ -1366,6 +2169,12 @@ private class FakeSyncRepository(
         return AppResult.Ok(cancellable)
     }
 
+    override suspend fun deleteUploadedProof(proofId: String): AppResult<Unit> {
+        deleteUploadedProofCalls += proofId
+        deleteUploadedProofFailure?.let { return AppResult.Err(it) }
+        return AppResult.Ok(Unit)
+    }
+
     override suspend fun triggerDrain() = Unit
 }
 
@@ -1379,6 +2188,7 @@ private fun syncQueueItem(
 ) = SyncQueueItem(
     id = id,
     opType = "PROOF_UPLOAD",
+    idempotencyKey = "test-idempotency-key",
     groupKey = groupKey,
     status = status,
     attemptCount = 0,
@@ -1399,24 +2209,96 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
     var updateStatusCalls = 0
 
     override suspend fun insert(entity: ProofCaptureEntity) = delegate.insert(entity)
+    override fun observeWorkflowDeathDrafts(workflowId: String): Flow<List<ProofCaptureEntity>> =
+        delegate.observeWorkflowDeathDrafts(workflowId)
+    override suspend fun findWorkflowDeathDraft(workflowId: String, actionId: String): ProofCaptureEntity? =
+        delegate.findWorkflowDeathDraft(workflowId, actionId)
+    override suspend fun deleteWorkflowDeathDraft(workflowId: String, actionId: String) =
+        delegate.deleteWorkflowDeathDraft(workflowId, actionId)
+    override suspend fun clearWorkflowDeathDrafts(workflowId: String) =
+        delegate.clearWorkflowDeathDrafts(workflowId)
+    override suspend fun markWorkflowDeathDraftsSubmitting(workflowId: String) =
+        delegate.markWorkflowDeathDraftsSubmitting(workflowId)
     override fun observeForTask(taskId: String, limit: Int): Flow<List<ProofCaptureEntity>> =
         delegate.observeForTask(taskId, limit)
+    override fun observeForTaskPartition(taskId: String, partitionKey: String, limit: Int): Flow<List<ProofCaptureEntity>> =
+        delegate.observeForTaskPartition(taskId, partitionKey, limit)
     override suspend fun listForTask(taskId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listForTask(taskId, limit)
     override suspend fun listForTaskCleanupPage(taskId: String, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listForTaskCleanupPage(taskId, afterCapturedAtMs, afterId, limit)
     override suspend fun listRecoverableUploadsPage(capturedBeforeMs: Long, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listRecoverableUploadsPage(capturedBeforeMs, afterCapturedAtMs, afterId, limit)
-    override suspend fun activeCountForSubject(taskId: String, subjectId: String): Int =
-        delegate.activeCountForSubject(taskId, subjectId)
-    override suspend fun activeCountForSubjectType(taskId: String, proofSubject: String): Int =
-        delegate.activeCountForSubjectType(taskId, proofSubject)
+    override suspend fun activeCountForSubject(taskId: String, partitionKey: String, subjectId: String): Int =
+        delegate.activeCountForSubject(taskId, partitionKey, subjectId)
+    override suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int =
+        delegate.activeCountForSubjectType(taskId, partitionKey, proofSubject)
     override suspend fun findById(id: String): ProofCaptureEntity? = delegate.findById(id)
-    override suspend fun setOutboxItemId(id: String, outboxItemId: String) = delegate.setOutboxItemId(id, outboxItemId)
+    override suspend fun setOutboxItemId(id: String, outboxItemId: String?) = delegate.setOutboxItemId(id, outboxItemId)
     override suspend fun updateStatus(id: String, status: String, serverProofId: String?, lastError: String?) {
         updateStatusCalls++
         delegate.updateStatus(id, status, serverProofId, lastError)
     }
+    override suspend fun updateProcessingState(
+        id: String,
+        processingState: String,
+        attempt: Int,
+        processingAttempted: Boolean,
+        uploadOriginal: Boolean,
+        lastErrorStage: String?,
+        lastErrorClass: String?,
+        lastErrorRetryable: Boolean?,
+        lastErrorMessageHash: String?,
+        updatedAtMs: Long,
+    ) = delegate.updateProcessingState(
+        id = id,
+        processingState = processingState,
+        attempt = attempt,
+        processingAttempted = processingAttempted,
+        uploadOriginal = uploadOriginal,
+        lastErrorStage = lastErrorStage,
+        lastErrorClass = lastErrorClass,
+        lastErrorRetryable = lastErrorRetryable,
+        lastErrorMessageHash = lastErrorMessageHash,
+        updatedAtMs = updatedAtMs,
+    )
+    override suspend fun updateProcessingArtifact(
+        id: String,
+        localUri: String,
+        mimeType: String,
+        processingState: String,
+        processingAttempted: Boolean,
+        uploadOriginal: Boolean,
+        processedUri: String?,
+        originalBytes: Long?,
+        processedBytes: Long?,
+        inputWidth: Int?,
+        inputHeight: Int?,
+        targetVideoBitrate: Int?,
+        targetAudioBitrate: Int?,
+        updatedAtMs: Long,
+    ) = delegate.updateProcessingArtifact(
+        id = id,
+        localUri = localUri,
+        mimeType = mimeType,
+        processingState = processingState,
+        processingAttempted = processingAttempted,
+        uploadOriginal = uploadOriginal,
+        processedUri = processedUri,
+        originalBytes = originalBytes,
+        processedBytes = processedBytes,
+        inputWidth = inputWidth,
+        inputHeight = inputHeight,
+        targetVideoBitrate = targetVideoBitrate,
+        targetAudioBitrate = targetAudioBitrate,
+        updatedAtMs = updatedAtMs,
+    )
+    override suspend fun markGallerySaved(id: String, gallerySavedUri: String, updatedAtMs: Long) =
+        delegate.markGallerySaved(id, gallerySavedUri, updatedAtMs)
+    override suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity) =
+        delegate.insertStateEvent(entity)
+    override suspend fun countStateEvents(proofId: String, stage: String): Int =
+        delegate.countStateEvents(proofId, stage)
     override suspend fun delete(id: String, taskId: String) = delegate.delete(id, taskId)
     override suspend fun updateCaption(id: String, taskId: String, caption: String) = delegate.updateCaption(id, taskId, caption)
     override suspend fun clearForTask(taskId: String) = delegate.clearForTask(taskId)

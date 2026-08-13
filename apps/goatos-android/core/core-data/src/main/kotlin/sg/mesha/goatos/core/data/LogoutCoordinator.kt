@@ -48,11 +48,16 @@ class LogoutCoordinator(
     private val outboxWiper: OutboxWiper,
     private val syncJobsCanceller: SyncJobsCanceller,
     private val clearPushAndAnalyticsIdentity: () -> Unit = {},
+    private val feedCompletionLocalStore: FeedCompletionLocalStore = FeedCompletionLocalStore(),
 ) {
     suspend fun logout(signOutVendorAuth: () -> Unit) {
         deregisterDeviceBestEffort()
         runCatching { signOutVendorAuth() }
         runCatching { clearPushAndAnalyticsIdentity() }
+        // In-MEMORY authority-sensitive state. The Room wipe below cannot reach it: this overlay
+        // is a process singleton, so without this the departing operator's optimistic feed
+        // completions stayed visible to the next principal signing in on the same device.
+        feedCompletionLocalStore.clear()
         screenCacheStore.clearAll()
         outboxWiper.clearAll()
         syncJobsCanceller.cancelAll()
@@ -65,6 +70,7 @@ class LogoutCoordinator(
      *  logout. Logged (not swallowed) so a stuck push-token binding stays diagnosable. */
     private suspend fun deregisterDeviceBestEffort() {
         val deviceId = runCatching { deviceStore.deviceId() }
+            .onFailure { android.util.Log.w("LogoutCoordinator", "deregisterDeviceBestEffort: get device ID failed", it) }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
             ?: return

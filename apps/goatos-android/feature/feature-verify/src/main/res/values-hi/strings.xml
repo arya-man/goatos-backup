@@ -1,20 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_queue_empty_date_subtitle">इस पेज, स्थिति और तारीख में कोई वीडियो नहीं है</string>
+    <string name="verify_missed_open">छूटे हुए सत्यापन वीडियो दिखाएँ</string>
+    <string name="verify_missed_before_today">आज से पहले छूटे हुए</string>
+    <string name="verify_date_previous">पिछला दिन</string>
+    <string name="verify_date_next">अगला दिन</string>
     <string name="verify_module_vaccination">टीकाकरण</string>
+    <string name="verify_module_weighing">वज़न</string>
+    <string name="verify_module_birth">जन्म</string>
+    <string name="verify_module_death">मृत्यु</string>
     <string name="verify_module_counts">गणना</string>
+    <string name="verify_module_shifting">स्थानांतरण</string>
+    <string name="verify_module_packing">पैकिंग</string>
     <string name="verify_module_feed_direction">फ़ीड दिशा</string>
+    <string name="verify_module_transport">परिवहन</string>
     <string name="verify_module_under_construction">निर्माणाधीन</string>
     <string name="verify_module_under_construction_subtitle">इसकी कार्यप्रणाली तैयार होने पर यह सत्यापन कतार यहाँ दिखाई देगी।</string>
     <string name="verify_queue_title">वीडियो सत्यापन</string>
     <string name="verify_action_queue_title">टीकाकरण वीडियो</string>
     <string name="verify_queue_refresh">रीफ़्रेश करें</string>
     <string name="verify_queue_empty">कतार खाली है</string>
+    <string name="verify_queue_unsupported_module">यह कतार अभी ऐप में उपलब्ध नहीं है</string>
+    <string name="verify_queue_unsupported_module_subtitle">इन प्रमाणों की समीक्षा के लिए Mesha वेब ऐप खोलें।</string>
+    <string name="verify_queue_load_failed">कतार लोड नहीं हो सकी</string>
+    <string name="verify_queue_load_failed_subtitle">इस कतार को पढ़ने में समस्या हुई। फिर से कोशिश करने के लिए रिफ़्रेश करें।</string>
     <string name="verify_queue_empty_subtitle">अभी सत्यापित करने के लिए कोई वीडियो लंबित नहीं है</string>
     <string name="verify_action_queue_empty">कोई सबमिट वीडियो नहीं</string>
     <string name="verify_action_queue_empty_subtitle">सबमिट किए गए टीकाकरण वीडियो निदेशक समीक्षा के लिए यहाँ दिखेंगे</string>
     <string name="verify_queue_load_more">और लोड करें</string>
     <string name="verify_queue_loading_more">और लोड हो रहे हैं…</string>
+    <string name="verify_scope_all">सभी</string>
+    <string name="verify_scope_individual">व्यक्तिगत (%1$d)</string>
+    <string name="verify_scope_lumpsum">कुल वजन (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d पंक्तियाँ · %2$d वीडियो</string>
+    <string name="verify_shed_group_progress">%1$d बकरियाँ · %2$d समीक्षा शेष</string>
 
     <string name="verify_detail_close">बंद करें</string>
     <string name="verify_detail_fullscreen">वीडियो फुलस्क्रीन खोलें</string>
@@ -23,7 +43,10 @@
     <string name="verify_detail_shed_label">शेड</string>
     <string name="verify_detail_park_label">पार्क</string>
     <string name="verify_detail_operator_label">ऑपरेटर</string>
+    <string name="verify_detail_raised_note_label">ऑपरेटर की टिप्पणी</string>
     <string name="verify_detail_captured_label">कैप्चर किया गया</string>
+    <string name="verify_detail_photo_description">इस काम का फ़ोटो प्रमाण</string>
+    <string name="verify_detail_recorded_answer">रिकॉर्ड किया गया: %1$s</string>
     <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
     <string name="verify_detail_approve">स्वीकृत करें</string>
     <string name="verify_detail_reject">अस्वीकार करें</string>
@@ -49,4 +72,15 @@
     <string name="verify_status_approved">स्वीकृत</string>
     <string name="verify_status_rejected">अस्वीकृत</string>
     <string name="verify_category_all">सभी</string>
+    <string name="verify_detail_media_unavailable_send_back">यह वीडियो नहीं चलेगा, इसलिए इसे स्वीकृत नहीं किया जा सकता। इसे वापस भेजें ताकि टीम इसे फिर से रिकॉर्ड करे।</string>
+    <string name="verify_approve_dialog_title">इस प्रमाण को स्वीकृत करें?</string>
+    <string name="verify_approve_dialog_subtitle">स्वीकृति अंतिम है — इसे बाद में वापस नहीं लिया जा सकता।</string>
+    <string name="verify_approve_dialog_confirm">स्वीकृति पक्की करें</string>
+    <string name="verify_approve_dialog_cancel">रद्द करें</string>
+    <string name="verify_detail_group_accepted">इस शेड के सभी वीडियो स्वीकृत हैं</string>
+    <string name="verify_filter_park_title">पार्क</string>
+    <string name="verify_filter_shed_title">शेड</string>
+    <string name="verify_filter_change">बदलें</string>
+    <string name="verify_filter_search_hint">खोजें</string>
+    <string name="verify_filter_no_matches">कोई मेल नहीं</string>
 </resources>

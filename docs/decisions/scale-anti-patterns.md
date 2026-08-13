@@ -35,6 +35,37 @@ new buildings; source audits, fixture guards, seeders, read APIs, and frontend
 tables must aggregate owner/count totals at physical-shed grain and carry the
 partition only as drive-assignment detail.
 
+Vaccination submit grain drift is the same class of bug at runtime. Multiple
+sheds can share one hidden park/batch-level `sop_tasks` parent, but operators,
+WF, CT, AC, Calendar, Android, and verifier rows are shed-grained. A first shed
+submission must not make another shed look submitted, proof-uploaded, or
+verification-pending by reading the shared parent task state or by taking the
+latest bare `sop_submissions` row for the parent task. Per-shed surfaces must
+derive those states from shed-scoped `sop_submission_items`,
+`sop_submissions`, `vaccination_completions`, and proof rows joined through the
+current goat/shed grain. The shared parent may advance only as an aggregate
+rollup after every eligible goat item under that parent has a submitted/accepted
+item, and submit idempotency keys must include the active shed scope so Old
+Yashoda, Godel 1, and Godel 2 cannot collide on the same hidden parent. Once the
+shared parent is `accepted`, it is terminal: only exact idempotency replay may be
+read as success, and a fresh submit key must not insert new submissions, fanouts,
+audits, or movement side effects.
+
+The submit write path itself must prove the same grain. A shed-level proof
+upload is one proof artifact for one shed, while scan captures may have been
+loaded from the shared parent drive. `SubmitTask` must filter any supplied
+submission items through `proof_refs[].subject_type='shed'` /
+`proof_refs[].subject_id` and the live `goats.shed_id` before inserting
+`sop_submission_items` or deriving `vaccination_completions`. A UI/sidebar fix,
+status-precedence tweak, or "show overdue as well as in-review" change is not a
+fix if the database still materializes sibling sheds under the first shed's
+submission. Mandatory adversarial fixture: one shared parent task, shed A and
+shed B, a completed shed-A video proof, over-broad scan items containing goats
+from both sheds, and assertions that shed B has zero submission items and zero
+completions. This is the same data source that powers WF, CT, AC, Calendar,
+Android L1/L2/L3, verifier queues, proof drawers, and leadership sidebars; do
+not validate only the screen you happen to be looking at.
+
 Operator-role drift is part of the same failure mode. In CPT operator-drive
 rehearsals, Amit, Darshan, and Sagar are all manager-tier vaccination operators;
 none of them is support-only, backup-only, or park-head-only. Their week-offs
@@ -52,8 +83,8 @@ remains.
 Adult vaccination date drift is also a seed-scale anti-pattern. Adult
 `entry_date` / `post_arrival` must not create private due windows, singleton
 drives, or shed/partition fragments. Adult timing comes from accepted
-same-vaccine history when present; adult no-history animals join the reviewed
-manual campaign/catch-up cohort and are packed by the same whole
+same-vaccine history when present; adult no-history animals join the normal
+generated adult drive automatically (with no manual approval gate) and are packed by the same whole
 physical-shed/partition operator-cap rule as the rest of the drive. Kid and
 young-stock DOB/age timing remains strict and must not be weakened by this adult
 campaign rule.
@@ -63,6 +94,16 @@ grant such as Jyothi's CPT seed account is review authority only. If the seeder
 turns a verifier into a `vaccination_operator_*` position, shift row, or animal
 cap contributor, the drive planner silently gains fake capacity and every
 operator-day proof becomes suspect.
+
+Seed-time N+1 location resolution is a scale anti-pattern. When seeding animals
+into partitioned sheds, do not resolve shed names to IDs inside a per-row loop:
+`for each source row: query locations WHERE name = row.shed_name`. This is an
+N+1 query that scales O(n) with animal count (2000+ rows on a 2000-animal seed).
+Pre-resolve all active shed names to IDs in a single query before the loop, then
+key lookups inside the loop are O(1) map reads. The same pattern applies to any
+per-row location/partition lookup inside seed: build a pre-resolved key map
+keyed by `(park_code, normalized_shed_name)` or `location_id` as a single
+SQL pass, then use that map for every animal row.
 
 ## Sub-500ms serving-read budget
 
@@ -251,6 +292,16 @@ Do not model raw partition-bearing shed names as separate canonical buildings.
 `Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
 rows multiplies work, breaks operator ownership, and makes UI grouping lie.
 
+**STORAGE IS ONLY ONE HALF — PRODUCT/DISPLAY IS THE OTHER.** Storage collapses
+`Castro 1`/`Castro 2` into shed `Castro` + partitions `1`/`2`. PRODUCT does the
+opposite: an animal's ground location is `OperationalLocation = park +
+physical_shed + optional partition_label`, and every user-facing surface (counts,
+herd register, shifting destinations, vaccination detail, Action Center, CEO
+reporting) must answer with the partition when one exists. In the maintainer's
+words: **"Castro 1 and Castro 2 is the only correct way. Castro is not
+correct."** Both halves are true; they describe different layers. Full display
+rule and examples: `docs/decisions/operational-location-display-contract.md`.
+
 Derive a person's role from their AUTHORITATIVE current position, not a frozen
 snapshot taken earlier in the seed. `seed-roster-real` recasts a rehearsal
 operator's resolved seat into a `vaccination_operator_<name>` position via the
@@ -302,6 +353,12 @@ The recurrence protection is `make vaccination-hrms-source-audit`,
 manifest, and the exact-source first step in `make
 seed-vaccination-source-full`. The complete contract is
 `docs/runbooks/source-seed-data-validation.md`.
+
+Role catalog changes are seed-contract changes too. `growth_director` is the
+Weighing director role key and must not be spelled `director_growth`, collapsed
+into `pc_director`, or used to create vaccination operator capacity. Keep
+director module ownership explicit: PC Director owns Vaccination, Growth
+Director owns Weighing.
 
 Vaccination matrix schedule metadata is part of that same contract.
 `route_site` must be authored as protocol metadata (`subcutaneous` for the
@@ -1118,6 +1175,7 @@ guard can enumerate `json.Unmarshal`/`json.NewDecoder` call sites under
 leaving the key present and unread is not.
 
 
+<!-- Coupling review 2026-07-29: seed-roster-real adds feed_direction to the preventive_care department module grant. This changes runtime module/navigation authorization only; it does not change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts. -->
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create read-only SQL views (ceo_ai.vaccination_operator_status, vaccination_shed_status, vaccination_dose_pickup, action_center) that query canonical vaccination/obligation/workforce tables. They do not modify the seed source data, HRMS schema, vaccination protocol rules, or SOP contracts. The reported reads stay tenant-scoped, indexed, and bounded by the 5k-50k envelope exemption for canonical-read screens; they are not full-tenant recomputes or projection-drift anti-patterns. -->
@@ -1135,3 +1193,39 @@ leaving the key present and unread is not.
 <!-- Coupling review 2026-07-25: Adult campaign idempotency-key stabilization and unbatched open-row realignment happen inside the obligation repository insert path during generation replay. This is bounded per generated obligation and prevents duplicate derived work; it is not a request-path scan, projection workaround, or shell-side derived-state mutation. -->
 <!-- Coupling review 2026-07-25: PUT /vaccination/capacity-config (caps-editable) reuses the compute-on-write cascade spine: UpsertCapacityConfig writes the tenant capacity row under an optimistic row_version lock and, in the SAME transaction, fans vaccination.capacity.changed to every active park via outbox_messages. OperatorConfigReplanHandler consumes it to re-plan future drives; the CT/AC/Workflows/Calendar screens read that canonical result live, so no new projection table or read-path scan is introduced. The shot-cap override is read once per sweep pass, not per row. -->
 <!-- Coupling review 2026-07-25: PUT /vaccination/operator-assignment/config with selected_operator_ids remains compute-on-write, not request-path aggregation. The write updates the config row under row_version and reassigns only open planned drive-assignment rows from the effective business date; completed scan/proof rows are not touched, and mobile/frontend continue reading the same backend-owned execution/schedule assignment data. -->
+<!-- Coupling review 2026-07-25: migration 000002 only converges already-migrated DB schema for selected_operator_ids. The backfill is a single bounded table update from default_operator_id, preserving prior one-operator behavior and adding no request-path aggregation, projection workaround, or tenant scan. -->
+<!-- Coupling review 2026-08-06: narrowing the pc.vaccination manage exclusion changes only WHICH rows seed-position-duties derives, not the shape of the work: still one bounded set-based INSERT per position x module at seed time, and the runtime consumer ResolveModuleDutyRecipients is unchanged (one indexed set-based query per notification, no per-recipient loop). A manage holder adds at most a handful of rows per tenant, so neither the seed nor the reminder resolution gains a fan-out. -->
+<!-- Coupling review 2026-08-01: verify-duty seeding adds bounded set-based INSERTs at seed time (one row per position x notification module), not a request-path read. The runtime consumer ResolveModuleDutyRecipients stays one indexed set-based query per notification -- no per-recipient loop and no N+1 fan-out. seed-position-duties' closeout assertion mirrors that query predicate-for-predicate (scope_type/scope_id, position and duty validity windows, active member) so the gate counts what the runtime counts rather than a looser superset that would pass while pushes still resolved to nobody. -->
+<!-- Coupling review 2026-08-02: Automatic adult blank-history enrolment and history-over-campaign replay cancellation are bounded generation-time operations on the existing goat/rule key. They add no request-path scan or per-row I/O. Operator administered_at remains the medical anchor; verifier/director workflow timestamps do not trigger schedule-wide recomputation. Raw seed fixture bytes and HRMS counts are unchanged. -->
+<!-- Coupling review 2026-08-04: vaccination drive safe-date override metadata is written on the existing bounded drive-move command, and approved combo helper sharing avoids duplicate clinical-session logic. It adds no request-path tenant scan, projection workaround, source fixture mutation, HRMS seed contract, or seed-time recomputation. -->
+<!-- Coupling review 2026-08-04: the health/milk department -> module grants are a bounded set-based INSERT ... SELECT at seed time (one row per existing department x module), not a request-path read and not a per-seat loop. Module visibility is resolved from department_module_grants on the existing indexed key at bootstrap, so adding two module codes changes row count, never query shape or fan-out. -->
+<!-- Coupling review 2026-08-05: CBE/CPT seed-port controls stay bounded seed/sweep work. RFID alias upserts are per-source-row deterministic writes, dose-code/target filters reduce sweep scope, verifier grant and weighing duty seeding are set-based seed-time inserts, and active position upserts use the existing partial-unique key. No request-path tenant scan, projection workaround, or broad recomputation is introduced. Blue Tongue/PPR are excluded from current open generation by policy, avoiding generate-then-delete churn. -->
+<!-- Coupling review 2026-08-05 follow-up: optional `rfid2` alias insertion is the same bounded per-animal identifier upsert path as old-id aliases. It does not add a read-model, tenant scan, or request-path reconciliation job. -->
+
+## 2026-08-05: batched park lookup in weighing weight history
+
+`weight_history.go` resolved park names with one query per park inside a loop.
+Replaced with a single `ANY($1::uuid[])` lookup. Classic N+1: invisible with two
+parks, linear with the farm's growth.
+
+## 2026-08-05: one-shot migration backfill of a canonical column
+
+Migration `000109` adds `animal_stage_lookup.age_band` and backfills `goats.age_band` for the
+live herd in a single set-based `UPDATE ... FROM` joined on the stage vocabulary.
+
+This is **not** the banned *full (stop-the-world) MV refresh*, and the distinction is worth
+recording because the shapes look similar:
+
+- It is a **one-shot schema migration**, not a projector that re-runs on a schedule. There is no
+  repeated whole-tenant `DELETE`+reinsert; the guarded `age_band IS DISTINCT FROM` predicate makes
+  a re-run a no-op.
+- It is **set-based**, not a per-animal loop — no N+1 and no fan-out.
+- It runs under a bounded `SET lock_timeout = '5s'` because `goats` is a hot table, so a
+  lock-contended deploy fails fast instead of queueing behind a long transaction and blocking
+  every concurrent herd write.
+
+The steady-state path is compute-on-write as required: `RelocateGoatsToShedInTx` stamps `age_band`
+in the same `UPDATE` that moves the animal, so no read path ever re-derives kid/adult. The Herd
+Register's kid/adult split stays trigger-maintained on `goats.age_band`.
+
+<!-- Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from preventive_care defaultDepartmentModules and migration 000110 deactivates the existing preventive_care milk + aas_health department_module_grants rows. No vaccination/HRMS source impact: department_module_grants decides which modules a bottom bar OFFERS and is not a seed source input. No HRMS row, fixture byte/hash/count, goat/DOB/species field, protocol_rules row or vaccination matrix changes. Vaccination operator capacity is unaffected -- it derives from the operator role grant plus shed assignment, never from a department module grant, so the four PC operators keep their drives and their caps. Migration 000110 is DML on department_module_grants only, no canonical-table DDL. -->

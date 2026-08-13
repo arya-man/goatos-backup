@@ -117,8 +117,17 @@ class TelemetryGuardEndToEndTests(unittest.TestCase):
 
         report = self._diff_scoped_report()
         matches = [f for f in report.findings if f.file.endswith("DriveScreen.kt")]
-        self.assertEqual(len(matches), 1)
-        self.assertEqual(matches[0].severity, "FAIL")
+        # DriveScreen.kt matches path_globs for THREE surfaces now: the original
+        # "android" (block), plus the newer "screen_view" (block) and
+        # "primary_action" (warn) — see tools/telemetry-guard/config.json and
+        # docs/TELEMETRY.md §7. Assert each surface's finding individually
+        # instead of an overall count so this test doesn't need another edit
+        # every time a new surface's path_globs happens to also match *Screen.kt.
+        by_surface = {f.surface: f for f in matches}
+        self.assertEqual(set(by_surface), {"android", "screen_view", "primary_action"})
+        self.assertEqual(by_surface["android"].severity, "FAIL")
+        self.assertEqual(by_surface["screen_view"].severity, "FAIL")
+        self.assertEqual(by_surface["primary_action"].severity, "WARN")
         self.assertTrue(report.has_blocking)
 
     def test_exempt_comment_passes(self):

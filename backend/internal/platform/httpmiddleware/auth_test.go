@@ -1,6 +1,7 @@
 package httpmiddleware
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +50,30 @@ func TestBearerAuthUsesTokenContextAndIgnoresSpoofHeaders(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthSuccessLoggingIsScopedToLoginSurfaces(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		want   bool
+	}{
+		{name: "session event", method: http.MethodPost, path: "/auth/session-events", want: true},
+		{name: "bootstrap", method: http.MethodGet, path: "/app/bootstrap", want: true},
+		{name: "device register", method: http.MethodPost, path: "/app/devices/register", want: true},
+		{name: "ordinary api read", method: http.MethodGet, path: "/goats/search", want: false},
+		{name: "ordinary api write", method: http.MethodPost, path: "/counts/births", want: false},
+		{name: "wrong method on bootstrap", method: http.MethodPost, path: "/app/bootstrap", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldLogAuthSuccess(tc.method, tc.path); got != tc.want {
+				t.Fatalf("shouldLogAuthSuccess(%q, %q)=%v want %v", tc.method, tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -184,6 +210,104 @@ func TestBearerAuthRejectsEmailOutsideAllowlist(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	assertAuthErrorCode(t, rec, "email_not_allowed")
+}
+
+func TestBearerAuthLogsFailureReasonAndSafeIdentityContext(t *testing.T) {
+	verified := true
+	externalSubject := "firebase-uid-hr"
+	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)
+	var logBuf bytes.Buffer
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer, AllowedEmails: []string{"ravi@mesha.sg"}},
+		staticVerifier{claims: platformauth.Claims{
+			Subject:         actorID,
+			ExternalSubject: externalSubject,
+			Issuer:          authTestIssuer,
+			Audience:        authTestAudience,
+			Email:           "HR@Mesha.SG",
+			EmailVerified:   &verified,
+		}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{actorID + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewJSONHandler(&logBuf, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("handler should not run for an unlisted email")
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/app/bootstrap", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authTestTenant)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	logText := logBuf.String()
+	for _, want := range []string{
+		`"msg":"auth_failed"`,
+		`"code":"email_not_allowed"`,
+		`"path":"/app/bootstrap"`,
+		`"email":"hr@mesha.sg"`,
+		`"firebase_uid":"firebase-uid-hr"`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("auth failure log missing %s in %s", want, logText)
+		}
+	}
+	if strings.Contains(logText, "verified-firebase-token") {
+		t.Fatalf("auth failure log leaked bearer token: %s", logText)
+	}
+}
+
+func TestBearerAuthLogsMissingAndInvalidTokenWithoutLeakingBearer(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		authHeader string
+		wantCode   string
+	}{
+		{name: "missing", wantCode: "missing_bearer_token"},
+		{name: "invalid", authHeader: "Bearer not-a-token", wantCode: "invalid_bearer_token"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuf bytes.Buffer
+			mw, err := NewAuthMiddleware(
+				AuthConfig{Mode: AuthModeBearer},
+				testHS256Verifier(t, 24*time.Hour),
+				grantAdapter{fakeGrantSource{}},
+				slog.New(slog.NewJSONHandler(&logBuf, nil)),
+			)
+			if err != nil {
+				t.Fatalf("NewAuthMiddleware: %v", err)
+			}
+			handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				t.Fatal("handler should not run")
+			})))
+			req := httptest.NewRequest(http.MethodGet, "/app/bootstrap", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			logText := logBuf.String()
+			for _, want := range []string{`"msg":"auth_failed"`, `"code":"` + tt.wantCode + `"`, `"path":"/app/bootstrap"`} {
+				if !strings.Contains(logText, want) {
+					t.Fatalf("auth failure log missing %s in %s", want, logText)
+				}
+			}
+			if strings.Contains(logText, "not-a-token") {
+				t.Fatalf("auth failure log leaked bearer token: %s", logText)
+			}
+		})
+	}
 }
 
 func TestBearerAuthRejectsUnverifiedEmailWhenAllowlistIsConfigured(t *testing.T) {
@@ -508,17 +632,50 @@ func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T)
 	operatorHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(operatorMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	for _, path := range []string{
-		"/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures",
-		"/app/proofs/uploads",
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures"},
+		{http.MethodPost, "/app/proofs/uploads"},
+		{http.MethodDelete, "/app/proofs/cc861766-3e4b-42cc-b097-95913391cfa2"},
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req := httptest.NewRequest(route.method, route.path, nil)
 		req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
 		rec := httptest.NewRecorder()
 		operatorHandler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNoContent {
-			t.Fatalf("scoped operator app route POST %s status=%d body=%s", path, rec.Code, rec.Body.String())
+			t.Fatalf("scoped operator app route %s %s status=%d body=%s", route.method, route.path, rec.Code, rec.Body.String())
 		}
+	}
+
+	feedPreviewReq := httptest.NewRequest(http.MethodGet, "/feed-direction/preview?target_date=2026-08-04", nil)
+	feedPreviewReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	feedPreviewRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(feedPreviewRec, feedPreviewReq)
+	if feedPreviewRec.Code != http.StatusNoContent {
+		t.Fatalf("scoped operator feed preview status=%d body=%s", feedPreviewRec.Code, feedPreviewRec.Body.String())
+	}
+	feedGenerationReq := httptest.NewRequest(http.MethodGet, "/feed-direction/generation-preview?target_date=2026-08-04", nil)
+	feedGenerationReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	feedGenerationRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(feedGenerationRec, feedGenerationReq)
+	if feedGenerationRec.Code != http.StatusForbidden {
+		t.Fatalf("scoped operator generation preview status=%d, want 403", feedGenerationRec.Code)
+	}
+	goatSearchReq := httptest.NewRequest(http.MethodGet, "/goats/search?limit=20&q=TAG-1", nil)
+	goatSearchReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	goatSearchRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(goatSearchRec, goatSearchReq)
+	if goatSearchRec.Code != http.StatusNoContent {
+		t.Fatalf("scoped operator goat search status=%d body=%s", goatSearchRec.Code, goatSearchRec.Body.String())
+	}
+	goatPassportReq := httptest.NewRequest(http.MethodGet, "/goats/33000000-0000-4000-8000-000000000001", nil)
+	goatPassportReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	goatPassportRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(goatPassportRec, goatPassportReq)
+	if goatPassportRec.Code != http.StatusForbidden {
+		t.Fatalf("scoped operator goat passport status=%d, want 403", goatPassportRec.Code)
 	}
 
 	calendarReadReq := httptest.NewRequest(http.MethodGet, "/calendar/vaccination/events", nil)
@@ -548,6 +705,62 @@ func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T)
 		t.Fatalf("other status=%d body=%s", otherRec.Code, otherRec.Body.String())
 	}
 	assertAuthErrorCode(t, otherRec, "permission_denied")
+}
+
+// TestParkScopedOperatorAuthorizesVaccinationControlTowerAlertsRoute is a regression test
+// for a defect found on a real device 2026-08-04: an operator's Alerts tab calls
+// GET /control-tower/vaccination, and the operator's grant is PARK-scoped (scope_type=park),
+// not tenant-scoped. Before the fix, routeAllowsScopedGrants did not list the
+// "/control-tower/" prefix, so routeRoles silently dropped the operator's grant entirely
+// (roles resolved to "" -- confirmed in the live denial log: `roles:"" required_any_permissions:
+// "obligation.read,vaccination.read,vaccination.alerts_read"`), and permissions.AuthorizeRoute
+// denied before any permission was even consulted. A permission-registry-only test cannot see
+// this: it has to go through the real middleware with a park-scoped grant, which is what this
+// test does.
+func TestParkScopedOperatorAuthorizesVaccinationControlTowerAlertsRoute(t *testing.T) {
+	cbeGrant := permissions.ActiveGrant{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
+	mw := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {cbeGrant}}})
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	req := httptest.NewRequest(http.MethodGet, "/control-tower/vaccination", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("park-scoped operator status=%d body=%s, want 204 -- routeRoles must not drop a park-scoped grant on /control-tower/vaccination (the mobile Alerts tab's only backing request)", rec.Code, rec.Body.String())
+	}
+
+	// Same route must still reject a role that holds NEITHER the shared oversight
+	// permissions NOR the operator-only alerts capability, even with a park-scoped
+	// grant -- this fix widens WHICH grants are SEEN, not WHO is authorized.
+	unrelatedGrant := permissions.ActiveGrant{Role: permissions.RoleFeedDirector, ScopeType: "park", ScopeID: cbeGrant.ScopeID}
+	unrelatedMW := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {unrelatedGrant}}})
+	unrelatedHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(unrelatedMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("feed_director must not authorize the vaccination control-tower route")
+	})))
+	unrelatedReq := httptest.NewRequest(http.MethodGet, "/control-tower/vaccination", nil)
+	unrelatedReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	unrelatedRec := httptest.NewRecorder()
+	unrelatedHandler.ServeHTTP(unrelatedRec, unrelatedReq)
+	if unrelatedRec.Code != http.StatusForbidden {
+		t.Fatalf("feed_director status=%d body=%s, want 403", unrelatedRec.Code, unrelatedRec.Body.String())
+	}
+
+	// A park-scoped grant must still NOT authorize the sibling admin vaccination routes
+	// that were never proven park-scoped in this way -- this fix must not become a
+	// blanket "any /control-tower-adjacent route accepts scoped grants" widening.
+	otherHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("scoped operator grant should not authorize the admin vaccination operations route")
+	})))
+	otherReq := httptest.NewRequest(http.MethodGet, "/vaccination/operations", nil)
+	otherReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	otherRec := httptest.NewRecorder()
+	otherHandler.ServeHTTP(otherRec, otherReq)
+	if otherRec.Code != http.StatusForbidden {
+		t.Fatalf("other status=%d body=%s", otherRec.Code, otherRec.Body.String())
+	}
 }
 
 func TestAdminTaskReviewRoutesRequireTenantScopedVerifyRole(t *testing.T) {
@@ -794,5 +1007,45 @@ func assertAuthErrorCode(t *testing.T, rec *httptest.ResponseRecorder, want stri
 	}
 	if body.Code != want {
 		t.Fatalf("code=%s want %s body=%s", body.Code, want, rec.Body.String())
+	}
+}
+
+// TestPermissionDeniedLogNamesRequiredPermissions is the regression test for the
+// night a park-scoped 403 (a seeding race) logged `roles:""` and nothing else —
+// leaving no way to tell WHICH permission was missing without reading routes.go.
+func TestPermissionDeniedLogNamesRequiredPermissions(t *testing.T) {
+	var logBuf bytes.Buffer
+	verifier := testHS256Verifier(t, 24*time.Hour)
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer},
+		verifier,
+		grantAdapter{fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: nil}}},
+		slog.New(slog.NewJSONHandler(&logBuf, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer "+testTokenStatic(authTestUser, authTestTenant, nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	logOut := logBuf.String()
+	for _, want := range []string{
+		`"msg":"auth_failed"`,
+		`"code":"permission_denied"`,
+		`"required_permissions":"` + permissions.GoatRead + `"`,
+		`"required_any_permissions":""`,
+		`"required_admin_only":false`,
+	} {
+		if !strings.Contains(logOut, want) {
+			t.Fatalf("permission_denied log missing %q: %s", want, logOut)
+		}
 	}
 }

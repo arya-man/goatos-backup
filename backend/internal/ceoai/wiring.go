@@ -49,7 +49,7 @@ func NewVertexProvider(ctx context.Context, log *slog.Logger) *vertex.Planner {
 	p, err := vertex.New(ctx, vertex.Config{
 		Project:  os.Getenv("MESHA_VERTEX_PROJECT"),
 		Location: os.Getenv("MESHA_VERTEX_LOCATION"),
-		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-2.5-flash"),
+		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-3.5-flash-lite"),
 	})
 	if err != nil {
 		if log != nil {
@@ -114,13 +114,15 @@ var cubeMetricBindings = map[string]metricBinding{
 // cubeDimensionMembers maps a plain dimension/filter key to its view member
 // suffix. park_label/shed_label/species exist on every leadership view.
 var cubeDimensionMembers = map[string]string{
-	"species":        "species",
-	"park_label":     "park_label",
-	"shed_label":     "shed_label",
-	"park":           "park_label",
-	"shed":           "shed_label",
-	"operator_label": "operator_label",
-	"operator":       "operator_label",
+	"species":         "species",
+	"park_label":      "park_label",
+	"shed_label":      "shed_label",
+	"partition_label": "partition_label",
+	"park":            "park_label",
+	"shed":            "shed_label",
+	"partition":       "partition_label",
+	"operator_label":  "operator_label",
+	"operator":        "operator_label",
 }
 
 type cubeMetricService struct {
@@ -176,9 +178,9 @@ func (s *cubeMetricService) Metrics(_ context.Context) ([]ports.MetricSpec, erro
 // dimension. Every other governed metric keeps the species/park/shed menu.
 func metricDimensions(b metricBinding) []string {
 	if b.view == "kpi_vaccination_operator" {
-		return []string{"operator_label", "park_label", "shed_label"}
+		return []string{"operator_label", "park_label", "shed_label", "partition_label"}
 	}
-	return []string{"species", "park_label", "shed_label"}
+	return []string{"species", "park_label", "shed_label", "partition_label"}
 }
 
 func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req ports.MetricQuery) (domain.ToolResult, error) {
@@ -195,7 +197,7 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 			q.Dimensions = append(q.Dimensions, b.view+"."+suf)
 		}
 	}
-	// A grouped metric ("overdue by operator", "overdue by park") is asked so the
+	// A grouped metric ("overdue by operator", "overdue by shed") is asked so the
 	// answer can NAME and LEAD with the worst contributors. Order the rows by the
 	// measure descending so the composer's grounded lead reads "led by <worst> …"
 	// rather than an arbitrary Cube row order. This never changes any figure — only
@@ -314,7 +316,20 @@ func joinScope(filterScope, rowScope string) string {
 
 func cubeRowScope(row map[string]any, view string, dims []string) string {
 	var parts []string
+	shedMember := view + ".shed_label"
+	partitionMember := view + ".partition_label"
 	for _, d := range dims {
+		if d == shedMember {
+			shed := scalarString(row[shedMember])
+			partition := scalarString(row[partitionMember])
+			if shed != "" && partition != "" && !strings.EqualFold(partition, "whole") {
+				parts = append(parts, shed+" - "+partition)
+				continue
+			}
+		}
+		if d == partitionMember {
+			continue
+		}
 		if v, ok := row[d]; ok {
 			if s := scalarString(v); s != "" {
 				parts = append(parts, s)

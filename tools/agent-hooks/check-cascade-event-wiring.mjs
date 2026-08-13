@@ -16,6 +16,8 @@
 //   2. stale-durable-bus-exemption         (Bug Class B — exemption must stay honest)
 //   3. operator-cap-ignores-session-load   (Bug Class A)
 //   4. cascade-write-without-event         (Bug Class C)
+//   5. bus-builder-missing-verification-applier (Bug Class D — a HAND-LISTED domain-bus builder
+//      that omits a verifier-verdict applier; rule 1 cannot see it on a non-durable builder)
 //
 // Modes:
 //   (default)     whole-tree audit. These are absolute wiring invariants, not diff-scoped style
@@ -57,7 +59,7 @@ export const DURABLE_BUS_EXEMPTIONS = {
   VerificationNotifier: {
     registeredIn: "backend/internal/bootstrap/api.go",
     reason:
-      "legacy in-API notifier for vaccination.verify.accepted/rejected. Its durable-path replacement, " +
+      "legacy in-process notifier for vaccination.verify.accepted/rejected. Its durable-path replacement, " +
       "notificationbridge.VerificationEventConsumer, IS registered on both durable buses and covers the same " +
       "two event seams; this one stays on the API process's own bus for the synchronous in-request " +
       "notification path only. Retiring it is a separate cutover — until then it must NOT be double-registered " +
@@ -176,6 +178,55 @@ export function validateHandlerRegistration({ handlerTypes, durableBusSources, n
     }
   }
   return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Rule 5 — Bug Class D: every domain-bus builder must register EVERY verifier-verdict applier
+// ---------------------------------------------------------------------------
+
+// The defect class is the HAND LIST itself, not any single omission: five files build a domain
+// event bus, and each hand-maintained consumer list is one edit away from dropping an applier.
+// domainconsumer/wiring/bus.go hand-listed consumers and carried ONLY the weighing applier, so a
+// verdict routed through it silently no-opped shifting + feed distribution + feed packing + feed
+// transport. Rule 1 could not see it: that file is a NON-durable bus, so a handler registered on
+// both durable buses passes rule 1 while this builder is missing it entirely.
+export const DOMAIN_BUS_BUILDERS = [
+  "backend/internal/bootstrap/api.go",
+  "backend/internal/kernelstages/bus.go",
+  "backend/internal/domainconsumer/wiring/bus.go",
+  "backend/cmd/domain-event-consumer/main.go",
+  "backend/cmd/outbox-relay/main.go",
+];
+
+// The five verdict appliers, by constructor name. A builder satisfies the rule by calling the
+// shared eventwiring.RegisterVerificationAppliers (preferred — one list, cannot drift) or by
+// registering all five explicitly.
+export const VERIFICATION_APPLIER_CONSTRUCTORS = [
+  "ShiftingVerificationHandler",
+  "FeedDistributionVerificationHandler",
+  "FeedPackingVerificationHandler",
+  "FeedTransportVerificationHandler",
+  "VerificationVerdictHandler",
+];
+
+// findingsForBusBuilderSource reports appliers a builder neither delegates nor registers.
+export function findingsForBusBuilderSource(source, rel) {
+  const code = stripComments(source);
+  if (/RegisterVerificationAppliers\s*\(/.test(code)) return [];
+  const missing = VERIFICATION_APPLIER_CONSTRUCTORS.filter((type) => !registersHandler(source, type));
+  if (missing.length === 0) return [];
+  return [
+    {
+      rule: "bus-builder-missing-verification-applier",
+      rel,
+      line: null,
+      message:
+        `${rel} builds a domain event bus from a HAND LIST that omits ${missing.join(", ")}. ` +
+        "Every verifier approve/rework routed through this builder is a silent no-op for those modules. " +
+        "Call eventwiring.RegisterVerificationAppliers(bus, feed, shifting, weighing, log) — the shared " +
+        "single registration — instead of re-listing consumers here.",
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +417,32 @@ func (h *OperatorConfigReplanHandler) Register(bus eventbus.Bus) { bus.Subscribe
   });
   if (honestExempt.length !== 0) throw new Error("self-test: false positive on an honest exemption");
 
+  // --- Rule 5: Bug Class D ----------------------------------------------------
+  const builderHandList = `
+	weighingapp.NewVerificationVerdictHandler(weighingpg.NewRepository(pool, queryTimeout), logger).Register(bus)
+	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
+`;
+  const handListFindings = findingsForBusBuilderSource(builderHandList, "backend/internal/domainconsumer/wiring/bus.go");
+  if (!handListFindings.some((f) => f.rule === "bus-builder-missing-verification-applier")) {
+    throw new Error("self-test: a bus builder hand-listing only the weighing applier was not flagged");
+  }
+  if (!handListFindings[0].message.includes("FeedDistributionVerificationHandler")) {
+    throw new Error("self-test: rule 5 finding must name the missing applier(s)");
+  }
+  if (findingsForBusBuilderSource("\teventwiring.RegisterVerificationAppliers(bus, feed, shifting, weighing, log)\n", "x.go").length !== 0) {
+    throw new Error("self-test: false positive on a builder that delegates to the shared registration");
+  }
+  const explicitAll = VERIFICATION_APPLIER_CONSTRUCTORS.map((t) => `\tpkg.New${t}(r, log).Register(bus)\n`).join("");
+  if (findingsForBusBuilderSource(explicitAll, "x.go").length !== 0) {
+    throw new Error("self-test: false positive on a builder registering all five appliers explicitly");
+  }
+  if (
+    findingsForBusBuilderSource("// eventwiring.RegisterVerificationAppliers(bus, feed, shifting, weighing, log)\n", "x.go")
+      .length !== 1
+  ) {
+    throw new Error("self-test: a commented-out shared registration satisfied rule 5");
+  }
+
   // --- Rule 3: Bug Class A ----------------------------------------------------
   const capBad = `
 func totalVaccinationOperatorCap(operators []domain.DriveOperatorCapacity, fallbackCap int32) int32 {
@@ -443,7 +520,7 @@ WHERE tenant_id = $1::uuid
     throw new Error("self-test: false positive on a non-scheduling position column");
   }
 
-  console.log("cascade-event-wiring self-test: ok (4 rules, 16 adversarial fixtures)");
+  console.log("cascade-event-wiring self-test: ok (5 rules, 20 adversarial fixtures)");
 }
 
 function run() {
@@ -470,6 +547,17 @@ function run() {
     ...validateHandlerRegistration({ handlerTypes, durableBusSources, nonDurableBusSources }).map((f) => ({ ...f })),
   );
 
+  // Rule 5 — every domain-bus builder registers every verdict applier.
+  const missingBuilders = DOMAIN_BUS_BUILDERS.filter((rel) => !existsSync(join(repo, rel)));
+  if (missingBuilders.length) {
+    console.error(`cascade-event-wiring: FAIL — domain bus builder file(s) missing: ${missingBuilders.join(", ")}`);
+    console.error("If a builder moved, update DOMAIN_BUS_BUILDERS in this guard in the same commit.");
+    process.exit(1);
+  }
+  for (const rel of DOMAIN_BUS_BUILDERS) {
+    findings.push(...findingsForBusBuilderSource(read(rel), rel));
+  }
+
   // Rule 3 — sweeper-side operator cap.
   const sweeperFiles = walkGo(join(repo, "backend/internal/obligation/app"));
   for (const rel of sweeperFiles) {
@@ -490,6 +578,8 @@ function run() {
   }
   console.log(
     `cascade-event-wiring: ok (${handlerTypes.length} eventbus handler(s) on ${DURABLE_BUS_FILES.length} durable bus(es); ` +
+      `${DOMAIN_BUS_BUILDERS.length} bus builder(s) register all ${VERIFICATION_APPLIER_CONSTRUCTORS.length} verdict appliers; ` +
+      `` +
       `${sweeperFiles.length} sweeper file(s) net session-reserved operator load; ` +
       `${backendInternal.length} backend/internal file(s) scanned for un-cascaded scheduling writes)`,
   );

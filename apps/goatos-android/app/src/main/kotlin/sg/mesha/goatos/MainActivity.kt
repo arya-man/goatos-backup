@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -25,12 +26,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
+import sg.mesha.goatos.boot.BootstrapErrorType
 import sg.mesha.goatos.boot.BootstrapUiState
 import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
@@ -39,9 +42,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
+import sg.mesha.goatos.core.media.ProofPlayerFactory
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.push.PendingNavigation
@@ -74,6 +82,16 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var pendingNavigation: PendingNavigation
 
+    /** Builds proof-video players over the telemetry-instrumented OkHttp client (W-22). */
+    @Inject
+    lateinit var proofPlayerFactory: ProofPlayerFactory
+
+    /** Session-boundary + force-update-gate analytics owned directly by this Activity (app
+     *  open/backgrounded and the force-update gate both render here, above any ViewModel that
+     *  already holds an [AnalyticsPort]). */
+    @Inject
+    lateinit var analytics: AnalyticsPort
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -84,6 +102,10 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { runCatching { AppLocaleState.set(sessionStore.language.first()) } }
                 LaunchedEffect(AppLocaleState.tag) { runCatching { sessionStore.setLanguage(AppLocaleState.tag) } }
                 ProvideAppLocale {
+                // Proof-video players below this point fetch over the app's instrumented OkHttp
+                // client, so a 403/404/500 on a signed playback URL produces the same logcat +
+                // Crashlytics + api_call_failure signal a failed API call does (W-22).
+                CompositionLocalProvider(LocalProofPlayerFactory provides proofPlayerFactory) {
                 // Force-update gate sits ABOVE auth + bootstrap: an out-of-date build is
                 // blocked whether or not anyone is signed in. Fails open, so an
                 // unconfigured environment (e.g. the dev flavor) renders the app normally.
@@ -91,12 +113,24 @@ class MainActivity : ComponentActivity() {
                 when (val gate = updateGate) {
                     UpdateGateUiState.Checking -> BootstrapLoading()
 
-                    is UpdateGateUiState.Blocked ->
+                    is UpdateGateUiState.Blocked -> {
+                        // Fires once per distinct block this process sees (a later refresh that
+                        // re-confirms the SAME block must not re-fire "shown" — see
+                        // FORCE_UPDATE_GATE_BLOCKING for the "still blocked" signal, driven from
+                        // onResume() instead). This gate sits above auth, so this LaunchedEffect
+                        // is the only place its state is ever visible in analytics at all.
+                        LaunchedEffect(gate.updateUrl) {
+                            analytics.track(AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN)
+                        }
                         ForceUpdateScreen(
                             updateUrl = gate.updateUrl,
                             installedVersionName = BuildConfig.VERSION_NAME,
-                            onUpdate = ::openExternalUrl,
+                            onUpdate = { url ->
+                                analytics.track(AnalyticsEventsSession.FORCE_UPDATE_TAPPED)
+                                openExternalUrl(url)
+                            },
                         )
+                    }
 
                     UpdateGateUiState.Allowed -> {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
@@ -112,14 +146,18 @@ class MainActivity : ComponentActivity() {
                     val wasAuthed = previousAuthed
                     previousAuthed = authed
                     when {
-                        !authed -> bootstrapViewModel.reset()
+                        authed == null -> Unit // session not read yet; decide nothing
+                        authed == false -> bootstrapViewModel.reset()
                         wasAuthed != true -> {
                             bootstrapViewModel.reset()
                             bootstrapViewModel.load()
                         }
                     }
                 }
-                if (!authed) {
+                if (authed == null) {
+                    // Session not read yet: show neither the app nor the login gate.
+                    BootstrapLoading()
+                } else if (authed == false) {
                     val uiState by sessionViewModel.uiState.collectAsStateWithLifecycle()
                     // dev flavor: local HS256 bearer; stg/prod: real Firebase Auth.
                     // LoginScreen itself renders the login-time device-permission gate
@@ -129,22 +167,75 @@ class MainActivity : ComponentActivity() {
                         onSignInEmail = sessionViewModel::signInWithEmail,
                         onGoogle = { sessionViewModel.signInWithGoogle(this@MainActivity) },
                         onForgotPassword = sessionViewModel::sendPasswordReset,
+                        appVersionLabel = appVersionLabel(),
                         isLoading = uiState.isLoading,
                         errorReason = uiState.errorReason,
                         errorDetail = uiState.errorDetail,
                         resetEmailSent = uiState.resetEmailSent,
+                        onPermissionGateShown = { missingPermissions ->
+                            missingPermissions.forEach { permission ->
+                                analytics.track(
+                                    AnalyticsEventsSession.PERMISSION_GATE_SHOWN,
+                                    mapOf(AnalyticsEventsSession.Params.PERMISSION to permission),
+                                )
+                            }
+                        },
+                        onPermissionAnswered = { permission, granted ->
+                            analytics.track(
+                                AnalyticsEventsSession.PERMISSION_GATE_RESULT,
+                                mapOf(
+                                    AnalyticsEventsSession.Params.PERMISSION to permission,
+                                    AnalyticsEvents.Params.REASON to if (granted) "granted" else "denied",
+                                ),
+                            )
+                        },
                     )
                 } else {
                     val bootstrap by bootstrapViewModel.state.collectAsStateWithLifecycle()
                     when (val s = bootstrap) {
                         BootstrapUiState.Loading -> BootstrapLoading()
                         is BootstrapUiState.Ready -> GoatOsShell(navState = s.navState)
-                        is BootstrapUiState.Error ->
-                            BootstrapError(message = s.message, onRetry = bootstrapViewModel::load)
+                        is BootstrapUiState.Error -> {
+                            when (s.errorType) {
+                                BootstrapErrorType.AUTH_SESSION_EXPIRED -> {
+                                    // Auth failure: sign out and return to login screen. This is
+                                    // the user-visible boundary of a forced re-auth — the moment
+                                    // a still-open app becomes a login gate again, not merely the
+                                    // underlying bootstrap_failed(reason=AuthSessionExpired) which
+                                    // fired before any UI reflected it.
+                                    LaunchedEffect(Unit) {
+                                        analytics.track(AnalyticsEventsSession.SESSION_TOKEN_EXPIRED)
+                                    }
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_auth_session_expired),
+                                        actionLabel = stringResource(R.string.bootstrap_action_sign_in_again),
+                                        onAction = { sessionViewModel.signOut() }
+                                    )
+                                }
+                                BootstrapErrorType.ACCESS_NOT_PROVISIONED -> {
+                                    // Valid sign-in, access not set up. Retry only: signing out
+                                    // would wipe unsynced work and could not fix this.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_access_not_provisioned),
+                                        actionLabel = stringResource(R.string.bootstrap_action_retry),
+                                        onAction = bootstrapViewModel::load
+                                    )
+                                }
+                                BootstrapErrorType.CONNECTIVITY_FAILURE -> {
+                                    // Connectivity failure: show retryable error.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_connectivity),
+                                        actionLabel = stringResource(R.string.bootstrap_action_retry),
+                                        onAction = bootstrapViewModel::load
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                     } // UpdateGateUiState.Allowed
                 } // when (updateGate)
+                } // CompositionLocalProvider(LocalProofPlayerFactory)
                 } // ProvideAppLocale
             }
         }
@@ -163,6 +254,22 @@ class MainActivity : ComponentActivity() {
         // Re-check the update floor on every foreground: a minimum raised while the app
         // was backgrounded blocks the build the next time it comes forward.
         updateGateViewModel.refresh()
+        // A resume that finds the gate ALREADY blocked (not a fresh block first seen this
+        // launch — that is FORCE_UPDATE_GATE_SHOWN, fired from the Compose branch below) means
+        // the operator came back to the app without updating. Read synchronously off the
+        // StateFlow's current value rather than a coroutine collector, so this never races the
+        // Compose recomposition that renders the same state.
+        if (updateGateViewModel.state.value is UpdateGateUiState.Blocked) {
+            analytics.track(AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Session-boundary: the app left the foreground. Pairs with APP_OPEN/SESSION_START
+        // (GoatOsApplication.onCreate) so a session's visible span is reconstructible even when
+        // it ends by backgrounding rather than an explicit sign-out.
+        analytics.track(AnalyticsEventsSession.APP_BACKGROUNDED)
     }
 
     /**
@@ -190,7 +297,9 @@ class MainActivity : ComponentActivity() {
             .mapNotNull { key -> extras.getString(key)?.takeIf { it.isNotBlank() }?.let { key to it } }
             .toMap()
         if (payload.isEmpty()) return
-        pendingNavigation.set(resolvePushRoute(payload))
+        // No recognisable destination is not an error and not a reason to pick a module: leaving
+        // the pending route unset opens the app on this person's own home screen.
+        resolvePushRoute(payload)?.let { pendingNavigation.set(it) }
     }
 
     /**
@@ -229,6 +338,8 @@ internal fun dispatchRfidFirst(
     dispatchNormally: () -> Boolean,
 ): Boolean = if (rfidConsumes()) true else dispatchNormally()
 
+private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
+
 @Composable
 private fun BootstrapLoading() {
     Column(
@@ -243,7 +354,11 @@ private fun BootstrapLoading() {
 }
 
 @Composable
-private fun BootstrapError(message: String, onRetry: () -> Unit) {
+private fun BootstrapError(
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -259,7 +374,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "Retry",
+            text = actionLabel,
             color = MaterialTheme.colorScheme.primary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
@@ -268,7 +383,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
                 .padding(top = 20.dp)
                 .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(10.dp))
-                .clickable(onClick = onRetry)
+                .clickable(onClick = onAction)
                 .padding(horizontal = 24.dp, vertical = 10.dp),
         )
     }

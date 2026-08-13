@@ -3,8 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  createFeedConfigFeedItem,
   setFeedConfigExperimentShedStatus,
+  setFeedConfigFeedItemStatus,
   upsertFeedConfigExperiment,
+  upsertFeedConfigExperimentBatch,
   upsertFeedConfigRationRate,
   upsertFeedConfigSchedule,
   upsertFeedConfigShedFactor,
@@ -147,6 +150,101 @@ export async function saveRationRate(formData: FormData): Promise<FeedConfigActi
   return { ok: true, messageKey: SAVED };
 }
 
+// -------------------------------------------------------------------------------------------------
+// Feed items (the catalog)
+//
+// RULE 1 IS INVERTED HERE, AND THE INVERSION IS THE POINT.
+//
+// Everywhere else on this screen a blank numeric field is REJECTED, because a missing quantity is a
+// blocking state that must never be filled in. On a catalog entry the four attributes are genuinely
+// optional and a blank is a legitimate authored statement — "nobody has measured this" — so a blank
+// is OMITTED FROM THE REQUEST rather than rejected, and stored as NULL.
+//
+//     blank        = not measured. Stored NULL. Blocks a nutritional rollup, nothing else.
+//     explicit 0   = measured as zero. A different fact, and it is preserved as one.
+//
+// What does NOT change is that a blank is never turned into a 0, and an out-of-range value is never
+// clamped — both are the same discipline as above, reaching the same conclusion from the other side.
+//
+// RULE 4 — ADDING AN ITEM AUTHORS NO QUANTITY.
+//
+// This action creates a NAME. It does not write a ration rate, a shed factor or an experiment cell,
+// and it must never be extended to do so as a convenience: seeding a rate for the new item would
+// author a number nobody entered, and seeding 0 would record "feed none of it" for every ration
+// group and shed tag in the tenant. The revalidations below are what make the new item appear in
+// the catalog list and in every feed-item picker; the ration grid correctly shows nothing for it
+// until someone authors a rate.
+// -------------------------------------------------------------------------------------------------
+
+const FEED_ITEM_REJECTED = "action.feed_item_rejected";
+const FEED_ITEM_SAVED = "action.feed_item_saved";
+const FEED_ITEM_STATUS_CHANGED = "action.feed_item_status_changed";
+
+/**
+ * Reads an OPTIONAL authored attribute.
+ *
+ * Returns `undefined` for a cleared field — the caller OMITS it, recording "not measured" — and
+ * `NaN` for a non-numeric one. An explicit "0" returns 0, which is a measured zero and a different
+ * statement from leaving the box empty.
+ */
+function readOptionalNumber(formData: FormData, field: string): number | undefined {
+  const raw = formData.get(field);
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined; // not measured — NOT zero, and not rejected either.
+  return Number(trimmed);
+}
+
+export async function saveFeedItem(formData: FormData): Promise<FeedConfigActionResult> {
+  const feedItem = readRequiredText(formData, "feed_item");
+  // The name is the one REQUIRED field, and its own message: "rejected, correct the values" would
+  // not tell an operator who simply left the box empty what to do.
+  if (!feedItem) return { ok: false, messageKey: "reason.feed_item_name_required" };
+
+  const energy = readOptionalNumber(formData, "energy_kcal_per_kg");
+  const dryMatter = readOptionalNumber(formData, "dry_matter_factor");
+  const wastage = readOptionalNumber(formData, "wastage_factor");
+  const displayOrder = readOptionalNumber(formData, "display_order");
+  // Only a value that is not a number at all is rejected locally — there is nothing to send. Every
+  // out-of-range value goes to the backend verbatim so its field error is what the operator reads.
+  for (const value of [energy, dryMatter, wastage, displayOrder]) {
+    if (value !== undefined && Number.isNaN(value)) {
+      return { ok: false, messageKey: FEED_ITEM_REJECTED };
+    }
+  }
+
+  const result = await createFeedConfigFeedItem(
+    {
+      feed_item: feedItem,
+      // Each attribute is spread in ONLY when the operator typed one. Sending `null` would also
+      // store NULL today, but omission is the honest wire shape for "the author said nothing about
+      // this", and it keeps the door open for a future edit path where explicit null means "clear
+      // the value I previously recorded".
+      ...(energy === undefined ? {} : { energy_kcal_per_kg: energy }),
+      ...(dryMatter === undefined ? {} : { dry_matter_factor: dryMatter }),
+      ...(wastage === undefined ? {} : { wastage_factor: wastage }),
+      ...(displayOrder === undefined ? {} : { display_order: displayOrder }),
+    },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    // A duplicate name is its own explanation, not a generic rejection: the operator's next move is
+    // to look for the item that already exists, not to re-type what they entered.
+    const duplicate = result.error.code === "feed_item_exists";
+    return {
+      ok: false,
+      messageKey: duplicate ? "reason.feed_item_exists" : FEED_ITEM_REJECTED,
+      detail: duplicate ? undefined : result.error.message,
+    };
+  }
+
+  revalidatePath("/feed/config");
+  // Only /feed/config. Unlike every other write here, this one changes no quantity, so tomorrow's
+  // direction and pack list are the same documents they were a moment ago — revalidating them would
+  // imply the sheet moved when it did not.
+  return { ok: true, messageKey: FEED_ITEM_SAVED };
+}
+
 export async function saveShedFactor(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
@@ -218,6 +316,94 @@ function readOptionalCount(formData: FormData, field: string): number | undefine
   return Number(trimmed);
 }
 
+/**
+ * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in a single write.
+ *
+ * REPLACES the old shed-level, one-item-at-a-time enroller, which had three defects at once: it
+ * offered SHEDS (so a new pen of an already-enrolled shed — Godel 1 - Part 8 — was unreachable), it
+ * derived its candidate list from the current paginated cell page (so a pen configured on page 2
+ * looked unconfigured on page 1), and it authored exactly one feed item, which is not what enrolling
+ * a pen means. Candidates now come from the pen catalog endpoint, which states per pen whether it is
+ * already configured.
+ *
+ * ONE ATOMIC WRITE. The quantities go through /feed-config/experiment/batch as a single transaction:
+ * either the pen gets all of them or none. Posting N single-cell writes could half-succeed and leave
+ * the pen ENROLLED — membership is the workflow flag — while fed only a subset of what was entered,
+ * which is worse than not enrolling it at all.
+ *
+ * FIELDS ARE READ BY INDEXED NAME, NOT BY POSITION. Each row contributes `item_label_<i>` and
+ * `item_kg_<i>`, paired by their shared index rather than by two `getAll()` arrays. Parallel arrays
+ * are the grain bug this codebase keeps paying for: one array filtered and the other not shifts
+ * every index and pairs a quantity with the wrong feed item — here, silently feeding a pen the wrong
+ * thing.
+ */
+export async function enrolExperimentPen(formData: FormData): Promise<FeedConfigActionResult> {
+  const parkId = readRequiredText(formData, "park_id");
+  const penRaw = readRequiredText(formData, "pen");
+  const category = readRequiredText(formData, "experiment_category");
+  if (!parkId || !penRaw || !category) {
+    return { ok: false, messageKey: REJECTED };
+  }
+
+  // The pen select carries shed id and raw partition label as one JSON value. A delimiter would be
+  // unsafe: a partition label is free text ("Part 3"), so any separator could appear inside it.
+  let shedId = "";
+  let partitionLabel = "";
+  try {
+    const parsed: unknown = JSON.parse(penRaw);
+    if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: REJECTED };
+    const pen = parsed as { s?: unknown; p?: unknown };
+    if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
+    // Absent `p` is a real value — an undivided shed — and must stay distinguishable from a bad one.
+    if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: REJECTED };
+    shedId = pen.s.trim();
+    partitionLabel = (pen.p ?? "").toString().trim();
+  } catch {
+    return { ok: false, messageKey: REJECTED };
+  }
+
+  const headCount = readOptionalCount(formData, "head_count");
+  if (headCount !== undefined && Number.isNaN(headCount)) {
+    return { ok: false, messageKey: REJECTED };
+  }
+
+  const items: { feed_item: string; absolute_kg: number }[] = [];
+  for (let i = 0; ; i += 1) {
+    const label = formData.get(`item_label_${i}`);
+    if (typeof label !== "string") break;
+    const trimmedLabel = label.trim();
+    // A blank kg authors NOTHING for that item — the rule-1 blank-is-not-zero contract, applied per
+    // row. It is skipped rather than sent as 0, which would mean "feed none of this, deliberately".
+    const kg = readAuthoredNumber(formData, `item_kg_${i}`);
+    if (kg === null) continue;
+    if (Number.isNaN(kg) || trimmedLabel === "") return { ok: false, messageKey: REJECTED };
+    items.push({ feed_item: trimmedLabel, absolute_kg: kg });
+  }
+  // Enrolling with no quantity would put the pen on the experiment workflow with nothing authored,
+  // and the direction generator would then feed it nothing at all.
+  if (items.length === 0) return EXPERIMENT_BLANK_IS_NOT_ZERO;
+
+  const result = await upsertFeedConfigExperimentBatch(
+    {
+      park_id: parkId,
+      shed_id: shedId,
+      partition_label: partitionLabel,
+      head_count: headCount ?? null,
+      experiment_category: category,
+      items,
+    },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    return { ok: false, messageKey: REJECTED, detail: result.error.message };
+  }
+
+  revalidatePath("/feed/config");
+  revalidatePath("/feed/direction");
+  revalidatePath("/feed/packing");
+  return { ok: true, messageKey: EXPERIMENT_SAVED };
+}
+
 export async function saveExperimentCell(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
@@ -226,6 +412,9 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   if (!parkId || !shedId || !feedItem || !category) {
     return { ok: false, messageKey: REJECTED };
   }
+  // NOT readRequiredText: an undivided shed authors a blank pen legitimately, so blank must reach
+  // the backend as "the whole-shed row" rather than being rejected as a missing field.
+  const partitionLabel = (formData.get("partition_label") ?? "").toString().trim();
 
   const absoluteKg = readAuthoredNumber(formData, "absolute_kg");
   // Blank: the operator cleared the field. That is not "feed nothing" and not "leave it alone" — no
@@ -242,6 +431,9 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
     {
       park_id: parkId,
       shed_id: shedId,
+      // Identifies WHICH PEN is being authored. Without it the write lands on the shed-wide row and
+      // the author's number never reaches the pen they edited.
+      partition_label: partitionLabel,
       feed_item: feedItem,
       // Sent verbatim. A negative or over-precise value is the backend's to reject.
       absolute_kg: absoluteKg,
@@ -263,18 +455,27 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
 }
 
 /**
- * Move a whole shed onto or off the experiment workflow.
+ * Move ONE PEN onto or off the experiment workflow.
  *
  * This is the switch the maintainer asked to be explicit: it is not a filter or a display toggle. An
- * active shed is fed the absolute kg authored for it; a retired one is fed from the ration grid
+ * active pen is fed the absolute kg authored for it; a retired one is fed from the ration grid
  * again. The status is read as a literal and validated against the two legal values rather than
  * being inferred from a checkbox — an unparsed value must never fall through to a default, because
- * both defaults would change what a shed's animals eat.
+ * both defaults would change what a pen's animals eat.
+ *
+ * PEN-SCOPED since 2026-08-09. The write used to be shed-wide while this screen was already
+ * pen-grouped, so the button captioned "Return Godel 1 - Part 3" retired all ten Godel 1 pens. The
+ * partition is sent verbatim and NOT defaulted when absent: a blank label is a real value meaning
+ * "undivided shed", so it cannot be distinguished from a missing one here — the backend validates
+ * it against the shed's catalog and rejects a blank on a subdivided shed rather than guessing.
  */
 export async function setExperimentShedStatus(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
   const status = readRequiredText(formData, "status");
+  // Optional by shape, meaningful when blank: an undivided shed legitimately has no pen.
+  const partitionRaw = formData.get("partition_label");
+  const partitionLabel = typeof partitionRaw === "string" ? partitionRaw.trim() : "";
   if (!parkId || !shedId || (status !== "active" && status !== "retired")) {
     return { ok: false, messageKey: REJECTED };
   }
@@ -283,6 +484,7 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
     {
       park_id: parkId,
       shed_id: shedId,
+      partition_label: partitionLabel,
       status,
     },
     readIdempotencyKey(formData),
@@ -292,11 +494,42 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
   }
 
   revalidatePath("/feed/config");
-  // The switch changes which planner owns the shed, so tomorrow's direction and pack list are both
+  // The switch changes which planner owns the pen, so tomorrow's direction and pack list are both
   // different documents now.
   revalidatePath("/feed/direction");
   revalidatePath("/feed/packing");
   return { ok: true, messageKey: EXPERIMENT_SWITCHED };
+}
+
+/**
+ * Retires one feed item, or restores a retired one.
+ *
+ * The status is validated against the closed pair here as well as server-side, because a value that
+ * is neither would otherwise travel to the backend as a rejected write the operator sees as a
+ * generic failure. There is no default: one value keeps the item in every feed sheet and the other
+ * removes it from all of them.
+ */
+export async function setFeedItemStatus(formData: FormData): Promise<FeedConfigActionResult> {
+  const feedItemId = readRequiredText(formData, "feed_item_id");
+  const status = readRequiredText(formData, "status");
+  if (!feedItemId || (status !== "active" && status !== "retired")) {
+    return { ok: false, messageKey: FEED_ITEM_REJECTED };
+  }
+
+  const result = await setFeedConfigFeedItemStatus(
+    { feed_item_id: feedItemId, status },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    return { ok: false, messageKey: FEED_ITEM_REJECTED, detail: result.error.message };
+  }
+
+  revalidatePath("/feed/config");
+  // The catalog is TENANT-wide and generation reads only its active rows, so retiring an item
+  // changes tomorrow's sheet and pack list for EVERY park, not just the one on screen.
+  revalidatePath("/feed/direction");
+  revalidatePath("/feed/packing");
+  return { ok: true, messageKey: FEED_ITEM_STATUS_CHANGED };
 }
 
 export async function saveSchedule(formData: FormData): Promise<FeedConfigActionResult> {

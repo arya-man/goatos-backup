@@ -330,6 +330,113 @@ run_cpt_passport_display_proof() {
   GOATOS_TENANT_ID="$tenant_id" node "$checker"
 }
 
+# The vaccination reminder ladder addresses its audience by MODULE DUTY (position_module_duties,
+# module pc.vaccination, duty execute|manage) -- see backend/internal/kernelstages/reminder_cadence.go.
+# Before that, the ladder addressed a literal position-code list that had silently drifted away from
+# what the roster seeder writes, so the operator who runs the drive was never reminded and NOTHING
+# failed: the sweep queued the one seat that still resolved and reported success.
+#
+# A documented audience with no executable check is not a gate. This asserts, on real rows, that every
+# configured reminder target actually resolves to at least one ACTIVE seat -- tenant-wide for each
+# duty, and per park for any park that carries vaccination work. A park with vaccination obligations
+# and no execute-duty seat is a broken seed, not a warning.
+assert_reminder_audience_resolves() {
+  if [ "${GOATOS_SEED_CLOSEOUT_ASSERT_REMINDER_AUDIENCE:-1}" = "0" ]; then
+    echo "==> seed-closeout: skip reminder-audience assertion (GOATOS_SEED_CLOSEOUT_ASSERT_REMINDER_AUDIENCE=0)"
+    return
+  fi
+  echo "==> seed-closeout: reminder-audience resolves to active seats"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    # assert every pc.vaccination execute|manage reminder target resolves to >=1 active seat\n'
+    return
+  fi
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "seed-closeout: DATABASE_URL is required to assert the reminder audience" >&2
+    exit 2
+  fi
+
+  local missing_duties
+  missing_duties="$(psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -c "
+    SELECT string_agg(wanted.duty_type, ',' ORDER BY wanted.duty_type)
+    FROM (VALUES ('execute'), ('manage')) AS wanted(duty_type)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM position_module_duties pmd
+      JOIN workforce_positions p
+        ON p.tenant_id = pmd.tenant_id
+       AND p.position_code = pmd.position_code
+       AND p.status = 'active'
+      JOIN workforce_members m
+        ON m.tenant_id = p.tenant_id
+       AND m.workforce_member_id = p.workforce_member_id
+       AND m.status = 'active'
+      WHERE pmd.tenant_id = '${tenant_id}'::uuid
+        AND pmd.module_code = 'pc.vaccination'
+        AND pmd.duty_type = wanted.duty_type
+        AND pmd.status = 'active'
+    )
+  ")"
+  missing_duties="${missing_duties//[[:space:]]/}"
+  if [ -n "$missing_duties" ]; then
+    echo "seed-closeout: vaccination reminder audience unresolvable -- no active seat holds pc.vaccination duty: ${missing_duties}" >&2
+    echo "seed-closeout: reminders would be queued to nobody for that duty. Run seed-position-duties / seed-roster-real." >&2
+    exit 1
+  fi
+
+  local parks_without_operator
+  parks_without_operator="$(psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -c "
+    WITH work_parks AS (
+      SELECT DISTINCT COALESCE(shed.parent_location_id, g.park_id,
+                               CASE WHEN oi.scope_type IN ('park','center') THEN oi.scope_id END) AS park_id
+      FROM obligation_instances oi
+      JOIN protocol_versions pv
+        ON pv.tenant_id = oi.tenant_id
+       AND pv.protocol_version_id = oi.protocol_version_id
+      JOIN protocol_definitions pd
+        ON pd.tenant_id = pv.tenant_id
+       AND pd.protocol_id = pv.protocol_id
+       AND pd.category = 'vaccination'
+      LEFT JOIN goats g
+        ON g.tenant_id = oi.tenant_id
+       AND oi.target_type = 'goat'
+       AND g.goat_id = oi.target_id
+      LEFT JOIN locations shed
+        ON shed.tenant_id = oi.tenant_id
+       AND shed.location_id = COALESCE(CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END, g.shed_id)
+       AND shed.location_type = 'shed'
+      WHERE oi.tenant_id = '${tenant_id}'::uuid
+        AND oi.status IN ('scheduled','due','in_progress')
+    )
+    SELECT count(*)
+    FROM work_parks wp
+    WHERE wp.park_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM workforce_positions p
+        JOIN position_module_duties pmd
+          ON pmd.tenant_id = p.tenant_id
+         AND pmd.position_code = p.position_code
+         AND pmd.module_code = 'pc.vaccination'
+         AND pmd.duty_type = 'execute'
+         AND pmd.status = 'active'
+        JOIN workforce_members m
+          ON m.tenant_id = p.tenant_id
+         AND m.workforce_member_id = p.workforce_member_id
+         AND m.status = 'active'
+        WHERE p.tenant_id = '${tenant_id}'::uuid
+          AND p.scope_type = 'center'
+          AND p.scope_id = wp.park_id
+          AND p.status = 'active'
+      )
+  ")"
+  parks_without_operator="${parks_without_operator//[[:space:]]/}"
+  if [ "${parks_without_operator:-0}" != "0" ]; then
+    echo "seed-closeout: ${parks_without_operator} park(s) carry open vaccination work but have no active pc.vaccination execute seat" >&2
+    echo "seed-closeout: the reminder ladder would notify no operator for those parks." >&2
+    exit 1
+  fi
+}
+
 run_calendar_projectors() {
   if [ "${GOATOS_SEED_CLOSEOUT_RUN_CALENDAR:-1}" = "0" ]; then
     echo "==> seed-closeout: skip calendar projectors (GOATOS_SEED_CLOSEOUT_RUN_CALENDAR=0)"
@@ -367,6 +474,7 @@ run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching
 run_expected_drive_schedule_proof
+assert_reminder_audience_resolves
 run_cpt_passport_display_proof
 run_calendar_projectors
 run_counts_projectors

@@ -104,15 +104,25 @@ type RecordedCompletion struct {
 // completion row closes -- sopbridge's PEND-1 start trigger (markObligationsInProgress) calls
 // obligation.MarkInProgress per row using this id.
 type SubmissionCompletion struct {
-	CompletionID   string
-	SubmissionID   string
-	ObligationID   string
-	GoatID         string
-	GoatLabel      string
-	ShedID         string
+	CompletionID string
+	SubmissionID string
+	ObligationID string
+	GoatID       string
+	GoatLabel    string
+	ShedID       string
+	// PartitionLabel is the raw partition ('1', 'Part 3'), empty for a non-partitioned shed.
+	// Raw on purpose: the display is composed at the wire boundary via oploc.Display().
+	PartitionLabel string
+	ShedLabel      string
 	ParkID         string
 	ProofRefIDs    []string
 	AdministeredAt time.Time
+	// VaccineLabel is the HUMAN dose label for this completion ("ET+TT", "PPR · Booster"),
+	// already run through DoseDisplayLabel by the adapter. It is what the verifier is shown, so
+	// it must never be the raw dose_code ("et_tt_adult_w2") -- that is a config token and is
+	// banned from user-facing copy (AGENTS.md, make ui-vaccine-labels-guard). Empty only when the
+	// completion's obligation/rule/protocol chain does not resolve.
+	VaccineLabel string
 }
 
 type RecordedCompletionCursor struct {
@@ -340,6 +350,25 @@ type ShedCompletionSummary struct {
 	SubmitEnabled    bool
 	BlockingReason   *string
 	SubmitState      string // draft | submitted | verified | closed
+	// RoundSubmitted is true only when a live, shed-scoped submission trail exists for THIS
+	// shed's CURRENT round of eligible (non-terminal) obligations: either a still-open
+	// verification item for this shed, an unaccepted vaccination_completions row covering the
+	// currently eligible obligations, or (when nothing is currently eligible) an accepted
+	// completion history proving the round was submitted and verified. It is false whenever the
+	// shed has open, unsubmitted obligations for this round -- including immediately after a
+	// verifier rejection reopens an obligation, even if a STALE prior-round submission/verdict
+	// still exists for this shed. SubmitState is a coarse, sometimes-stale word derived across
+	// rounds; RoundSubmitted is the unambiguous per-round boolean clients must gate on instead of
+	// inferring round identity from SubmitState alone.
+	RoundSubmitted bool
+	// RoundID is a deterministic fingerprint of this shed's current obligation-round state: a
+	// hash over every obligation in this shed's batch paired with its own row_version. Postgres
+	// already bumps obligation_instances.row_version on every completion/reopen transition
+	// (MarkObligationCompleted, ReopenObligation), so RoundID changes value the instant any
+	// obligation in the shed moves through submit or verifier-rejection reopen -- no new column
+	// or client/timestamp-derived proxy needed. RoundSubmitted is computed from these SAME
+	// per-obligation facts, so the two fields can never disagree.
+	RoundID string
 }
 
 // --- BUG-017: pre-arrival accepted-history channel -------------------------------------------

@@ -424,11 +424,11 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	}
 	startsAt, err := parseBusinessDate(body.StartsOn)
 	if err != nil {
-		return nil, BadRequest("invalid_starts_on", "starts_on must be YYYY-MM-DD")
+		return nil, fmt.Errorf("apply staff leave: invalid starts_on date format: %w", err)
 	}
 	endsOnDay, err := parseBusinessDate(body.EndsOn)
 	if err != nil {
-		return nil, BadRequest("invalid_ends_on", "ends_on must be YYYY-MM-DD")
+		return nil, fmt.Errorf("apply staff leave: invalid ends_on date format: %w", err)
 	}
 	endsAt := endsOnDay.AddDate(0, 0, 1) // exclusive end: covers the whole ends_on business day
 	if !endsAt.After(startsAt) {
@@ -830,7 +830,7 @@ func (s *RosterService) ResolveVaccinationOwner(ctx context.Context, tenantID, a
 	}
 	date, err := parseBusinessDate(dateStr)
 	if err != nil {
-		return nil, BadRequest("invalid_date", "date must be YYYY-MM-DD")
+		return nil, fmt.Errorf("get vaccination owner: invalid date format: %w", err)
 	}
 	owner, err := s.resolveEffectiveOwner(ctx, tenantID, actorID, scopeType, scopeID, vaccinationPositionCode, date)
 	if err != nil {
@@ -1149,6 +1149,18 @@ func (s *RosterService) ResolvePositionRecipientsBatch(ctx context.Context, tena
 		at = s.now()
 	}
 	return s.repo.ResolvePositionRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, positionCodes, at)
+}
+
+// ResolveModuleDutyRecipientsBatch resolves active, reachable devices for every seat holding
+// (moduleCode, any of dutyTypes) across MULTIPLE scopes in ONE query. This is the audience read a
+// cadence sweeper should use: duty membership cannot drift away from the roster seeder the way a
+// hardcoded position-code list did. Keyed "<scopeID>|<positionCode>", same as
+// ResolvePositionRecipientsBatch.
+func (s *RosterService) ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]domain.NotificationRecipient, error) {
+	if at.IsZero() {
+		at = s.now()
+	}
+	return s.repo.ResolveModuleDutyRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
 }
 
 func validRosterScope(tenantID, scopeType, scopeID string) bool {

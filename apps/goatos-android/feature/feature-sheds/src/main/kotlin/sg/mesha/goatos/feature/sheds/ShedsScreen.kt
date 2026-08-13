@@ -59,10 +59,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.partitionDisplayLabel
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.sheds.R
@@ -89,7 +91,22 @@ import sg.mesha.goatos.feature.sheds.R
  *  - [PENDING] -> warn amber (in progress / not yet complete)
  *  - [DELAYED] -> error / RED (delayed · not started — leadership chases the team)
  */
-enum class ShedStatus { DONE, PENDING, DELAYED }
+/**
+ * SENT_BACK is its own state, NOT a flavour of DELAYED. A shed the verifier returned is not
+ * late -- it is finished work that must be done again -- and labelling it "Overdue" told the
+ * operator the wrong thing about why it is on his list.
+ */
+enum class ShedStatus { DONE, PENDING, DELAYED, SENT_BACK }
+
+enum class ShedStatusTone { OK, WARN, DANGER, INFO }
+
+enum class ShedStatusChipKey { DONE, IN_PROGRESS, IN_REVIEW, SUBMITTED, OPEN, OVERDUE, SENT_BACK, COMPLETE }
+
+@Immutable
+data class ShedStatusChip(
+    val key: ShedStatusChipKey,
+    val tone: ShedStatusTone,
+)
 
 /** One vaccine group in a shed's mix-and-match set. Backend-tagged; [full] dims the chip. */
 data class VaccineGroup(
@@ -130,8 +147,16 @@ data class ProtocolAdherenceSummary(
     val submittedCount: Int,
     val acceptedCount: Int,
     val reviewItemCount: Int,
+    val overdueItemCount: Int = 0,
+    /**
+     * Animals the verifier SENT BACK. Its own number because the card previously showed only
+     * submitted and accepted, so a rejection hid in the gap between them -- a reader could not
+     * tell "still with the verifier" from "came back and must be redone".
+     */
+    val sentBackCount: Int = 0,
     val deferredCount: Int,
     val acceptedPercent: Int,
+    val isComplete: Boolean = true,
 ) {
     val progressFraction: Float =
         if (expectedCount > 0) submittedCount.toFloat() / expectedCount else 0f
@@ -150,18 +175,27 @@ data class ProtocolAdherenceSummary(
 data class ShedRow(
     val id: String,
     val name: String,
+    val parkId: String = "",
+    val parkName: String = "",
     val operatorName: String = "",
     val physicalShed: String = "",
     val partition: String = "",
+    val partitionLabel: String? = null,
     val animalStage: String,
     val scheduleDateKey: String = "",
     val scheduleDateLabel: String = "",
     val status: ShedStatus,
     val statusLabel: String,
+    val statusChips: List<ShedStatusChip> = emptyList(),
     val vaccineGroups: List<VaccineGroup>,
     val inShed: String,
     val due: String,
     val done: String,
+    // The operator's own submitted count (`done`) and the verifier's accepted count are
+    // deliberately separate fields: a card that reads "5 DONE" while only 2 have cleared
+    // verification is misleading if only one number is shown. Backend-owned (acceptedCount on
+    // VaccinationExecutionRowDto); the client never derives this.
+    val accepted: String = "0",
     val progressLabel: String,
     val progressFraction: Float,
     val actionLabel: String? = null,
@@ -172,7 +206,19 @@ data class ShedRow(
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
     val opensRecordOnly: Boolean = false,
+    val canOpen: Boolean = true,
 )
+
+@Immutable
+private data class ShedParkGroup(
+    val parkId: String,
+    val label: String,
+    val rows: List<ShedRow>,
+) {
+    val targetCount: Int = rows.sumOf { it.inShed.toIntOrNull() ?: 0 }
+    val doneCount: Int = rows.sumOf { it.done.toIntOrNull() ?: 0 }
+    val openCount: Int = rows.sumOf { it.due.toIntOrNull() ?: 0 }
+}
 
 /** Full screen state. Header fields + the shed list + optional roster/kernel context.
  *  @Immutable: rows/rosterChanges List<T> fields otherwise mark this unstable (item 6,
@@ -202,6 +248,8 @@ data class ShedsUiState(
     val adherence: ProtocolAdherenceSummary? = null,
     val rows: List<ShedRow> = emptyList(),
     val hostedFromCalendar: Boolean = false,
+    val leadershipMode: Boolean = false,
+    val selectedParkId: String? = null,
     // Whether tapping a shed may open it into the operator scan/execute loop. Backend-owned:
     // false for a leadership oversight read (read-only shed list; the open click is blocked so
     // CEO/Director/Park Head never reach the scan screen). Defaults true so operators are
@@ -222,6 +270,11 @@ data class ShedsUiState(
     val hasMore: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    // True once a fetch has COMPLETED, whatever it returned. Guards the skeleton so it is never
+    // drawn before an answer exists. lastSyncedAt cannot serve this — an empty result never sets
+    // it — and isRefreshing flips on every later refresh, so both made the screen wedge on a
+    // spinner or yank already-drawn content away mid-refresh.
+    val hasLoadedOnce: Boolean = false,
 )
 
 sealed interface ShedsEvent {
@@ -231,6 +284,11 @@ sealed interface ShedsEvent {
     data object Refresh : ShedsEvent
     data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
+
+    /** A tap on a shed card was blocked before navigation (permission, ownership, schedule, or
+     *  already-submitted gate). Sent to the ViewModel purely for telemetry — the nav host still
+     *  owns the Toast and the gate logic itself. [reason] is a coarse, non-PII cause. */
+    data class OpenBlocked(val reason: String, val shedId: String?) : ShedsEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +322,14 @@ private fun toneFor(status: ShedStatus): StatusTone = when (status) {
     ShedStatus.DONE -> StatusTone(fg = BrandD, bg = OkBg, edge = Brand)
     ShedStatus.PENDING -> StatusTone(fg = Warn, bg = WarnBg, edge = Warn)
     ShedStatus.DELAYED -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
+    ShedStatus.SENT_BACK -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
+}
+
+private fun toneFor(tone: ShedStatusTone): StatusTone = when (tone) {
+    ShedStatusTone.OK -> StatusTone(fg = BrandD, bg = OkBg, edge = Brand)
+    ShedStatusTone.WARN -> StatusTone(fg = Warn, bg = WarnBg, edge = Warn)
+    ShedStatusTone.DANGER -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
+    ShedStatusTone.INFO -> StatusTone(fg = Info, bg = InfoBg, edge = Info)
 }
 
 private fun changeTone(tone: ChangeTone): Pair<Color, Color> = when (tone) {
@@ -286,7 +352,24 @@ fun ShedsScreen(
 ) {
     RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
-    val canFilterHere = state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar
+    // [hostedFromCalendar] and "a park is pinned" are ORTHOGONAL and used to be conflated here:
+    // hostedFromCalendar means "this screen is embedded in a calendar flow" (governs chrome —
+    // day tabs, protocol adherence card, park-group headers below) while whether the filter is
+    // reachable/needed depends only on whether more than one park is actually a choice. A
+    // calendar-hosted screen scoped to a single park via the drive card's parkId nav arg still
+    // needs a way to widen back to all parks; the old `!state.hostedFromCalendar` gate hid the
+    // filter (and the header's filter icon, see ShedsHeader) permanently in that case, with no
+    // escape short of navigating back out.
+    val canFilterHere = state.parkFilters.size > 1
+    val isParkPinned = state.hostedFromCalendar && state.selectedParkId != null
+    val pinnedParkLabel = state.parkFilters.firstOrNull { it.parkId == state.selectedParkId }?.label
+    val parkGroups = state.parkGroups()
+    // Park scope is chosen ONCE, by the filter pills above, which select through the ViewModel and
+    // therefore drive the query and its cursor. There used to be a second park selector here -- the
+    // per-park summary cards -- which picked a park purely client-side out of already-loaded rows.
+    // Two controls for one scope disagreed on screen (the pills reading "All parks" while the cards
+    // had CBE selected and the list showed only CBE), and the client-side one silently fought
+    // pagination by hiding rows the cursor had already paid for.
     var showParkFilters by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
@@ -316,6 +399,38 @@ fun ShedsScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (state.dayTabs.isNotEmpty()) {
+                // Leadership reaches this screen from a specific drive/date on the Calendar, so
+                // the day strip is redundant for them — show it only for the operator work queue
+                // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
+                if (!state.leadershipMode) {
+                    item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
+                }
+                item { VaccineCarryCard(carry = state.carry) }
+            } else {
+                item { DriveMeta(state) }
+                item { DayProgress(state) }
+            }
+            // A calendar drill-in pinned to one park is otherwise silent about WHY the list
+            // shows only that park — this makes the scope visible and clearable in one tap,
+            // going through the same SelectPark(null) flow the filter pills use (so it drives
+            // the query/cursor, not a client-side hide).
+            if (isParkPinned && pinnedParkLabel != null) {
+                item(key = "pinned-park-chip") {
+                    PinnedParkChip(
+                        label = pinnedParkLabel,
+                        onClear = { onEvent(ShedsEvent.SelectPark(null)) },
+                    )
+                }
+            }
+            if (canFilterHere && state.parkFilters.size > 1) {
+                item {
+                    ParkFilters(
+                        filters = state.parkFilters,
+                        onSelect = { onEvent(ShedsEvent.SelectPark(it)) },
+                    )
+                }
+            }
             if (showProtocolAdherenceCard && !state.hostedFromCalendar) {
                 state.adherence?.let { adherence ->
                     item {
@@ -326,26 +441,17 @@ fun ShedsScreen(
                     }
                 }
             }
-            if (state.dayTabs.isNotEmpty()) {
-                // Leadership reaches this screen from a specific drive/date on the Calendar, so
-                // the day strip is redundant for them — show it only for the operator work queue
-                // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
-                if (state.canOpenShed) {
-                    item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
-                }
-                item { VaccineCarryCard(carry = state.carry) }
-            } else {
-                item { DriveMeta(state) }
-                item { DayProgress(state) }
-            }
             state.roleNote?.let { note -> item { RoleNote(note) } }
-            if (state.isInitialLoading && state.rows.isEmpty()) {
-                item(key = "initial-skeleton") {
-                    LoadingSkeletonList(
-                        modifier = Modifier.fillMaxWidth(),
-                        rows = 4,
-                    )
-                }
+            // NOTHING READ YET is not the same as NOTHING TO DO. A freshly navigated screen starts
+            // with an empty state flow and its refresh has not necessarily begun, so requiring
+            // a skeleton here left a window where the confident "No sheds" rendered before a
+            // single row had been read -- then the real rows landed a frame later. That swap is
+            // the flicker seen on every screen entered from the calendar. Until this list has
+            // synced once, the honest render is neither skeleton nor empty state: nothing at all.
+            // Loading is told by the spinning refresh icon in the app bar, not by a block of
+            // shimmer that flashes in and straight back out on every navigation.
+            if (state.rows.isEmpty() && !state.hasLoadedOnce) {
+                // NOTHING. SyncIconButton in the header shows the spinner.
             } else if (state.rows.isEmpty() && state.caption != null) {
                 item {
                     EmptyState(
@@ -356,8 +462,19 @@ fun ShedsScreen(
                     )
                 }
             }
-            items(state.rows, key = { it.id }) { row ->
-                ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+            if (parkGroups.size > 1 && !state.hostedFromCalendar) {
+                parkGroups.forEach { group ->
+                    item(key = "park-header-${group.parkId}") {
+                        ParkGroupHeader(group)
+                    }
+                    items(group.rows, key = { it.id }) { row ->
+                        ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+                    }
+                }
+            } else {
+                items(state.rows, key = { it.id }) { row ->
+                    ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+                }
             }
             if (state.isLoadingMore) {
                 item(key = "loading-more") {
@@ -418,6 +535,8 @@ private fun ShedsParkFilterSheet(
             Text(
                 text = "Filter park",
                 color = Ink,
+                // design-system:ignore: no 20sp/W800 token (screenTitle is 22sp/W700) — a 2sp
+                // drop plus a weight step would visibly shrink this sheet title.
                 fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
@@ -453,6 +572,47 @@ private fun ParkFilters(filters: List<ShedParkFilter>, onSelect: (String?) -> Un
     }
 }
 
+/** Visible, clearable "pinned park" indicator for a calendar drill-in scoped to one park —
+ *  reads as an active filter chip (not invisible state) and clears back to all parks via the
+ *  same [ShedsEvent.SelectPark] flow the filter pills use. Follows the screen's existing
+ *  [FilterPill] visual language (selected-pill styling) rather than a new control style. */
+@Composable
+private fun PinnedParkChip(label: String, onClear: () -> Unit) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Card(
+            modifier = Modifier.height(36.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Brand),
+            border = BorderStroke(1.dp, Brand),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clickable(onClick = onClear)
+                    .padding(start = 13.dp, end = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.sheds_park_pinned_fmt, label),
+                    color = PageBg,
+                    style = MeshaType.pillStrong,
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    imageVector = MeshaIcons.Close,
+                    contentDescription = stringResource(R.string.sheds_park_pinned_clear_description),
+                    tint = PageBg,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) Brand else Surf2
@@ -472,8 +632,39 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
                 .padding(horizontal = 13.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
+            Text(text = label, color = fg, style = MeshaType.pillStrong)
         }
+    }
+}
+
+private fun ShedsUiState.parkGroups(): List<ShedParkGroup> =
+    rows
+        .groupBy { row -> row.parkId.ifBlank { row.parkName.ifBlank { "unknown" } } }
+        .map { (parkId, parkRows) ->
+            val filterLabel = parkFilters.firstOrNull { it.parkId == parkId }?.label
+            ShedParkGroup(
+                parkId = parkId,
+                label = filterLabel
+                    ?: parkRows.firstOrNull()?.parkName?.takeIf { it.isNotBlank() }
+                    ?: "Unknown park",
+                rows = parkRows,
+            )
+        }
+        .sortedBy { it.label.lowercase() }
+
+@Composable
+private fun ParkGroupHeader(group: ShedParkGroup) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            text = group.label,
+            color = Ink,
+            style = MeshaType.button,
+        )
     }
 }
 
@@ -507,7 +698,9 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(text = tab.dayLabel, color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(text = tab.dayLabel, color = labelColor, style = MeshaType.pill)
+                    // design-system:ignore: no 20sp token (screenTitle 22sp/W700, dayNumber 15sp/W800);
+                    // this day-tab number would change size noticeably either way.
                     Text(text = tab.dateLabel, color = dateColor, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
@@ -537,24 +730,25 @@ private fun VaccineCarryCard(carry: DayCarry?) {
                 Text(
                     text = "Vaccines to carry",
                     color = Ink,
-                    fontSize = 15.5f.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MeshaType.cardTitle,
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = "${carry.totalRemaining} doses",
                     color = BrandD,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    style = MeshaType.listTitle,
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Selected day · all sheds below",
-                color = Muted,
-                fontSize = 11.5f.sp,
-                fontWeight = FontWeight.Medium,
-            )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                carry.vaccines.forEach { v ->
+                    DoseInstructionChip(v.label)
+                }
+            }
             Spacer(Modifier.height(12.dp))
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -566,6 +760,33 @@ private fun VaccineCarryCard(carry: DayCarry?) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DoseInstructionChip(label: String) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(BrandTint)
+            .border(1.dp, Brand.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Brand),
+        )
+        Text(
+            text = label,
+            color = BrandD,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -622,7 +843,11 @@ private fun ShedsHeader(
             )
         },
         actions = {
-            if (state.parkFilters.isNotEmpty() && !state.canOpenShed && !state.hostedFromCalendar) {
+            // Reachability depends only on whether there is more than one park to choose
+            // between — NOT on whether this screen is calendar-hosted (see the canFilterHere
+            // comment in ShedsScreen for the full rationale). A calendar drill-in pinned to one
+            // park still needs this to widen back to all parks.
+            if (state.parkFilters.size > 1) {
                 ShedsHeaderIconButton(
                     onClick = onOpenFilters,
                     icon = MeshaIcons.Filter,
@@ -695,16 +920,18 @@ private fun DriveMeta(state: ShedsUiState) {
 
 @Composable
 private fun MetaStrong(text: String) {
-    Text(text = text, color = Ink, fontSize = 11.5f.sp, fontWeight = FontWeight.SemiBold)
+    Text(text = text, color = Ink, style = MeshaType.caption)
 }
 
 @Composable
 private fun MetaMuted(text: String) {
-    Text(text = text, color = Muted, fontSize = 11.5f.sp, fontWeight = FontWeight.Medium)
+    Text(text = text, color = Muted, style = MeshaType.caption)
 }
 
 @Composable
 private fun Dot() {
+    // design-system:ignore: this separator is 11.5sp at the default W400; the only 11.5sp
+    // token (caption) is W600, which would visibly embolden the "·".
     Text(text = "·", color = Faint, fontSize = 11.5f.sp)
 }
 
@@ -720,9 +947,11 @@ private fun DayProgress(state: ShedsUiState) {
             .padding(horizontal = 15.dp, vertical = 13.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // design-system:ignore: 13sp/W600 has no near token (listTitle is 13.5sp/W700,
+            // cta 12.5sp/W700) — both shift size and weight at once.
             Text(text = stringResource(R.string.sheds_day_progress), color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text(text = state.dayProgressLabel, color = BrandD, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            Text(text = state.dayProgressLabel, color = BrandD, style = MeshaType.bodyStrong)
         }
         Spacer(Modifier.height(8.dp))
         ProgressBar(state.dayProgressFraction)
@@ -736,18 +965,31 @@ private fun DayProgress(state: ShedsUiState) {
         } else {
             state.daySummary
         }
+        // design-system:ignore: 10.5sp at the default W400; the only 10.5sp token (overline)
+        // is W700 with 0.42sp tracking, which would restyle this summary line.
         Text(text = summary, color = Muted, fontSize = 10.5f.sp)
     }
 }
 
 @Composable
 private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: String) {
-    val stateLabel = when {
-        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "Complete"
-        summary.reviewItemCount > 0 -> "In review"
-        summary.submittedCount > 0 -> "Submitted"
-        else -> "Open"
+    if (!summary.isComplete) {
+        ProtocolAdherenceLoadingCard(parkScope)
+        return
     }
+    val stateChip = when {
+        summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 ->
+            ShedStatusChip(ShedStatusChipKey.COMPLETE, ShedStatusTone.OK)
+        summary.reviewItemCount > 0 ->
+            ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO)
+        summary.submittedCount > 0 ->
+            ShedStatusChip(ShedStatusChipKey.SUBMITTED, ShedStatusTone.WARN)
+        else -> ShedStatusChip(ShedStatusChipKey.OPEN, ShedStatusTone.WARN)
+    }
+    val statusChips = listOfNotNull(
+        stateChip,
+        ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER).takeIf { summary.overdueItemCount > 0 },
+    )
     val progressLabel = "${summary.submittedCount}/${summary.expectedCount} goats submitted"
     val progressCaption = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> "${summary.acceptedPercent}% accepted"
@@ -760,6 +1002,12 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
         else -> "${summary.reviewItemCount} shed videos awaiting review"
     }
     val acceptedLine = "${summary.acceptedCount}/${summary.expectedCount} goats accepted so far"
+    // Hidden at zero on purpose: a permanent "0 sent back" is dead text on every healthy day.
+    val sentBackLine = when (summary.sentBackCount) {
+        0 -> null
+        1 -> "1 goat sent back to redo"
+        else -> "${summary.sentBackCount} goats sent back to redo"
+    }
     val tone = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> toneFor(ShedStatus.DONE)
         summary.reviewItemCount > 0 || summary.submittedCount > 0 -> toneFor(ShedStatus.PENDING)
@@ -780,22 +1028,29 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                     Text(
                         text = "Protocol adherence",
                         color = Ink,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MeshaType.cardTitle,
                     )
                     Text(
                         text = parkScope,
                         color = Muted,
-                        fontSize = 11.5f.sp,
-                        fontWeight = FontWeight.Medium,
+                        style = MeshaType.caption,
                     )
                 }
-                StatusPill(label = stateLabel, tone = tone)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    statusChips.forEach { chip ->
+                        StatusPill(label = chip.label(), tone = toneFor(chip.tone))
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = progressLabel,
+                    // design-system:ignore: no 18sp token (screenTitle 22sp, headerTitle 16.5sp) —
+                    // this headline number would jump size either way.
                     color = Ink,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -804,8 +1059,7 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                 Text(
                     text = progressCaption,
                     color = BrandD,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    style = MeshaType.bodyStrong,
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -817,8 +1071,54 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 reviewLine?.let { CompactFact(it, color = tone.fg) }
+                // Danger tone, and shown before the accepted line: work that came back is the
+                // thing a reader must act on, not a footnote under the good news.
+                sentBackLine?.let { CompactFact(it, color = toneFor(ShedStatus.SENT_BACK).fg) }
                 CompactFact(acceptedLine, color = toneFor(ShedStatus.DONE).fg)
             }
+        }
+    }
+}
+
+@Composable
+private fun ProtocolAdherenceLoadingCard(parkScope: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Surf),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Hair),
+    ) {
+        Column(modifier = Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Protocol adherence",
+                        color = Ink,
+                        style = MeshaType.cardTitle,
+                    )
+                    Text(
+                        text = parkScope,
+                        color = Muted,
+                        style = MeshaType.caption,
+                    )
+                }
+                StatusPill(label = "Loading", tone = toneFor(ShedStatus.PENDING))
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Loading full-day adherence",
+                color = Ink,
+                style = MeshaType.bodyStrong,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "More vaccination rows are still syncing.",
+                color = Muted,
+                style = MeshaType.caption,
+            )
         }
     }
 }
@@ -828,8 +1128,7 @@ private fun CompactFact(text: String, color: Color) {
     Text(
         text = text,
         color = color,
-        fontSize = 11.5f.sp,
-        fontWeight = FontWeight.Bold,
+        style = MeshaType.caption,
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Surf2)
@@ -850,7 +1149,9 @@ private fun RoleNote(note: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // design-system:ignore: 8sp bullet glyph — smallest token is dayName at 9.5sp/W700.
         Text(text = "●", color = Muted, fontSize = 8.sp)
+        // design-system:ignore: 11.5sp at default W400; caption (the only 11.5sp token) is W600.
         Text(text = note, color = Muted, fontSize = 11.5f.sp)
     }
 }
@@ -860,8 +1161,7 @@ private fun SectionCaption(text: String) {
     Text(
         text = text,
         color = Faint,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
+        style = MeshaType.pill,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
     )
 }
@@ -878,7 +1178,7 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clickable(onClick = onOpen),
+            .clickable(enabled = row.canOpen, onClick = onOpen),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Surf),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -901,13 +1201,16 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
 
 @Composable
 private fun DriveAssignmentStrip(row: ShedRow) {
+    // Resolved here, not inside the lambda: partitionDisplayLabel is a plain function, so a
+    // @Composable stringResource call cannot happen in the formatter it invokes.
+    val partitionFmt = stringResource(R.string.sheds_partition_fmt)
     val parts = listOfNotNull(
         row.scheduleDateLabel.takeIf { it.isNotBlank() },
         row.operatorName.takeIf { it.isNotBlank() },
         row.physicalShed.takeIf { it.isNotBlank() },
-        row.partition.takeIf { it.isNotBlank() }?.let { partition ->
-            if (partition.startsWith("Part ", ignoreCase = true)) partition else stringResource(R.string.sheds_partition_fmt, partition)
-        },
+        // A whole-shed drive shows the shed name only; a partitioned one adds the partition once.
+        // Never "<shed> Part whole" or "<shed> Part Parts 1-3" — see [partitionDisplayLabel].
+        partitionDisplayLabel(row.partition) { partitionFmt.format(it) },
     )
     if (parts.isEmpty()) return
     Spacer(Modifier.height(10.dp))
@@ -925,6 +1228,8 @@ private fun DriveAssignmentStrip(row: ShedRow) {
             Text(
                 text = label,
                 color = Muted,
+                // design-system:ignore: the only 10.5sp token (overline) adds W700 + 0.42sp
+                // tracking, which would restyle this dense meta strip.
                 fontSize = 10.5f.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -948,18 +1253,55 @@ private fun ShedCardTop(row: ShedRow, tone: StatusTone) {
         ShedAvatar()
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = row.name, color = Ink, fontSize = 15.5f.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            val subtitle = listOfNotNull(
-                row.scheduleDateLabel.takeIf { it.isNotBlank() },
-                row.animalStage.takeIf { it.isNotBlank() },
-            ).joinToString(" · ")
-            subtitle.takeIf { it.isNotBlank() }?.let {
+            Text(text = row.name, color = Ink, style = MeshaType.cardTitle, maxLines = 1)
+            row.scheduleDateLabel.takeIf { it.isNotBlank() }?.let {
+                // design-system:ignore: 12sp at default W400; cardSubtitle is 12sp/W500.
                 Text(text = it, color = Muted, fontSize = 12.sp, maxLines = 1)
+            }
+            row.animalStage.takeIf { it.isNotBlank() }?.let {
+                // design-system:ignore: 11.5sp at default W400; caption is 11.5sp/W600.
+                Text(text = it, color = Muted, fontSize = 11.5f.sp, maxLines = 1)
             }
         }
         Spacer(Modifier.width(8.dp))
-        StatusPill(label = row.statusLabel, tone = tone)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            val chips = row.statusChips.ifEmpty {
+                listOf(ShedStatusChip(row.status.toChipKey(), row.status.toChipTone()))
+            }
+            chips.forEach { chip ->
+                StatusPill(label = chip.label(), tone = toneFor(chip.tone))
+            }
+        }
     }
+}
+
+@Composable
+private fun ShedStatusChip.label(): String = when (key) {
+    ShedStatusChipKey.DONE -> stringResource(R.string.sheds_status_done)
+    ShedStatusChipKey.IN_PROGRESS -> stringResource(R.string.sheds_status_in_progress)
+    ShedStatusChipKey.IN_REVIEW -> stringResource(R.string.sheds_status_in_review)
+    ShedStatusChipKey.SUBMITTED -> stringResource(R.string.sheds_status_submitted)
+    ShedStatusChipKey.OPEN -> stringResource(R.string.sheds_status_open)
+    ShedStatusChipKey.OVERDUE -> stringResource(R.string.sheds_status_overdue)
+    ShedStatusChipKey.SENT_BACK -> stringResource(R.string.sheds_status_sent_back)
+    ShedStatusChipKey.COMPLETE -> stringResource(R.string.sheds_status_complete)
+}
+
+private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {
+    ShedStatus.DONE -> ShedStatusChipKey.DONE
+    ShedStatus.PENDING -> ShedStatusChipKey.IN_PROGRESS
+    ShedStatus.DELAYED -> ShedStatusChipKey.OVERDUE
+    ShedStatus.SENT_BACK -> ShedStatusChipKey.SENT_BACK
+}
+
+private fun ShedStatus.toChipTone(): ShedStatusTone = when (this) {
+    ShedStatus.DONE -> ShedStatusTone.OK
+    ShedStatus.PENDING -> ShedStatusTone.WARN
+    ShedStatus.DELAYED -> ShedStatusTone.DANGER
+    ShedStatus.SENT_BACK -> ShedStatusTone.DANGER
 }
 
 @Composable
@@ -998,7 +1340,7 @@ private fun StatusPill(label: String, tone: StatusTone) {
             .background(tone.bg)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
-        Text(text = label, color = tone.fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(text = label, color = tone.fg, style = MeshaType.pill, maxLines = 1)
     }
 }
 
@@ -1033,15 +1375,13 @@ private fun VaccineChip(group: VaccineGroup) {
         Text(
             text = group.label,
             color = if (group.full) Muted else Ink,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+            style = MeshaType.pill,
             maxLines = 1,
         )
         Text(
             text = group.countLabel,
             color = if (group.full) Muted else BrandD,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
+            style = MeshaType.pill,
             maxLines = 1,
         )
     }
@@ -1061,6 +1401,11 @@ private fun NumsRow(row: ShedRow) {
         NumCell(value = row.due, label = stringResource(R.string.sheds_num_cell_due), modifier = Modifier.weight(1f))
         NumDivider()
         NumCell(value = row.done, label = stringResource(R.string.sheds_num_cell_done), modifier = Modifier.weight(1f))
+        NumDivider()
+        // Distinct from `done` (the operator's own submitted work): this is the verifier's
+        // accepted count, so a card can read "5 DONE / 2 ACCEPTED" instead of a single number
+        // that silently conflates "I finished" with "it cleared review".
+        NumCell(value = row.accepted, label = stringResource(R.string.sheds_num_cell_accepted), modifier = Modifier.weight(1f))
     }
 }
 
@@ -1070,8 +1415,10 @@ private fun NumCell(value: String, label: String, modifier: Modifier = Modifier)
         modifier = modifier.padding(vertical = 9.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // design-system:ignore: no 16sp token (headerTitle is 16.5sp/W700 with -0.3sp tracking,
+        // button 15sp/W800) — this stat number should not gain tracking or drop a full sp.
         Text(text = value, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-        Text(text = label, color = Muted, fontSize = 9.5f.sp, fontWeight = FontWeight.Bold)
+        Text(text = label, color = Muted, style = MeshaType.dayName)
     }
 }
 
@@ -1124,8 +1471,10 @@ private fun ChangeRow(change: RosterChange) {
                 .background(bg)
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         ) {
+            // design-system:ignore: no 10sp token (dayName 9.5sp/W700, overline 10.5sp/W700+tracking).
             Text(text = change.tag, color = fg, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
+        // design-system:ignore: 12.5sp at default W400; the only 12.5sp token (cta) is W700.
         Text(text = change.text, color = Muted, fontSize = 12.5f.sp, modifier = Modifier.weight(1f))
     }
 }
@@ -1135,6 +1484,7 @@ private fun InfoBox(text: String) {
     Text(
         text = text,
         color = Muted,
+        // design-system:ignore: 12sp at default W400; cardSubtitle (12sp) is W500.
         fontSize = 12.sp,
         modifier = Modifier
             .fillMaxWidth()

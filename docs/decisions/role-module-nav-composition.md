@@ -24,14 +24,47 @@ Two facts drive it:
    **Verifier** screen can be common across modules under different verticals.
    Shared items appear once (deduped), not duplicated per module.
 
+## Health-department operator module set (maintainer decision 2026-07-30)
+
+An operator whose active workforce department is `health` receives exactly these
+operational modules from `department_module_grants`:
+
+| department | role | composed modules |
+|---|---|---|
+| `health` | `operator` | Health (`aas_health`) + Counts + Feed (`feed_direction`) + Vaccination |
+
+This is a department-scoped grant rule, not a fixed operator navigation template and not
+a grant to operators in every department. Each module still contributes only the pages
+allowed by the operator's permissions; `/app/bootstrap` composes and permission-filters
+the drawer and bottom bars from the same registry described below.
+
+## Ground-Operator Park Scope Golden Rule
+
+Ground operators are physical execution users. They must be scoped to exactly one
+park/center in production, staging, local, and throwaway/dev seeds. A ground
+operator may hold several operational modules for that one park, but must not get
+tenant-wide or multi-park task visibility. If a test needs CBE and CPT operator
+screens, seed two different operator principals, one per park. Do not seed one
+operator with both parks just to make a test convenient.
+
+Multi-park visibility belongs only to director/CEO-style oversight roles, and
+those surfaces are read-only unless a separate explicit execution grant exists.
+For Feed, the intended split is: `feed_director` can inspect both parks and see
+pending/done status, while feed direction/packing/transport operators see only
+their own park's assigned ground work.
+
 ## How it is built (shipped)
 - A **module registry** (`moduleNavRegistry` in
   `backend/internal/workforce/app/bootstrap_copy.go`) is the single source of truth.
-  Each entry is a `moduleDefinition` carrying **two things**:
+  Each entry is a `moduleDefinition` carrying **three things**:
   1. the module's **drawer identity** — `{ key, labelKey, landingHref, status,
      priority }`, the row a person taps to switch modules; and
   2. its **nav contributions** — the `{ key, labelKey, href, shared_key?, priority }`
-     items that make up that module's bottom bar.
+     items that make up that module's operational bottom bar; and
+  3. its optional **verification-review lens** — a review landing href plus
+     review contributions for the same drawer identity. A principal with
+     `verification.review` but not `verification.act` receives this lens, so no
+     client or role-specific module template is required.
   Drawer identity used to be hardcoded client-side (Android `GoatOsShell.kt` held a
   literal Vaccination row plus its own `SOON_MODULES` list). It is backend-owned now,
   so adding a module is a registry entry, not a client change.
@@ -103,10 +136,11 @@ to zero grants and hide every module. Their access is decided by permission alon
 > **Superseded 2026-07-25 (see "Leadership drawer per-role matrix" below).** Leadership
 > candidates are curated by leadership TIER (`leadershipModuleKeys`), but the synthetic
 > `leadership` / Overview module has been removed. CEO gets the shared Vaccination
-> module + Counts + soon rows; PC Director / Park Head get the shared Vaccination module
-> only. So the "park_head sees Counts" rows in the Counts worked example just below are
-> historical — a preventive-care leader's drawer no longer contains the Counts module at
-> all, even though he still holds the counts permissions.
+> module + Counts + Feed + soon rows; Park Head gets Vaccination + Feed (park operations
+> include feed, but NOT Counts); PC Director gets the shared Vaccination module only. So
+> the "park_head sees Counts" rows in the Counts worked example just below are historical
+> — a preventive-care leader's drawer no longer contains the Counts module at all, even
+> though he still holds the counts permissions.
 
 **Worked example — the Counts matrix (maintainer decision 2026-07-18).** Counts
 contributes three items under two permissions: the census page `/counts` requires
@@ -120,11 +154,11 @@ authorities.** One registry entry then yields:
 | role | census `/counts` | `/counts/birth-death` | `/counts/shifting` | module in drawer |
 |---|---|---|---|---|
 | `operator` | — | yes | yes | yes (2-item bar) |
-| `park_head` | — | (holds `counts.write`) | (holds `counts.write`) | **NO — preventive-care leader, Vaccination-only drawer (2026-07-24)** |
+| `park_head` | — | (holds `counts.write`) | (holds `counts.write`) | **NO — preventive-care leader; drawer is Vaccination + Feed, never Counts (2026-07-24; Feed added 2026-07-25)** |
 | `admin` | yes | yes | yes | yes (3-item bar) |
 | `ceo_internal` | yes | yes | yes | yes (3-item bar) |
 | `pc_director` | — | — | — | **NO — all items gated + preventive-care leader** |
-| `verifier` | — | — | — | **NO — all items gated, module omitted** |
+| `verifier` | review-only | review-only | review-only | **YES — Counts evidence lens** |
 
 Operator lands on `/counts/birth-death` via the landing-href fallback, since the
 declared `/counts` landing is gated away from it. `pc_director` and `verifier` hold no
@@ -153,6 +187,35 @@ two omissions, and that every module's landing href is among its permitted items
   `requiredPermission`, the route behind it must require the same permission in
   `permissions.routePermissions`. A page hidden in nav but reachable by URL is not
   access control.
+
+## Where "You" lives (maintainer ruling 2026-08-03)
+
+> "You option should be on navigation bar for CEO and verifier and whoever got >=2
+> features, instead of sending that in bottom bar for every feature."
+
+"You" is the person, not a feature, so it must appear exactly **once** — not once per
+module the principal happens to hold. It rides the SAME `>=2 available modules` threshold
+this ADR already uses to decide whether the drawer exists at all:
+
+| composed modules | `nav_chrome` | where "You" is served |
+|---|---|---|
+| **>= 2** (CEO, leadership, a verifier verifying vaccination AND weighing) | `expanded` | the **drawer**, once. Stripped from `visible_navigation` **and from every module's `nav_items`**, so switching modules cannot resurrect a second one. Android's `ModuleDrawer` footer (`GoatOsShell.kt`) already renders the account row beside Sign out, so no new bootstrap field was needed. |
+| **exactly 1** (single-feature operator or single-feature verifier) | `minimal` | the **bottom bar**. There is no drawer, so the bar is their only route to `/you`. |
+
+Decided in ONE place: `applyProfileEntryPlacement` (`workforce/app/service.go`), called
+from `Bootstrap` and keyed off `navChrome`, never off a role. **There is no verifier
+exception** — the carve-out that used to sit there is what shipped You in the drawer
+footer *and* in every verify feature's bottom bar.
+
+"You" must ALWAYS be reachable: a principal with neither a bar entry nor a drawer is a
+regression. That is asserted as an invariant over every principal shape in
+`TestProfileEntryPlacementFollowsModuleCount`; `TestProfileEntryPlacementIsLoadBearing`
+exercises the rule directly so a regression cannot hide behind the enumerated shapes.
+
+Known gap (not a blocker, and not what was asked for): the drawer's account row renders
+the client's own `nav_you` string rather than a payload label, so unlike bar labels it is
+not backend-owned. Closing that means a dedicated `profile_item` field on `/app/bootstrap`
+carried through OpenAPI, the TS client, the Android DTO and the renderer.
 
 ## Guard
 `make nav-composition-guard` (`tools/agent-hooks/check-nav-composition.mjs`) fails
@@ -190,20 +253,25 @@ Leadership principals are still composed by leadership **tier**, not "all module
 
 | role         | drawer modules                                   | chrome   | park scope        |
 |--------------|--------------------------------------------------|----------|-------------------|
-| ceo_internal | Vaccination + Counts + Feed(soon) + Breeding(soon) | expanded | all / multi-park |
+| ceo_internal | Vaccination + Counts + Feed + Breeding(soon)     | expanded | all / multi-park |
 | pc_director  | Vaccination only                                 | minimal  | multi-park        |
-| park_head    | Vaccination only                                 | minimal  | own park (grant scope) |
-| verifier     | Verification only                                | minimal  | n/a               |
+| growth_director | Weighing only                                | minimal  | multi-park        |
+| park_head    | Vaccination + Weighing + Health                  | expanded | own park (grant scope) |
+| verifier     | Vaccination + Weighing + Counts + Feed + Health  | expanded | assigned evidence scope |
 | operator     | department-granted modules                       | minimal  | grant scope       |
 
 Rules encoded (`bootstrap_copy.go`):
 
 - `leadershipModuleKeys(grants)` returns the tier's set: CEO gets
-  `{vaccination, counts, feed_direction, breeding}`; a preventive-care leader
-  (PC Director, Park Head) gets `{vaccination}` only. Counts, Feed, and Breeding
-  are not preventive-care surfaces, so a PC leader never sees them.
-- The **verification** module belongs to the verifier role. Vaccination leadership
-  uses the shared Vaccination module rather than a private leadership overview.
+  `{vaccination, weighing, counts, feed_direction, breeding}`; PC Director and
+  Park Head get `{vaccination}`; Growth Director gets `{weighing}`.
+  Counts, Feed, Breeding, and Weighing are not PC-Director surfaces. Vaccination,
+  Counts, Feed, and Breeding are not Growth-Director surfaces. Feed is a built
+  module (`feed_direction`/`feed_packing`), no longer a "soon" roadmap row.
+  (park_head + Feed: maintainer decision 2026-07-25)
+- There is no synthetic **Verification** drawer module. A review-only principal
+  receives the five registry-derived module review lenses; Vaccination leadership
+  uses the operational Vaccination module rather than the verifier lens.
 - The Vaccination module lands on `/vaccination`. For CEO/CXO, the module's
   bottom bar is Overview (`/vaccination`) / Calendar (`/calendar`) / Alerts / You.
   For operators and preventive-care field leaders, the module's bottom bar is
@@ -211,9 +279,10 @@ Rules encoded (`bootstrap_copy.go`):
   non-verifiers, verification-approved, and legacy `leadership_close` values resolve
   to `/vaccination`, never `/leadership`.
 - `navChromeFor` derives chrome from the COMPOSED drawer: `>=2` available modules =
-  expanded drawer (CEO), a single available module = minimal bottom bar
-  (PC leaders). "Soon" roadmap rows are only shown to a leadership tier that is
-  actually offered them (CEO), never to a PC leader.
+  expanded drawer (CEO with Vaccination+Counts+Feed; Park Head with
+  Vaccination+Feed; Verifier with five evidence modules), a single available module
+  = minimal bottom bar (PC Director, single-module operators). "Soon" roadmap rows (Breeding) are only shown
+  to a leadership tier that is actually offered them (CEO), never to a PC leader.
 - Park Head's single-park limit is **data scope** (his `user_scope_grant` /
   `scope_id`), not nav — the drawer change does not alter it.
 

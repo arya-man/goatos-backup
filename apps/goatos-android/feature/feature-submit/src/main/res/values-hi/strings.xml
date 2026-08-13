@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="submit_eyebrow">टीकाकरण</string>
     <string name="submit_record_title">शेड रिकॉर्ड</string>
@@ -40,4 +43,14 @@
     <string name="submit_sync_load_failed">आपके कार्य को लोड नहीं जा सका। पुनः प्रयास करने के लिए टैप करें।</string>
     <string name="submit_sync_queue_failed">सबमिशन को कतार में नहीं किया जा सका — पुनः प्रयास करने के लिए टैप करें।</string>
     <string name="submit_sync_retry_failed">पुनः प्रयास नहीं किया जा सका — फिर से पुनः प्रयास करने के लिए टैप करें।</string>
+
+    <!-- Snackbar messages for submit outcomes -->
+    <string name="submit_snackbar_queued">सबमिशन कतार में है — ऑनलाइन होने पर सिंक होगा</string>
+    <string name="submit_snackbar_succeeded">सबमिशन सिंक किया गया · रिकॉर्ड फाइल पर</string>
+    <string name="submit_snackbar_conflict">सर्वर ने सबमिशन को अस्वीकार किया</string>
+    <string name="submit_snackbar_dead_letter">सबमिशन विफल — ऑनलाइन होने पर पुनः प्रयास होगा</string>
+    <string name="submit_confirm_title">यह शेड पूरा करें?</string>
+    <string name="submit_confirm_body">यह शेड वीडियो जाँच के लिए जाएगा। आप इसे खुद दोबारा नहीं खोल सकते — मैनेजर या डायरेक्टर खोल सकते हैं।</string>
+    <string name="submit_confirm_cancel">अभी नहीं</string>
+    <string name="submit_confirm_confirm">पूरा करें</string>
 </resources>

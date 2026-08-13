@@ -54,6 +54,20 @@ func setupFeedDirectionDB(t *testing.T, ctx context.Context) (*Repository, *pgxp
 	return NewRepository(pool, 10*time.Second), pool
 }
 
+func seedFeedDirectionPartition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, label string) {
+	t.Helper()
+	normalized := domain.PartitionMatchKey(label)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE SET
+  partition_label = EXCLUDED.partition_label,
+  status = EXCLUDED.status`,
+		fdTenant, shedID, label, normalized); err != nil {
+		t.Fatalf("seed feed partition %s/%s: %v", shedID, label, err)
+	}
+}
+
 func seedFeedDirectionScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	exec := func(sql string, args ...any) {
@@ -375,7 +389,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Concentrate', 12.000, 40, 'Trial A', 'act
 		t.Fatal("a shed factor materialized for a shed that has none")
 	}
 
-	cells := snapshot.ExperimentByShedID[fdShedB]
+	cells := snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedB, "")]
 	if len(cells) != 1 {
 		t.Fatalf("experiment cells = %d, want 1 (the retired row is excluded)", len(cells))
 	}
@@ -386,7 +400,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Concentrate', 12.000, 40, 'Trial A', 'act
 		t.Fatalf("category = %q, want \"Trial A\"", cells[0].Category)
 	}
 	// head_count is not even read: it is informational and must never reach a multiplier.
-	if len(snapshot.ExperimentByShedID[fdShedA]) != 0 {
+	if len(snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedA, "")]) != 0 {
 		t.Fatal("a non-experiment shed acquired experiment cells")
 	}
 }

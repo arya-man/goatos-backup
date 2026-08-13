@@ -5,16 +5,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/localization"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -30,9 +33,19 @@ type Config struct {
 	FCMProjectID       string
 	FCMEndpoint        string
 	FCMBearerToken     string
-	FCMDefaultTopic    string
 	DryRun             bool
 	HTTPTimeout        time.Duration
+	// LocalStubUnconfiguredChannels reuses the existing "local-stub" delivery path (see the
+	// "local-stub" case below) for any channel that would otherwise fail with
+	// ErrChannelNotConfigured, instead of exhausting the request on its first attempt. It exists so
+	// a local/E2E stack with no Firebase project or Slack webhook wired up EXERCISES the real
+	// per-request routing (channel dispatch, recipient validation, payload construction) instead of
+	// silently losing the notification to ErrChannelNotConfigured after one attempt. It must default
+	// false and stay OFF in every real environment -- a genuinely unconfigured channel in prod/stg
+	// must fail loudly, never appear delivered. Distinct from DryRun: DryRun short-circuits BEFORE
+	// the channel switch for every request regardless of configuration, so it never exercises
+	// per-channel logic at all; this flag only substitutes when the channel is actually unconfigured.
+	LocalStubUnconfiguredChannels bool
 }
 
 type Gateway struct {
@@ -83,6 +96,29 @@ func (g *Gateway) SendWithResult(ctx context.Context, request domain.Request) (p
 		)
 		return ports.DeliveryResult{}, nil
 	}
+	result, err := g.dispatchByChannel(ctx, channel, request)
+	if err != nil && g.config.LocalStubUnconfiguredChannels && errors.Is(err, ports.ErrChannelNotConfigured) {
+		// The real channel is unconfigured (no FCM project, no Slack webhook, ...) but this process
+		// has opted in to local-stub substitution -- see the config field doc above. Deliver through
+		// the SAME local-stub log line real local-stub requests use, enriched with the fields an E2E
+		// assertion needs (recipient, title, body), so "a rework notification was dispatched to
+		// operator X" is provable from the log/DB instead of the request being exhausted after one
+		// attempt with nobody ever told.
+		g.log.InfoContext(ctx, "notification_local_stub_delivered",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("calendar_event_id", request.CalendarEventID),
+			slog.String("type", request.NotificationType),
+			slog.String("real_channel", channel),
+			slog.String("recipient_ref", request.RecipientRef),
+			slog.String("title", request.Title),
+			slog.String("substituted_for", "unconfigured:"+channel),
+		)
+		return ports.DeliveryResult{}, nil
+	}
+	return result, err
+}
+
+func (g *Gateway) dispatchByChannel(ctx context.Context, channel string, request domain.Request) (ports.DeliveryResult, error) {
 	switch channel {
 	case "local-stub":
 		g.log.InfoContext(ctx, "notification_local_stub_delivered",
@@ -179,6 +215,14 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 	if err != nil {
 		return nil, fmt.Errorf("marshal notification payload: %w", err)
 	}
+	// Bound every provider call. A slow or down provider must surface as a timeout this tick and be
+	// retried, never hold the dispatcher's lease open indefinitely.
+	timeout := g.config.HTTPTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build notification webhook request: %w", err)
@@ -192,6 +236,11 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 	}
 	resp, err := g.client.Do(req)
 	if err != nil {
+		// Timeouts stay plain (retryable) errors -- never a not-configured sentinel -- so the
+		// dispatcher schedules another attempt instead of exhausting the request.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("notification provider did not respond within %s: %w", timeout, err)
+		}
 		return nil, fmt.Errorf("post notification webhook: %w", err)
 	}
 	defer resp.Body.Close()
@@ -204,22 +253,9 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 		if len(snippet) > 256 {
 			snippet = snippet[:256]
 		}
-		if isInvalidFCMRecipientResponse(resp.StatusCode, responseBody) {
-			return nil, fmt.Errorf("%w: notification webhook status %d: %s", ports.ErrInvalidRecipient, resp.StatusCode, strings.TrimSpace(string(snippet)))
-		}
 		return nil, fmt.Errorf("notification webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	return responseBody, nil
-}
-
-func isInvalidFCMRecipientResponse(statusCode int, body []byte) bool {
-	if statusCode != http.StatusNotFound && statusCode != http.StatusBadRequest {
-		return false
-	}
-	text := strings.ToLower(string(body))
-	return strings.Contains(text, "notregistered") ||
-		strings.Contains(text, "unregistered") ||
-		strings.Contains(text, "registration-token-not-registered")
 }
 
 func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
@@ -245,6 +281,82 @@ func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
 	}, headers)
 }
 
+// Localization decision (revised 2026-08-02 -- CORRECTS an earlier version of this comment that
+// claimed locale is unavailable server-side; it is not). Per-request locale IS already plumbed
+// synchronously: Android sends it on every authenticated call (core-network's Accept-Language
+// header), backend/internal/platform/httpmiddleware/request_context.go parses it via
+// localization.FromHeaders into request context, and backend/internal/ceoai already consumes it.
+// The real gap is narrower: pushes are ASYNCHRONOUS (the vaccination reminder sweeper, obligation-
+// missed sweeper, etc. fire with no HTTP request in flight for that recipient), so nothing carries
+// a persisted "last known locale" into that path today. That requires a schema change this package
+// does not own (see the DDL request below) and has NOT landed yet.
+//
+// Decision, re-examined on the merits now that locale IS obtainable (not repeating the old
+// "infeasible" reasoning): this gateway still uses KEY + CLIENT-TRANSLATION as primary for the full
+// message content --
+//   - It keeps ONE translation source of truth (the Android app's own values-hi/kn/te resources,
+//     already used for 100% of the rest of the UI) instead of maintaining a second, parallel
+//     translation catalog in Go for all ~40 message_key sentences -- that duplication is a real,
+//     ongoing maintenance cost and drift risk (a hi/kn/te string edited in one place and not the
+//     other), not a one-time cost.
+//   - It preserves per-message specificity (named vaccine, shed, count, IST date) built from
+//     whatever structured params a producer supplies, without teaching Go a second templating
+//     layer to reproduce Android's rendering.
+//   - It is what the maintainer explicitly asked for: "if it's just key/value where the value is
+//     already language-translated in the client, use that."
+//
+// BUT server-rendering has a real, now-relevant advantage this file did not previously account
+// for: a populated `notification` block displays even when the app is fully killed, with NO
+// dependence on a high-priority wake succeeding. Once a per-device locale is persisted (see DDL
+// request below), this gateway should stop sending an English-only fallback for that guaranteed-
+// display path. Forward-compatible, degrades-gracefully design shipped now:
+//   - If the request context carries `recipient_locale` (populated by dispatch/queue once the
+//     migration below lands and a locale is on file for the device -- NOT populated by anything
+//     today, so this branch is currently always a no-op) AND `message_key` is present: this
+//     gateway sends BOTH a `data` payload (message_key + params, for the client to render its full,
+//     specific string) AND a `notification` block containing a locale-correct but GENERIC,
+//     category-level string (from the small embedded table below -- NOT a duplicate of Android's
+//     ~40 message templates, just ~5 category strings x 4 locales). Android's onMessageReceived
+//     (see GoatOsMessagingService), when it runs, overrides the display with the FULL specific
+//     client-rendered string; the generic notification block is what actually reaches the user only
+//     in the guaranteed-killed case where onMessageReceived cannot run.
+//   - If `recipient_locale` is absent: send the English server-rendered `notification` block from
+//     the request Title/Body, and still carry message_key + params in `data` so Android can render
+//     locally when the app receives the message. Missing locale must never mean an empty display or
+//     no OS-displayable fallback.
+//
+// DDL REQUESTED (this package does not own migrations -- backend/migrations/** is out of scope
+// here; hand this to the migration-owning agent):
+//
+//	ALTER TABLE workforce_member_devices
+//	    ADD COLUMN locale_tag TEXT NOT NULL DEFAULT 'en';
+//	Table: workforce_member_devices, not workforce_members -- locale here is a per-INSTALL
+//	preference (Android's AppLocaleState/SessionStore.language is stored per app-install, not
+//	synced to a member-wide profile), and this is the exact table that already stores one row per
+//	registered device/FCM token, updated on the SAME registerToken/push-token-sync call site --
+//	so locale_tag naturally rides along with the token it belongs to instead of needing a new
+//	sync path. NOT NULL DEFAULT 'en' matches localization.DefaultTag so no existing row needs a
+//	backfill migration and no caller needs nil-handling. No index: this column is only ever
+//	SELECTed alongside the device row when queuing a push, never filtered/joined on.
+//
+// Concrete three-state outcome for the message_key-carrying, `recipient_locale`-ABSENT case:
+//
+//	(a) App FOREGROUND: onMessageReceived always fires (independent of block shape). Android
+//	    renders message_key+params from its own locale resources -- correct language, full
+//	    specificity.
+//	(b) App BACKGROUNDED/KILLED (not force-stopped): the OS has a nonblank English
+//	    `notification` block to display even if onMessageReceived does not run.
+//	(c) If onMessageReceived runs, Android can still use data.message_key for the richer
+//	    client-rendered string. A user-FORCE-STOPPED app blocks delivery of ANY FCM message type
+//	    regardless of shape -- an OS-level restriction no design here removes.
+//
+// Hybrid safety net (unchanged from before): a request with NO message_key at all (a caller that
+// has not migrated, or a genuinely English-only internal/ops notification) still gets the legacy
+// behavior -- a populated `notification.title`/`body`. Blank producer title/body is repaired at
+// the gateway boundary so the OS background auto-display path never renders an empty shell.
+//
+// FCM priority is forced to "high" for every push_fcm send so data delivery reaches
+// onMessageReceived promptly when Android is allowed to wake the app.
 func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request) (ports.DeliveryResult, error) {
 	projectID := strings.TrimSpace(g.config.FCMProjectID)
 	endpoint := strings.TrimSpace(g.config.FCMEndpoint)
@@ -254,51 +366,79 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		}
 		endpoint = fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
 	}
+	// Parse context first: recipient_locale, when present, lets the guaranteed-display
+	// notification block use a locale-correct generic fallback. Without it, the guaranteed-display
+	// fallback is the English Title/Body already stored on the request.
+	contextMap := parseFCMContext(request.Context)
+	messageKey := strings.TrimSpace(contextMap["message_key"])
+	recipientLocale := strings.TrimSpace(contextMap["recipient_locale"])
+
 	message := map[string]any{
-		"notification": map[string]string{
-			"title": request.Title,
-			"body":  request.Body,
-		},
 		"data": fcmData(request),
 	}
-	// Parse context and merge fields into data, and set android priority if present.
-	if len(request.Context) > 0 {
-		var contextMap map[string]string
-		if err := json.Unmarshal(request.Context, &contextMap); err == nil {
-			data := message["data"].(map[string]string)
-			for key, value := range contextMap {
-				data[key] = value
-			}
-			// FCM collapse/category controls come from the central notification request context.
-			// Repeated per-goat events for the same park/category replace one tray slot instead of
-			// bombarding the device, while the durable request/delivery ledger still records each.
-			androidConfig := map[string]any{}
-			if priority, ok := contextMap["priority"]; ok && priority == "high" {
-				androidConfig["priority"] = "high"
-			}
-			if collapseKey := strings.TrimSpace(contextMap["collapse_key"]); collapseKey != "" {
-				androidConfig["collapse_key"] = collapseKey
-			}
-			channelID := strings.TrimSpace(contextMap["android_channel_id"])
-			if channelID == "" && strings.Contains(strings.ToLower(contextMap["category"]), "vaccination") {
-				channelID = "goatos-push-vaccination"
-			}
-			notificationConfig := map[string]any{}
-			if channelID != "" {
-				notificationConfig["channel_id"] = channelID
-			}
-			if tag := strings.TrimSpace(contextMap["group_key"]); tag != "" {
-				notificationConfig["tag"] = tag
-			}
-			if len(notificationConfig) > 0 {
-				androidConfig["notification"] = notificationConfig
-			}
-			if len(androidConfig) > 0 {
-				message["android"] = androidConfig
-			}
+	switch {
+	case messageKey != "" && recipientLocale != "":
+		// Forward-compatible path (see the localization-decision comment above): once dispatch
+		// populates a persisted `recipient_locale`, send a locale-correct GENERIC notification
+		// block alongside the client-render data payload, so the guaranteed-killed case shows the
+		// recipient's own language instead of nothing/English. This is not populated by any
+		// producer today (the migration this depends on has not landed), so this branch is
+		// currently unreachable in production -- it activates automatically the moment a caller
+		// starts supplying `recipient_locale`.
+		title, body := localizedFallbackNotification(localization.Normalize(recipientLocale), contextMap["category"])
+		message["notification"] = map[string]string{"title": title, "body": body}
+	default:
+		// English guaranteed-display fallback. This covers legacy/non-message-key pushes and
+		// message_key pushes before per-device locale exists. Never send a data-only push just
+		// because locale is missing.
+		title, body := fcmDisplayText(request)
+		message["notification"] = map[string]string{
+			"title": title,
+			"body":  body,
 		}
 	}
-	if err := setFCMTarget(message, request.RecipientRef, g.config.FCMDefaultTopic); err != nil {
+	// Every push_fcm send now requests Android high priority so onMessageReceived gets a prompt
+	// chance to render richer data when Android allows delivery.
+	androidConfig := map[string]any{
+		"priority": "high",
+	}
+	if contextMap != nil {
+		data := message["data"].(map[string]string)
+		for key, value := range contextMap {
+			if isFCMReservedDataKey(key) {
+				continue
+			}
+			data[key] = value
+		}
+		// FCM collapse/category controls come from the central notification request context.
+		// Repeated per-goat events for the same park/category replace one tray slot instead of
+		// bombarding the device, while the durable request/delivery ledger still records each.
+		if collapseKey := strings.TrimSpace(contextMap["collapse_key"]); collapseKey != "" {
+			androidConfig["collapse_key"] = collapseKey
+		}
+		channelID := strings.TrimSpace(contextMap["android_channel_id"])
+		if channelID == "" && strings.Contains(strings.ToLower(contextMap["category"]), "vaccination") {
+			channelID = "goatos-push-vaccination"
+		}
+		notificationConfig := map[string]any{}
+		if channelID != "" {
+			notificationConfig["channel_id"] = channelID
+		}
+		if tag := strings.TrimSpace(contextMap["group_key"]); tag != "" {
+			notificationConfig["tag"] = tag
+		}
+		if len(notificationConfig) > 0 {
+			androidConfig["notification"] = notificationConfig
+		}
+	}
+	message["android"] = androidConfig
+	if err := setFCMTarget(message, request.RecipientRef); err != nil {
+		g.log.ErrorContext(ctx, "notification_push_recipient_unusable",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("calendar_event_id", request.CalendarEventID),
+			slog.String("type", request.NotificationType),
+			slog.String("error", err.Error()),
+		)
 		return ports.DeliveryResult{}, err
 	}
 	token, err := g.fcmBearer(ctx)
@@ -309,6 +449,9 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		"Authorization": "Bearer " + token,
 	})
 	if err != nil {
+		if isInvalidFCMRecipientResponse(err) {
+			return ports.DeliveryResult{}, fmt.Errorf("%w: %v", ports.ErrInvalidRecipient, err)
+		}
 		return ports.DeliveryResult{}, err
 	}
 	var acknowledgement struct {
@@ -322,31 +465,118 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 	return ports.DeliveryResult{ProviderMessageID: strings.TrimSpace(acknowledgement.Name)}, nil
 }
 
-func setFCMTarget(message map[string]any, recipientRef, defaultTopic string) error {
+// isInvalidFCMRecipientResponse reports whether err signals that the FCM RECIPIENT itself is
+// permanently dead -- never whether the request payload was malformed. This distinction is load
+// bearing: FCM returns HTTP 400 INVALID_ARGUMENT both for a dead/malformed registration token AND
+// for a well-formed token but a bad *message* (wrong field, bad data block, oversized payload). A
+// bug in OUR payload construction produces the exact same "notification webhook status 400
+// ... invalid_argument" text for every recipient in the fleet. Treating bare INVALID_ARGUMENT as a
+// dead-token signal previously caused SuppressInvalidRecipient to mass-revoke every addressed
+// device on a single bad push (see P0 device-lockout incident): a payload bug looked identical to
+// every recipient being unregistered.
+//
+// Only two classes of signal may suppress a recipient:
+//  1. UNREGISTERED / NOT_REGISTERED (FCM's own errorCode for "this token is gone" -- HTTP 404 or
+//     400, unambiguous, provider-defined) -- see
+//     https://firebase.google.com/docs/reference/fcm/rest/v1/ErrorCode
+//  2. A message body that explicitly names the TOKEN as invalid ("registration token is not a
+//     valid fcm registration token", or the errorCode detail spelled
+//     "invalid-registration-token"/"registration-token-not-registered"), i.e. FCM is talking about
+//     the token, not the envelope.
+//
+// A bare "invalid_argument" / "invalid argument" with no token-specific wording is AMBIGUOUS by
+// design -- it is exactly as likely to be our payload bug as a dead token -- and per the fix
+// contract for this bug class, ambiguous signals must NOT suppress. Callers must instead log it as
+// a send/payload error and leave the device row untouched.
+func isInvalidFCMRecipientResponse(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	isFCMError := strings.Contains(text, "notification webhook status 404") ||
+		strings.Contains(text, "notification webhook status 400")
+	if !isFCMError {
+		return false
+	}
+	// Unambiguous: FCM's own "this token no longer exists" signal.
+	if strings.Contains(text, "notregistered") ||
+		strings.Contains(text, "unregistered") ||
+		strings.Contains(text, "registration-token-not-registered") {
+		return true
+	}
+	// Unambiguous: the error text names the TOKEN specifically, not just the request envelope.
+	if strings.Contains(text, "invalid registration token") ||
+		strings.Contains(text, "invalid-registration-token") ||
+		strings.Contains(text, "not a valid fcm registration token") ||
+		strings.Contains(text, "registration token is not valid") {
+		return true
+	}
+	// Everything else -- including bare "invalid_argument" / "invalid argument" -- is ambiguous
+	// (could be a payload/envelope bug affecting every recipient) and must NOT suppress.
+	return false
+}
+
+// minDeviceTokenLength is a conservative floor for a real device registration token (live tokens run
+// well past 100 characters). Its job is to reject identifiers that are plainly not tokens -- above all
+// role names such as "park_head", which callers bind into recipient_ref.
+const minDeviceTokenLength = 64
+
+// looksLikeDeviceToken reports whether ref has the shape of a device registration token.
+func looksLikeDeviceToken(ref string) bool {
+	if len(ref) < minDeviceTokenLength {
+		return false
+	}
+	for _, r := range ref {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_', r == '-', r == ':', r == '.', r == '~', r == '%':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// setFCMTarget resolves exactly one push target from the recipient the caller resolved. There is no
+// default-topic fallback: a reminder with no resolved recipient must fail loudly rather than broadcast
+// one shed's reminder to every device in the tenant. A caller that genuinely wants a topic must say so
+// explicitly with a "topic:" / "condition:" recipient.
+func setFCMTarget(message map[string]any, recipientRef string) error {
 	ref := strings.TrimSpace(recipientRef)
 	switch {
+	case ref == "":
+		return fmt.Errorf("%w: no push recipient resolved", ports.ErrRecipientUnusable)
+	case strings.HasPrefix(ref, "no-active-device:"):
+		// Repository.ClaimDue's live recipient resolution (see the CASE expression in its
+		// claimed-CTE RETURNING clause) emits this sentinel when the request is addressed at a
+		// real, known workforce member but that member currently has no active device with a
+		// registered push token. This must fail loudly and distinctly -- never as a silent
+		// success, and never reported through ErrRecipientUnusable's "not a device token" text,
+		// which would misdescribe "nobody to deliver to right now" as a malformed identifier.
+		memberID := strings.TrimSpace(strings.TrimPrefix(ref, "no-active-device:"))
+		return fmt.Errorf("%w: member_id=%s", ports.ErrRecipientNoActiveDevice, memberID)
 	case strings.HasPrefix(ref, "topic:"):
 		topic := strings.TrimSpace(strings.TrimPrefix(ref, "topic:"))
-		if topic != "" {
-			message["topic"] = topic
-			return nil
+		if topic == "" {
+			return fmt.Errorf("%w: empty push topic", ports.ErrRecipientUnusable)
 		}
+		message["topic"] = topic
+		return nil
 	case strings.HasPrefix(ref, "condition:"):
 		condition := strings.TrimSpace(strings.TrimPrefix(ref, "condition:"))
-		if condition != "" {
-			message["condition"] = condition
-			return nil
+		if condition == "" {
+			return fmt.Errorf("%w: empty push condition", ports.ErrRecipientUnusable)
 		}
-	case ref != "":
+		message["condition"] = condition
+		return nil
+	case looksLikeDeviceToken(ref):
 		message["token"] = ref
 		return nil
+	default:
+		// A role name or any other non-token identifier: permanent, and loud. Sending it would earn a
+		// 400 that no retry can fix.
+		return fmt.Errorf("%w: push recipient is not a device registration token", ports.ErrRecipientUnusable)
 	}
-	topic := strings.TrimSpace(defaultTopic)
-	if topic == "" {
-		return fmt.Errorf("%w: push_fcm recipient", ports.ErrChannelNotConfigured)
-	}
-	message["topic"] = topic
-	return nil
 }
 
 func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
@@ -362,7 +592,8 @@ func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("fetch FCM access token: %w", err)
 	}
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
-		return "", fmt.Errorf("%w: push_fcm auth token", ports.ErrChannelNotConfigured)
+		// Also network-derived: retry rather than exhaust.
+		return "", fmt.Errorf("push credentials returned an empty access token")
 	}
 	return token.AccessToken, nil
 }
@@ -373,21 +604,163 @@ func (g *Gateway) fcmAuthSource(ctx context.Context) (oauth2.TokenSource, error)
 	if g.fcmTokenSource != nil {
 		return g.fcmTokenSource, nil
 	}
+	// Credential discovery talks to the metadata server / ADC over the network, so a failure here is
+	// transient by nature. It must stay a plain (retryable) error: wrapping it in
+	// ErrChannelNotConfigured makes the dispatcher skip retry scheduling, and one metadata hiccup
+	// would permanently exhaust every claimed request in that tick.
 	source, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/firebase.messaging")
 	if err != nil {
-		return nil, fmt.Errorf("%w: push_fcm auth", ports.ErrChannelNotConfigured)
+		return nil, fmt.Errorf("resolve push credentials: %w", err)
 	}
 	g.fcmTokenSource = source
 	return source, nil
 }
 
+// localizedFallbackNotificationTable holds ONLY a small, category-level generic string per
+// locale -- deliberately NOT a duplicate of the Android client's ~40 message_key templates (that
+// full catalog stays client-side, see the localization-decision comment above sendFCMWithResult).
+// It exists solely so the guaranteed-display `notification` block (used when a killed app cannot
+// run onMessageReceived) shows SOME text in the recipient's own language rather than English,
+// once a persisted `recipient_locale` is available. Category keys mirror the Android
+// `PushMessageCatalog` fallback categories (vaccination, weighing, feed, counts); an unrecognized
+// or absent category falls back to "generic".
+var localizedFallbackNotificationTable = map[string]map[string][2]string{
+	"en": {
+		"vaccination": {"Vaccination", "There is a vaccination update for you. Open the app for details."},
+		"weighing":    {"Weighing", "There is a weighing update for you. Open the app for details."},
+		"feed":        {"Feed", "There is a feed update for you. Open the app for details."},
+		"counts":      {"Counts", "There is a counts update for you. Open the app for details."},
+		"generic":     {"Mesha", "You have a new update. Open the app for details."},
+	},
+	"hi": {
+		"vaccination": {"टीकाकरण", "आपके लिए टीकाकरण अपडेट है। विवरण के लिए ऐप खोलें।"},
+		"weighing":    {"वज़न", "आपके लिए वज़न अपडेट है। विवरण के लिए ऐप खोलें।"},
+		"feed":        {"चारा", "आपके लिए चारा अपडेट है। विवरण के लिए ऐप खोलें।"},
+		"counts":      {"गिनती", "आपके लिए गिनती अपडेट है। विवरण के लिए ऐप खोलें।"},
+		"generic":     {"Mesha", "आपके लिए एक नया अपडेट है। विवरण के लिए ऐप खोलें।"},
+	},
+	"kn": {
+		"vaccination": {"ಲಸಿಕೆ", "ನಿಮಗಾಗಿ ಲಸಿಕೆ ಅಪ್‌ಡೇಟ್ ಇದೆ. ವಿವರಗಳಿಗಾಗಿ ಆ್ಯಪ್ ತೆರೆಯಿರಿ."},
+		"weighing":    {"ತೂಕ", "ನಿಮಗಾಗಿ ತೂಕ ಅಪ್‌ಡೇಟ್ ಇದೆ. ವಿವರಗಳಿಗಾಗಿ ಆ್ಯಪ್ ತೆರೆಯಿರಿ."},
+		"feed":        {"ಆಹಾರ", "ನಿಮಗಾಗಿ ಆಹಾರ ಅಪ್‌ಡೇಟ್ ಇದೆ. ವಿವರಗಳಿಗಾಗಿ ಆ್ಯಪ್ ತೆರೆಯಿರಿ."},
+		"counts":      {"ಗಣತಿ", "ನಿಮಗಾಗಿ ಗಣತಿ ಅಪ್‌ಡೇಟ್ ಇದೆ. ವಿವರಗಳಿಗಾಗಿ ಆ್ಯಪ್ ತೆರೆಯಿರಿ."},
+		"generic":     {"Mesha", "ನಿಮಗಾಗಿ ಹೊಸ ಅಪ್‌ಡೇಟ್ ಇದೆ. ವಿವರಗಳಿಗಾಗಿ ಆ್ಯಪ್ ತೆರೆಯಿರಿ."},
+	},
+	"te": {
+		"vaccination": {"టీకా", "మీ కోసం టీకా అప్‌డేట్ ఉంది. వివరాల కోసం యాప్ తెరవండి."},
+		"weighing":    {"బరువు", "మీ కోసం బరువు అప్‌డేట్ ఉంది. వివరాల కోసం యాప్ తెరవండి."},
+		"feed":        {"దాణా", "మీ కోసం దాణా అప్‌డేట్ ఉంది. వివరాల కోసం యాప్ తెరవండి."},
+		"counts":      {"లెక్కలు", "మీ కోసం లెక్కల అప్‌డేట్ ఉంది. వివరాల కోసం యాప్ తెరవండి."},
+		"generic":     {"Mesha", "మీ కోసం కొత్త అప్‌డేట్ ఉంది. వివరాల కోసం యాప్ తెరవండి."},
+	},
+}
+
+// localizedFallbackNotification returns a (title, body) pair for the guaranteed-display
+// `notification` block in the recipient's normalized locale. category is matched by prefix
+// against "vaccination"/"weighing"/"feed"/"counts"; anything else (including empty) uses the
+// generic strings. Never returns raw tokens or a blank string -- always falls back to the "en"
+// row, which always exists.
+func localizedFallbackNotification(localeTag, category string) (string, string) {
+	byCategory, ok := localizedFallbackNotificationTable[localeTag]
+	if !ok {
+		byCategory = localizedFallbackNotificationTable[localization.DefaultTag]
+	}
+	key := "generic"
+	switch {
+	case strings.HasPrefix(category, "vaccination"):
+		key = "vaccination"
+	case strings.HasPrefix(category, "weighing"):
+		key = "weighing"
+	case strings.HasPrefix(category, "feed"):
+		key = "feed"
+	case strings.HasPrefix(category, "counts"):
+		key = "counts"
+	}
+	pair, ok := byCategory[key]
+	if !ok {
+		pair = localizedFallbackNotificationTable[localization.DefaultTag]["generic"]
+	}
+	return pair[0], pair[1]
+}
+
 func fcmData(request domain.Request) map[string]string {
+	title, body := fcmDisplayText(request)
 	return map[string]string{
 		"notification_request_id": request.NotificationRequestID,
 		"tenant_id":               request.TenantID,
 		"calendar_event_id":       request.CalendarEventID,
 		"notification_type":       request.NotificationType,
+		"title":                   title,
+		"body":                    body,
 		"trace_id":                request.TraceID,
+	}
+}
+
+func parseFCMContext(raw json.RawMessage) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var fields map[string]any
+	if err := decoder.Decode(&fields); err != nil {
+		return nil
+	}
+	contextMap := make(map[string]string, len(fields))
+	for key, value := range fields {
+		contextMap[key] = fcmDataString(value)
+	}
+	return contextMap
+}
+
+func fcmDataString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case bool:
+		return strconv.FormatBool(typed)
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(encoded)
+	}
+}
+
+func fcmDisplayText(request domain.Request) (string, string) {
+	title := strings.TrimSpace(request.Title)
+	body := strings.TrimSpace(request.Body)
+	if title == "" {
+		title = "Mesha"
+	}
+	if body == "" {
+		body = notificationTypeLabel(request.NotificationType)
+	}
+	return title, body
+}
+
+func notificationTypeLabel(notificationType string) string {
+	switch strings.TrimSpace(notificationType) {
+	case "":
+		return "New notification"
+	default:
+		return strings.ReplaceAll(notificationType, "_", " ")
+	}
+}
+
+func isFCMReservedDataKey(key string) bool {
+	switch key {
+	case "title", "body":
+		return true
+	default:
+		return false
 	}
 }
 

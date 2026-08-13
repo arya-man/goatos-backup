@@ -1,9 +1,36 @@
 // Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
+// Coupling review 2026-08-05: migration 000109 adds animal_stage_lookup.age_band
+// ('kid'/'adult'/NULL) so a shifting stamps the destination cohort's kid/adult band onto the
+// animals it moves. NO CHANGE to this file's contract: age_band lives on the stage VOCABULARY,
+// not on the HRMS roster or vaccination source rows validated here, and the fixture ships no
+// stage-catalog rows. Deliberately NOT derived from source DOB or from min_age_days/max_age_days
+// -- F2 fattening cohorts stay kid to 67 weeks -- so do not add a source-date-derived age band.
+// 2026-08-05: no fixture shape change from the SOP rework-reopen work. Reopening an
+// accepted task is a runtime state transition; the fixture's source columns are untouched.
 // (migrations 000024-000027) to load and validate vaccination source data.
 // Coupling review 2026-07-25: migration 000045 adds a nullable
 // vaccination_capacity_config.max_shots_per_animal_per_drive admin override. This fixture
 // seeds no override (sweeper falls back to rule_dsl/default), so its data and hashes are
 // unchanged; the loader/validator needs no new field handling.
+// Coupling review 2026-08-04: seed-roster-real's defaultDepartmentModules now grants
+// health -> aas_health + counts + milk + feed_direction + vaccination, and pairs milk with
+// counts everywhere counts is granted. Those are department -> module GRANT rows derived at
+// seed time from department codes, not source-spreadsheet fields, so no header, raw byte,
+// file hash, row count, vaccination date anchor or schedule-path selection changes here.
+// Coupling review 2026-08-05: CBE/CPT seed-port sources may carry an optional
+// rfid2 column for real double-tag aliases, and the seed publication may exclude
+// named vaccines for stock/defer decisions. These are importer/publication
+// controls, not committed full-fixture source bytes.
+// Coupling review 2026-08-06: migrations 000120/000121/000123 add partition_label
+// columns to verification_items, weighing_campaign_sheds, and health_cases with backfill from
+// goat_shed_partitions (canonical per-animal partition assignment seeded at animal placement).
+// NO CHANGE to fixture bytes/hashes/counts: partition resolution is a seed DATA contract
+// (every animal in a partitioned shed must have a goat_shed_partitions row at seed time), not
+// a source-file schema change. Source shed labels like "Godel 1 - Part 3" are parsed by the
+// seeder into physical shed + partition at animal write time; goat_shed_partitions rows are
+// seeded from that parsed label, and later migrations backfill partition_label on location-bearing
+// output tables from that seeded data. The fixture's source validation adds a partition-resolution
+// contract check (pass/warning); it does not change validation logic or impact fixture loading.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -85,6 +112,9 @@ export const OPERATOR_ROSTER_VERIFIERS_FIELD = "verifiers";
 export const OPERATOR_ROSTER_VERIFIER_ROLE = "verifier";
 export const OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER = "firebase_email_password";
 export const OPERATOR_ROSTER_VERIFIER_HAS_ZERO_EXECUTION_CAPACITY = true;
+export const GROWTH_DIRECTOR_ROLE_HINT = "growth_director";
+export const GROWTH_DIRECTOR_IS_WEIGHING_ONLY = true;
+export const GROWTH_DIRECTOR_HAS_ZERO_VACCINATION_CAPACITY = true;
 export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
 // A vaccination operator's app designation is its EXECUTION capability, not its HR
 // capacity-tier. seed-roster-real gives each rehearsal operator a manager-tier
@@ -137,6 +167,10 @@ export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
   "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
   "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
+export const ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE = true;
+export const VACCINATION_MEDICAL_DATE_FIELD = "vaccination_completions.administered_at";
+export const OPTIONAL_SECONDARY_RFID_FIELD = "rfid2";
+export const SEED_PUBLICATION_VACCINE_EXCLUSION_ENV = "GOATOS_SEED_EXCLUDE_VACCINES";
 
 function normalizeShedName(raw) {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");
@@ -325,6 +359,8 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.contracts?.closed_health_case_is_resolved_not_recovering === CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING, "manifest must state Closed health cases are resolved/healthy, never recovering", problems);
   expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
   expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
+  expect(manifest.contracts?.adult_blank_history_joins_normal_drive === ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE, "manifest must auto-enrol adult blank-history animals into the normal generated drive", problems);
+  expect(manifest.contracts?.vaccination_medical_date_field === VACCINATION_MEDICAL_DATE_FIELD, "manifest must bind repeat timing to operator-administered vaccination_completions.administered_at", problems);
 
   if (checkHashes) {
     for (const file of REQUIRED_DATA_FILES) {
@@ -527,6 +563,13 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     expect(managerCode !== backupCode, `shed manager row ${index + 1}: manager and backup must differ`, problems);
     const managerSeat = rosterSeatByCode.get(managerCode);
     const backupSeat = rosterSeatByCode.get(backupCode);
+    // This assertion is what guarantees the seeded stack can BOOT, not just a naming rule.
+    // seed-position-duties derives the pc.vaccination `manage` duty only from manager-tier seats
+    // that are neither operators nor backups -- vaccination_operator_* and backup_manager stay on
+    // `execute` -- and seed-closeout fails the whole stack when no active seat holds `manage`,
+    // because the reminder ladder resolves both duty types. "Preventive Care Manager" is that seat.
+    // Relaxing this to allow an operator or backup here would produce a fixture that validates,
+    // seeds, and then loops "Local database preparation failed" at closeout.
     expect(managerSeat?.center === park && managerSeat?.position === "Preventive Care Manager", `shed manager row ${index + 1}: manager must hold ${park} Preventive Care Manager`, problems);
     expect(backupSeat?.center === park && backupSeat?.position === "Backup Manager", `shed manager row ${index + 1}: backup must hold ${park} Backup Manager`, problems);
     expect(cell(row, managerHeader, "manager_name") === managerSeat?.candidate, `shed manager row ${index + 1}: manager name/code mismatch`, problems);
@@ -567,6 +610,9 @@ export function updateManifestHashes(directory, manifest) {
   return manifest;
 }
 
+// Coupling review 2026-07-29: seed-roster-real adds feed_direction to the preventive_care
+// department module grant. This changes runtime module/navigation authorization only; it does not
+// change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts.
 // Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
@@ -592,9 +638,14 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-07-24/25: CPT adult campaign grouping and
 // seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
 // cpt-operator-roster.json. Adult entry_date is never a vaccination due-date
-// anchor; adult blank-history rows are campaign/catch-up cohort work by physical
-// shed/partition. The committed full fixture has no such contract file, so raw
+// anchor; adult blank-history rows are ordinary generated drive work by physical
+// shed/partition and require no manual approval. The committed full fixture has no such contract file, so raw
 // fixture bytes and manifest hashes remain unchanged.
+// Coupling review 2026-08-02: blank-history adults are automatically generated into the
+// next compatible normal adult drive; `manual_campaign` remains rule metadata, not a manual
+// approval gate. Accepted operator submission records `vaccination_completions.administered_at`
+// as the medical anchor; later verifier/director timestamps never replace it. Raw fixture
+// vaccination/HRMS bytes and hashes remain unchanged.
 
 // Coupling review 2026-07-25: adult non-repeating physical-partition campaign
 // obligations are generation-idempotent at campaign grain. Replaying with a
@@ -608,3 +659,25 @@ export function updateManifestHashes(directory, manifest) {
 // assignment config over seeded operators. The committed full fixture has no
 // cpt-operator-roster.json, so fixture bytes/hashes and loader semantics remain
 // unchanged.
+// Coupling review 2026-07-25: migration 000002 only restores that runtime
+// selected_operator_ids column on already-migrated DBs. It backfills from the
+// default operator and does not introduce a source fixture field.
+// 2026-08-01 verify-duty seeding: seed-position-duties now derives a verify duty per notification
+// module from notificationbridge.PendingNotificationDutyModules. Duty rows are generated from
+// position codes at seed time and are not an HRMS-source field, so no fixture bytes, hashes or
+// counts change here.
+// Coupling review 2026-08-04: vaccination_drive_date_overrides requested/applied
+// safe-date metadata is runtime override state, not source data. Approved combo
+// helpers share clinical scheduling config only; fixture bytes, hashes, counts,
+// HRMS rows, SOP contracts, and validation semantics remain unchanged.
+// Coupling review 2026-08-05: the CBE/CPT controlled port changes runtime import
+// alias handling, campaign-filtered sweeps, verifier grant backfill, weighing
+// duties, and active position conflict keys only. The HRMS fixture source remains
+// byte-for-byte unchanged; current open-port policy explicitly excludes Blue
+// Tongue and PPR generation until stock/source scheduling is confirmed.
+
+// Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from
+// preventive_care defaultDepartmentModules; migration 000110 deactivates the existing preventive_care
+// milk + aas_health department_module_grants rows. Nothing in this fixture contract changes: module
+// grants gate a bottom bar, not a vaccination source input. No fixture byte, hash, row count, goat
+// field, protocol rule or operator capacity is touched, so no validator here needed updating.

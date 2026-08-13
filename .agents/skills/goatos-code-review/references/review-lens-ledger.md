@@ -107,15 +107,20 @@ safe to work, not a new finding).
 - PROOF: `ClaimDue` two-phase transition; notification suite green.
 
 ### CD-R50-015 — forward-migration lock safety
-- STATUS: **CLOSED**
+- STATUS: **OPEN** (validator regression; closure-pending under F0)
 - INVARIANT: a forward migration on a hot/populated table must be lock-safe: CHECK re-adds use
-  `ADD CONSTRAINT ... NOT VALID` + separate `VALIDATE`; index swaps use `CREATE ... CONCURRENTLY`
+  `ADD CONSTRAINT ... NOT VALID` + `VALIDATE` in a separate transaction/migration;
+  index swaps use `CREATE ... CONCURRENTLY`
   under a `-- +goose NO TRANSACTION` migration, CREATE-new-then-DROP-old (never a window with no
   unique index → no 42P10 for ON CONFLICT writers); long DML is split out of the DDL transaction;
   dedup DELETEs are bounded/scoped.
-- PROOF: migrations `000003/000004/000006` + `validate-postgres-migrations.sh` + hot-index guard.
-- ENFORCED-BY: `validate-hot-index-migrations` (floor recalibrated post-squash — do not restore
-  the stale 141 floor that false-greened migrations 1-140).
+- HISTORICAL-PROOF: migrations `000003/000004/000006` established the safe
+  source pattern.
+- CURRENT-GAP: `validate-hot-index-migrations` accepts same-transaction
+  add-not-valid plus validate and is absent from ordinary CI. F0 must repair the
+  rule, adversarial self-test, hot-table inventory, and CI wiring before this
+  returns to CLOSED. Do not restore the stale 141 floor that false-greened
+  migrations 1-140.
 - DO-NOT: `ADD CONSTRAINT` on a hot table without `NOT VALID`; drop-then-create a live unique index.
 
 ### CD-IDEMPOTENCY-UNIQUE-INDEX — ON CONFLICT needs a matching unique index
@@ -149,6 +154,37 @@ safe to work, not a new finding).
 - ENFORCED-BY: `mobile-list-fetch`, `android-bounded-memory`, `room-migration-safety` guards.
 - DO-NOT: re-flag R50-008/010 as open from the stale handoff doc; verify against code first. Do not
   add a screen-facing blob cache that skips `JsonBlobCacheDao` governance.
+
+### CD-PHONE-SCALE-UI — banned Android phone-scale UI anti-patterns (2026-08-04)
+- STATUS: **BANNED**
+- INVARIANT: real park cardinality (~100 sheds x ~70-90 animals/shed, ~7-8k rows/park) never
+  renders unbounded. Three named anti-patterns are banned repo-wide: (1) `LazyColumn`/`LazyRow`/
+  `LazyVerticalGrid` `items()`/`itemsIndexed()` with no stable `key`, or a nested scrollable
+  (another Lazy* or a `verticalScroll`/`horizontalScroll` Column/Row) placed directly inside a
+  list's items() row lambda; (2) unbounded `.forEach { ... Composable ... }` rendering inside a
+  scrollable Column/Row over state/domain data (sheds/animals/operators/dates) instead of a
+  windowed `LazyColumn`/`LazyRow` with ~20-row keyset paging; (3) chips used as the picker for an
+  unbounded dimension (sheds/animals/operators/dates) instead of a searchable selector — use the
+  `FilterSelectorRow` + `SearchablePickerDialog` shape in
+  `apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeightHistoryChartScreen.kt`;
+  (4) a full-screen spinner (`if (loading) CircularProgressIndicator() else content`) that
+  discards already-rendered content on refresh instead of a skeleton/shimmer cold-load state plus
+  an in-place sync annotation (existing rule, `docs/mobile/android-ui-quality.md`).
+- PROOF: this ledger entry + `apps/goatos-android/docs/phone-scale-ui.md` (rulebook, one
+  correct/incorrect example per rule) + `.agents/skills/mobile-anti-patterns/SKILL.md` (agent-facing
+  summary) + `tools/agent-hooks/check-android-compose-lists.mjs` extended with
+  `nested-scroll-in-lazy-items`, `column-foreach-unbounded`, `chip-row-unbounded-dimension`, and
+  `spinner-replaces-cached-content` rules (self-test green, 6 rules total in the guard).
+- ENFORCED-BY: `android-compose-lists-guard` (machine, all 4 rules — deliberately narrow shapes
+  for rules 2 and 4: `chip-row-unbounded-dimension` only catches a state/domain-keyword
+  `.forEach { FilterChip/AssistChip }`; `spinner-replaces-cached-content` only catches a bare-flag
+  `when {}` branch next to a proven cache-rendering sibling branch. Any other code shape for the
+  same anti-pattern is a false negative by design — review-time via the skill + this doc is still
+  the authority for the general rule, not just these two shipped shapes.
+- DO-NOT: add a new Android list/picker/loading-state screen without reading
+  `apps/goatos-android/docs/phone-scale-ui.md` first; do not treat a guard PASS on a
+  differently-shaped chip row or `if/else` spinner as proof the anti-pattern is absent — those
+  problem (static-text heuristics for these two were tried and rejected as too noisy).
 
 ---
 

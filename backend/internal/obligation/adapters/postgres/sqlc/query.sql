@@ -120,8 +120,6 @@ SELECT oi.obligation_id::text AS obligation_id,
        COALESCE(g.park_id::text, '')::text AS park_id,
        CASE
          WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
-         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
-         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
          ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
        END::text AS shed_name,
        COALESCE(oi.target_id::text, '')::text AS target_id,

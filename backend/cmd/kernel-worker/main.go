@@ -166,7 +166,23 @@ func run(ctx context.Context, args []string) error {
 		// so the interval/4 default is ample.
 		supervisor.RegisterCadence("operational", 5*time.Minute,
 			kernelstages.NewReminderCadenceStage(deps, tenantID),
+			kernelstages.NewFeedDirectionLifecycleStage(deps, tenantID),
+			kernelstages.NewFeedTransportStage(deps, tenantID),
+			kernelstages.NewMilkFeedingStage(deps, tenantID),
+			// WEIGHING PHASE 2 cadence. No new worker binary: the weighing
+			// work-item kernel (terminal reconcile -> roll-forward ->
+			// delayed/escalation -> day-start) runs as one bounded stage on this
+			// existing operational lane, so day-start surfacing lands within
+			// minutes of the Asia/Kolkata business-day boundary and escalation
+			// does not wait an hour.
+			kernelstages.NewWeighingKernelStage(deps, tenantID),
+			// Per-shed rework digest: batches the weighing rework push so a verifier
+			// who bounces five captures in one shed sends the operator ONE
+			// notification naming them, not five. Same lane as the weighing kernel
+			// because the debounce it drains is measured in minutes.
+			kernelstages.NewWeighingReworkDigestStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
+			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
 		)
 
