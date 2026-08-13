@@ -38,6 +38,9 @@ data class ProofIdentity(
     // Weighing transition fields
     val transition: String = "", // "update", "submit", "reopen", "close-shed", "close-campaign"
     val transitionEpoch: String = "", // epoch identifier for the transition
+    // Submission scope fields (for SubmitViewModel.stableSubmissionKey)
+    val scopeId: String = "", // the shed or task scope identifier
+    val rowVersion: Int = 0, // row version for optimistic concurrency
 ) {
     /** Storage key for Room/proof row identification (animal/partition grain). */
     fun storageKey(): String {
@@ -80,6 +83,17 @@ data class ProofIdentity(
     fun weighingTransitionKey(): String {
         val scopeId = "$transition:$taskId"
         return "weighing:$transition:$scopeId:$transitionEpoch"
+    }
+
+    /** Submit scope key: the identity of ONE shed submission task with optional partition and row version.
+     *  Used for submit idempotency and completion tracking. */
+    fun submissionScopeKey(includePartition: Boolean = false): String {
+        val partitionSegment = if (includePartition && partitionKey != "whole") {
+            ":partition:$partitionKey"
+        } else {
+            ""
+        }
+        return "shed-submit:$taskId:scope:$scopeId$partitionSegment:rv:$rowVersion"
     }
 }
 
