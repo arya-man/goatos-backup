@@ -11,6 +11,85 @@ const val MAX_PROOFS_PER_GOAT = 5
  *  key is backend-owned and may not literally be `goat_scan`. */
 const val ROSTER_SCAN_FIELD_KEY = "__scan_roster__"
 
+/**
+ * Canonical proof identity addressing a work item across UI/Room/outbox/backend.
+ * One value type replacing scattered hand-rolled string key building (feedCaptureGroupKey,
+ * scan keys, weighing scope keys, etc). Derived storageKey() and idempotencyKey() produce
+ * EXISTING wire/storage formats so no data migration is needed.
+ *
+ * ProofIdentity is the SINGLE producer of storageKey/idempotencyKey formats:
+ * - vaccinationScanCapture: flow=VACCINATION, taskId, groupKey (reopenEpoch), shedId, obligationId subject
+ * - weighing: flow=WEIGHING_INDIVIDUAL/WEIGHING_SHED, taskId, shedId subject
+ * - feed operations: flow=FEED_*, taskId, shedId/partition subject
+ * - shifting/milk/birth: flow=SHIFTING/MILK/... passthrough, taskId, shedId
+ */
+data class ProofIdentity(
+    val flow: ProofFlow,
+    val taskId: String,
+    val groupKey: String = "", // reopenEpoch for vaccination; empty for others
+    val shedId: String = "",
+    val partitionKey: String = "whole", // normalized via executionPartitionKey
+    val subjectKey: String = "", // goatId, obligationId, shed id, etc
+) {
+    /** Storage key for Room/proof row identification (animal/partition grain). */
+    fun storageKey(): String {
+        return when (flow) {
+            ProofFlow.VACCINATION -> "vaccination:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:$subjectKey"
+            ProofFlow.WEIGHING_INDIVIDUAL, ProofFlow.WEIGHING_SHED -> "weighing:$taskId:$subjectKey"
+            ProofFlow.FEED_COMPLETE, ProofFlow.FEED_DISTRIBUTION, ProofFlow.FEED_PACKING, ProofFlow.FEED_TRANSPORT ->
+                "feed:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:${flow.wireValue}:$subjectKey"
+            else -> "proof:$taskId:${flow.wireValue}:$subjectKey"
+        }
+    }
+
+    /** Idempotency key for backend registration, incorporating groupKey (reopenEpoch). */
+    fun idempotencyKey(reopenEpoch: Int = 0): String {
+        return when (flow) {
+            ProofFlow.VACCINATION -> {
+                val epochSegment = groupKey.takeIf { it.isNotBlank() }?.let { ":$it" }.orEmpty()
+                "vaccination:capture:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:$subjectKey$epochSegment:ov$reopenEpoch"
+            }
+            ProofFlow.WEIGHING_INDIVIDUAL, ProofFlow.WEIGHING_SHED ->
+                "weighing:capture:$taskId:$shedId:$subjectKey"
+            ProofFlow.FEED_COMPLETE, ProofFlow.FEED_DISTRIBUTION, ProofFlow.FEED_PACKING, ProofFlow.FEED_TRANSPORT ->
+                "feed:capture:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:${flow.wireValue}:$subjectKey"
+            else -> "proof:capture:$taskId:${flow.wireValue}:$subjectKey"
+        }
+    }
+}
+
+enum class ProofFlow(val wireValue: String) {
+    VACCINATION("vaccination"),
+    WEIGHING_INDIVIDUAL("weighing_individual"),
+    WEIGHING_SHED("weighing_shed"),
+    FEED_COMPLETE("feed_complete"),
+    FEED_DISTRIBUTION("feed_distribution"),
+    FEED_PACKING("feed_packing"),
+    FEED_TRANSPORT("feed_transport"),
+    SHIFTING("shifting"),
+    MILK("milk"),
+    BIRTH("birth"),
+    GENERIC_SUBMIT("generic_submit"),
+    ;
+
+    companion object {
+        fun from(raw: String): ProofFlow = entries.firstOrNull { it.wireValue == raw } ?: GENERIC_SUBMIT
+    }
+}
+
+/**
+ * Slot = (ProofIdentity, fieldKey) pairing for evidence management.
+ * API on CaptureRepository: observeLatest(slot), capture-replacing-latest, activeCount(slot).
+ * Per-subject caps stay for goat-scoped vaccination per SOP policy; per-field caps roll in here
+ * for ALL flows where policy supplies maximumCountPerField (feed distribution, etc).
+ */
+data class EvidenceSlot(
+    val identity: ProofIdentity,
+    val fieldKey: String,
+) {
+    val storageKey: String get() = identity.storageKey()
+}
+
 /** Mirrors [sg.mesha.goatos.core.database.capture.CaptureSyncStatus] one-to-one — kept as a
  *  separate core-data-level type so ViewModels never need a direct `core-database` dependency
  *  (module boundary: `feature-*`/`:app` -> `core-*`, never straight to Room). */
