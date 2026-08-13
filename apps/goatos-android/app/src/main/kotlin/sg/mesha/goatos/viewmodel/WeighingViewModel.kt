@@ -1968,6 +1968,9 @@ class WeighingViewModel @Inject constructor(
                         if (callback != null) {
                             callback()
                         } else {
+                            // No navigation callback (process death between arm and confirm), but
+                            // submit succeeded so provide user feedback via message channel
+                            message.value = "Submitted"
                             crashReporter.recordException(
                                 IllegalStateException("weighing submit confirmed with no navigation callback"),
                                 "weighing individual scope submit succeeded without a live callback",
