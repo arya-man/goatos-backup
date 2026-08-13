@@ -238,6 +238,7 @@ class ScanViewModel @Inject constructor(
     private val _scanErrorNotice = MutableStateFlow<ScanError?>(null)
     private val _proofReplacementGoatId = MutableStateFlow<String?>(null)
     private val _proofSyncingStartedAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+    private val _lastProofCaptureError = MutableStateFlow<String?>(null)
 
     // Combines the bounded SSOT window + full-roster aggregates with transient flags + draft overlay;
     // lifecycle-aware. >5 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form.
@@ -268,6 +269,7 @@ class ScanViewModel @Inject constructor(
         taskDetail,
         _proofReplacementGoatId,
         _proofSyncingStartedAt,
+        _lastProofCaptureError,
         shedCompletionSummary,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
@@ -297,7 +299,8 @@ class ScanViewModel @Inject constructor(
         val detail = values[22] as TaskDetail?
         val proofReplacementGoatId = values[23] as String?
         val proofSyncingStartedAt = values[24] as Map<String, Long>
-        val shedSummary = values[25] as ShedCompletionSummaryDto?
+        val lastProofCaptureError = values[25] as String?
+        val shedSummary = values[26] as ShedCompletionSummaryDto?
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -455,6 +458,7 @@ class ScanViewModel @Inject constructor(
             readerConnection = readerStatus.toScanReaderConnection(readerName),
             duplicateNotice = duplicateNotice,
             proofReplacementGoatId = proofReplacementGoatId,
+            lastProofCaptureError = lastProofCaptureError,
         )
     }.stateIn(
         viewModelScope,
@@ -1399,10 +1403,12 @@ class ScanViewModel @Inject constructor(
                 proofCaptureVideoCaptured = true
                 val syncingStartedAtMs = System.currentTimeMillis()
                 pendingScanCommit?.let { commit ->
-                    markRowDone(row, commit.capturedAtMs, commit.obligationIds)
                     recordRosterScan(row, commit.tag, commit.capturedAtMs, commit.rosterRows)
                 }
                 _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
+
+                // B6: Row must NOT enter done-set until proof capture() persisted OK.
+                // Capture Err surfaces visibly and row stays pending.
                 when (
                     val proof = proofCaptureRepository.capture(
                     taskId = selectedTaskId,
@@ -1424,24 +1430,34 @@ class ScanViewModel @Inject constructor(
                     partitionLabel = partitionLabel,
                     )
                 ) {
-                    is AppResult.Ok -> analytics.track(
-                        AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
-                        vaccinationActionProps(row, row.primaryTag) +
-                            mapOf(
-                                AnalyticsEvents.Params.OUTCOME to "success",
-                                AnalyticsEvents.Params.PROOF_CAPTURED to "true",
-                                AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
-                                AnalyticsEvents.Params.PROOF_ID to proof.value.id,
-                            ),
-                    )
-                    is AppResult.Err -> analytics.track(
-                        AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
-                        vaccinationActionProps(row, row.primaryTag) +
-                            mapOf(
-                                AnalyticsEvents.Params.OUTCOME to "failure",
-                                AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
-                            ),
-                    )
+                    is AppResult.Ok -> {
+                        // B6: Only mark row done after proof capture succeeds.
+                        pendingScanCommit?.let { commit ->
+                            markRowDone(row, commit.capturedAtMs, commit.obligationIds)
+                        }
+                        analytics.track(
+                            AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
+                            vaccinationActionProps(row, row.primaryTag) +
+                                mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to "success",
+                                    AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                                    AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+                                    AnalyticsEvents.Params.PROOF_ID to proof.value.id,
+                                ),
+                        )
+                    }
+                    is AppResult.Err -> {
+                        // B6: Capture error surfaces visibly via snackbar.
+                        _lastProofCaptureError.update { proof.message }
+                        analytics.track(
+                            AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
+                            vaccinationActionProps(row, row.primaryTag) +
+                                mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to "failure",
+                                    AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
+                                ),
+                        )
+                    }
                 }
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
             } catch (error: CancellationException) {
