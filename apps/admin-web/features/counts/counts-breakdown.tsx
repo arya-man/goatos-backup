@@ -54,6 +54,8 @@ type FeedConfigPenOptionItem = {
 type AnimalStageOptionItem = {
   stage_code: string;
   name?: string | null;
+  age_band?: string | null;
+  assignable_as_cohort?: boolean;
 };
 
 function toBarData(points: CountsBreakdownSeriesPoint[], fallbackLabel: string): SvgBarDatum[] {
@@ -292,10 +294,22 @@ export async function CountsBreakdownPage({
 
   // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
   // and `stage_code` is what the write sends.
-  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : []).map((item: AnimalStageOptionItem) => ({
-    code: item.stage_code,
-    label: item.name || item.stage_code,
-  }));
+  // Clinical tags (ICU, Quarantine) are dropped because the write rejects them: offering one and
+  // failing on apply is worse than not offering it. The backend decides which those are.
+  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : [])
+    .filter((item: AnimalStageOptionItem) => item.assignable_as_cohort !== false)
+    .map((item: AnimalStageOptionItem) => ({
+      code: item.stage_code,
+      // The CODE is the tag: it is what the table cell shows, what the farm's own sheet uses, and
+      // what the write stores. The lookup's descriptive name rides along as context.
+      label: item.stage_code,
+      // Case-insensitive: "Non-Pregnant" and "Non-pregnant" are the same word, and repeating it
+      // under the tag is noise rather than help.
+      description:
+        (item.name ?? "").toLowerCase() === item.stage_code.toLowerCase() ? "" : (item.name ?? ""),
+      band: item.age_band ?? "",
+      assignable: true,
+    }));
 
   // Authority is the backend's answer, read off the compiled control. A principal without
   // goat.reclassify_shed_stage gets a DISABLED button carrying the backend's reason, not a missing

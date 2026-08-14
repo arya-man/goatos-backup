@@ -790,7 +790,50 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
+		case "counts-sheds":
+			out[i].Tables = compileShedDirectoryColumns(out[i].Tables, families.Parks)
+			// Same authority as the Counts Breakdown drawer, and deliberately the same control id:
+			// retagging a pen from the directory and retagging it from the drawer are one write
+			// behind one permission, so a principal must not be able to reach it from one screen
+			// and not the other.
+			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 		}
+	}
+	return out
+}
+
+// compileShedDirectoryColumns appends one Tag + Capacity column pair per LIVE park to the Sheds
+// directory table.
+//
+// The park half of every header ("Coimbatore tag") is tenant data read from `locations`; only the
+// "tag"/"capacity" nouns are product copy, and they come from the page's own copy map. Declaring
+// the pairs in contract code instead would put CBE/CPT literals in the backend contract -- the
+// banned pattern -- and would silently render nothing for a third park the business opens.
+//
+// The column KEY carries the park id (`tag:<park_id>`), never the park code or name: the renderer
+// looks each cell up by that id in the response's `cells` map, so a park rename cannot re-associate
+// a shed with the wrong column. Neither column is sortable: they are per-park values on a row whose
+// identity is the shed name, and ordering the page by one park's capacity would present a ranking
+// the other park's column does not share.
+func compileShedDirectoryColumns(tables []domain.TableContract, parks []ReferenceOption) []domain.TableContract {
+	tagNoun := "tag"
+	capacityNoun := "capacity"
+
+	out := make([]domain.TableContract, len(tables))
+	copy(out, tables)
+	for i := range out {
+		if out[i].ID != "shed-directory" {
+			continue
+		}
+		columns := make([]domain.Column, len(out[i].Columns))
+		copy(columns, out[i].Columns)
+		for _, park := range parks {
+			columns = append(columns,
+				domain.Column{Key: "tag:" + park.Key, Label: park.Label + " " + tagNoun, Visible: true},
+				domain.Column{Key: "capacity:" + park.Key, Label: park.Label + " " + capacityNoun, Visible: true},
+			)
+		}
+		out[i].Columns = columns
 	}
 	return out
 }

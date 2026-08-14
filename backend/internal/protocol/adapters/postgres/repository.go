@@ -2102,10 +2102,12 @@ func (r *Repository) ListActiveAnimalStages(ctx context.Context, tenantID string
 	out := make([]domain.AnimalStage, 0, len(rows))
 	for _, row := range rows {
 		stage := domain.AnimalStage{
-			AnimalStageID: row.AnimalStageID,
-			StageCode:     row.StageCode,
-			Name:          row.Name,
-			SortOrder:     row.SortOrder,
+			AnimalStageID:      row.AnimalStageID,
+			StageCode:          row.StageCode,
+			Name:               row.Name,
+			AgeBand:            row.AgeBand.String,
+			AssignableAsCohort: !domain.IsClinicalStage(row.StageCode),
+			SortOrder:          row.SortOrder,
 		}
 		if row.MinAgeDays.Valid {
 			v := row.MinAgeDays.Int32

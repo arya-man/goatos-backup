@@ -605,6 +605,16 @@ type ShiftingDestinationShed struct {
 	// Display is the operator-facing operational-location label (oploc.OperationalLocation.Display):
 	// "Yashoda" for a non-partitioned shed, "Castro 2" / "Godel 1 - Part 3" for a partition.
 	Display string
+
+	// ConfiguredStage is the cohort AUTHORED for this exact operational location -- the pen's own
+	// tag (shed_partitions.animal_stage_id) for a partition entry, the shed's profile
+	// (shed_profiles.animal_stage_id) for a shed that has no pens. "" when none is configured.
+	//
+	// It is the FIRST answer a movement adopts, ahead of ManagementStages, because it is what
+	// somebody decided this pen is for rather than what happens to be standing in it. Maintainer
+	// decision 2026-08-14: a movement always targets a PEN, so the pen's tag is the destination
+	// cohort; deriving it from the shed's residents answered a question about the wrong place.
+	ConfiguredStage string
 }
 
 // GoatShiftingFact is the narrow set of canonical goat attributes needed to DERIVE a shifting

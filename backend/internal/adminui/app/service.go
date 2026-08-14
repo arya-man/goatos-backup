@@ -134,6 +134,7 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+					navLeaf("counts-sheds", "Sheds", "/counts/sheds", nil),
 				},
 			},
 			// Milk is its own vertical, split out of Counts here the same way it was split out of the
@@ -247,6 +248,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
+		{Pattern: "/counts/sheds", Label: "Sheds", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
 		// Most-specific-first: /feed/direction and /feed/packing are exact leaves; /feed/config is
 		// the Feed-owned authority screen (see the navigation() scope note).
@@ -440,6 +442,15 @@ func pages() []domain.PageContract {
 				tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
 				"farm", "stage", "breed", "gender", "shed", "count",
 			)}),
+		// Sheds — the shed CONFIGURATION directory, one row per shed name with a column pair per
+		// park. The park columns are NOT declared here: park names are tenant data and must never be
+		// literals in contract code, so compileShedDirectoryColumns appends them from the live park
+		// family. The contract declares only the shed name column every tenant has.
+		page("counts-sheds", "/counts/sheds", "/counts/sheds", "Sheds", "What the farm has built: every pen and shed with the cohort it is configured for and the head count it is meant to hold.", "module-surface",
+			[]domain.TableContract{sortable(
+				tableP("shed-directory", "Sheds", "/counts/sheds", []string{"shed"}, "shed_row", []int{25, 50, 100}),
+				"shed",
+			)}),
 		// Weighing — the admin-web oversight read-out.
 		//
 		// Weighing is FREE-FLOW and ISOLATED: it records a scanned tag and a weight and
@@ -518,7 +529,12 @@ func pages() []domain.PageContract {
 				// energy value blocks a rollup, never a feeding decision, so it is a reportable gap
 				// — and hiding the columns until something fills them would make the gap invisible
 				// on the one screen that can close it.
-				table("feed-items", "Feed items", "/feed-config/feed-items", []string{"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status"}, "feed_item_id"),
+				// Status sorts too: grouping the inactive items together is the fastest way to
+				// audit what is currently off the feed sheets.
+				sortable(
+					table("feed-items", "Feed items", "/feed-config/feed-items", []string{"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status"}, "feed_item_id"),
+					"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status",
+				),
 				table("shed-factors", "Shed factors", "/feed-config/shed-factors", []string{"shed", "feed_item", "multiplier", "valid_from", "valid_to"}, "shed_factor_id"),
 				// The EXPERIMENT sheds, deliberately its OWN table rather than extra rows or a
 				// column on the ration grid above. The two are not two views of one thing: a
@@ -2654,6 +2670,51 @@ func pageSpecificCopy(id string) map[string]string {
 			"growth_director.trust.rework":                 "Bounced by the verifier",
 			"growth_director.trust.rework.sub":             "left out of every gain number on this page",
 		}
+	case "counts-sheds":
+		return map[string]string{
+			"crumb":                 "Counts",
+			"section.sheds.title":   "Sheds",
+			"section.sheds.aria":    "Shed directory",
+			"section.sheds.caption": "Every pen and shed, paired across parks",
+			// Says plainly what the two values mean, because both are easy to misread. The capacity
+			// is THAT PEN's, not its shed's total; the tag is recorded per shed and shown against
+			// each of its pens; and neither figure is a census -- a pen configured for 10 head is
+			// not a pen holding 10 animals.
+			"section.sheds.note":      "How each place is set up, not how many animals are in it today. Capacity is that pen's own. A pen shows the cohort recorded for its shed — the farm records the cohort per shed, not per pen. For live head counts, use Counts Breakdown.",
+			"table.sheds.aria":        "Shed directory rows",
+			"table.sheds.page_note":   "Every pen and shed, not just this page",
+			"table.sheds.noun":        "location",
+			"table.sheds.noun_plural": "locations",
+			"column.shed":             "Shed",
+			"empty.title":             "No sheds configured",
+			"empty.body":              "No active sheds or pens are recorded for this tenant yet.",
+			// The inline retag editor. Every visible string it renders is here: the frontend composes
+			// none of it, including the default reason that lands in the audit row.
+			"stage_change.title":              "Change tag",
+			"stage_change.disabled_no_access": "Only the CEO can change a location's tag.",
+			"action.retag.search_placeholder": "Type to find a tag",
+			"action.retag.no_matches":         "No tag matches that",
+			"action.retag.confirm_title":      "Change tag",
+			"action.retag.reason_label":       "Reason",
+			"action.retag.default_reason":     "Tag corrected from the Sheds directory",
+			"action.retag.apply":              "Apply",
+			"action.retag.cancel":             "Cancel",
+			"action.retag.applying":           "Applying…",
+			"action.retag.checking":           "Checking…",
+			"action.retag.animals_noun":       "animals",
+			"action.retag.animal_noun":        "animal",
+			"action.retag.empty_scope":        "No animals here yet — this records the tag only",
+			"action.retag.failed":             "That change could not be applied",
+			// The kid/adult consequence. A tag carries its own band, so retagging a pen moves every
+			// animal in it across that line; the picker and the confirm step say so rather than
+			// leaving an operator to find out from the census afterwards.
+			"action.retag.band_kid":   "kids",
+			"action.retag.band_adult": "adults",
+			"action.retag.becomes":    "These animals become",
+			"value.no_tag":            "Not configured",
+			"value.no_capacity":       "Not recorded",
+			"value.not_in_park":       "—",
+		}
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
@@ -3230,10 +3291,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
 			"label.feed_item_retired":         "Inactive",
 			"label.feed_item_retired_note":    "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so reactivating it restores them.",
-			"label.energy_kcal_per_kg":        "Energy (kcal/kg)",
-			"label.dry_matter_factor":         "Dry matter factor",
-			"label.wastage_factor":            "Wastage factor",
-			"label.display_order":             "Display order",
+			// The status cell is edited IN PLACE: double-click swaps the chip for a picker and the
+			// choice applies immediately. The hint is contract copy because it is the only thing
+			// telling an operator the cell is editable at all — a chip that looks like every other
+			// read-only chip on the page otherwise advertises nothing.
+			"hint.feed_item_status_edit": "Double-click to change whether this item is fed.",
+			"label.energy_kcal_per_kg":   "Energy (kcal/kg)",
+			"label.dry_matter_factor":    "Dry matter factor",
+			"label.wastage_factor":       "Wastage factor",
+			"label.display_order":        "Display order",
 			// Every attribute hint says the same thing in its own terms: blank is "not measured",
 			// which is a different statement from a measured 0 and is never turned into one.
 			"label.feed_item_attributes_note":  "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",
@@ -5400,6 +5466,22 @@ func feedOptionGroups() []domain.OptionGroup {
 				option("planned", "Planned", "Authored rate greater than zero", "ok"),
 				option("configured_zero", "Configured zero", "Authored 0 g/head — correct and deliberate (K0/K1 kids on milk). The shed IS configured.", "info"),
 				option("not_configured", "No ration configured", "No authored rate at all. Blocking, not zero.", "dng"),
+			},
+		},
+		{
+			// Structural: feed_item_catalog_status_check (000001) constrains status to exactly
+			// these two values, so no tenant can add a third without a migration.
+			//
+			// This is the EDIT vocabulary of the feed-items status cell, which is why it is an
+			// option group rather than two `label.feed_item_*` copy keys: the cell became an inline
+			// picker offering BOTH states at once, and a picker's options must be backend-declared
+			// so a client cannot offer a value the write would reject. The stored value stays
+			// `retired`; the operator's word for it is "Inactive", which is exactly the storage-vs-
+			// display split an option group exists to carry.
+			ID: "feed_item_status",
+			Options: []domain.Option{
+				option("active", "Active", "This item is part of the feed vocabulary. It appears on the ration grid and is packed and served wherever a rate is authored for it.", "ok"),
+				option("retired", "Inactive", "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid — but they are kept, so reactivating it restores them.", "mut"),
 			},
 		},
 		{

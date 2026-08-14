@@ -109,3 +109,36 @@ func EffectiveClinicalDeferStates(present []string) []string {
 	}
 	return out
 }
+
+// IsClinicalStage reports whether a stage code names one of the mandatory clinical states.
+//
+// It exists so a CALLER offering the stage vocabulary as a picker can drop the clinical tags
+// (ICU, Quarantine) rather than offering them and letting the write reject them. The comparison is
+// normalized the same way the identity module's destination-tag check normalizes it -- lowercased
+// with separators stripped -- so "Under Treatment", "under_treatment" and "under-treatment" all
+// resolve to the same state.
+//
+// Reused, never re-hardcoded: the clinical-defer safety rule exists because a second copy of this
+// set is a second place to forget one.
+func IsClinicalStage(stage string) bool {
+	key := clinicalKey(stage)
+	if key == "" {
+		return false
+	}
+	for _, clinical := range MandatoryClinicalDeferStates {
+		if key == clinicalKey(clinical) {
+			return true
+		}
+	}
+	return false
+}
+
+func clinicalKey(stage string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(stage)) {
+		if r >= 'a' && r <= 'z' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
