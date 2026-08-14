@@ -675,14 +675,21 @@ class SyncEngine(
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
-                feedWeightProofRef = resolveUploadedProofRef(
-                    payload.feedWeightProofOutboxItemId
-                        ?: throw NonRetryableSyncException(
-                            "This feeding needs a feed weight photo. Please record this shed's feeding again.",
-                        ),
+                feedWeightProofRef = resolveFeedProofRef(
+                    payload.feedWeightProofRef,
+                    payload.feedWeightProofOutboxItemId,
+                    "This feeding needs a feed weight photo. Please record this shed's feeding again.",
                 ),
-                distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),
-                waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+                distributionProofRef = resolveFeedProofRef(
+                    payload.distributionProofRef,
+                    payload.distributionProofOutboxItemId,
+                    "This feeding needs a feed video. Please record this shed's feeding again.",
+                ),
+                waterProofRef = resolveFeedProofRef(
+                    payload.waterProofRef,
+                    payload.waterProofOutboxItemId,
+                    "This feeding needs a water video. Please record this shed's feeding again.",
+                ),
             ),
         )
         return syncJson.encodeToString(response)
@@ -778,6 +785,28 @@ class SyncEngine(
      * row throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or
      * a blank proof id is terminal. Shared by the two mandatory feed-distribution proofs.
      */
+    /**
+     * The server proof id for ONE feed slot, from whichever side holds it.
+     *
+     * [remoteRef] is already a SERVER proof id: the slot was shot on ANOTHER operator's phone, so
+     * there is no local outbox row to resolve and it is sent verbatim. Otherwise the slot was shot
+     * here and resolves through its own PROOF_UPLOAD row exactly as before.
+     *
+     * Neither present is terminal rather than retryable: a completion with a missing proof can never
+     * succeed, so retrying forever would strand the row silently instead of telling the operator
+     * what to re-record.
+     */
+    private suspend fun resolveFeedProofRef(
+        remoteRef: String?,
+        proofItemId: String?,
+        missingMessage: String,
+    ): String {
+        remoteRef?.takeIf { it.isNotBlank() }?.let { return it }
+        val localItemId = proofItemId?.takeIf { it.isNotBlank() }
+            ?: throw NonRetryableSyncException(missingMessage)
+        return resolveUploadedProofRef(localItemId)
+    }
+
     private suspend fun resolveUploadedProofRef(proofItemId: String): String {
         val proofRow = store.findById(proofItemId)
             ?: throw NonRetryableSyncException("A required proof upload could not be found.")

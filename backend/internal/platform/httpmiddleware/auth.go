@@ -411,6 +411,13 @@ func routeAllowsScopedGrants(route permissions.Route) bool {
 		route.Pattern == "/feed-transport/tasks" ||
 		route.Pattern == "/feed-direction/distribution/complete" ||
 		route.Pattern == "/feed-direction/packing/complete" ||
+		// The pen-session capture read (2026-08-14, multi-operator feed distribution). Listed on the
+		// same terms as the four above: GetDistributionCaptures clamps park_id through
+		// ResolveAuthorizedParkScopeForCapabilities before it reads, so a CPT operator naming a CBE
+		// park is refused rather than quietly shown nothing. Without this entry a park-scoped
+		// operator -- which is every real operator -- resolves to roles "" and gets 403 on a read
+		// their own role permits, the exact 2026-08-08 shape described above.
+		route.Pattern == "/feed-direction/distribution/captures" ||
 		// The transport SUBMIT was missed when the three routes above were admitted (2026-08-08), so
 		// a park-scoped operator could open his transport task, record the mandatory video, and be
 		// refused 403 on submit -- with roles resolved to "" here, before AuthorizeRoute ever ran.

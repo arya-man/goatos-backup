@@ -28,6 +28,15 @@ func (transportFilterService) PackingWorklist(context.Context, domain.PackingQue
 func (transportFilterService) CompleteSession(context.Context, app.CompleteSessionInput) (ports.CompleteSessionResult, error) {
 	return ports.CompleteSessionResult{}, nil
 }
+
+// ListPenSessionCaptures: these handler tests drive filters and completion bodies, not the
+// multi-operator discovery read.
+func (transportFilterService) ListPenSessionCaptures(
+	context.Context, app.PenSessionCapturesInput,
+) ([]ports.CapturedProofSlot, error) {
+	return nil, nil
+}
+
 func (transportFilterService) CompleteDistribution(context.Context, app.CompleteDistributionInput) (ports.CompleteDistributionResult, error) {
 	return ports.CompleteDistributionResult{}, nil
 }

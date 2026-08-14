@@ -29,6 +29,8 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -64,6 +66,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val proofCaptureSource: ProofCaptureSource,
     private val photoCaptureSource: PhotoCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
+    private val feedRepository: FeedRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     @ApplicationContext private val appContext: Context,
@@ -96,6 +99,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val feedWeightPhotoProofRowId = DraftOutboxItemId(savedStateHandle, KEY_FEED_WEIGHT_PHOTO_PROOF_ROW_ID)
     private val videoProofRowId = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_PROOF_ROW_ID)
     private val waterVideoProofRowId = DraftOutboxItemId(savedStateHandle, KEY_WATER_VIDEO_PROOF_ROW_ID)
+
+    // SERVER proof ids for slots ANOTHER operator recorded. A pen-session's three proofs may be
+    // split across three phones (maintainer decision 2026-08-14); a slot shot elsewhere has no local
+    // outbox row here, so its server id is what this phone submits with.
+    private val feedWeightRemoteRef = DraftOutboxItemId(savedStateHandle, KEY_FEED_WEIGHT_REMOTE_REF)
+    private val videoRemoteRef = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_REMOTE_REF)
+    private val waterVideoRemoteRef = DraftOutboxItemId(savedStateHandle, KEY_WATER_VIDEO_REMOTE_REF)
     private var completeEnqueueInFlight = false
     private val syncedProofAnalytics: MutableSet<ProofSlot> =
         EnumSet.noneOf(ProofSlot::class.java) // mobile-guard:ignore bounded by ProofSlot enum.
@@ -125,6 +135,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         recomputeCanComplete()
         observeSyncStatus()
         observeDurableProofs()
+        refreshTeammateCaptures()
         outboxItemId.value?.let(::observeOutboxItem)
         feedWeightPhotoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, it) }
         videoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_VIDEO, it) }
@@ -465,11 +476,17 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         val feedWeightPhotoItem = feedWeightPhotoProofItemId.value
         val videoItem = videoProofItemId.value
         val waterVideoItem = waterVideoProofItemId.value
+        // A slot is satisfied by EITHER this phone's own upload or a teammate's server proof id. A
+        // pen-session split across three operators leaves each phone holding one of three, so
+        // demanding all three locally is what made a split pen unsubmittable at all.
+        val feedWeightRemote = feedWeightRemoteRef.value
+        val videoRemote = videoRemoteRef.value
+        val waterVideoRemote = waterVideoRemoteRef.value
         if (
             !current.submitEnabled ||
-            feedWeightPhotoItem.isNullOrBlank() ||
-            videoItem.isNullOrBlank() ||
-            waterVideoItem.isNullOrBlank()
+            (feedWeightPhotoItem.isNullOrBlank() && feedWeightRemote.isNullOrBlank()) ||
+            (videoItem.isNullOrBlank() && videoRemote.isNullOrBlank()) ||
+            (waterVideoItem.isNullOrBlank() && waterVideoRemote.isNullOrBlank())
         ) {
             analytics.track(
                 AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_BLOCKED,
@@ -487,7 +504,18 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             when (
                 val result = syncRepository.enqueueFeedDistributionComplete(
                     groupKey = groupKey,
-                    idempotencyKey = feedDistributionCompleteKey(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem),
+                    // Keyed on the proof SET, unchanged. Two operators submitting the same pen mint
+                    // different keys, but they name the SAME three proofs, so the backend's
+                    // shed-session natural key makes the second an idempotent no-op rather than a
+                    // double write (a DIFFERENT proof set is what raises ErrDistributionAlreadyRecorded).
+                    // Deliberately NOT re-keyed on pen identity alone: that would collide with the
+                    // earlier successful submit and swallow a legitimate rework re-submit.
+                    idempotencyKey = feedDistributionCompleteKey(
+                        groupKey,
+                        feedWeightPhotoItem ?: feedWeightRemote,
+                        videoItem ?: videoRemote,
+                        waterVideoItem ?: waterVideoRemote,
+                    ),
                     parkId = parkId,
                     shedId = shedId,
                     partitionLabel = partitionLabel,
@@ -497,6 +525,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     feedWeightProofOutboxItemId = feedWeightPhotoItem,
                     distributionProofOutboxItemId = videoItem,
                     waterProofOutboxItemId = waterVideoItem,
+                    feedWeightProofRef = feedWeightRemote,
+                    distributionProofRef = videoRemote,
+                    waterProofRef = waterVideoRemote,
                 )
             ) {
                 is AppResult.Ok -> {
@@ -611,6 +642,87 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     mapOf(AnalyticsEvents.Params.REASON to removed.message),
                 )
                 false
+            }
+        }
+    }
+
+    /**
+     * Learns which slots ANOTHER operator already recorded for this pen-session.
+     *
+     * Three operators may split a pen-session's three proofs -- one shoots the weight photo, one the
+     * feed video, one the water video (maintainer decision 2026-08-14). Without this read a proof was
+     * visible only on the phone that shot it, so the others saw an empty form AND no phone held all
+     * three references, which made the pen unsubmittable.
+     *
+     * Best effort by design: a failure leaves every remote ref null and the screen behaves exactly as
+     * it did before this read existed. A slot this phone recorded ITSELF always wins -- local capture
+     * state is never overwritten by the shared read.
+     */
+    private fun refreshTeammateCaptures() {
+        if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
+        viewModelScope.launch {
+            val slots = feedRepository.penSessionCaptures(
+                FeedPenSessionCaptureQuery(
+                    parkId = parkId,
+                    shedId = shedId,
+                    // The PEN. Without it the server answers for the shed and would claim a sibling
+                    // pen's work as this one's.
+                    partitionLabel = partitionLabel,
+                    sessionNo = sessionNo,
+                    targetDate = targetDate,
+                    workflow = workflow,
+                ),
+            )
+            if (slots.isEmpty()) return@launch
+            slots.forEach { slot ->
+                when (slot.fieldKey) {
+                    FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO ->
+                        adoptTeammateCapture(ProofSlot.FEED_WEIGHT_PHOTO, feedWeightRemoteRef, slot.proofRef)
+                    FIELD_FEED_DISTRIBUTION_VIDEO ->
+                        adoptTeammateCapture(ProofSlot.FEED_VIDEO, videoRemoteRef, slot.proofRef)
+                    FIELD_FEED_DISTRIBUTION_WATER_VIDEO ->
+                        adoptTeammateCapture(ProofSlot.WATER_VIDEO, waterVideoRemoteRef, slot.proofRef)
+                }
+            }
+            recomputeCanComplete()
+        }
+    }
+
+    /**
+     * Marks a slot satisfied by a proof recorded on another phone.
+     *
+     * Skipped entirely when this phone holds its OWN proof for the slot: the operator's own capture
+     * is the one they can re-record, and replacing it with a teammate's reference would silently
+     * discard their work. The status is SYNCED because the proof is already durable server-side --
+     * that is exactly what makes it submittable -- and there is no preview, because this screen
+     * deliberately never shows another operator's media.
+     */
+    private fun adoptTeammateCapture(slot: ProofSlot, remoteRef: DraftOutboxItemId, proofRef: String) {
+        if (proofRef.isBlank()) return
+        val locallyCaptured = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofItemId.value != null
+            ProofSlot.FEED_VIDEO -> videoProofItemId.value != null
+            ProofSlot.WATER_VIDEO -> waterVideoProofItemId.value != null
+        }
+        if (locallyCaptured) return
+        remoteRef.value = proofRef
+        _state.update {
+            when (slot) {
+                ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
+                    feedWeightPhotoCaptured = true,
+                    feedWeightPhotoStatus = FeedDistributionProofStatus.SYNCED,
+                    feedWeightPhotoMessage = PROOF_RECORDED_BY_TEAMMATE,
+                )
+                ProofSlot.FEED_VIDEO -> it.copy(
+                    videoCaptured = true,
+                    videoStatus = FeedDistributionProofStatus.SYNCED,
+                    videoMessage = PROOF_RECORDED_BY_TEAMMATE,
+                )
+                ProofSlot.WATER_VIDEO -> it.copy(
+                    waterVideoCaptured = true,
+                    waterVideoStatus = FeedDistributionProofStatus.SYNCED,
+                    waterVideoMessage = PROOF_RECORDED_BY_TEAMMATE,
+                )
             }
         }
     }
@@ -771,13 +883,21 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         title = "Record water video",
     )
 
+    /**
+     * The submit key, derived from the pen-session plus the identity of each proof in the set.
+     *
+     * Each slot contributes whichever reference this phone holds: its own outbox id, or the SERVER
+     * proof id of a proof a teammate recorded. Callers have already established every slot has one,
+     * so the nullable parameters are a type accommodation, not an optional set.
+     */
     private fun feedDistributionCompleteKey(
         groupKey: String,
-        feedWeightPhotoItem: String,
-        videoItem: String,
-        waterVideoItem: String,
+        feedWeightPhotoItem: String?,
+        videoItem: String?,
+        waterVideoItem: String?,
     ): String {
-        val canonical = listOf(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem).joinToString("|")
+        val canonical = listOf(groupKey, feedWeightPhotoItem.orEmpty(), videoItem.orEmpty(), waterVideoItem.orEmpty())
+            .joinToString("|")
         return "feed-distribution-complete:" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString()
     }
 
@@ -833,6 +953,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val KEY_FEED_WEIGHT_PHOTO_PROOF_ROW_ID = "feedDistribution.feedWeightPhotoProofRowId"
         private const val KEY_VIDEO_PROOF_ROW_ID = "feedDistribution.videoProofRowId"
         private const val KEY_WATER_VIDEO_PROOF_ROW_ID = "feedDistribution.waterVideoProofRowId"
+        private const val KEY_FEED_WEIGHT_REMOTE_REF = "feedDistribution.feedWeightRemoteRef"
+        private const val KEY_VIDEO_REMOTE_REF = "feedDistribution.videoRemoteRef"
+        private const val KEY_WATER_VIDEO_REMOTE_REF = "feedDistribution.waterVideoRemoteRef"
         private const val FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO = "feed_distribution_feed_weight_photo"
         private const val FIELD_FEED_DISTRIBUTION_VIDEO = "feed_distribution_video"
         private const val FIELD_FEED_DISTRIBUTION_WATER_VIDEO = "feed_distribution_water_video"
@@ -842,6 +965,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val PROOF_QUEUED = "Proof saved on this phone. It will upload automatically."
         private const val PROOF_UPLOADING = "Proof upload is in progress."
         private const val PROOF_SYNCED = "Proof is ready."
+        private const val PROOF_RECORDED_BY_TEAMMATE = "Already recorded by another operator."
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 

@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
@@ -64,6 +65,7 @@ class FeedDistributionCompleteViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
             photoCaptureSource = photoSource,
             proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -123,6 +125,7 @@ class FeedDistributionCompleteViewModelTest {
             proofCaptureSource = videoSource,
             photoCaptureSource = photoSource,
             proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -171,6 +174,84 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     /**
+     * THREE operators, one pen-session: the phone that shot nothing must still be able to submit.
+     *
+     * A pen-session's three proofs may be split across three phones (maintainer decision
+     * 2026-08-14). Each phone holds one of three local outbox ids, so before the shared read every
+     * phone failed submit at `FEED_DISTRIBUTION_SUBMIT_BLOCKED` and the pen could never close.
+     *
+     * This drives the hardest version: THIS phone captured NOTHING. It must adopt all three
+     * teammates' server proof ids, enable submit, and send those ids -- not local outbox references
+     * it does not have.
+     */
+    @Test
+    fun `a pen-session split across three operators is submittable from a phone that shot nothing`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-14T03:44:56Z",
+                ),
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                ),
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_water_video",
+                    proofRef = "server-proof-water-video",
+                    capturedAt = "2026-08-14T03:45:47Z",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "2",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 8",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        // The shared read must be asked for THIS PEN, never the shed as a whole -- otherwise a
+        // sibling pen's work would be claimed as this one's.
+        assertEquals(1, teammates.queries.size)
+        assertEquals("Part 8", teammates.queries.single().partitionLabel)
+        assertEquals(2, teammates.queries.single().sessionNo)
+
+        // All three slots read as done even though this phone captured nothing.
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+        assertEquals(true, viewModel.state.value.videoCaptured)
+        assertEquals(true, viewModel.state.value.waterVideoCaptured)
+        assertEquals(true, viewModel.state.value.submitEnabled)
+
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        advanceUntilIdle()
+
+        assertEquals(1, syncRepository.completionEnqueueCount)
+        // The SERVER proof ids travel, because there is no local outbox row to resolve.
+        assertEquals("server-proof-weight", syncRepository.lastFeedWeightProofRef)
+        assertEquals("server-proof-feed-video", syncRepository.lastDistributionProofRef)
+        assertEquals("server-proof-water-video", syncRepository.lastWaterProofRef)
+        assertEquals(null, syncRepository.lastFeedWeightProofOutboxItemId)
+    }
+
+    /**
      * Re-entering the screen on a PARTITIONED pen must rehydrate an already-captured proof from
      * Room. The view model is scoped to its nav back stack entry, so leaving the screen clears all
      * in-memory state (and the SavedStateHandle with it) — the durable proof read is the only thing
@@ -198,6 +279,7 @@ class FeedDistributionCompleteViewModelTest {
                 mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
             ),
             proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -243,6 +325,11 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
     var lastWaterProofOutboxItemId: String? = null
         private set
 
+    // Server proof ids for slots recorded on ANOTHER operator's phone.
+    var lastFeedWeightProofRef: String? = null
+    var lastDistributionProofRef: String? = null
+    var lastWaterProofRef: String? = null
+
     override fun observeStatus(): MutableStateFlow<SyncStatus> = status
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = items.getOrPut(itemId) { MutableStateFlow(null) }
 
@@ -285,14 +372,20 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        distributionProofOutboxItemId: String,
-        feedWeightProofOutboxItemId: String,
-        waterProofOutboxItemId: String,
+        distributionProofOutboxItemId: String?,
+        feedWeightProofOutboxItemId: String?,
+        waterProofOutboxItemId: String?,
+        feedWeightProofRef: String?,
+        distributionProofRef: String?,
+        waterProofRef: String?,
     ): AppResult<String> {
         completionEnqueueCount += 1
         lastFeedWeightProofOutboxItemId = feedWeightProofOutboxItemId
         lastDistributionProofOutboxItemId = distributionProofOutboxItemId
         lastWaterProofOutboxItemId = waterProofOutboxItemId
+        lastFeedWeightProofRef = feedWeightProofRef
+        lastDistributionProofRef = distributionProofRef
+        lastWaterProofRef = waterProofRef
         return AppResult.Ok("completion-item-1")
     }
 
