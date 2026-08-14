@@ -46,6 +46,11 @@ const writeLogIdempotencyConstraint = "feed_config_write_log_idempotency_uidx"
 // which is reported to the author as "already exists" rather than as a server error.
 const feedItemNaturalKeyConstraint = "feed_item_catalog_natural_key_uidx"
 
+// maxSessionTemplateItemRows bounds one park's declared recipe. Deliberately the same cap
+// generation enforces (feeddirection.MaxSessionItemRows), so the authoring screen and the feed sheet
+// agree on what is too large rather than one accepting a recipe the other refuses to serve.
+const maxSessionTemplateItemRows = 500
+
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
@@ -345,7 +350,71 @@ LIMIT $3 OFFSET $4`
 		return domain.SessionTemplatePage{}, fmt.Errorf("feedconfig: list session templates: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
+	if err := r.attachSessionTemplateItems(ctx, q.TenantID, q.ParkID, out.Items); err != nil {
+		return domain.SessionTemplatePage{}, err
+	}
 	return out, nil
+}
+
+// attachSessionTemplateItems loads the park's declared slots and hangs each on its session.
+//
+// ONE set-based read for the whole page, not one per session: a per-row query here would be the
+// n-plus-one fan-out the scale rules ban, and it would be invisible from the caller because the
+// round trips sit an adapter layer down.
+//
+// The predicate is deliberately the one GENERATION uses (feeddirection loadSessionTemplates):
+// status = 'active' AND the window open today. The authoring screen must show the recipe that is
+// actually being served, not a superset that includes withdrawn feeds — an author who sees a feed
+// listed will reasonably believe animals are getting it.
+func (r *Repository) attachSessionTemplateItems(ctx context.Context, tenantID, parkID string, sessions []domain.SessionTemplate) error {
+	for i := range sessions {
+		sessions[i].Items = []domain.SessionTemplateItem{}
+	}
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	// scale-guard:ignore: bounded set-based read of ONE park's authored session slots (14 rows live -- 2 sessions x 7 slots), loaded once for the whole page rather than once per session. Covered by feed_session_template_items_current_lookup_idx (tenant_id, park_id, session_no, slot_no); every bind is cast and the indexed columns stay bare.
+	rows, err := r.pool.Query(ctx, `
+SELECT session_template_item_id::text, session_no, slot_no, feed_item_label
+FROM feed_session_template_items
+WHERE tenant_id = $1::uuid
+  AND park_id = $2::uuid
+  AND status = 'active'
+  AND valid_from <= CURRENT_DATE
+  AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+ORDER BY session_no, slot_no
+LIMIT $3`, tenantID, parkID, maxSessionTemplateItemRows+1)
+	if err != nil {
+		return fmt.Errorf("feedconfig: list session template items: %w", err)
+	}
+	defer rows.Close()
+
+	bySession := map[int32][]domain.SessionTemplateItem{}
+	count := 0
+	for rows.Next() {
+		var item domain.SessionTemplateItem
+		if err := rows.Scan(&item.SessionTemplateItemID, &item.SessionNo, &item.SlotNo, &item.FeedItemLabel); err != nil {
+			return fmt.Errorf("feedconfig: scan session template item: %w", err)
+		}
+		count++
+		// Fail closed rather than truncate. A silently short recipe would show an author a session
+		// missing feeds it actually serves, which is the same class of lie this whole change exists
+		// to remove.
+		if count > maxSessionTemplateItemRows {
+			return fmt.Errorf("feedconfig: park %s declares more than %d session slots", parkID, maxSessionTemplateItemRows)
+		}
+		bySession[item.SessionNo] = append(bySession[item.SessionNo], item)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("feedconfig: list session template items: %w", err)
+	}
+	for i := range sessions {
+		if items, ok := bySession[sessions[i].SessionNo]; ok {
+			sessions[i].Items = items
+		}
+	}
+	return nil
 }
 
 // ListScheduleConfig serves a park's CURRENT dispatch clocks, one per workflow.
@@ -1149,6 +1218,188 @@ WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid`,
 		// row in place rather than closing a window and opening another.
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: cmd.FeedItemID}, nil
 	})
+}
+
+// SetSessionTemplateItem declares a feed on one session's recipe, or withdraws it.
+//
+// This is the write that decides whether a feed reaches an animal. Everything else on this screen
+// answers HOW MUCH; only a declared slot answers WHETHER, because generation walks the slots and
+// looks each one up in the grid. A quantity authored for an undeclared feed is never read.
+func (r *Repository) SetSessionTemplateItem(ctx context.Context, cmd domain.SetSessionTemplateItemCommand) (domain.WriteResult, error) {
+	return r.runWrite(ctx, domain.WriteKindSessionTemplateItem, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
+		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
+			return writeEffect{}, err
+		}
+
+		// The session is locked, not merely checked. It is the FK parent of the row about to be
+		// written, and taking the lock here serializes two concurrent declares on the same session so
+		// they cannot both read the same maximum slot number.
+		var sessionExists bool
+		err := tx.QueryRow(ctx, `
+SELECT true
+FROM feed_session_templates
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND session_no = $3
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.SessionNo).Scan(&sessionExists)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return writeEffect{}, ports.ErrSessionNotFound
+		case err != nil:
+			return writeEffect{}, fmt.Errorf("feedconfig: lock session template: %w", err)
+		}
+
+		// The slot as it stands today, under the same predicate GENERATION uses. Matching that
+		// predicate is what makes "already declared" mean "already being served".
+		var openID, openValidFrom string
+		err = tx.QueryRow(ctx, `
+SELECT session_template_item_id::text, valid_from::text
+FROM feed_session_template_items
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND session_no = $3
+  AND feed_item_key = feed_config_norm($4)
+  AND status = 'active' AND valid_to IS NULL
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.SessionNo, cmd.FeedItemLabel).Scan(&openID, &openValidFrom)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return writeEffect{}, fmt.Errorf("feedconfig: lock session template item: %w", err)
+		}
+		declared := err == nil
+
+		if !cmd.Declared {
+			return withdrawSessionTemplateItem(ctx, tx, cmd, declared, openID, openValidFrom)
+		}
+		if declared {
+			// Already on the recipe. Reported as unchanged rather than re-slotted: the author asked
+			// for a state and that state holds, and opening a second window would only churn the
+			// packing order.
+			return writeEffect{Outcome: domain.OutcomeUnchanged, ResultRowID: openID}, nil
+		}
+		return declareSessionTemplateItem(ctx, tx, cmd)
+	})
+}
+
+// declareSessionTemplateItem puts a feed on the session's recipe.
+func declareSessionTemplateItem(ctx context.Context, tx pgx.Tx, cmd domain.SetSessionTemplateItemCommand) (writeEffect, error) {
+	// The feed must exist and be servable. A retired item is refused rather than declared, because
+	// generation reads the catalog `WHERE status = 'active'` and would resolve no quantity for it --
+	// the slot would be declared and permanently blocked.
+	var catalogued bool
+	err := tx.QueryRow(ctx, `
+SELECT true FROM feed_item_catalog
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm($2) AND status = 'active'`,
+		cmd.TenantID, cmd.FeedItemLabel).Scan(&catalogued)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return writeEffect{}, ports.ErrFeedItemNotFound
+	case err != nil:
+		return writeEffect{}, fmt.Errorf("feedconfig: check feed item for slot: %w", err)
+	}
+
+	// THE GATE. A declared slot is priced for EVERY shed in the park, and a cell with no open rate
+	// is BLOCKED rather than zero -- `no currently-open ration rate for ...` takes that shed's whole
+	// sheet down. So a feed that cannot be priced everywhere in this park is refused here, at the
+	// moment the author presses the button, rather than at 07:00 the next morning.
+	//
+	// Counted over the cells that EXIST, which is the same scope the grid fill uses: an unauthored
+	// (group, tag) combination is not a cell and is blocked for every feed alike.
+	var uncovered int
+	if err := tx.QueryRow(ctx, `
+WITH cells AS (
+    SELECT DISTINCT ration_group_label, shed_tag_label
+    FROM feed_ration_rates
+    WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND valid_to IS NULL
+)
+SELECT count(*)
+FROM cells c
+WHERE NOT EXISTS (
+    SELECT 1 FROM feed_ration_rates r
+    WHERE r.tenant_id        = $1::uuid
+      AND r.park_id          = $2::uuid
+      AND r.ration_group_key = feed_config_norm(c.ration_group_label)
+      AND r.shed_tag_key     = feed_config_norm(c.shed_tag_label)
+      AND r.feed_item_key    = feed_config_norm($3)
+      AND r.valid_to IS NULL)`,
+		cmd.TenantID, cmd.ParkID, cmd.FeedItemLabel).Scan(&uncovered); err != nil {
+		return writeEffect{}, fmt.Errorf("feedconfig: check slot rate coverage: %w", err)
+	}
+	if uncovered > 0 {
+		return writeEffect{}, fmt.Errorf("%w: %d cell(s) in this park have no rate for %q",
+			ports.ErrSlotRatesIncomplete, uncovered, cmd.FeedItemLabel)
+	}
+
+	// Appended to the END of the packing order. Slot number is a PACKING POSITION, not something the
+	// author chooses, and inserting into the middle would renumber slots that packers already know.
+	// Derived under the session lock taken above, so two concurrent declares cannot collide.
+	//
+	// max() spans every open row regardless of status, matching feed_session_template_items_open_slot_uidx
+	// (unique on slot among rows with valid_to IS NULL, retired ones included) -- taking the max of
+	// active rows only would reuse a withdrawn row's slot and violate it.
+	var slotNo int32
+	if err := tx.QueryRow(ctx, `
+SELECT coalesce(max(slot_no), 0) + 1
+FROM feed_session_template_items
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND session_no = $3 AND valid_to IS NULL`,
+		cmd.TenantID, cmd.ParkID, cmd.SessionNo).Scan(&slotNo); err != nil {
+		return writeEffect{}, fmt.Errorf("feedconfig: resolve slot number: %w", err)
+	}
+	if int(slotNo) > maxSessionTemplateItemRows {
+		return writeEffect{}, fmt.Errorf("feedconfig: session %d already declares the maximum %d slots",
+			cmd.SessionNo, maxSessionTemplateItemRows)
+	}
+
+	var newID string
+	if err := tx.QueryRow(ctx, `
+INSERT INTO feed_session_template_items (tenant_id, park_id, session_no, slot_no, feed_item_label,
+                                         status, valid_from, created_by)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'active', $6::date, nullif($7,'')::uuid)
+RETURNING session_template_item_id::text`,
+		cmd.TenantID, cmd.ParkID, cmd.SessionNo, slotNo, cmd.FeedItemLabel,
+		cmd.EffectiveFrom, actorUUID(cmd.ActorRef)).Scan(&newID); err != nil {
+		return writeEffect{}, fmt.Errorf("feedconfig: declare session template item: %w", err)
+	}
+	return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
+}
+
+// withdrawSessionTemplateItem takes a feed off the session's recipe.
+//
+// NEVER A DELETE. The row is closed or retired in place, so every sheet already issued from it stays
+// explainable -- the same reason retiring a catalog item is a status flip.
+func withdrawSessionTemplateItem(
+	ctx context.Context,
+	tx pgx.Tx,
+	cmd domain.SetSessionTemplateItemCommand,
+	declared bool,
+	openID, openValidFrom string,
+) (writeEffect, error) {
+	if !declared {
+		return writeEffect{}, ports.ErrSlotNotDeclared
+	}
+	if openValidFrom > cmd.EffectiveFrom {
+		// Same reasoning as ErrFutureDatedRow on the rate path: neither branch below is right for a
+		// row that takes effect later than the date this edit applies on.
+		return writeEffect{}, ports.ErrFutureDatedRow
+	}
+	if openValidFrom == cmd.EffectiveFrom {
+		// Declared and withdrawn on the SAME business day. The window cannot be closed --
+		// feed_session_template_items_window_check requires valid_to > valid_from -- and there is no
+		// history worth preserving because no sheet was ever issued from a slot that existed for part
+		// of one day. Retiring in place leaves the row readable and stops it being served at once,
+		// since generation requires status = 'active'.
+		if _, err := tx.Exec(ctx, `
+UPDATE feed_session_template_items
+SET status = 'retired', updated_at = now()
+WHERE session_template_item_id = $1::uuid`, openID); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: retire session template item: %w", err)
+		}
+		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: openID}, nil
+	}
+
+	// Ordinary case: close the window. valid_to is EXCLUSIVE in generation's predicate
+	// (valid_to > as_of), so the feed stops being served on the effective date itself.
+	if _, err := tx.Exec(ctx, `
+UPDATE feed_session_template_items
+SET valid_to = $2::date, updated_at = now()
+WHERE session_template_item_id = $1::uuid`, openID, cmd.EffectiveFrom); err != nil {
+		return writeEffect{}, fmt.Errorf("feedconfig: close session template item: %w", err)
+	}
+	return writeEffect{Outcome: domain.OutcomeSuperseded, ResultRowID: openID, SupersededRowID: openID}, nil
 }
 
 // UpsertScheduleConfig authors one park/workflow dispatch clock.

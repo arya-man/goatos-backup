@@ -1832,3 +1832,237 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, fcTenant, "key-item-00007"
 		t.Fatalf("ledger audit = (%s, %s), want (tester, 2026-07-19)", actor, effectiveFrom)
 	}
 }
+
+// =================================================================================================
+// Session slots — the write that decides WHETHER a feed is served.
+//
+// These run against the real schema because every risk here is in SQL: the predicate that decides
+// "already declared", the coverage gate that reads the whole grid, and the slot-number derivation
+// that has to satisfy a partial unique index. A fake cannot see any of them.
+// =================================================================================================
+
+// seedSession gives the park a feeding session. Slots are FK'd to it, so a slot test without one
+// would only ever prove the fail-closed path.
+func seedSession(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sessionNo int, label, split string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_session_templates (tenant_id, park_id, session_no, session_label, split_fraction, display_order, status)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5::numeric, $3, 'active')
+ON CONFLICT DO NOTHING`, fcTenant, fcPark, sessionNo, label, split); err != nil {
+		t.Fatalf("seed session %d: %v", sessionNo, err)
+	}
+}
+
+func sessionSlotCommand(sessionNo int32, feedItem string, declared bool, key, effectiveFrom string) domain.SetSessionTemplateItemCommand {
+	return domain.SetSessionTemplateItemCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: effectiveFrom,
+			IdempotencyKey: key, RequestFingerprint: "fp-" + key,
+		},
+		ParkID: fcPark, SessionNo: sessionNo, FeedItemLabel: feedItem, Declared: declared,
+	}
+}
+
+// declaredFeeds reads the session's recipe under the predicate GENERATION uses, which is the only
+// predicate that answers "is this feed actually being served".
+func declaredFeeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sessionNo int32) []string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT feed_item_label FROM feed_session_template_items
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND session_no = $3
+  AND status = 'active' AND valid_from <= CURRENT_DATE AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+ORDER BY slot_no`, fcTenant, fcPark, sessionNo)
+	if err != nil {
+		t.Fatalf("read declared feeds: %v", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			t.Fatalf("scan declared feed: %v", err)
+		}
+		out = append(out, label)
+	}
+	return out
+}
+
+// TestDeclareSessionFeedRefusesAFeedTheParkCannotPriceEverywhere is the gate, and it is the reason
+// the grid had to be completed before this write could exist.
+//
+// A declared slot is priced for EVERY shed in the park. A cell with no open rate is BLOCKED rather
+// than zero — the sheet fails outright with `no currently-open ration rate for ...` — so declaring a
+// feed that is unpriced in even one cell would take those sheds down at the next issue, hours after
+// the author pressed a button that appeared to work.
+func TestDeclareSessionFeedRefusesAFeedTheParkCannotPriceEverywhere(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+
+	// Two cells, and Sirohi Concentrate is priced in only one of them.
+	for i, cell := range []struct{ group, tag string }{{"Boer", "Pregnant"}, {"Boer", "Non-Pregnant"}} {
+		cmd := rateCommand(fmt.Sprintf("key-slotcell-%02d", i), fmt.Sprintf("fp-slotcell-%02d", i), "500.000", "2026-07-19")
+		cmd.RationGroupLabel, cmd.ShedTagLabel = cell.group, cell.tag
+		if _, err := repo.UpsertRationRate(ctx, cmd); err != nil {
+			t.Fatalf("seed cell: %v", err)
+		}
+	}
+	// Priced in ONE cell only — the partial state the gate exists for.
+	partial := rateCommand("key-partial", "fp-partial", "100.000", "2026-07-19")
+	partial.FeedItemLabel = "Hybrid"
+	if _, err := repo.UpsertRationRate(ctx, partial); err != nil {
+		t.Fatalf("seed partial rate: %v", err)
+	}
+
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Hybrid", true, "key-slot-refuse", "2026-07-19"))
+	if !errors.Is(err, ports.ErrSlotRatesIncomplete) {
+		t.Fatalf("err = %v, want ErrSlotRatesIncomplete", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 0 {
+		t.Fatalf("a REFUSED declare still wrote a slot: %v", got)
+	}
+
+	// Fully priced, so it is accepted — proving the refusal above is the coverage gate and not a
+	// blanket rejection.
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-slot-ok", "2026-07-19")); err != nil {
+		t.Fatalf("declare fully-priced feed: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 1 || got[0] != "Concentrate" {
+		t.Fatalf("declared feeds = %v, want [Concentrate]", got)
+	}
+}
+
+func seedCorrectionBreedsForSlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1::uuid, 'Concentrate', 'active'), ($1::uuid, 'Hybrid', 'active')
+ON CONFLICT DO NOTHING`, fcTenant); err != nil {
+		t.Fatalf("seed feed items: %v", err)
+	}
+}
+
+// TestWithdrawSessionFeedClosesTheRowAndNeverDeletesIt pins the non-destructive half: a feed taken
+// off the recipe stops being served, but the row survives so sheets already issued from it stay
+// explainable.
+func TestWithdrawSessionFeedClosesTheRowAndNeverDeletesIt(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-w-cell", "fp-w-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-w-add", "2026-07-19")); err != nil {
+		t.Fatalf("declare: %v", err)
+	}
+
+	// A LATER business date, so the ordinary window-closing branch runs rather than the same-day one.
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", false, "key-w-del", "2026-07-20")); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 0 {
+		t.Fatalf("withdrawn feed is still served: %v", got)
+	}
+
+	var stored int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM feed_session_template_items
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Concentrate') AND valid_to = '2026-07-20'`,
+		fcTenant).Scan(&stored); err != nil {
+		t.Fatalf("count closed rows: %v", err)
+	}
+	if stored != 1 {
+		t.Fatalf("%d closed rows, want 1 — a withdrawal must CLOSE the row, never delete it", stored)
+	}
+
+	// Withdrawing again is reported, not silently accepted: the author may be on the wrong session.
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", false, "key-w-del2", "2026-07-21"))
+	if !errors.Is(err, ports.ErrSlotNotDeclared) {
+		t.Fatalf("err = %v, want ErrSlotNotDeclared", err)
+	}
+}
+
+// TestSessionFeedsAreIndependentPerSession is the parity proof for the split gotcha: a feed added to
+// the morning session is NOT served in the evening. The two sessions each serve their own share of
+// the daily grid quantity, so declaring in one is a real and partial decision.
+func TestSessionFeedsAreIndependentPerSession(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedSession(t, ctx, pool, 2, "Evening", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-s-cell", "fp-s-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-s-1", "2026-07-19")); err != nil {
+		t.Fatalf("declare morning: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 2); len(got) != 0 {
+		t.Fatalf("evening session serves %v after declaring only on the morning session", got)
+	}
+
+	// The same feed on the OTHER session is a separate slot, not a conflict.
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(2, "Concentrate", true, "key-s-2", "2026-07-19")); err != nil {
+		t.Fatalf("declare evening: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 2); len(got) != 1 || got[0] != "Concentrate" {
+		t.Fatalf("evening feeds = %v, want [Concentrate]", got)
+	}
+
+	// An unknown session is refused rather than FK-violating.
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(9, "Concentrate", true, "key-s-9", "2026-07-19"))
+	if !errors.Is(err, ports.ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+// TestDeclareSessionFeedIsIdempotentAndAppendsInPackingOrder covers the replay contract and the slot
+// numbering, which has to satisfy a partial unique index that counts WITHDRAWN rows too.
+func TestDeclareSessionFeedIsIdempotentAndAppendsInPackingOrder(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-i-cell", "fp-i-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+	hybrid := rateCommand("key-i-cell2", "fp-i-cell2", "100.000", "2026-07-19")
+	hybrid.FeedItemLabel = "Hybrid"
+	if _, err := repo.UpsertRationRate(ctx, hybrid); err != nil {
+		t.Fatalf("seed hybrid cell: %v", err)
+	}
+
+	first, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-i-1", "2026-07-19"))
+	if err != nil {
+		t.Fatalf("declare: %v", err)
+	}
+	if first.Outcome != domain.OutcomeInserted {
+		t.Fatalf("outcome = %q, want inserted", first.Outcome)
+	}
+
+	// A DIFFERENT key, same intent. Not an idempotent replay — a genuine second request that finds
+	// the state already correct, which must not open a second window or churn the packing order.
+	again, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-i-2", "2026-07-19"))
+	if err != nil {
+		t.Fatalf("re-declare: %v", err)
+	}
+	if again.Outcome != domain.OutcomeUnchanged {
+		t.Fatalf("outcome = %q, want unchanged", again.Outcome)
+	}
+
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Hybrid", true, "key-i-3", "2026-07-19")); err != nil {
+		t.Fatalf("declare second feed: %v", err)
+	}
+	// Appended, never inserted mid-list: slot order is the PACKING order and renumbering it would
+	// reorder what packers already know.
+	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 2 || got[0] != "Concentrate" || got[1] != "Hybrid" {
+		t.Fatalf("declared feeds = %v, want [Concentrate Hybrid] in packing order", got)
+	}
+}

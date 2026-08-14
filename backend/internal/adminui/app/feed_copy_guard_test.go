@@ -310,8 +310,14 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 		{"feed-config", "shed-factors", []string{
 			"shed", "feed_item", "multiplier", "valid_from", "valid_to",
 		}},
+		// `feeds` is the session's RECIPE and it sits between the split and the status because the
+		// TSX renders these cells positionally. It is the column that answers whether a feed reaches
+		// an animal at all: generation walks these slots and looks each up in the ration grid, so a
+		// feed with a grid quantity but no slot is silently absent from the sheet. The table carried
+		// no such column until 2026-08-14, which is why COFS could hold 2157 g/head for Anantapur
+		// Sheep bucks and reach zero sheets with nothing on this screen explaining it.
 		{"feed-config", "session-template", []string{
-			"session_no", "session_label", "split_fraction", "status",
+			"session_no", "session_label", "split_fraction", "feeds", "status",
 		}},
 		// The experiment table has NO valid_from/valid_to pair, unlike every other effective-dated
 		// table on this page — feed_experiment_config is not effective-dated (migration 000006), and

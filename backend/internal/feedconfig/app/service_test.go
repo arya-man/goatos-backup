@@ -23,6 +23,7 @@ type fakeRepo struct {
 	lastShedFactor     domain.UpsertShedFactorCommand
 	lastFeedItem       domain.CreateFeedItemCommand
 	lastFeedItemStatus domain.SetFeedItemStatusCommand
+	lastSessionSlot    domain.SetSessionTemplateItemCommand
 	lastSchedule       domain.UpsertScheduleConfigCommand
 	lastRateQuery      domain.RationRateQuery
 	lastTagQuery       domain.ShedTagQuery
@@ -121,6 +122,12 @@ func (f *fakeRepo) CreateFeedItem(_ context.Context, cmd domain.CreateFeedItemCo
 func (f *fakeRepo) SetFeedItemStatus(_ context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error) {
 	f.writeCalls++
 	f.lastFeedItemStatus = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) SetSessionTemplateItem(_ context.Context, cmd domain.SetSessionTemplateItemCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastSessionSlot = cmd
 	return f.result, f.err
 }
 

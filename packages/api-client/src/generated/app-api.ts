@@ -1905,6 +1905,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-config/session-template-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Declare a feed on one feeding session's recipe, or withdraw it.
+         * @description THIS IS THE WRITE THAT DECIDES WHETHER A FEED REACHES AN ANIMAL. Generation walks a session's declared slots and looks each one up in the ration grid, so a feed with a grid quantity but no slot is never looked up: it is absent from the row, the summary, the totals and the packing worklist, and no gap is raised. Authoring grams for an undeclared feed therefore looks entirely correct on screen and feeds nobody.
+         *     Declaring REFUSES with 409 `slot_rates_incomplete` when the feed has no ration rate in every cell of the park. A declared slot is priced for EVERY shed, and a missing rate is BLOCKED rather than zero, so serving it would take those sheds' whole sheets down at the next issue. The write fails closed instead of silently authoring the missing quantities, because declaring a feed and setting its quantities are different decisions.
+         *     Withdrawing CLOSES the row rather than deleting it, so sheets already issued from it stay explainable. A slot declared and withdrawn on the same business day is retired in place, since the schema rules out a same-day window and no sheet was issued from it.
+         *     A declare that is already in force returns `unchanged`; a withdrawal of a feed the session does not serve is 404 `slot_not_declared` rather than a silent success, because the author may be looking at the wrong session. Idempotent on the same terms as every other feed-config write.
+         */
+        post: operations["setFeedConfigSessionTemplateItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/shed-factors": {
         parameters: {
             query?: never;
@@ -3714,6 +3737,24 @@ export interface components {
             display_order: number;
             /** @enum {string} */
             status: "active" | "retired";
+            /** @description The feeds this session actually serves, in packing order. THIS IS WHAT DECIDES WHETHER A FEED REACHES AN ANIMAL: generation walks these slots and looks each one up in the ration grid, so a feed with a grid quantity but no slot here is never looked up and is absent from the sheet, the summary, the totals and the packing worklist without raising a gap. Never null -- a session that declares nothing is an empty list, which is a real and blocking state rather than missing data. */
+            items: components["schemas"]["FeedConfigSessionTemplateItem"][];
+        };
+        FeedConfigSessionTemplateItem: {
+            /** Format: uuid */
+            session_template_item_id: string;
+            session_no: number;
+            /** @description Packing order within the session. Derived by the backend on declare (appended to the end) rather than chosen by the author, so declaring a feed never renumbers slots packers already know. */
+            slot_no: number;
+            feed_item: string;
+        };
+        SetFeedConfigSessionTemplateItemRequest: {
+            /** Format: uuid */
+            park_id: string;
+            session_no: number;
+            feed_item: string;
+            /** @description true puts the feed on this session's recipe; false withdraws it. Required rather than defaulted, because the two directions are opposite feeding decisions and neither is a safe guess. There is no quantity field: grams live in the ration grid, keyed by ration group and shed tag, because one slot feeds every group in the park at a different rate. */
+            declared: boolean;
         };
         FeedDirectionItemQuantity: {
             feed_item: string;
@@ -13444,6 +13485,38 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpsertFeedConfigScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedConfigSessionTemplateItem: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigSessionTemplateItemRequest"];
             };
         };
         responses: {

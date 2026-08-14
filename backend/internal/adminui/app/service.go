@@ -542,7 +542,13 @@ func pages() []domain.PageContract {
 				// now carry as many cells as the catalog has items, so the row count grows with the
 				// feed vocabulary rather than with the shed count.
 				tableP("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status"}, "experiment_config_id", []int{10, 25, 50}),
-				table("session-template", "Session template", "/feed-config/session-templates", []string{"session_no", "session_label", "split_fraction", "status"}, "session_template_id"),
+				// `feeds` is the session's RECIPE, and it is the column that answers whether a feed
+				// reaches an animal at all: generation walks these slots and looks each one up in the
+				// ration grid, so a feed with a grid quantity but no slot is silently absent from the
+				// sheet. It was missing from this table entirely, which is why COFS could carry
+				// 2157 g/head for Anantapur Sheep bucks from 2026-08-05 to 2026-08-09 and reach zero
+				// of the sheets issued in that window with nothing on this screen showing why.
+				table("session-template", "Session template", "/feed-config/session-templates", []string{"session_no", "session_label", "split_fraction", "feeds", "status"}, "session_template_id"),
 				// These are the three DISPATCH-CLOCK moments of a feed day, not session times. The
 				// table renders direction_time / correction_time / transport_time, so it must be
 				// headed by them: under the old session_no/session_label/start_time/end_time keys a
@@ -3273,49 +3279,69 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.display_order":        "Display order",
 			// Every attribute hint says the same thing in its own terms: blank is "not measured",
 			// which is a different statement from a measured 0 and is never turned into one.
-			"label.feed_item_attributes_note":  "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",
-			"label.energy_kcal_per_kg_note":    "Metabolisable energy per kilogram. Blank means not measured; an explicit 0 means measured as carrying none.",
-			"label.dry_matter_factor_note":     "Share of the item that is dry matter — greater than 0 and at most 1. Blank means not measured.",
-			"label.wastage_factor_note":        "Expected wastage share — at least 0 and less than 1. Blank means not measured; 0 means no wastage is expected.",
-			"label.display_order_note":         "Where the item sits in the lists on this page. Leave it blank to add the item at the end.",
-			"action.add_feed_item":             "Add feed type",
-			"action.add_feed_item_open":        "Add a feed item to the catalog. It authors no quantity — a rate still has to be entered for it.",
-			"action.feed_item_saved":           "Feed item added. It is now selectable on the ration grid, the shed factors and the experiment sheds — nothing is fed it until a rate is authored.",
-			"action.feed_item_rejected":        "Feed item rejected. Correct the values and try again.",
-			"reason.feed_item_exists":          "The catalog already holds a feed item with this name, so nothing was added. Names that differ only in capitals or spacing are the same item.",
-			"reason.feed_item_name_required":   "Enter a name for the feed item.",
-			"empty.feed_items":                 "No feed items in the catalog yet. Add one before authoring any rates — a rate has to name the item it is for.",
-			"state.feed_items_unavailable":     "Feed item catalog unavailable",
-			"section.session_template.title":   "Session template",
-			"section.session_template.aria":    "Per-park session split",
-			"section.session_template.caption": "How each park's daily quantity is divided across its feeding sessions",
-			"section.session_template.note":    "The session splits for a park must add up to the whole day. A park whose splits do not add up would under- or over-feed every shed in it, so the writer rejects it.",
-			"section.schedule.title":           "Feed day clock",
-			"section.schedule.aria":            "Per-park feed day dispatch clock",
-			"section.schedule.caption":         "When tomorrow's direction is issued, amended and cut off — per park and workflow",
-			"section.schedule.note":            "These are the times the SHEET moves, not the times animals eat. A direction is issued today for tomorrow's feed, packed today and transported before the cutoff, and fed the next morning. Quantities come from the ration grid and session template above; the clock never changes how much is fed.",
-			"kpi.rates.label":                  "Authored rates",
-			"kpi.rates.sub":                    "Currently in-force ration grid rows",
-			"kpi.groups.label":                 "Ration groups",
-			"kpi.groups.sub":                   "Distinct groups the grid is indexed by",
-			"kpi.items.label":                  "Feed items",
-			"kpi.items.sub":                    "Active items in the catalog",
-			"kpi.gaps.label":                   "Unconfigured combinations",
-			"kpi.gaps.sub":                     "In-use group and tag combinations with no authored rate",
-			"table.ration_grid.aria":           "Ration grid rows",
-			"table.ration_grid.noun":           "rate",
-			"table.shed_factors.aria":          "Shed factor rows",
-			"table.shed_factors.noun":          "factor",
-			"table.session_template.aria":      "Session template rows",
-			"table.session_template.noun":      "session",
-			"table.schedule.aria":              "Feeding schedule rows",
-			"table.schedule.noun":              "session",
-			"filter.bar_aria":                  "Filter feed configuration",
-			"filter.drawer.title":              "Filter — Feed Config",
-			"filter.park_label":                "Park",
-			"filter.shed_label":                "Shed",
-			"filter.ration_group_label":        "Ration group",
-			"filter.breed_label":               "Breed",
+			"label.feed_item_attributes_note": "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",
+			"label.energy_kcal_per_kg_note":   "Metabolisable energy per kilogram. Blank means not measured; an explicit 0 means measured as carrying none.",
+			"label.dry_matter_factor_note":    "Share of the item that is dry matter — greater than 0 and at most 1. Blank means not measured.",
+			"label.wastage_factor_note":       "Expected wastage share — at least 0 and less than 1. Blank means not measured; 0 means no wastage is expected.",
+			"label.display_order_note":        "Where the item sits in the lists on this page. Leave it blank to add the item at the end.",
+			"action.add_feed_item":            "Add feed type",
+			// Both lines name BOTH remaining steps on purpose. Saying only "a rate still has to be
+			// entered" reads as though a quantity is sufficient, and it is not: a feed is served only
+			// once a session serves it, so an authored quantity on an undeclared feed reaches nobody.
+			"action.add_feed_item_open":         "Add a feed item to the catalog. It appears on the ration grid at zero — set its quantity, then add it to a session below before anything is fed it.",
+			"action.feed_item_saved":            "Feed item added, and it now has a cell in every part of the ration grid at zero. Set its quantity, then add it to a session below — nothing is fed it until a session serves it.",
+			"action.feed_item_rejected":         "Feed item rejected. Correct the values and try again.",
+			"reason.feed_item_exists":           "The catalog already holds a feed item with this name, so nothing was added. Names that differ only in capitals or spacing are the same item.",
+			"reason.feed_item_name_required":    "Enter a name for the feed item.",
+			"empty.feed_items":                  "No feed items in the catalog yet. Add one before authoring any rates — a rate has to name the item it is for.",
+			"state.feed_items_unavailable":      "Feed item catalog unavailable",
+			"section.session_template.title":    "Session template",
+			"section.session_template.aria":     "Per-park session split",
+			"section.session_template.caption":  "How each park's daily quantity is divided across its feeding sessions",
+			"section.session_template.note":     "The session splits for a park must add up to the whole day. A park whose splits do not add up would under- or over-feed every shed in it, so the writer rejects it.",
+			"section.session_template.caption2": "Each session lists the feeds it serves. A feed is only served if it is on a session here — a quantity in the ration grid on its own feeds nobody.",
+			// The split warning is stated wherever a feed is added, because it is the single most
+			// likely way to author this wrong. The grid quantity is a DAILY figure and each session
+			// serves its own share of it, so a feed put on the morning session only delivers the
+			// morning's share, not the whole day's.
+			"action.add_session_feed":         "Add a feed",
+			"action.add_session_feed_open":    "Add a feed to this session. The ration grid quantity is for the whole day, and each session serves its own share of it — a feed added to one session only delivers that session's share.",
+			"action.add_session_feed_label":   "Feed",
+			"action.add_session_feed_submit":  "Add to this session",
+			"action.remove_session_feed":      "Remove",
+			"action.remove_session_feed_open": "Stop serving this feed in this session. Sheets already issued are not changed.",
+			"action.session_feed_saved":       "Session updated. The next sheet issued for this park serves the feeds listed here.",
+			"action.session_feed_rejected":    "The session was not changed. Correct the problem and try again.",
+			"reason.slot_rates_incomplete":    "This feed has no quantity set in every part of the ration grid for this park. Serving it would stop those sheds getting a sheet at all, so set its quantities first — zero is a valid answer.",
+			"reason.slot_not_declared":        "This session does not serve that feed, so there was nothing to remove. Check whether you meant the other session.",
+			"reason.session_feed_required":    "Choose a feed to add.",
+			"empty.session_feeds":             "No feeds — this session serves nothing and its sheds will not be fed. Add a feed to start serving it.",
+			"section.schedule.title":          "Feed day clock",
+			"section.schedule.aria":           "Per-park feed day dispatch clock",
+			"section.schedule.caption":        "When tomorrow's direction is issued, amended and cut off — per park and workflow",
+			"section.schedule.note":           "These are the times the SHEET moves, not the times animals eat. A direction is issued today for tomorrow's feed, packed today and transported before the cutoff, and fed the next morning. Quantities come from the ration grid and session template above; the clock never changes how much is fed.",
+			"kpi.rates.label":                 "Authored rates",
+			"kpi.rates.sub":                   "Currently in-force ration grid rows",
+			"kpi.groups.label":                "Ration groups",
+			"kpi.groups.sub":                  "Distinct groups the grid is indexed by",
+			"kpi.items.label":                 "Feed items",
+			"kpi.items.sub":                   "Active items in the catalog",
+			"kpi.gaps.label":                  "Unconfigured combinations",
+			"kpi.gaps.sub":                    "In-use group and tag combinations with no authored rate",
+			"table.ration_grid.aria":          "Ration grid rows",
+			"table.ration_grid.noun":          "rate",
+			"table.shed_factors.aria":         "Shed factor rows",
+			"table.shed_factors.noun":         "factor",
+			"table.session_template.aria":     "Session template rows",
+			"table.session_template.noun":     "session",
+			"table.schedule.aria":             "Feeding schedule rows",
+			"table.schedule.noun":             "session",
+			"filter.bar_aria":                 "Filter feed configuration",
+			"filter.drawer.title":             "Filter — Feed Config",
+			"filter.park_label":               "Park",
+			"filter.shed_label":               "Shed",
+			"filter.ration_group_label":       "Ration group",
+			"filter.breed_label":              "Breed",
 			// Said out loud on the control, because the grid's own column keeps showing the GROUP a
 			// row belongs to and the two vocabularies would otherwise look inconsistent.
 			"filter.breed_note":      "Breeds are grouped for feeding: Beetal and Sirohi share one rate, so either breed shows the Beetal/Sirohi rows. Kid rates are not breed-specific and are excluded when a breed is picked.",
@@ -6355,6 +6381,8 @@ func humanLabel(key string) string {
 		return "Session name"
 	case "split_fraction":
 		return "Session split"
+	case "feeds":
+		return "Feeds served"
 	case "valid_from":
 		return "Effective from"
 	case "valid_to":

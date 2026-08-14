@@ -4994,6 +4994,60 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-config/session-template-items:
+    post:
+      tags:
+        - Feed Config
+      operationId: setFeedConfigSessionTemplateItem
+      summary: Declare a feed on one feeding session's recipe, or withdraw it.
+      description: >-
+        THIS IS THE WRITE THAT DECIDES WHETHER A FEED REACHES AN ANIMAL. Generation walks a session's
+        declared slots and looks each one up in the ration grid, so a feed with a grid quantity but
+        no slot is never looked up: it is absent from the row, the summary, the totals and the
+        packing worklist, and no gap is raised. Authoring grams for an undeclared feed therefore
+        looks entirely correct on screen and feeds nobody.
+
+        Declaring REFUSES with 409 `slot_rates_incomplete` when the feed has no ration rate in every
+        cell of the park. A declared slot is priced for EVERY shed, and a missing rate is BLOCKED
+        rather than zero, so serving it would take those sheds' whole sheets down at the next issue.
+        The write fails closed instead of silently authoring the missing quantities, because
+        declaring a feed and setting its quantities are different decisions.
+
+        Withdrawing CLOSES the row rather than deleting it, so sheets already issued from it stay
+        explainable. A slot declared and withdrawn on the same business day is retired in place,
+        since the schema rules out a same-day window and no sheet was issued from it.
+
+        A declare that is already in force returns `unchanged`; a withdrawal of a feed the session
+        does not serve is 404 `slot_not_declared` rather than a silent success, because the author
+        may be looking at the wrong session. Idempotent on the same terms as every other feed-config
+        write.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetFeedConfigSessionTemplateItemRequest"
+      responses:
+        "200":
+          description: The authored edit's outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/shed-factors:
     get:
       tags:
@@ -9785,6 +9839,7 @@ components:
         - split_fraction
         - display_order
         - status
+        - items
       properties:
         session_template_id:
           type: string
@@ -9804,6 +9859,63 @@ components:
         status:
           type: string
           enum: [active, retired]
+        items:
+          type: array
+          description: >-
+            The feeds this session actually serves, in packing order. THIS IS WHAT DECIDES WHETHER A
+            FEED REACHES AN ANIMAL: generation walks these slots and looks each one up in the ration
+            grid, so a feed with a grid quantity but no slot here is never looked up and is absent
+            from the sheet, the summary, the totals and the packing worklist without raising a gap.
+            Never null -- a session that declares nothing is an empty list, which is a real and
+            blocking state rather than missing data.
+          items:
+            $ref: "#/components/schemas/FeedConfigSessionTemplateItem"
+    FeedConfigSessionTemplateItem:
+      type: object
+      additionalProperties: false
+      required:
+        - session_template_item_id
+        - session_no
+        - slot_no
+        - feed_item
+      properties:
+        session_template_item_id:
+          type: string
+          format: uuid
+        session_no:
+          type: integer
+        slot_no:
+          type: integer
+          description: >-
+            Packing order within the session. Derived by the backend on declare (appended to the end)
+            rather than chosen by the author, so declaring a feed never renumbers slots packers
+            already know.
+        feed_item:
+          type: string
+    SetFeedConfigSessionTemplateItemRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - session_no
+        - feed_item
+        - declared
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        session_no:
+          type: integer
+          minimum: 1
+        feed_item:
+          type: string
+        declared:
+          type: boolean
+          description: >-
+            true puts the feed on this session's recipe; false withdraws it. Required rather than
+            defaulted, because the two directions are opposite feeding decisions and neither is a
+            safe guess. There is no quantity field: grams live in the ration grid, keyed by ration
+            group and shed tag, because one slot feeds every group in the park at a different rate.
     FeedDirectionItemQuantity:
       type: object
       additionalProperties: false
