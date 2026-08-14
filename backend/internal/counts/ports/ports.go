@@ -92,10 +92,6 @@ type Repository interface {
 	Readiness(ctx context.Context, tenantID string) (domain.Readiness, error)
 	GetHerdRegisterSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetCountsBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
-
-	// ShedDirectory returns the farm's physical sheds with the cohort and capacity configured for
-	// each, one row per shed name with a cell per park. Bounded configuration catalog, not a feed.
-	ShedDirectory(ctx context.Context, tenantID string) (domain.ShedDirectory, error)
 	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
 
 	// ProjectedShedCountsForFeed returns what each shed grain will hold on a feed day, computed

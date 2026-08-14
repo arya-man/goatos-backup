@@ -3,8 +3,11 @@
 import { useMemo } from "react";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
-import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
+import type { AdminUiPageContract, AdminUiTableContract } from "@/lib/admin-ui-contract";
 import type { CountsBreakdownResponse } from "@/lib/api/server";
+
+import { ShedTagEditor } from "./shed-tag-editor";
+import type { StageOption } from "./shed-stage-actions";
 import { operationalLocationLabel } from "@/lib/operational-location";
 
 export type CountsBreakdownRow = CountsBreakdownResponse["items"][number];
@@ -23,6 +26,7 @@ export type CountsBreakdownRow = CountsBreakdownResponse["items"][number];
  */
 export function CountsBreakdownTable({
   contract,
+  pageContract,
   rows,
   ariaLabel,
   empty,
@@ -31,8 +35,12 @@ export function CountsBreakdownTable({
   noStageLabel,
   noBreedLabel,
   noShedLabel,
+  stages,
+  retagEnabled,
+  retagDisabledReason,
 }: {
   contract: AdminUiTableContract;
+  pageContract: AdminUiPageContract;
   rows: CountsBreakdownRow[];
   ariaLabel: string;
   empty: React.ReactNode;
@@ -41,6 +49,9 @@ export function CountsBreakdownTable({
   noStageLabel: string;
   noBreedLabel: string;
   noShedLabel: string;
+  stages: StageOption[];
+  retagEnabled: boolean;
+  retagDisabledReason: string;
 }) {
   // The shed cell prefers the backend-composed `operational_location_display` and only falls back
   // to the shared helper — never a local join of name + partition.
@@ -61,7 +72,24 @@ export function CountsBreakdownTable({
           meta: { cellClassName: "muted" },
         },
         stage: {
-          cell: (row) => row.management_stage || noStageLabel,
+          // The one EDITABLE cell: double-click retags the row's whole PEN. A row with no shed has
+          // no pen to write to (the unassigned bucket), so it stays plain text -- an editor there
+          // would offer to retag nothing.
+          cell: (row) =>
+            row.shed_id ? (
+              <ShedTagEditor
+                pageContract={pageContract}
+                shedId={row.shed_id}
+                partitionLabel={row.partition_label ?? ""}
+                currentTag={row.management_stage}
+                emptyLabel={noStageLabel}
+                stages={stages}
+                enabled={retagEnabled}
+                disabledReason={retagDisabledReason}
+              />
+            ) : (
+              row.management_stage || noStageLabel
+            ),
           sortValue: (row) => row.management_stage || noStageLabel,
         },
         breed: {
@@ -81,7 +109,7 @@ export function CountsBreakdownTable({
           meta: { align: "right", cellStyle: { fontWeight: 700, color: "var(--brand-d)" } },
         },
       }),
-    [contract, noParkLabel, noStageLabel, noBreedLabel, shedLabel],
+    [contract, pageContract, noParkLabel, noStageLabel, noBreedLabel, shedLabel, stages, retagEnabled, retagDisabledReason],
   );
 
   return (

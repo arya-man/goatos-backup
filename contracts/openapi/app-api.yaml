@@ -6310,58 +6310,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
-  /counts/sheds:
-    get:
-      tags:
-        - Counts
-      operationId: getShedDirectory
-      summary: Every operational location with the cohort and capacity configured for it.
-      description: >-
-        A CONFIGURATION read, not a census one: what the farm has built, what cohort each place is
-        configured to hold, and how many head it is meant to hold. A pen with no animals in it still
-        appears. One row per OPERATIONAL LOCATION -- a pen where the shed has pens
-        ("Godel 1 - Part 3"), the bare shed where it has none ("Q1") -- with one cell per park,
-        because the same names run in both parks and are read as a pair; every cell keeps its own
-        `shed_id`, so two parks' locations are never merged. Pens come from the shed_partitions
-        CATALOG, so an EMPTY pen is present; legacy partition-alias location rows are excluded, so a
-        pen appears once rather than twice. `capacity` is the pen's own, or the shed's for a shed
-        with no pens -- never the shed's total repeated across its pens. `tag` has no pen-grain
-        source in the database, so a pen reports its shed's configured cohort. Unpaginated and
-        unfiltered: a bounded configuration catalog whose size is governed by how many pens the
-        business has built. `items` is a display PAGE; `total_rows` is the whole catalog and is
-        independent of limit/offset.
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 25
-          description: Page size over the pivoted operational-location rows.
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-            maximum: 5000
-            default: 0
-          description: Page offset over the pivoted operational-location rows.
-      responses:
-        "200":
-          description: The shed configuration directory, pivoted across parks.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ShedDirectoryResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
   /counts/milk-preparation:
     get:
       tags:
@@ -22650,101 +22598,10 @@ components:
             complete one. Bounded by the distinct shed vocabulary, not by herd size.
           items:
             $ref: "#/components/schemas/CountsBreakdownShedFacet"
-    ShedDirectoryPark:
-      type: object
-      additionalProperties: false
-      required:
-        - park_id
-        - park_code
-        - park_label
-      properties:
-        park_id:
-          type: string
-          format: uuid
-        park_code:
-          type: string
-          description: The park's own code ("CBE", "CPT"). Tenant data, never a literal in a client.
-        park_label:
-          type: string
-          description: >-
-            The park's display name. Column HEADERS are not emitted here: they are table copy and
-            come from the admin-web page contract, compiled from these same live park rows.
-    ShedDirectoryCell:
-      type: object
-      additionalProperties: false
-      required:
-        - shed_id
-        - tag
-        - capacity
-      properties:
-        shed_id:
-          type: string
-          format: uuid
-          description: THIS park's shed. Two parks' same-named sheds keep different ids and are never merged.
-        tag:
-          type: string
-          description: >-
-            The configured cohort ("Non-Pregnant", "F2-Male", "Buck", "Quarantine"), or "" when the
-            shed has no profile yet.
-        capacity:
-          type: integer
-          nullable: true
-          minimum: 0
-          description: >-
-            Head count the shed is configured to hold, or null when it has never been configured.
-            null and 0 are different facts: 0 means someone recorded that it holds nothing.
-    ShedDirectoryRow:
-      type: object
-      additionalProperties: false
-      required:
-        - shed_name
-        - partition_label
-        - operational_location_display
-        - cells
-      properties:
-        shed_name:
-          type: string
-        partition_label:
-          type: string
-          description: >-
-            The pen's HUMAN label ("Part 3", "2"), or "" for a shed with no pens. Never
-            normalized_label, which is a matching key and must not reach a screen.
-        operational_location_display:
-          type: string
-          description: >-
-            Backend-composed "Godel 1 - Part 3" for a pen, bare "Q1" for a shed with none, never a
-            synthetic "Q1 whole". Rendered verbatim; a client must not recompose it.
-        cells:
-          type: object
-          description: >-
-            Keyed by park_id — never by park code or name, so a renamed park cannot re-associate a
-            shed with the wrong column. A park with no shed of this name has NO entry here, which
-            is how "this park does not have it" stays distinct from "it exists but is unconfigured".
-          additionalProperties:
-            $ref: "#/components/schemas/ShedDirectoryCell"
-    ShedDirectoryResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - parks
-        - items
-        - total_rows
-      properties:
-        parks:
-          type: array
-          description: One column-pair per park, ordered by label so the pairs are stable across calls.
-          items:
-            $ref: "#/components/schemas/ShedDirectoryPark"
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/ShedDirectoryRow"
-        total_rows:
-          type: integer
-          minimum: 0
-          description: >-
-            Operational-location rows across the WHOLE catalog, independent of limit/offset. It is
-            never the page length.
+
+
+
+
     CountsBreakdownResponse:
       type: object
       additionalProperties: false

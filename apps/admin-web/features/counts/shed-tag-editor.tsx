@@ -1,11 +1,20 @@
 "use client";
 
-// Counts -> Sheds: the inline tag editor.
+// Counts Breakdown -> the inline tag editor on the Stage cell.
 //
-// Click a location's tag, type to narrow the tenant's stage vocabulary, pick one, confirm, and the
-// write retags every live animal in that pen AND records the pen's own configured tag -- in one
-// backend transaction, behind the same permission and the same endpoint as the Counts Breakdown
-// drawer. This component adds a faster way to reach that write; it does not add a second write.
+// DOUBLE-CLICK a row's tag, type to narrow the tenant's stage vocabulary, pick one, confirm, and
+// the write retags every live animal in that row's PEN and records the pen's own tag -- one backend
+// transaction, one permission, the same endpoint the removed drawer used.
+//
+// SCOPE IS THE PEN, NOT THE ROW, and the two are genuinely different: a breakdown row is a census
+// SLICE (one breed and one sex inside a pen), while the write moves the whole pen. So the confirm
+// step reports the PEN's own animal total, taken from the preview, never the row's count -- an
+// operator retagging a 73-animal row must see that 200 animals are about to move. Sibling rows for
+// other breeds and sexes in that pen change with it, which is why the page revalidates after.
+//
+// Double-click rather than single: every cell in this table is a census figure an operator reads,
+// and a single click that opened an editor would fire constantly while scanning the page. Enter and
+// Space open it too, so the control is reachable without a mouse.
 //
 // CHECK-THEN-APPLY is kept. The endpoint has no approval step and no proof behind it, so the
 // preview IS the safety mechanism: picking a tag shows how many animals would move, and only then
@@ -22,8 +31,7 @@ import { useRouter } from "next/navigation";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ReclassifyShedStagePreviewResponse } from "@/lib/api/server";
 
-import { commitShedStageAction, previewShedStageAction } from "./shed-stage-actions";
-import type { StageOption } from "./shed-stage-drawer";
+import { commitShedStageAction, previewShedStageAction, type StageOption } from "./shed-stage-actions";
 
 // bandChanging reports whether the target tag's band differs from what any animal in the pen
 // carries today. The preview's current_stages buckets are whole-pen and disjoint, so a single
@@ -145,7 +153,8 @@ export function ShedTagEditor({
           management_stage: stage,
           reason: reason.trim(),
           // An empty pen is a legitimate thing to configure from this screen, so the write is told
-          // to accept one. The Breakdown drawer leaves this off and still refuses an empty pen.
+          // to accept one. A caller meaning "retag these animals" leaves it off and still gets the
+          // wrong-pen refusal.
           configure_empty: true,
         },
         commitKey,
@@ -164,8 +173,8 @@ export function ShedTagEditor({
     // Disabled-with-reason, never hidden: the backend decides authority and says why, and a control
     // that comes and goes reads as a broken screen rather than a withheld one.
     return (
-      <span className="muted" title={disabledReason} aria-disabled="true">
-        {currentTag || emptyLabel}
+      <span title={disabledReason} aria-disabled="true">
+        {currentTag || <span className="muted small">{emptyLabel}</span>}
       </span>
     );
   }
@@ -175,10 +184,16 @@ export function ShedTagEditor({
       <button
         type="button"
         className="tagedit-value"
-        onClick={() => (open ? close() : setPhase({ kind: "picking" }))}
+        onDoubleClick={() => (open ? close() : setPhase({ kind: "picking" }))}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          if (open) close();
+          else setPhase({ kind: "picking" });
+        }}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={copy(pageContract, "stage_change.title")}
+        title={copy(pageContract, "action.retag.hint")}
       >
         {currentTag ? <span className="tag">{currentTag}</span> : <span className="muted small">{emptyLabel}</span>}
       </button>
