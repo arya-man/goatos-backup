@@ -103,7 +103,7 @@ all share so a tab badge cannot advertise work the tab hides.
   2026-08-14, superseding the resident-derived rule for every movement). Animals never move into a
   bare shed; they move into one of its pens (`Godel 1 - Part 2`), so the cohort adopted is that
   PEN'S configured tag — `shed_partitions.animal_stage_id`, migration 000161, the same value the
-  Counts → Sheds directory shows and edits. `counts/domain.ResolveShiftingDestinationPenStage` owns
+  Counts → Breakdown Stage cell shows and edits. `counts/domain.ResolveShiftingDestinationPenStage` owns
   the rule.
 
   What this replaced, and why: the previous rule derived the cohort from the destination's RESIDENT

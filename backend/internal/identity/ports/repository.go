@@ -441,5 +441,11 @@ type Repository interface {
 	IdentityGoat(ctx context.Context, cmd IdentityGoatCommand) (*AdminGoatMutationResult, error)
 	PreviewReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStagePreview, error)
 	ReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStageResult, error)
+
+	// The census-slice correction: fix a wrongly recorded breed or sex on the animals of ONE Counts
+	// Breakdown row. Scoped to the row, not the pen -- see ports/census_correction.go for why that
+	// differs from the reclassification above.
+	PreviewCorrectCensusSlice(ctx context.Context, cmd CorrectCensusSliceCommand) (*CensusSlicePreview, error)
+	CorrectCensusSlice(ctx context.Context, cmd CorrectCensusSliceCommand) (*CensusSliceCorrectionResult, error)
 	Ping(ctx context.Context) error
 }

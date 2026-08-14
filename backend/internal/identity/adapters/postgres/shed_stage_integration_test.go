@@ -646,7 +646,7 @@ WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND sp.partition_label =
 }
 
 // TestReclassifyShedStageWritesThePensOwnCohortAndLeavesSiblingsAlone is the pen-grain half of the
-// write, added when the Sheds directory made a pen's tag editable (migration 000161).
+// write, added when the Counts Breakdown census made a pen's tag editable (migration 000161).
 //
 // The animals moving is asserted by the scope test above; what this pins is that the pen's own
 // CONFIGURED tag moves with them, in the same command, WITHOUT touching a sibling pen or the parent
@@ -704,10 +704,10 @@ WHERE p.tenant_id = $1::uuid AND p.location_id = $2::uuid`, ssTenant, f.castroSh
 // TestReclassifyShedStageConfigureEmptyRecordsTheTagWithoutAnimals pins the two intents the
 // ConfigureEmpty flag separates.
 //
-// Without it, an empty pen is the Counts Breakdown drawer's "you picked the wrong pen" error. With
-// it, the Sheds directory records a tag for a pen standing empty before animals arrive -- 12 of the
-// live tenant's 116 pens are in that state -- and reports zero animals reclassified rather than
-// pretending it moved some.
+// Without it, an empty pen is a "you picked the wrong pen" error, which is right for a caller who
+// means "retag these animals". With it, the Counts Breakdown Stage editor records a tag for a pen
+// standing empty before animals arrive -- 12 of the live tenant's 116 pens are in that state -- and
+// reports zero animals reclassified rather than pretending it moved some.
 func TestReclassifyShedStageConfigureEmptyRecordsTheTagWithoutAnimals(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

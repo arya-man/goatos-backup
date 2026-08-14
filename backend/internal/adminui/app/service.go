@@ -134,7 +134,6 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
-					navLeaf("counts-sheds", "Sheds", "/counts/sheds", nil),
 				},
 			},
 			// Milk is its own vertical, split out of Counts here the same way it was split out of the
@@ -248,7 +247,6 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
-		{Pattern: "/counts/sheds", Label: "Sheds", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
 		// Most-specific-first: /feed/direction and /feed/packing are exact leaves; /feed/config is
 		// the Feed-owned authority screen (see the navigation() scope note).
@@ -441,15 +439,6 @@ func pages() []domain.PageContract {
 				// the window, and the tfoot total stays the backend's whole-result figure.
 				tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
 				"farm", "stage", "breed", "gender", "shed", "count",
-			)}),
-		// Sheds — the shed CONFIGURATION directory, one row per shed name with a column pair per
-		// park. The park columns are NOT declared here: park names are tenant data and must never be
-		// literals in contract code, so compileShedDirectoryColumns appends them from the live park
-		// family. The contract declares only the shed name column every tenant has.
-		page("counts-sheds", "/counts/sheds", "/counts/sheds", "Sheds", "What the farm has built: every pen and shed with the cohort it is configured for and the head count it is meant to hold.", "module-surface",
-			[]domain.TableContract{sortable(
-				tableP("shed-directory", "Sheds", "/counts/sheds", []string{"shed"}, "shed_row", []int{25, 50, 100}),
-				"shed",
 			)}),
 		// Weighing — the admin-web oversight read-out.
 		//
@@ -2670,51 +2659,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"growth_director.trust.rework":                 "Bounced by the verifier",
 			"growth_director.trust.rework.sub":             "left out of every gain number on this page",
 		}
-	case "counts-sheds":
-		return map[string]string{
-			"crumb":                 "Counts",
-			"section.sheds.title":   "Sheds",
-			"section.sheds.aria":    "Shed directory",
-			"section.sheds.caption": "Every pen and shed, paired across parks",
-			// Says plainly what the two values mean, because both are easy to misread. The capacity
-			// is THAT PEN's, not its shed's total; the tag is recorded per shed and shown against
-			// each of its pens; and neither figure is a census -- a pen configured for 10 head is
-			// not a pen holding 10 animals.
-			"section.sheds.note":      "How each place is set up, not how many animals are in it today. Capacity is that pen's own. A pen shows the cohort recorded for its shed — the farm records the cohort per shed, not per pen. For live head counts, use Counts Breakdown.",
-			"table.sheds.aria":        "Shed directory rows",
-			"table.sheds.page_note":   "Every pen and shed, not just this page",
-			"table.sheds.noun":        "location",
-			"table.sheds.noun_plural": "locations",
-			"column.shed":             "Shed",
-			"empty.title":             "No sheds configured",
-			"empty.body":              "No active sheds or pens are recorded for this tenant yet.",
-			// The inline retag editor. Every visible string it renders is here: the frontend composes
-			// none of it, including the default reason that lands in the audit row.
-			"stage_change.title":              "Change tag",
-			"stage_change.disabled_no_access": "Only the CEO can change a location's tag.",
-			"action.retag.search_placeholder": "Type to find a tag",
-			"action.retag.no_matches":         "No tag matches that",
-			"action.retag.confirm_title":      "Change tag",
-			"action.retag.reason_label":       "Reason",
-			"action.retag.default_reason":     "Tag corrected from the Sheds directory",
-			"action.retag.apply":              "Apply",
-			"action.retag.cancel":             "Cancel",
-			"action.retag.applying":           "Applying…",
-			"action.retag.checking":           "Checking…",
-			"action.retag.animals_noun":       "animals",
-			"action.retag.animal_noun":        "animal",
-			"action.retag.empty_scope":        "No animals here yet — this records the tag only",
-			"action.retag.failed":             "That change could not be applied",
-			// The kid/adult consequence. A tag carries its own band, so retagging a pen moves every
-			// animal in it across that line; the picker and the confirm step say so rather than
-			// leaving an operator to find out from the census afterwards.
-			"action.retag.band_kid":   "kids",
-			"action.retag.band_adult": "adults",
-			"action.retag.becomes":    "These animals become",
-			"value.no_tag":            "Not configured",
-			"value.no_capacity":       "Not recorded",
-			"value.not_in_park":       "—",
-		}
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
@@ -2739,22 +2683,49 @@ func pageSpecificCopy(id string) map[string]string {
 			// capped read-time rollup); it was the LABEL that never said the page is not the whole set.
 			"table.breakdown.total_row": "Total · every matching row, not just this page",
 			"table.breakdown.noun":      "row",
-			"filter.bar_aria":           "Filter breakdown rows",
-			"filter.farm_label":         "Farm",
-			"filter.stage_label":        "Stage",
-			"filter.breed_label":        "Breed",
-			"filter.shed_label":         "Shed",
-			"filter.gender_label":       "Gender",
-			"filter.all_option":         "All",
-			"filter.clear_all":          "Clear all",
-			"filter.scope_readonly":     "Park scope is set in the top bar.",
-			"chart.breed.title":         "Count by breed",
-			"chart.breed.caption":       "animals by breed",
-			"chart.stage.title":         "Count by stage",
-			"chart.stage.caption":       "where they are",
-			"chart.gender.title":        "Gender split",
-			"chart.gender.caption":      "animals by sex",
-			"chart.shed.title":          "Shed occupancy",
+			// The inline retag editor on the Stage cell. Every visible string it renders is here:
+			// the frontend composes none of it, including the default reason that lands in the
+			// audit row.
+			//
+			// SCOPE, because the row and the write are not the same thing: a breakdown row is a
+			// census SLICE (one breed and sex within a pen) while the write moves the whole PEN, so
+			// the confirm step reports the pen's own animal total from the preview rather than the
+			// row's count.
+			"action.retag.hint":               "Double-click a tag to change it",
+			"action.retag.search_placeholder": "Type to find a tag",
+			"action.retag.no_matches":         "No tag matches that",
+			"action.retag.reason_label":       "Reason",
+			"action.retag.default_reason":     "Tag corrected from Counts Breakdown",
+			"action.retag.apply":              "Apply",
+			"action.retag.cancel":             "Cancel",
+			"action.retag.applying":           "Applying…",
+			"action.retag.checking":           "Checking…",
+			"action.retag.animals_noun":       "animals",
+			"action.retag.animal_noun":        "animal",
+			"action.retag.empty_scope":        "No animals here yet — this records the tag only",
+			"action.retag.failed":             "That change could not be applied",
+			// The kid/adult consequence. A tag carries its own band, so retagging a pen moves every
+			// animal in it across that line; the picker and the confirm step say so rather than
+			// leaving an operator to find out from the census afterwards.
+			"action.retag.band_kid":   "kids",
+			"action.retag.band_adult": "adults",
+			"action.retag.becomes":    "These animals become",
+			"filter.bar_aria":         "Filter breakdown rows",
+			"filter.farm_label":       "Farm",
+			"filter.stage_label":      "Stage",
+			"filter.breed_label":      "Breed",
+			"filter.shed_label":       "Shed",
+			"filter.gender_label":     "Gender",
+			"filter.all_option":       "All",
+			"filter.clear_all":        "Clear all",
+			"filter.scope_readonly":   "Park scope is set in the top bar.",
+			"chart.breed.title":       "Count by breed",
+			"chart.breed.caption":     "animals by breed",
+			"chart.stage.title":       "Count by stage",
+			"chart.stage.caption":     "where they are",
+			"chart.gender.title":      "Gender split",
+			"chart.gender.caption":    "animals by sex",
+			"chart.shed.title":        "Shed occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
@@ -5410,6 +5381,19 @@ func countsBreakdownOptionGroups() []domain.OptionGroup {
 				option("female", "Female", "", ""),
 				option("male", "Male", "", ""),
 			},
+		},
+		{
+			// The BREED CATALOG, for the inline breed correction. Declared empty here and filled by
+			// the compiler from the live `breeds` reference family: breeds are tenant data and must
+			// never be constants in contract code.
+			//
+			// Deliberately the CATALOG rather than the response's `facets.breeds`. A facet reports
+			// the breeds already ON the herd, and a correction frequently needs one that is not --
+			// that is the whole point of correcting a wrongly recorded breed. This is the same
+			// write-picker-versus-census-facet distinction the operational-location rule draws for
+			// sheds.
+			ID:      "counts_breed",
+			Options: []domain.Option{},
 		},
 	}
 }

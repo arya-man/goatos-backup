@@ -156,9 +156,8 @@ const pageRoutes = new Set(pageFiles.map(normalizeRouteFromPage).filter(Boolean)
 const findings = [];
 
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
-// create new unsupported route trees. Counts has four real pages in this slice — Herd Register (the per-goat
-// register), Counts Breakdown (the farm x stage x breed x gender x shed census), Sheds (the shed
-// CONFIGURATION directory: what the farm has built, not who is standing in it), and Milk Preparation
+// create new unsupported route trees. Counts has three real pages in this slice — Herd Register (the per-goat
+// register), Counts Breakdown (the farm x stage x breed x gender x shed census), and Milk Preparation
 // (the current K1/K2/K3 preparation worklist). Every other broad Counts
 // label from the mock must still route into one of those or a top-level command lens.
 //
@@ -168,8 +167,6 @@ const findings = [];
 const SUPPORTED_COUNTS_HREFS = new Set([
   "/counts/herd",
   "/counts/breakdown",
-  // Added 2026-08-14 with the maintainer decision recorded in current-admin-web-scope.md.
-  "/counts/sheds",
   "/counts/milk-preparation",
   "/action-center",
 ]);

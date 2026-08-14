@@ -85,6 +85,14 @@ const (
 	// Maintainer decision 2026-08-12: ceo_internal ONLY. Not operator, not park_head, and not
 	// counts_approver (approving a movement someone else raised is not the same authority as
 	// unilaterally reclassifying a pen).
+	//
+	// Maintainer decision 2026-08-14 WIDENS WHAT IT COVERS, not who holds it: it now also gates the
+	// census-slice correction (/admin/goats/census-slice/*), which fixes a wrongly recorded breed or
+	// sex on one Counts Breakdown row. Same shape and therefore same authority -- many animals, one
+	// click, applied immediately with no approval and no proof, reached from the same screen. The
+	// holder set is unchanged (ceo_internal), so this grants nothing to anyone new; it is one
+	// permission for "bulk corrections made from the Counts census" rather than two names for one
+	// kind of power.
 	GoatReclassifyShedStage = "goat.reclassify_shed_stage"
 	// HealthRead renders backend-owned disease-course work. HealthReport RAISES a sick-goat
 	// report from the field; HealthDiagnose is the clinical authority over the configured
@@ -740,6 +748,32 @@ var rolePermissions = map[string]map[string]struct{}{
 		// health_director are separate departments and merging them is prohibited. Vaccination
 		// protocol authoring stays on /config with ProtocolWrite, which this role does not hold.
 		HealthConfigRead: {}, HealthConfigWrite: {},
+		// CONFIRMING A DIAGNOSIS (maintainer decision 2026-08-14).
+		//
+		// The health SOP engine (backend/internal/health/diagnosis) is ADVISORY: it returns a
+		// ranked proposal and a human confirms every Problem before a course opens. That
+		// confirmation is the Health Director's defining job -- DIRECTOR_ENGINE.md puts "confirm
+		// or override Problems" on this desk and nowhere else -- and it is the control that keeps
+		// the engine advisory rather than autonomous.
+		//
+		// Before this grant the ONLY holders of HealthDiagnose were pc_director and
+		// ceo_internal, so a PREVENTIVE CARE director was confirming Health diagnoses. That is
+		// the cross-department merge this file forbids two comments above, and it was live.
+		// Whether pc_director KEEPS HealthDiagnose is a separate maintainer decision and is
+		// deliberately NOT changed here.
+		//
+		// HealthRead comes with it because HealthDiagnose is unusable without it: the work list
+		// and the case detail (GET /app/health/work-items) are gated on HealthRead, so a
+		// confirmer who cannot read the queue cannot see what they are confirming. It is also
+		// what makes the weekly override review possible -- authoring the rulebook while blind
+		// to the work done under it leaves the improvement loop with no input.
+		//
+		// Two are deliberately WITHHELD. HealthExecute: separation of duty -- the manager treats
+		// from the card and this desk judges the result, so the same person must not both
+		// confirm a diagnosis and record having administered it. HealthReport: DIRECTOR_ENGINE.md
+		// says this role "does not fill the form or walk every animal"; raising a sick-goat
+		// report stays with the field tiers that hold HealthReport.
+		HealthRead: {}, HealthDiagnose: {},
 		// CountsAlertsRead opens ONLY the Counts Alerts inbox (GET /app/counts/alerts) -- see its
 		// doc comment above. It is deliberately NOT CountsRead/CountsWrite: COUNTS IS AN OFF
 		// FEATURE and granting either of those would switch it on for this role.
