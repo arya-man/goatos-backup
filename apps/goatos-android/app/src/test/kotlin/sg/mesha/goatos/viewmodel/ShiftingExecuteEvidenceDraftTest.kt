@@ -405,6 +405,65 @@ class ShiftingActionsEvidenceProgressTest {
         assertFalse(done.showsEvidenceProgress)
     }
 
+    // ============================================================================
+    // REGRESSION TEST (f): Submit gates Shifting + Milk
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: Completion cannot enqueue until mandatory proof
+    // steps are enqueued. Double-tap completion must not produce duplicate enqueues.
+    @Test
+    fun `shifting execution completion blocks until proof upload is enqueued`() = runTest(dispatcher) {
+        val repo = FakeShiftingPendingRepository()
+        val drafts = FakeCaptureDraftRepository()
+        val sync = FakeShiftingSyncRepository()
+        val proofRepo = FakeProofCaptureRepository()
+
+        val vm = newViewModel(repo, drafts, sync, proofRepo)
+        advanceUntilIdle()
+
+        // Record the mandatory video
+        vm.onEvent(ShiftingExecuteEvent.RecordVideo)
+        advanceUntilIdle()
+        assertEquals("one proof enqueued after recording", 1, proofRepo.captureCalls.size)
+
+        // First completion: must enqueue the movement completion
+        vm.onEvent(ShiftingExecuteEvent.MarkDone)
+        advanceUntilIdle()
+        assertEquals("one completion enqueue after MarkDone", 1, sync.completeKeys.size)
+
+        // Second completion (double-tap): must NOT produce a duplicate enqueue
+        vm.onEvent(ShiftingExecuteEvent.MarkDone)
+        advanceUntilIdle()
+        assertEquals(
+            "double-tap completion must not produce duplicate enqueue",
+            1,
+            sync.completeKeys.size,
+        )
+    }
+
+    @Test
+    fun `shifting blocks completion until proof is available`() = runTest(dispatcher) {
+        val repo = FakeShiftingPendingRepository()
+        val drafts = FakeCaptureDraftRepository()
+        val sync = FakeShiftingSyncRepository()
+        // Empty proof source: no video available
+        val proofRepo = FakeProofCaptureRepository()
+
+        val vm = newViewModel(repo, drafts, sync, proofRepo)
+        advanceUntilIdle()
+
+        // WITHOUT recording the video, attempt completion
+        vm.onEvent(ShiftingExecuteEvent.MarkDone)
+        advanceUntilIdle()
+
+        // Completion must be blocked: no enqueue yet
+        assertEquals(
+            "completion is blocked until proof is recorded",
+            0,
+            sync.completeKeys.size,
+        )
+        assertFalse("state must reflect incomplete status", vm.state.value.canComplete)
+    }
+
     /** Mirrors ShiftingPendingViewModel.withEvidenceProgress, which is private to the ViewModel. */
     private fun sg.mesha.goatos.feature.counts.ShiftingPendingRowUi.withProgress(
         capturedCount: Int,
