@@ -132,6 +132,13 @@ goatos-stg-deploy-slack-webhook-url
 
 If the secret is absent, deploy continues and logs remain in Cloud Build.
 
+Release-tag bookkeeping is deliberately separate from STG deploy success. The
+Cloud Build deploy step is green only after Cloud Deploy rollout succeeds and
+live Cloud Run service/job images match the commit. After that, the
+`stg-release-tag-bookkeeping` step records the annotated GitHub release tag. If
+tagging fails, it posts a Slack warning and exits successfully; STG remains
+deployed and the deploy card must stay green.
+
 The script refuses a dirty working tree unless `GOATOS_ALLOW_DIRTY_RELEASE=1`
 is set. Dirty release is for emergency debugging only; do not use it for normal
 staging handoff.

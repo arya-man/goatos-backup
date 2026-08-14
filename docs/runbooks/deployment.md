@@ -155,6 +155,12 @@ that time, clicking the panel replaces it with an "already running" status card
 and Cloud Build / Cloud Deploy links; the deploy buttons return only after the
 running build posts success or failure.
 
+STG release-tag bookkeeping is intentionally separate from deploy status. A
+deploy is successful only after Cloud Deploy rollout succeeds and live service
+and job images match the commit. The later `stg-release-tag-bookkeeping` Cloud
+Build step may post a yellow Slack warning if tagging fails, but it must not
+turn a verified STG deploy into a red failure.
+
 Cloud Build builds/pushes backend, migration, and admin-web images, then
 creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.
 Never push a local branch, `HEAD`, `main`, or refspec directly to remote `stg`;

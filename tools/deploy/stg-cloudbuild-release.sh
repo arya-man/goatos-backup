@@ -11,6 +11,7 @@ cd "$repo_root"
 commit_sha="$(git rev-parse --short=12 HEAD)"
 release_id="${RELEASE_ID:-r-${commit_sha}-$(date -u +%H%M%S)}"
 build_id="${BUILD_ID:-local}"
+deploy_metadata_file="${GOATOS_STG_DEPLOY_METADATA_FILE:-/workspace/goatos-stg-deploy.env}"
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -101,6 +102,11 @@ if already_deployed; then
 fi
 
 export RELEASE_ID="$release_id"
+{
+  printf 'COMMIT_SHA=%q\n' "$commit_sha"
+  printf 'RELEASE_ID=%q\n' "$release_id"
+  printf 'BUILD_ID=%q\n' "$build_id"
+} >"$deploy_metadata_file"
 notify_slack "STARTED" "Building images and creating Cloud Deploy release for STG."
 
 tools/deploy/stg-clouddeploy-release.sh
