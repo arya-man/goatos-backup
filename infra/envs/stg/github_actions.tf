@@ -4,6 +4,12 @@ resource "google_service_account" "github_deployer" {
   description  = "GitHub Actions deployer for vgoats/goatos stg branch."
 }
 
+resource "google_service_account" "slack_deploy_bot" {
+  account_id   = "goatos-stg-slack-deploy-bot"
+  display_name = "Goat OS STG Slack deploy bot"
+  description  = "Handles Slack button clicks to run the goatos-stg Cloud Build deploy trigger."
+}
+
 resource "google_iam_workload_identity_pool" "github" {
   workload_identity_pool_id = "github-goatos"
   display_name              = "GitHub vgoats/goatos"
@@ -61,6 +67,24 @@ resource "google_project_iam_member" "github_deployer_clouddeploy_job_runner" {
   member  = "serviceAccount:${google_service_account.github_deployer.email}"
 }
 
+resource "google_project_iam_member" "github_deployer_logging_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
+resource "google_project_iam_member" "slack_deploy_bot_cloudbuild_editor" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.editor"
+  member  = "serviceAccount:${google_service_account.slack_deploy_bot.email}"
+}
+
+resource "google_project_iam_member" "slack_deploy_bot_logging_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.slack_deploy_bot.email}"
+}
+
 resource "google_service_account_iam_member" "github_deployer_act_as_runtime" {
   for_each = google_service_account.runtime
 
@@ -73,6 +97,12 @@ resource "google_service_account_iam_member" "clouddeploy_act_as_github_deployer
   service_account_id = google_service_account.github_deployer.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_project_service_identity.clouddeploy.email}"
+}
+
+resource "google_service_account_iam_member" "cloudbuild_act_as_github_deployer" {
+  service_account_id = google_service_account.github_deployer.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_project_service_identity.cloudbuild.email}"
 }
 
 resource "google_service_account_iam_member" "github_deployer_workload_identity_user" {

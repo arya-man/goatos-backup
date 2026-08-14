@@ -164,7 +164,12 @@ const findings = [];
 // SUPPORTED_COUNTS_HREFS is an allowlist on purpose: widening it is a deliberate scope decision recorded in
 // context/frontend/current-admin-web-scope.md, not a routine edit. Tagging & identity, Weights & ADG, and
 // Count reconciliation remain out of scope and must not be added here without that doc changing too.
-const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/counts/milk-preparation", "/action-center"]);
+const SUPPORTED_COUNTS_HREFS = new Set([
+  "/counts/herd",
+  "/counts/breakdown",
+  "/counts/milk-preparation",
+  "/action-center",
+]);
 const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
 const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;

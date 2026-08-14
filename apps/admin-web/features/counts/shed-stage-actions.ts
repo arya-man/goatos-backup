@@ -20,6 +20,25 @@ import {
   type ReclassifyShedStageResponse,
 } from "@/lib/api/server";
 
+// StageOption is the tenant's active stage vocabulary, offered by the inline Stage editor.
+// Business-managed rows in Postgres, never a constant list here -- adding a cohort tag must not
+// need a frontend release.
+export type StageOption = {
+  code: string;
+  // label IS the stage code ("F2-Male", "Non-Pregnant", "Buck"). That is the tag the farm uses, the
+  // value stored on the animal and on the pen, and the string the Stage column renders -- so it is
+  // what a picker must offer. Showing the descriptive name instead ("Fattening male") made an
+  // operator pick one word and watch a different one appear in the cell.
+  label: string;
+  // description is the lookup's human name, shown as secondary context only when it says something
+  // the code does not. Blank when the two are the same word (Buck, Mother, Pregnant).
+  description: string;
+  // band is what an animal INHERITS from this tag ("kid"/"adult", "" when unclassified): retagging
+  // a pen to an adult cohort makes its animals adults.
+  band: string;
+  assignable: boolean;
+};
+
 const BREAKDOWN_PATH = "/counts/breakdown";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -52,11 +71,16 @@ function validateReclassifyShedStageRequest(body: unknown): ReclassifyShedStageR
   const partitionLabel = optionalTrimmedString(candidate.partition_label, "partition_label", 1, 80);
   const managementStage = trimmedString(candidate.management_stage, "management_stage", 1, 80);
   const reason = optionalTrimmedString(candidate.reason, "reason", 3, 500);
+  // Boolean-only, and absent means false: a caller must ASK to write a cohort onto a location
+  // holding no animals, so the drawer's "retag these animals" intent keeps failing closed on an
+  // empty pen exactly as it did before this flag existed.
+  const configureEmpty = candidate.configure_empty === true;
   return {
     shed_id: shedId,
     ...(partitionLabel ? { partition_label: partitionLabel } : {}),
     management_stage: managementStage,
     ...(reason ? { reason } : {}),
+    ...(configureEmpty ? { configure_empty: true } : {}),
   };
 }
 
@@ -77,7 +101,9 @@ export async function commitShedStageAction(
   const key = typeof idempotencyKey === "string" && idempotencyKey.trim() ? idempotencyKey.trim() : randomUUID();
   const result = await commitReclassifyShedStage(validateReclassifyShedStageRequest(body), key);
   if (result.ok) {
-    // The breakdown's stage columns and kid/adult split are now stale by construction.
+    // The breakdown's stage columns and its kid/adult split are now stale by construction: the
+    // write moved every live animal in the pen, so rows for other breeds and sexes in that same pen
+    // changed too.
     revalidatePath(BREAKDOWN_PATH);
   }
   return result;

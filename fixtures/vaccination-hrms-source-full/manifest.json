@@ -255,6 +255,11 @@
       "date": "2026-08-06",
       "change": "Migrations 000120/000121/000123 add partition_label columns to verification_items, weighing_campaign_sheds, and health_cases, with backfill from goat_shed_partitions (canonical per-goat partition assignments seeded during vaccination/weighing imports) and fallback logic for cases where the source location/partition cannot be resolved. Partition resolution is now part of the location contract: every animal placed in a partitioned shed must have a goat_shed_partitions entry during seed.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, or animal/vaccination source dates. Partition resolution is a seed DATA contract, not a source-file schema change. Source shed labels like 'Godel 1 - Part 3' are parsed by the seeder into physical shed + partition components during animal placement; goat_shed_partitions rows are seeded from that parsed partition label at animal write time, and later migrations backfill partition_label on location-bearing read/output tables from those seeded associations. Source validation adds a partition-resolution contract check (pass/warning) documenting the requirement; it does not change validation logic or block the fixture."
+    },
+    {
+      "date": "2026-08-14",
+      "change": "Migrations 000160/000161 add pen-grain capacity and cohort configuration to shed_partitions for the Counts -> Sheds directory.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, vaccination source dates, SOP proof grain, protocol rows, or scheduling anchors. The new shed_partitions columns are counts/shed-directory configuration over the existing pen catalog. They do not add a vaccination source field, change goat_shed_partitions animal placement, or alter vaccination operator capacity."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

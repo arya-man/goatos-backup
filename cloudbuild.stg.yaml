@@ -1,0 +1,32 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+
+substitutions:
+  _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
+
+steps:
+  - id: stg-cloud-deploy-release
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - PROJECT_NUMBER=514832198871
+      - REGION=asia-south1
+      - ARTIFACT_REPOSITORY=goatos
+      - DELIVERY_PIPELINE=goatos-stg
+      - TARGET_ID=goatos-stg
+      - GOATOS_STG_RELEASE_WAIT=1
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+    args:
+      - -ceu
+      - |
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl docker.io git python3
+        git fetch origin main --quiet
+        test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+        tools/deploy/stg-cloudbuild-release.sh
+
+timeout: 3600s

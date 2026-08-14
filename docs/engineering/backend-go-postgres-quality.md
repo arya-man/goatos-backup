@@ -15,7 +15,7 @@ every consumer contract before implementation is complete.
 The repository stack is intentionally narrow:
 
 ```text
-Go 1.25.12 module and builder toolchain
+Go 1.25.13 module and builder toolchain
 net/http + chi transport
 pgx/v5 + pgxpool
 sqlc v1.29.0 generated query packages
@@ -35,6 +35,7 @@ a reachable finding behind a permanent allowlist. A temporary exception needs
 an owner, exploitability analysis, expiry date, and linked remediation issue.
 
 The 2026-07-20 audit upgraded the module and both Docker builders to Go 1.25.12,
+and the 2026-08-14 security refresh raised the patch floor to Go 1.25.13,
 pgx to v5.9.2, otelpgx to v0.11.1, and the coherent OpenTelemetry graph to
 v1.43.0 / contrib v0.68.0. The pinned `golang.org/x/vuln` v1.6.0 scan reports
 zero reachable and zero imported-package vulnerabilities. Advisories in an

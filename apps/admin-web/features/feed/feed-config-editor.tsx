@@ -600,59 +600,6 @@ export function ExperimentShedSwitch({
 }
 
 /**
- * Remove ONE feed item from feeding, or put it back.
- *
- * The only way to remove a feed item, and deliberately a RETIRE rather than a delete. The item's
- * authored rates, shed factors and experiment cells are kept exactly as they are, so putting it back
- * restores them without re-entering anything — and every past feed sheet stays explainable. A delete
- * would take the rates with it, and a restore would then return an item whose every combination is
- * UNCONFIGURED, which on this screen means BLOCKED: those sheds would not be fed.
- *
- * It sits on the STATUS cell rather than in a trailing action column, because the status is the
- * thing being changed and is what an author looks at to decide.
- *
- * Behind the same confirm shell as every other write here, which is not ceremony: this is
- * TENANT-wide (the catalog is shared by both parks) and it changes what animals eat from the next
- * issued sheet onward, so it is the widest-reaching control on the page.
- */
-export function FeedItemStatusSwitch({
-  pageContract,
-  action,
-  feedItemId,
-  feedItemLabel,
-  targetStatus,
-}: {
-  pageContract: AdminUiPageContract;
-  action: SaveAction;
-  /** The catalog row's own id. Keyed on the id, never the label, so a rename cannot misdirect it. */
-  feedItemId: string;
-  /** The item's name, shown back to the author before they apply. */
-  feedItemLabel: string;
-  /** "retired" removes it from feeding; "active" puts it back. */
-  targetStatus: "active" | "retired";
-}) {
-  const labelKey = targetStatus === "retired" ? "action.retire_feed_item" : "action.restore_feed_item";
-  const consequenceKey = targetStatus === "retired" ? "reason.retire_feed_item" : "reason.restore_feed_item";
-  return (
-    <FeedConfigFormShell
-      pageContract={pageContract}
-      action={action}
-      editLabel={copy(pageContract, labelKey)}
-      openLabel={copy(pageContract, consequenceKey)}
-    >
-      <input type="hidden" name="feed_item_id" value={feedItemId} />
-      <input type="hidden" name="status" value={targetStatus} />
-      {/* The item is named back before the write applies. One click from here changes what every
-          park is fed, so the control states WHICH item and WHAT will happen to its rates. */}
-      <div className="small" style={{ lineHeight: 1.5 }}>
-        <b>{feedItemLabel}</b>
-        <div className="muted">{copy(pageContract, consequenceKey)}</div>
-      </div>
-    </FeedConfigFormShell>
-  );
-}
-
-/**
  * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in one atomic write.
  *
  * Enrolment happens through QUANTITIES, not a status flip, and that is the backend contract rather

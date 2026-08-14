@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -168,7 +169,7 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 	if err != nil {
 		return nil, err
 	}
-	if totalLive == 0 {
+	if totalLive == 0 && !cmd.ConfigureEmpty {
 		return nil, ports.ErrReclassifyEmptyScope
 	}
 	if totalLive > ports.MaxReclassifyGoatsPerCommand {
@@ -184,6 +185,14 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 		if err := r.applyReclassify(ctx, tx, cmd, resolution, location, goatIDs, eventIDs); err != nil {
 			return nil, err
 		}
+	}
+
+	// The location's CONFIGURED cohort moves in the SAME transaction as the animals. Writing it
+	// afterwards on a best-effort basis is the atomic-transition defect this repo bans: a crash
+	// between the two would leave a pen whose animals carry one tag and whose configuration claims
+	// another, and the Counts Breakdown Stage cell reads the configuration.
+	if err := r.applyConfiguredCohort(ctx, tx, cmd, resolution); err != nil {
+		return nil, err
 	}
 
 	result := &ports.ReclassifyShedStageResult{
@@ -216,6 +225,66 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 // It reuses resolveDestinationTag's exact rules -- same lookup, same clinical fail-closed -- by
 // borrowing its command shape, rather than re-deriving them here. Re-hardcoding the clinical set is
 // specifically what the clinical-defer safety rule forbids.
+// applyConfiguredCohort writes the cohort onto the LOCATION itself, at the grain that owns it.
+//
+//   - a PEN's cohort lives on shed_partitions.animal_stage_id (migration 000161);
+//   - a shed with NO pens has nowhere else to keep it, so it goes to shed_profiles.animal_stage_id,
+//     creating the profile row if the shed has none yet.
+//
+// Deliberately NOT both: writing the parent shed's profile on a pen edit would change the tag shown
+// against every sibling pen of that shed, which is exactly the shed-level grain migration 000161
+// exists to stop. The consequence, recorded there and worth repeating here: shifting's
+// destination-cohort resolution still reads shed_profiles, so a pen's tag and its shed's tag can
+// legitimately differ until that rule gets its own maintainer decision.
+//
+// A stage the tenant does not have cannot reach here -- resolveReclassifyStage has already
+// validated it against the active animal_stage_lookup vocabulary and rejected clinical states -- so
+// the lookup below cannot silently write NULL.
+func (r *Repository) applyConfiguredCohort(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand, resolution destinationStageResolution) error {
+	partition := strings.TrimSpace(stringValue(cmd.PartitionLabel))
+	if partition != "" {
+		tag, err := tx.Exec(ctx, `
+UPDATE shed_partitions sp
+SET animal_stage_id = a.animal_stage_id,
+    updated_at      = now()
+FROM animal_stage_lookup a
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND sp.status = 'active'
+  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') = $3
+  AND a.tenant_id = sp.tenant_id
+  AND a.stage_code = $4
+  AND a.status = 'active'`,
+			cmd.TenantID, cmd.ShedID, oploc.NormalizePartition(partition), resolution.stage)
+		if err != nil {
+			return fmt.Errorf("identity: reclassify shed stage: configure pen cohort: %w", err)
+		}
+		// Zero rows means the pen is not in the active catalog. resolveReclassifyLocation has
+		// already refused an unknown pen, so this is a genuine inconsistency rather than user
+		// error, and failing rolls the whole command back rather than retagging animals in a pen
+		// whose configuration could not follow.
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("identity: reclassify shed stage: configure pen cohort: pen %q is not in the active catalog", partition)
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, row_version)
+SELECT $2::uuid, $1::uuid, a.animal_stage_id, 1
+FROM animal_stage_lookup a
+WHERE a.tenant_id = $1::uuid AND a.stage_code = $3 AND a.status = 'active'
+ON CONFLICT (location_id) DO UPDATE
+  SET animal_stage_id = EXCLUDED.animal_stage_id,
+      row_version     = shed_profiles.row_version
+                      + CASE WHEN shed_profiles.animal_stage_id IS DISTINCT FROM EXCLUDED.animal_stage_id THEN 1 ELSE 0 END,
+      updated_at      = now()`,
+		cmd.TenantID, cmd.ShedID, resolution.stage); err != nil {
+		return fmt.Errorf("identity: reclassify shed stage: configure shed cohort: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) resolveReclassifyStage(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand) (destinationStageResolution, error) {
 	resolution, err := r.resolveDestinationTag(ctx, tx, ports.RelocateGoatsCommand{
 		TenantID:       cmd.TenantID,

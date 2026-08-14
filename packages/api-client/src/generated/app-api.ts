@@ -1492,6 +1492,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/distribution/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proof slots already recorded for one pen-session, by any operator.
+         * @description Which of a pen-session's three proof slots (feed weight photo, feed-distribution video, water-distribution video) have ALREADY been recorded, and the server `proof_ref` of each.
+         *
+         *     A pen-session's three proofs may be shot by THREE DIFFERENT operators on three phones (maintainer decision 2026-08-14). Before this read a proof was discoverable only on the device that shot it, so the others could not tell a slot was done, and no single phone held all three references -- the pen could not be submitted at all. Clients render "already recorded" from this and send the returned `proof_ref` for slots they did not shoot.
+         *
+         *     Read-only: it changes no completion state and gates nothing, and a client that ignores it behaves exactly as before. It deliberately returns NO media url and NO uploader name -- the footage stays a verifier surface, so this adds no way to view another operator's media.
+         *
+         *     `partition_label` is part of the IDENTITY, not decoration: omitting it on a partitioned shed answers for the shed as a whole and would tell an operator standing in one pen that another pen's work is theirs.
+         */
+        get: operations["getFeedDistributionCaptures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-packing/worklist": {
         parameters: {
             query?: never;
@@ -1555,11 +1581,15 @@ export interface paths {
         put?: never;
         /**
          * Submit one shed-session's feed distribution for verifier approval.
-         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits TWO mandatory proofs -- a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution proof (`water_proof_ref`, which may be a photo OR a video) -- which writes a `pending_verification` row and enqueues ONE verification item carrying both proofs. NOTHING is completed here.
+         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits THREE mandatory proofs -- a feed-weight PHOTO (`feed_weight_proof_ref`, which must come from the live in-app camera), a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution VIDEO (`water_proof_ref`) -- which writes a `pending_verification` row and enqueues ONE verification item carrying all three proofs. NOTHING is completed here.
+         *
+         *     The capture KIND is part of the contract, not a client preference: a still frame where a clip was promised leaves the verifier something they cannot judge. The weight photo additionally demands a live capture, because a gallery pick is a photo of a scale from some other day and only a live one ties the reading to this pen's feed.
+         *
+         *     The three proofs may be captured by THREE DIFFERENT operators on three different phones (maintainer decision, 2026-08-14). Read `GET /feed-direction/distribution/captures` to learn which slots a pen-session already has and each one's server proof id, then send those ids here -- a phone that shot none of them can still submit.
          *
          *     The session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-direction/preview` rows for that shed-session report `completed: true`.
          *
-         *     Both proofs are MANDATORY: a request missing `distribution_proof_ref` or `water_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         *     All three proofs are MANDATORY: a request missing any of `feed_weight_proof_ref`, `distribution_proof_ref` or `water_proof_ref` -- or carrying one of the wrong capture kind -- is rejected `422 proof_required` before any state changes, because there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
          */
         post: operations["completeFeedDistribution"];
         delete?: never;
@@ -3955,6 +3985,29 @@ export interface components {
             status: "completed";
             /** @description False on an idempotent replay or when the shed-session was already completed by an earlier request -- the original completion is returned and no new side effects ran. */
             applied: boolean;
+        };
+        FeedDistributionCapturesResponse: {
+            /** @description At most one entry per proof slot -- the slot's CURRENT proof. A slot re-recorded several times reports only its latest upload, never one entry per take. */
+            items: components["schemas"]["FeedDistributionCapturedSlot"][];
+        };
+        /** @description One already-recorded proof slot. Carries no media url and no uploader name by design: the operator's need is "this slot is done, and here is the reference I can submit with", and the footage itself stays a verifier surface. */
+        FeedDistributionCapturedSlot: {
+            /**
+             * @description The slot this proof fills.
+             * @enum {string}
+             */
+            field_key: "feed_distribution_feed_weight_photo" | "feed_distribution_video" | "feed_distribution_water_video";
+            /**
+             * Format: uuid
+             * @description The SERVER proof id, not a device-local reference -- this is what lets a phone that did not shoot the proof name it when submitting the completion.
+             */
+            proof_ref: string;
+            /**
+             * Format: date-time
+             * @description When the upload completed.
+             */
+            captured_at: string;
+            mime_type?: string;
         };
         FeedDistributionCompleteRequest: {
             /**
@@ -6839,6 +6892,10 @@ export interface components {
             /** @description Stable stage code (e.g. K1, K2) authored against in rule_dsl.eligibility.animal_stage. */
             stage_code: string;
             name: string;
+            /** @description "kid" or "adult", or "" for a tag the farm has not classified. The band is a property OF the tag rather than of the animal's birthday, so an animal INHERITS it when its pen is retagged: moving a pen from a kid cohort to an adult one makes those animals adults. A picker offering this vocabulary should show the band, because that consequence is not obvious from the tag name alone. */
+            age_band: string;
+            /** @description False for a CLINICAL tag (ICU, Quarantine). Those describe an animal's medical state, belong to the clinical flows, and are rejected by every write that assigns a cohort — so an assigning picker must not offer them and then fail. Always emitted: an absent field would read as "assignable", which is the wrong default for a safety-bearing value. */
+            assignable_as_cohort: boolean;
             min_age_days?: number | null;
             max_age_days?: number | null;
             sort_order: number;
@@ -12635,6 +12692,39 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    getFeedDistributionCaptures: {
+        parameters: {
+            query: {
+                /** @description Optional; the server resolves the tenant's default park when omitted. */
+                park_id?: string;
+                shed_id: string;
+                /** @description The PEN inside the shed ("2", "Part 3"). Omit or send "" for an undivided shed. */
+                partition_label?: string;
+                /** @description A pen's morning and evening are separate bags; 0 matches no worklist line. */
+                session_no: number;
+                target_date: string;
+                workflow: "normal" | "experiment";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pen-session's already-recorded proof slots (at most one row per slot). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDistributionCapturesResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     getFeedPackingWorklist: {
         parameters: {
             query: {
@@ -12735,7 +12825,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            /** @description A mandatory proof is missing (`code: proof_required`): either the feed-distribution video or the water-distribution proof was blank. */
+            /** @description A mandatory proof is missing or is the wrong capture kind (`code: proof_required`): the feed-weight photo, the feed-distribution video, or the water-distribution video. The message names which one; the code is the same for all three. */
             422: {
                 headers: {
                     [name: string]: unknown;

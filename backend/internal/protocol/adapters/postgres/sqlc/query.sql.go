@@ -104,6 +104,10 @@ SELECT
   animal_stage_id::text AS animal_stage_id,
   stage_code            AS stage_code,
   name                  AS name,
+  -- age_band is a property OF the tag, not of the animal's birthday (migration 000109): retagging a
+  -- pen to an adult cohort makes its animals adults. Callers that offer this vocabulary as a picker
+  -- must be able to SHOW that consequence, so the band travels with the row.
+  age_band              AS age_band,
   min_age_days          AS min_age_days,
   max_age_days          AS max_age_days,
   sort_order            AS sort_order
@@ -122,6 +126,7 @@ type ListActiveAnimalStagesRow struct {
 	AnimalStageID string
 	StageCode     string
 	Name          string
+	AgeBand       pgtype.Text
 	MinAgeDays    pgtype.Int4
 	MaxAgeDays    pgtype.Int4
 	SortOrder     int32
@@ -144,6 +149,7 @@ func (q *Queries) ListActiveAnimalStages(ctx context.Context, arg ListActiveAnim
 			&i.AnimalStageID,
 			&i.StageCode,
 			&i.Name,
+			&i.AgeBand,
 			&i.MinAgeDays,
 			&i.MaxAgeDays,
 			&i.SortOrder,

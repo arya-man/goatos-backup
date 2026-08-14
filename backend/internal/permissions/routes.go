@@ -38,6 +38,8 @@ var protectedRoutes = []Route{
 	// who may not perform the action needs to enumerate.
 	{OperationID: "previewReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/preview", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "commitReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/commit", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "previewCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/preview", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "commitCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/commit", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "healthGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/health", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "reproductiveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/reproductive", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "identityGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/identity", Permissions: []string{GoatWriteIdentity}},
@@ -411,6 +413,10 @@ var protectedRoutes = []Route{
 	// Idempotency-Key because no route here has a side effect to replay.
 	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
+	// Which of a pen-session's proof slots are already recorded, by any operator. A READ on the
+	// feed-direction surface, so it takes the direction read permission -- not the completion write
+	// twin: seeing that a slot is done is not authority to complete anything.
+	{OperationID: "getFeedDistributionCaptures", Method: "GET", Pattern: "/feed-direction/distribution/captures", Permissions: []string{FeedDirectionRead}},
 	// The pre-gate instant completion (POST /feed-direction/complete) is intentionally absent: its
 	// route is unregistered and its store unwired, because completing at operator submit bypasses the
 	// verifier gate. Do not re-add it here.

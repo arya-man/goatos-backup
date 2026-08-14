@@ -11,8 +11,8 @@ Do not build the whole thing from this; it is the shape + future scope.
 ### Tiers (top → bottom)
 `CEO / CxO  →  Director  →  Head (Ops-Head)  →  Manager  →  Assistant Manager (AM)`
 
-- **CEO / CxO** — the platform-owner cohort. The 5 founder emails
-  (`ravi@`, `manohark@`, `manju@`, `abhishek@`, `aryaman@` mesha.sg) are all
+- **CEO / CxO** — the platform-owner cohort. The 4 founder emails
+  (`ravi@`, `manohark@`, `manju@`, `aryaman@` mesha.sg) are all
   treated as CEO/CxO: full visibility + approve/reject, no ground execution.
 - **Director** — owns a vertical (e.g. Preventive Care Director, Health Director,
   Breeding Director). Oversight + approval, sets SOPs, not ground execution.
@@ -67,7 +67,7 @@ simplification of the matrix above:
 | AM / Manager (ground, per vertical) | `operator` | no vertical/module scope; Manager tier not distinct |
 | Head (Ops-Head) | `park_head` | park-scoped, not vertical-scoped |
 | Director | `pc_director` | one director role, not per-vertical |
-| CEO / CxO | `ceo_internal` | ok (5 founders) |
+| CEO / CxO | `ceo_internal` | ok (4 founders) |
 | Video Verification Team | — (uses `VaccinationVerify`) | not a distinct role yet |
 
 Missing to reach the target:
@@ -97,7 +97,7 @@ Role → job:
 | Verifier (NEW — the Video Verification Team) | watch the uploaded media, approve/reject + mandatory reason. Only that. |
 | Head (Ops-Head) | park/vertical oversight + standards; act on verified items |
 | Director (per vertical) | own the vertical — plan/logistics/oversee execution, set SOPs, act, penalise |
-| CEO / CxO (5 founders) | full authority |
+| CEO / CxO (4 founders) | full authority |
 
 Capability matrix (✅ yes · ❌ no · ~ partial/scoped):
 

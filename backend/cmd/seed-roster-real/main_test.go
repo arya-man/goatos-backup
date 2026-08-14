@@ -298,8 +298,8 @@ func TestLoadOperatorRosterConsumesDirectorsAndLeadership(t *testing.T) {
 	if contract.LeadershipFullAccess == nil {
 		t.Fatal("leadership_full_access block dropped")
 	}
-	if got := len(contract.LeadershipFullAccess.Emails); got != 5 {
-		t.Fatalf("leadership_full_access.emails = %d, want 5", got)
+	if got := len(contract.LeadershipFullAccess.Emails); got != 4 {
+		t.Fatalf("leadership_full_access.emails = %d, want 4", got)
 	}
 	if contract.LeadershipFullAccess.GrantRole != "ceo_internal" {
 		t.Fatalf("grant_role = %q, want ceo_internal", contract.LeadershipFullAccess.GrantRole)

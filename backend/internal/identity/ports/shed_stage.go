@@ -52,6 +52,19 @@ type ReclassifyShedStageCommand struct {
 
 	Reason     string
 	OccurredAt time.Time
+
+	// ConfigureEmpty allows the command to succeed against a location holding NO live animals,
+	// writing only the configured cohort.
+	//
+	// It exists because one write serves two intents. A caller who means "retag the animals in this
+	// pen" leaves it false and gets ErrReclassifyEmptyScope, because an empty pen there is almost
+	// always the wrong pen. The Counts Breakdown Stage editor means "this pen's tag is now X",
+	// which is a perfectly ordinary thing to record for a pen standing empty before animals arrive
+	// -- 12 of the tenant's 116 pens are in that state today -- so it sets this true and gets a
+	// success with Reclassified=0.
+	//
+	// It is part of the request hash, so the two intents cannot replay onto each other.
+	ConfigureEmpty bool
 }
 
 // MaxReclassifyGoatsPerCommand bounds one reclassification. A pen is a physical enclosure holding
@@ -65,8 +78,9 @@ const MaxReclassifyGoatsPerCommand = 1000
 // remove.
 var ErrReclassifyScopeTooLarge = errors.New("identity reclassify shed stage: pen holds more live animals than one command may reclassify")
 
-// ErrReclassifyEmptyScope: the requested shed+partition holds no live animals. Reported rather than
-// treated as a successful no-op, because it almost always means the operator picked the wrong pen.
+// ErrReclassifyEmptyScope: the requested shed+partition holds no live animals, and the caller did
+// not set ConfigureEmpty. Reported rather than treated as a successful no-op, because for a caller
+// whose intent is "retag these animals" it almost always means the operator picked the wrong pen.
 var ErrReclassifyEmptyScope = errors.New("identity reclassify shed stage: no live animals in the selected shed and partition")
 
 // ReclassifyShedStagePreview is the whole-scope answer to "what would this button do", shown before
