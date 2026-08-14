@@ -173,6 +173,14 @@ function selfTest() {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });
+  assert.deepEqual(pick(["cloudbuild.stg.yaml"]), {
+    common: true, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common"],
+  });
+  assert.deepEqual(pick(["tools/deploy/stg-clouddeploy-release.sh"]), {
+    common: true, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common"],
+  });
   assert.deepEqual(pick(["backend/internal/permissions/routes.go"]), {
     common: true, backend: true, adminWeb: false, android: false, full: false,
     selectedJobs: ["common", "backend"],

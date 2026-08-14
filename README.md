@@ -132,7 +132,10 @@ keystores or passwords into commits, docs, Slack, tickets, or screenshots.
 
 Use [`docs/mobile/stg-signed-release.md`](docs/mobile/stg-signed-release.md)
 for the exact Secret Manager restore, signed build, Firebase App Distribution,
-and post-install SSO/bootstrap verification steps.
+Google Play Internal Testing upload, `mesha.sg/app.apk` Storage mirror, and
+post-install SSO/bootstrap verification steps. The direct operator APK link is
+served from `gs://goatos-stg-public-downloads/operator/latest/app.apk`; updating
+it must not rebuild or redeploy the Mesha marketing website.
 
 Production release signing must use a separate production package/key/Secret
 Manager set. Do not reuse the stg upload key for prod.
@@ -336,6 +339,10 @@ layer over Goat OS. **Status: local-runnable foundation; the backend service,
 Cube metric layer, and MCP Toolbox are being built, and the staging read-only DB
 roles are a pending deploy step.** Do not read this as "shipped" — it is the
 config/secrets on-ramp so any developer can run the pieces that exist.
+
+For approved leadership users connecting Claude, Claude Code/Desktop, Codex, or
+ChatGPT-style custom GPT/app clients to the staging external MCP endpoint, see
+[`docs/ceo-ai/external-mcp-integration.md`](docs/ceo-ai/external-mcp-integration.md).
 
 ### Routing model (one paragraph)
 

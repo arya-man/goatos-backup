@@ -103,6 +103,11 @@ const (
 	// quantity: a new item feeds nothing until a rate, a shed factor or an experiment cell names it.
 	// Added to the schema by migration 000136.
 	WriteKindFeedItem = "feed_item"
+	// WriteKindSessionTemplateItem covers declaring a feed on one session's recipe, or withdrawing
+	// it. Its OWN kind rather than folded into WriteKindFeedItem, because the two answer different
+	// questions in an audit: one adds a feed to the tenant's vocabulary, this one decides whether a
+	// feed is actually served -- and only the second changes what an animal eats.
+	WriteKindSessionTemplateItem = "session_template_item"
 )
 
 // Experiment row statuses, mirroring feed_experiment_config.status.
@@ -325,7 +330,15 @@ type FeedItemPage struct {
 	HasMore bool       `json:"has_more"`
 }
 
-// SessionTemplate is one feeding session and the fraction of the day's quantity it carries.
+// SessionTemplate is one feeding session, the fraction of the day's quantity it carries, and the
+// feeds it actually serves.
+//
+// Slots are the SESSION'S RECIPE and they are what decides whether a feed reaches an animal at all.
+// Generation walks these, then looks each one up in the ration grid; a feed with a grid quantity but
+// no slot is never looked up and is silently absent from the row, the summary, the totals and the
+// packing worklist. That is not a hypothetical -- COFS carried 2157 g/head for Anantapur Sheep bucks
+// from 2026-08-05 to 2026-08-09 and appeared on zero of the sheets issued in that window, because
+// no session declared it.
 type SessionTemplate struct {
 	SessionTemplateID string `json:"session_template_id"`
 	ParkID            string `json:"park_id"`
@@ -334,11 +347,42 @@ type SessionTemplate struct {
 	SplitFraction     string `json:"split_fraction"`
 	DisplayOrder      int32  `json:"display_order"`
 	Status            string `json:"status"`
+	// Items is what this session serves, in packing order. Never null on the wire: a session that
+	// declares nothing is an empty list, which is a real and blocking state, not missing data.
+	Items []SessionTemplateItem `json:"items"`
+}
+
+// SessionTemplateItem is one feed a session serves.
+//
+// The QUANTITY is not here and must not be added: grams live in the ration grid, keyed by ration
+// group and shed tag, because one slot feeds every group in the park at a different rate. A slot
+// says WHETHER a feed is served; the grid says HOW MUCH, per animal type.
+type SessionTemplateItem struct {
+	SessionTemplateItemID string `json:"session_template_item_id"`
+	SessionNo             int32  `json:"session_no"`
+	// SlotNo is the packing order within the session, not an identifier the author chooses.
+	SlotNo        int32  `json:"slot_no"`
+	FeedItemLabel string `json:"feed_item"`
+}
+
+// SetSessionTemplateItemCommand declares a feed on one session's recipe, or withdraws it.
+//
+// Declared is the whole payload beyond identity: this is a two-state authoring act, not a quantity
+// edit. Adding is `Declared: true`; withdrawing is `Declared: false`, which stops the feed being
+// served WITHOUT deleting the row, so past sheets stay explainable.
+type SetSessionTemplateItemCommand struct {
+	WriteIdentity
+	ParkID        string
+	SessionNo     int32
+	FeedItemLabel string
+	Declared      bool
 }
 
 type SessionTemplateQuery struct {
 	TenantID string
 	ParkID   string
+	// AsOfDate is the Asia/Kolkata business date whose active recipe the config screen renders.
+	AsOfDate string
 	Page     Page
 }
 

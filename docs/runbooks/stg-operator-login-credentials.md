@@ -2,7 +2,7 @@
 
 > **Canonical STG personnel rule:** `docs/runbooks/stg-login-seed-contract.md`.
 > This file carries the field/verifier credential detail plus live STG weighing
-> access additions. The original 10-person contract (5 SSO leadership + 4 field
+> access additions. The core contract (4 SSO leadership + 4 field
 > + 1 verifier) lives in the canonical runbook.
 
 Current live RBAC roles are documented in
@@ -12,18 +12,18 @@ permissions, Android role handling, seed docs, and tests are updated together.
 
 ## Canonical STG Personnel Rule + Weighing Addendum
 
-Current documented STG access roster: **14 people total** =
-**5 Mesha leadership (Google SSO **and** Firebase email/password,
+Current documented STG access roster includes
+**4 Mesha leadership (Google SSO **and** Firebase email/password,
 `ceo_internal`, NO vaccination capacity)** + **4 vaccination/weighing operators
 (Firebase email/password)** + **1 preventive-care director** + **1 verifier** +
 **2 weighing-only operators** + **1 director execution user**.
 
-The original 10-person seed command still materializes the core leadership,
+The core seed command still materializes the leadership,
 vaccination operator, director, and verifier rows. The weighing addendum rows
 must be kept in sync with their Firebase Auth user, backend grant/profile, App
 Distribution tester access, and assigned weighing campaign sheds.
 
-> **Maintainer decision 2026-07-24:** leadership is no longer SSO-only. The 5
+> **Maintainer decision 2026-07-24:** leadership is no longer SSO-only. The 4
 > leadership accounts now also have Firebase email/password logins (in addition
 > to Google SSO). The prior "NO password / SSO-only" leadership rule is retired.
 
@@ -34,7 +34,6 @@ Leadership passwords (in addition to SSO):
 | Ravi | `Ravi@2026` | ceo_internal | **no** |
 | Manohar (Manohark) | `Manohar@2026` | ceo_internal | **no** |
 | Manju | `Manju@2026` | ceo_internal | **no** |
-| Abhishek | `Abhishek@2026` | ceo_internal | **no** |
 | Aryaman | `Aryaman@2026` | ceo_internal | **no** |
 
 Field roles and vaccination capacity:
@@ -53,7 +52,7 @@ Field roles and vaccination capacity:
 
 - ONLY Amit + Darshan + Sagar + Natheswar count toward vaccination operator
   animal capacity.
-- Chandrakant is director; Jyothi is verifier; the 5 leadership users are
+- Chandrakant is director; Jyothi is verifier; the 4 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
 - Pramod and Kumar Sharath are CBE Weighing Operations operators. Since the
   maintainer decision of 2026-08-05 they hold Herd Operations (Counts) **on top
@@ -111,7 +110,7 @@ Field roles and vaccination capacity:
     separate code change, not a grant change.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
-  context must pass — for the 4 field users AND the 5 leadership users (leadership
+  context must pass — for the 4 field users AND the 4 leadership users (leadership
   profile via `ensureLeadershipMember`).
 - Mobile STG access also requires Firebase App Distribution tester access.
   Whenever granting a mobile user, check/create their Firebase Auth user, backend
@@ -123,7 +122,7 @@ Field roles and vaccination capacity:
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
 > operators with capacity, Chandrakant appears as director, Jyothi has verifier
-> login/grant readiness, and the 5 Mesha leadership users are `ceo_internal`
+> login/grant readiness, and the 4 Mesha leadership users are `ceo_internal`
 > with an active profile that loads on both admin-web and the mobile app.
 
 ## STG Temporary Password Convention

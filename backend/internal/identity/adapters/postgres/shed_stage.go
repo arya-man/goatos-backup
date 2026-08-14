@@ -190,7 +190,7 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 	// The location's CONFIGURED cohort moves in the SAME transaction as the animals. Writing it
 	// afterwards on a best-effort basis is the atomic-transition defect this repo bans: a crash
 	// between the two would leave a pen whose animals carry one tag and whose configuration claims
-	// another, and the Sheds directory reads the configuration.
+	// another, and the Counts Breakdown Stage cell reads the configuration.
 	if err := r.applyConfiguredCohort(ctx, tx, cmd, resolution); err != nil {
 		return nil, err
 	}

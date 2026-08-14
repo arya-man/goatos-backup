@@ -47,11 +47,11 @@ class RoleBasedPermissionGateTest {
         assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
         assertTrue(required.contains(Manifest.permission.CAMERA))
         assertTrue(required.contains(Manifest.permission.RECORD_AUDIO))
-        assertTrue(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
         assertTrue(required.contains(Manifest.permission.ACCESS_FINE_LOCATION))
         assertTrue(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
         assertTrue(required.contains(AppPermission.BLUETOOTH_SCAN.manifestPermission))
-        assertEquals(7, required.size)
+        assertFalse(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
+        assertEquals(6, required.size)
     }
 
     @Test
@@ -101,11 +101,11 @@ class RoleBasedPermissionGateTest {
         assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
         assertTrue(required.contains(Manifest.permission.CAMERA))
         assertTrue(required.contains(Manifest.permission.RECORD_AUDIO))
-        assertTrue(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
         assertTrue(required.contains(Manifest.permission.ACCESS_FINE_LOCATION))
         assertTrue(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
         assertTrue(required.contains(AppPermission.BLUETOOTH_SCAN.manifestPermission))
-        assertEquals(7, required.size)
+        assertFalse(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
+        assertEquals(6, required.size)
     }
 
     @Test
@@ -164,12 +164,12 @@ class RoleBasedPermissionGateTest {
 
         assertTrue(required.contains(Manifest.permission.CAMERA))
         assertTrue(required.contains(Manifest.permission.RECORD_AUDIO))
-        assertTrue(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
         assertTrue(required.contains(Manifest.permission.ACCESS_FINE_LOCATION))
+        assertFalse(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
         assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
         assertFalse(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
         assertFalse(required.contains(AppPermission.BLUETOOTH_SCAN.manifestPermission))
-        assertEquals(4, required.size)
+        assertEquals(3, required.size)
     }
 
     @Test
@@ -186,11 +186,22 @@ class RoleBasedPermissionGateTest {
 
         assertTrue(required.contains(Manifest.permission.CAMERA))
         assertTrue(required.contains(Manifest.permission.RECORD_AUDIO))
-        assertTrue(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
         assertTrue(required.contains(Manifest.permission.ACCESS_FINE_LOCATION))
         assertTrue(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
         assertTrue(required.contains(AppPermission.BLUETOOTH_SCAN.manifestPermission))
+        assertFalse(required.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
         assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
-        assertEquals(6, required.size)
+        assertEquals(5, required.size)
+    }
+
+    @Test
+    fun `precise location request includes coarse without making coarse a blocker`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ),
+            requestPermissionsFor(setOf(Manifest.permission.ACCESS_FINE_LOCATION)),
+        )
     }
 }

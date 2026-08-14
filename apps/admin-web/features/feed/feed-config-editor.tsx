@@ -925,3 +925,104 @@ export function ScheduleEditor({
     </FeedConfigFormShell>
   );
 }
+
+/**
+ * One feeding session's RECIPE: the feeds it serves, with a control to add or withdraw one.
+ *
+ * This cell is why the section exists. Everything else on this page answers HOW MUCH; only a
+ * declared feed here answers WHETHER, because generation walks these slots and looks each one up in
+ * the ration grid. A feed with a grid quantity but no slot is never looked up and is absent from the
+ * sheet, the totals and the packing worklist with no gap reported — so a quantity authored for an
+ * undeclared feed looks entirely correct on screen and feeds nobody.
+ *
+ * The add form offers only feeds this session does NOT already serve. Offering a declared feed would
+ * be a control whose only outcome is `unchanged`.
+ */
+export function SessionFeedsCell({
+  pageContract,
+  action,
+  parkId,
+  sessionNo,
+  items,
+  catalogItems,
+}: {
+  pageContract: AdminUiPageContract;
+  action: SaveAction;
+  parkId: string;
+  sessionNo: number;
+  items: { session_template_item_id: string; feed_item: string }[];
+  catalogItems: string[];
+}) {
+  const declared = new Set(items.map((item) => item.feed_item.toLowerCase()));
+  const addable = catalogItems.filter((item) => !declared.has(item.toLowerCase()));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 260 }}>
+      {items.length === 0 ? (
+        // An empty recipe is a REAL and blocking state, not missing data: this session's sheds get
+        // no sheet at all. It reads as a warning rather than a muted empty note for that reason.
+        <div className="small" style={{ color: "var(--danger)", whiteSpace: "normal", lineHeight: 1.5 }}>
+          {copy(pageContract, "empty.session_feeds")}
+        </div>
+      ) : (
+        items.map((item) => (
+          <div key={item.session_template_item_id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="tag">{item.feed_item}</span>
+            <FeedConfigFormShell
+              pageContract={pageContract}
+              action={action}
+              editLabel={copy(pageContract, "action.remove_session_feed")}
+              openLabel={copy(pageContract, "action.remove_session_feed_open")}
+            >
+              <input type="hidden" name="park_id" value={parkId} />
+              <input type="hidden" name="session_no" value={sessionNo} />
+              <input type="hidden" name="feed_item" value={item.feed_item} />
+              {/* Explicit "false", never an unchecked checkbox: an absent checkbox and a deliberate
+                  withdrawal are indistinguishable on the wire, and these two directions are opposite
+                  feeding decisions rather than a setting with a safe default. */}
+              <input type="hidden" name="declared" value="false" />
+              <div className="small" style={{ whiteSpace: "normal", lineHeight: 1.5, maxWidth: 260 }}>
+                {copy(pageContract, "action.remove_session_feed_open")}
+              </div>
+            </FeedConfigFormShell>
+          </div>
+        ))
+      )}
+
+      {addable.length > 0 ? (
+        <FeedConfigFormShell
+          pageContract={pageContract}
+          action={action}
+          editLabel={copy(pageContract, "action.add_session_feed")}
+          openLabel={copy(pageContract, "action.add_session_feed_open")}
+        >
+          <input type="hidden" name="park_id" value={parkId} />
+          <input type="hidden" name="session_no" value={sessionNo} />
+          <input type="hidden" name="declared" value="true" />
+          <div className="fld" style={{ marginBottom: 0 }}>
+            <label htmlFor={`session-feed-${parkId}-${sessionNo}`}>
+              {copy(pageContract, "action.add_session_feed_label")}
+            </label>
+            <select id={`session-feed-${parkId}-${sessionNo}`} name="feed_item" defaultValue="">
+              <option value="" disabled>
+                {copy(pageContract, "action.add_session_feed_label")}
+              </option>
+              {addable.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* The split warning sits INSIDE the add form, at the moment of the decision. The grid
+              quantity is a DAILY figure and each session serves its own share, so a feed added to
+              one session only delivers that session's share — the most likely way to author this
+              wrong, and invisible from anywhere else on the page. */}
+          <div className="small muted" style={{ whiteSpace: "normal", lineHeight: 1.5, maxWidth: 280 }}>
+            {copy(pageContract, "action.add_session_feed_open")}
+          </div>
+        </FeedConfigFormShell>
+      ) : null}
+    </div>
+  );
+}

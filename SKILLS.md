@@ -205,7 +205,10 @@ mobile workflow, reporting view, domain event, or official KPI. It is the
 canonical HOW-TO for keeping the Mesha leadership assistant (CEO/CXO read-only
 chatbot) read path in sync — Cube-first routing, `ceo_ai.*` views, MCP Toolbox
 tools, read-API mappings, GenAI query-classes, evals — or writing a documented
-exclusion.
+exclusion. The external MCP connector is only the product entrypoint; it must
+not be treated as a raw table/API dump. New tables and APIs become visible to
+Claude/Codex/CEO chat only after this coverage layer is updated or explicitly
+excluded.
 
 ```text
 .agents/skills/goatos-leadership-assistant/SKILL.md
@@ -231,7 +234,8 @@ Machine gate: `make leadership-assistant-coverage-guard`
 `tools/ci/run-local-ci.sh`, and nudged on PostToolUse for Claude
 (`.claude/settings.json`) and Codex (`.codex/hooks.json`). Scaffold:
 `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Backfill baseline:
-`docs/ceo-ai/coverage-matrix.md`.
+`docs/ceo-ai/coverage-matrix.md`. External connector/operator setup:
+`docs/ceo-ai/external-mcp-integration.md`.
 
 ## Agent tool routing (human)
 
@@ -292,17 +296,30 @@ staging", or similar:
 - load `docs/runbooks/stg-deploy.md` (canonical contract) and
   `context/deploy-contract.json`
 - follow `docs/runbooks/cloud-deploy-staging.md` for full Cloud Deploy mechanics
-- deploy is **manual Google Cloud Deploy** from latest approved `origin/main`
+- deploy is the **Slack button in `#goatos-stg-deploy`**, backed by Cloud Build
+  trigger `goatos-stg-deploy-main` and Cloud Deploy, from latest approved
+  `origin/main`
 - do NOT use generic GitHub/CI assumptions
 - do NOT offer GitHub Actions or PR-driven deploy options
 - do NOT force-push a `stg` branch
 - verify `ravi@mesha.sg` / `vgoats.com` / `goatos-stg` before any cloud command
+- if asked whether it succeeded or failed, check the Slack-started Cloud Build
+  first, then the linked Cloud Deploy rollout
 - every completed release must have a GitHub release tag from `make release-tag`
   with separate Backend, Frontend/Admin Web, Mobile Android, Infra/Deploy,
   Docs/Seed/Data, and Other sections
 - Firebase App Distribution releases must first run
   `make restore-stg-android-release-env`, then record the Firebase release URL
   and Android version/code in the GitHub tag
+- Android employee releases are incomplete until Google Play Internal Testing is
+  updated from the same source/version identity and the exact Firebase APK bytes
+  are mirrored to
+  `gs://goatos-stg-public-downloads/operator/latest/app.apk` for
+  `https://mesha.sg/app.apk`; do not deploy the Mesha marketing website just to
+  update the APK
+- if the Slack checkbox `Also distribute Android mobile` is selected, mobile
+  starts only after STG Cloud Deploy succeeds; failure in Firebase, Play
+  Internal, or the APK mirror fails the Cloud Build
 
 ## Context Files
 

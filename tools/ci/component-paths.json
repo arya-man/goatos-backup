@@ -98,9 +98,11 @@
       ".codex/",
       "context/",
       "docs/",
-      "fixtures/"
+      "fixtures/",
+      "tools/deploy/"
     ],
     "files": [
+      "cloudbuild.stg.yaml",
       ".gitignore",
       "AGENTS.md",
       "CLAUDE.md",

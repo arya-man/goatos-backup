@@ -22,6 +22,46 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   member    = "serviceAccount:${google_service_account.runtime[each.value.accessor].email}"
 }
 
+resource "google_secret_manager_secret" "slack_deploy_signing_secret" {
+  secret_id = "goatos-stg-slack-deploy-signing-secret"
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  labels = local.labels
+}
+
+resource "google_secret_manager_secret" "slack_deploy_webhook_url" {
+  secret_id = "goatos-stg-deploy-slack-webhook-url"
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  labels = local.labels
+}
+
+resource "google_secret_manager_secret_iam_member" "slack_deploy_signing_secret_accessor" {
+  secret_id = google_secret_manager_secret.slack_deploy_signing_secret.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.slack_deploy_bot.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "slack_deploy_webhook_url_accessor" {
+  secret_id = google_secret_manager_secret.slack_deploy_webhook_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.slack_deploy_bot.email}"
+}
+
 # ---------------------------------------------------------------------------
 # Observability secrets (declared standalone, not folded into
 # local.secret_containers in main.tf, to keep this lane additive). Same

@@ -134,7 +134,6 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
-					navLeaf("counts-sheds", "Sheds", "/counts/sheds", nil),
 				},
 			},
 			// Milk is its own vertical, split out of Counts here the same way it was split out of the
@@ -248,7 +247,6 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
-		{Pattern: "/counts/sheds", Label: "Sheds", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
 		// Most-specific-first: /feed/direction and /feed/packing are exact leaves; /feed/config is
 		// the Feed-owned authority screen (see the navigation() scope note).
@@ -442,15 +440,6 @@ func pages() []domain.PageContract {
 				tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
 				"farm", "stage", "breed", "gender", "shed", "count",
 			)}),
-		// Sheds — the shed CONFIGURATION directory, one row per shed name with a column pair per
-		// park. The park columns are NOT declared here: park names are tenant data and must never be
-		// literals in contract code, so compileShedDirectoryColumns appends them from the live park
-		// family. The contract declares only the shed name column every tenant has.
-		page("counts-sheds", "/counts/sheds", "/counts/sheds", "Sheds", "What the farm has built: every pen and shed with the cohort it is configured for and the head count it is meant to hold.", "module-surface",
-			[]domain.TableContract{sortable(
-				tableP("shed-directory", "Sheds", "/counts/sheds", []string{"shed"}, "shed_row", []int{25, 50, 100}),
-				"shed",
-			)}),
 		// Weighing — the admin-web oversight read-out.
 		//
 		// Weighing is FREE-FLOW and ISOLATED: it records a scanned tag and a weight and
@@ -553,7 +542,13 @@ func pages() []domain.PageContract {
 				// now carry as many cells as the catalog has items, so the row count grows with the
 				// feed vocabulary rather than with the shed count.
 				tableP("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status"}, "experiment_config_id", []int{10, 25, 50}),
-				table("session-template", "Session template", "/feed-config/session-templates", []string{"session_no", "session_label", "split_fraction", "status"}, "session_template_id"),
+				// `feeds` is the session's RECIPE, and it is the column that answers whether a feed
+				// reaches an animal at all: generation walks these slots and looks each one up in the
+				// ration grid, so a feed with a grid quantity but no slot is silently absent from the
+				// sheet. It was missing from this table entirely, which is why COFS could carry
+				// 2157 g/head for Anantapur Sheep bucks from 2026-08-05 to 2026-08-09 and reach zero
+				// of the sheets issued in that window with nothing on this screen showing why.
+				table("session-template", "Session template", "/feed-config/session-templates", []string{"session_no", "session_label", "split_fraction", "feeds", "status"}, "session_template_id"),
 				// These are the three DISPATCH-CLOCK moments of a feed day, not session times. The
 				// table renders direction_time / correction_time / transport_time, so it must be
 				// headed by them: under the old session_no/session_label/start_time/end_time keys a
@@ -2670,51 +2665,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"growth_director.trust.rework":                 "Bounced by the verifier",
 			"growth_director.trust.rework.sub":             "left out of every gain number on this page",
 		}
-	case "counts-sheds":
-		return map[string]string{
-			"crumb":                 "Counts",
-			"section.sheds.title":   "Sheds",
-			"section.sheds.aria":    "Shed directory",
-			"section.sheds.caption": "Every pen and shed, paired across parks",
-			// Says plainly what the two values mean, because both are easy to misread. The capacity
-			// is THAT PEN's, not its shed's total; the tag is recorded per shed and shown against
-			// each of its pens; and neither figure is a census -- a pen configured for 10 head is
-			// not a pen holding 10 animals.
-			"section.sheds.note":      "How each place is set up, not how many animals are in it today. Capacity is that pen's own. A pen shows the cohort recorded for its shed — the farm records the cohort per shed, not per pen. For live head counts, use Counts Breakdown.",
-			"table.sheds.aria":        "Shed directory rows",
-			"table.sheds.page_note":   "Every pen and shed, not just this page",
-			"table.sheds.noun":        "location",
-			"table.sheds.noun_plural": "locations",
-			"column.shed":             "Shed",
-			"empty.title":             "No sheds configured",
-			"empty.body":              "No active sheds or pens are recorded for this tenant yet.",
-			// The inline retag editor. Every visible string it renders is here: the frontend composes
-			// none of it, including the default reason that lands in the audit row.
-			"stage_change.title":              "Change tag",
-			"stage_change.disabled_no_access": "Only the CEO can change a location's tag.",
-			"action.retag.search_placeholder": "Type to find a tag",
-			"action.retag.no_matches":         "No tag matches that",
-			"action.retag.confirm_title":      "Change tag",
-			"action.retag.reason_label":       "Reason",
-			"action.retag.default_reason":     "Tag corrected from the Sheds directory",
-			"action.retag.apply":              "Apply",
-			"action.retag.cancel":             "Cancel",
-			"action.retag.applying":           "Applying…",
-			"action.retag.checking":           "Checking…",
-			"action.retag.animals_noun":       "animals",
-			"action.retag.animal_noun":        "animal",
-			"action.retag.empty_scope":        "No animals here yet — this records the tag only",
-			"action.retag.failed":             "That change could not be applied",
-			// The kid/adult consequence. A tag carries its own band, so retagging a pen moves every
-			// animal in it across that line; the picker and the confirm step say so rather than
-			// leaving an operator to find out from the census afterwards.
-			"action.retag.band_kid":   "kids",
-			"action.retag.band_adult": "adults",
-			"action.retag.becomes":    "These animals become",
-			"value.no_tag":            "Not configured",
-			"value.no_capacity":       "Not recorded",
-			"value.not_in_park":       "—",
-		}
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
@@ -2739,22 +2689,49 @@ func pageSpecificCopy(id string) map[string]string {
 			// capped read-time rollup); it was the LABEL that never said the page is not the whole set.
 			"table.breakdown.total_row": "Total · every matching row, not just this page",
 			"table.breakdown.noun":      "row",
-			"filter.bar_aria":           "Filter breakdown rows",
-			"filter.farm_label":         "Farm",
-			"filter.stage_label":        "Stage",
-			"filter.breed_label":        "Breed",
-			"filter.shed_label":         "Shed",
-			"filter.gender_label":       "Gender",
-			"filter.all_option":         "All",
-			"filter.clear_all":          "Clear all",
-			"filter.scope_readonly":     "Park scope is set in the top bar.",
-			"chart.breed.title":         "Count by breed",
-			"chart.breed.caption":       "animals by breed",
-			"chart.stage.title":         "Count by stage",
-			"chart.stage.caption":       "where they are",
-			"chart.gender.title":        "Gender split",
-			"chart.gender.caption":      "animals by sex",
-			"chart.shed.title":          "Shed occupancy",
+			// The inline retag editor on the Stage cell. Every visible string it renders is here:
+			// the frontend composes none of it, including the default reason that lands in the
+			// audit row.
+			//
+			// SCOPE, because the row and the write are not the same thing: a breakdown row is a
+			// census SLICE (one breed and sex within a pen) while the write moves the whole PEN, so
+			// the confirm step reports the pen's own animal total from the preview rather than the
+			// row's count.
+			"action.retag.hint":               "Double-click a tag to change it",
+			"action.retag.search_placeholder": "Type to find a tag",
+			"action.retag.no_matches":         "No tag matches that",
+			"action.retag.reason_label":       "Reason",
+			"action.retag.default_reason":     "Tag corrected from Counts Breakdown",
+			"action.retag.apply":              "Apply",
+			"action.retag.cancel":             "Cancel",
+			"action.retag.applying":           "Applying…",
+			"action.retag.checking":           "Checking…",
+			"action.retag.animals_noun":       "animals",
+			"action.retag.animal_noun":        "animal",
+			"action.retag.empty_scope":        "No animals here yet — this records the tag only",
+			"action.retag.failed":             "That change could not be applied",
+			// The kid/adult consequence. A tag carries its own band, so retagging a pen moves every
+			// animal in it across that line; the picker and the confirm step say so rather than
+			// leaving an operator to find out from the census afterwards.
+			"action.retag.band_kid":   "kids",
+			"action.retag.band_adult": "adults",
+			"action.retag.becomes":    "These animals become",
+			"filter.bar_aria":         "Filter breakdown rows",
+			"filter.farm_label":       "Farm",
+			"filter.stage_label":      "Stage",
+			"filter.breed_label":      "Breed",
+			"filter.shed_label":       "Shed",
+			"filter.gender_label":     "Gender",
+			"filter.all_option":       "All",
+			"filter.clear_all":        "Clear all",
+			"filter.scope_readonly":   "Park scope is set in the top bar.",
+			"chart.breed.title":       "Count by breed",
+			"chart.breed.caption":     "animals by breed",
+			"chart.stage.title":       "Count by stage",
+			"chart.stage.caption":     "where they are",
+			"chart.gender.title":      "Gender split",
+			"chart.gender.caption":    "animals by sex",
+			"chart.shed.title":        "Shed occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
@@ -3302,49 +3279,69 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.display_order":        "Display order",
 			// Every attribute hint says the same thing in its own terms: blank is "not measured",
 			// which is a different statement from a measured 0 and is never turned into one.
-			"label.feed_item_attributes_note":  "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",
-			"label.energy_kcal_per_kg_note":    "Metabolisable energy per kilogram. Blank means not measured; an explicit 0 means measured as carrying none.",
-			"label.dry_matter_factor_note":     "Share of the item that is dry matter — greater than 0 and at most 1. Blank means not measured.",
-			"label.wastage_factor_note":        "Expected wastage share — at least 0 and less than 1. Blank means not measured; 0 means no wastage is expected.",
-			"label.display_order_note":         "Where the item sits in the lists on this page. Leave it blank to add the item at the end.",
-			"action.add_feed_item":             "Add feed type",
-			"action.add_feed_item_open":        "Add a feed item to the catalog. It authors no quantity — a rate still has to be entered for it.",
-			"action.feed_item_saved":           "Feed item added. It is now selectable on the ration grid, the shed factors and the experiment sheds — nothing is fed it until a rate is authored.",
-			"action.feed_item_rejected":        "Feed item rejected. Correct the values and try again.",
-			"reason.feed_item_exists":          "The catalog already holds a feed item with this name, so nothing was added. Names that differ only in capitals or spacing are the same item.",
-			"reason.feed_item_name_required":   "Enter a name for the feed item.",
-			"empty.feed_items":                 "No feed items in the catalog yet. Add one before authoring any rates — a rate has to name the item it is for.",
-			"state.feed_items_unavailable":     "Feed item catalog unavailable",
-			"section.session_template.title":   "Session template",
-			"section.session_template.aria":    "Per-park session split",
-			"section.session_template.caption": "How each park's daily quantity is divided across its feeding sessions",
-			"section.session_template.note":    "The session splits for a park must add up to the whole day. A park whose splits do not add up would under- or over-feed every shed in it, so the writer rejects it.",
-			"section.schedule.title":           "Feed day clock",
-			"section.schedule.aria":            "Per-park feed day dispatch clock",
-			"section.schedule.caption":         "When tomorrow's direction is issued, amended and cut off — per park and workflow",
-			"section.schedule.note":            "These are the times the SHEET moves, not the times animals eat. A direction is issued today for tomorrow's feed, packed today and transported before the cutoff, and fed the next morning. Quantities come from the ration grid and session template above; the clock never changes how much is fed.",
-			"kpi.rates.label":                  "Authored rates",
-			"kpi.rates.sub":                    "Currently in-force ration grid rows",
-			"kpi.groups.label":                 "Ration groups",
-			"kpi.groups.sub":                   "Distinct groups the grid is indexed by",
-			"kpi.items.label":                  "Feed items",
-			"kpi.items.sub":                    "Active items in the catalog",
-			"kpi.gaps.label":                   "Unconfigured combinations",
-			"kpi.gaps.sub":                     "In-use group and tag combinations with no authored rate",
-			"table.ration_grid.aria":           "Ration grid rows",
-			"table.ration_grid.noun":           "rate",
-			"table.shed_factors.aria":          "Shed factor rows",
-			"table.shed_factors.noun":          "factor",
-			"table.session_template.aria":      "Session template rows",
-			"table.session_template.noun":      "session",
-			"table.schedule.aria":              "Feeding schedule rows",
-			"table.schedule.noun":              "session",
-			"filter.bar_aria":                  "Filter feed configuration",
-			"filter.drawer.title":              "Filter — Feed Config",
-			"filter.park_label":                "Park",
-			"filter.shed_label":                "Shed",
-			"filter.ration_group_label":        "Ration group",
-			"filter.breed_label":               "Breed",
+			"label.feed_item_attributes_note": "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",
+			"label.energy_kcal_per_kg_note":   "Metabolisable energy per kilogram. Blank means not measured; an explicit 0 means measured as carrying none.",
+			"label.dry_matter_factor_note":    "Share of the item that is dry matter — greater than 0 and at most 1. Blank means not measured.",
+			"label.wastage_factor_note":       "Expected wastage share — at least 0 and less than 1. Blank means not measured; 0 means no wastage is expected.",
+			"label.display_order_note":        "Where the item sits in the lists on this page. Leave it blank to add the item at the end.",
+			"action.add_feed_item":            "Add feed type",
+			// Both lines name BOTH remaining steps on purpose. Saying only "a rate still has to be
+			// entered" reads as though a quantity is sufficient, and it is not: a feed is served only
+			// once a session serves it, so an authored quantity on an undeclared feed reaches nobody.
+			"action.add_feed_item_open":         "Add a feed item to the catalog. It appears on the ration grid at zero — set its quantity, then add it to a session below before anything is fed it.",
+			"action.feed_item_saved":            "Feed item added, and it now has a cell in every part of the ration grid at zero. Set its quantity, then add it to a session below — nothing is fed it until a session serves it.",
+			"action.feed_item_rejected":         "Feed item rejected. Correct the values and try again.",
+			"reason.feed_item_exists":           "The catalog already holds a feed item with this name, so nothing was added. Names that differ only in capitals or spacing are the same item.",
+			"reason.feed_item_name_required":    "Enter a name for the feed item.",
+			"empty.feed_items":                  "No feed items in the catalog yet. Add one before authoring any rates — a rate has to name the item it is for.",
+			"state.feed_items_unavailable":      "Feed item catalog unavailable",
+			"section.session_template.title":    "Session template",
+			"section.session_template.aria":     "Per-park session split",
+			"section.session_template.caption":  "How each park's daily quantity is divided across its feeding sessions",
+			"section.session_template.note":     "The session splits for a park must add up to the whole day. A park whose splits do not add up would under- or over-feed every shed in it, so the writer rejects it.",
+			"section.session_template.caption2": "Each session lists the feeds it serves. A feed is only served if it is on a session here — a quantity in the ration grid on its own feeds nobody.",
+			// The split warning is stated wherever a feed is added, because it is the single most
+			// likely way to author this wrong. The grid quantity is a DAILY figure and each session
+			// serves its own share of it, so a feed put on the morning session only delivers the
+			// morning's share, not the whole day's.
+			"action.add_session_feed":         "Add a feed",
+			"action.add_session_feed_open":    "Add a feed to this session. The ration grid quantity is for the whole day, and each session serves its own share of it — a feed added to one session only delivers that session's share.",
+			"action.add_session_feed_label":   "Feed",
+			"action.add_session_feed_submit":  "Add to this session",
+			"action.remove_session_feed":      "Remove",
+			"action.remove_session_feed_open": "Stop serving this feed in this session. Sheets already issued are not changed.",
+			"action.session_feed_saved":       "Session updated. The next sheet issued for this park serves the feeds listed here.",
+			"action.session_feed_rejected":    "The session was not changed. Correct the problem and try again.",
+			"reason.slot_rates_incomplete":    "This feed has no quantity set in every part of the ration grid for this park. Serving it would stop those sheds getting a sheet at all, so set its quantities first — zero is a valid answer.",
+			"reason.slot_not_declared":        "This session does not serve that feed, so there was nothing to remove. Check whether you meant the other session.",
+			"reason.session_feed_required":    "Choose a feed to add.",
+			"empty.session_feeds":             "No feeds — this session serves nothing and its sheds will not be fed. Add a feed to start serving it.",
+			"section.schedule.title":          "Feed day clock",
+			"section.schedule.aria":           "Per-park feed day dispatch clock",
+			"section.schedule.caption":        "When tomorrow's direction is issued, amended and cut off — per park and workflow",
+			"section.schedule.note":           "These are the times the SHEET moves, not the times animals eat. A direction is issued today for tomorrow's feed, packed today and transported before the cutoff, and fed the next morning. Quantities come from the ration grid and session template above; the clock never changes how much is fed.",
+			"kpi.rates.label":                 "Authored rates",
+			"kpi.rates.sub":                   "Currently in-force ration grid rows",
+			"kpi.groups.label":                "Ration groups",
+			"kpi.groups.sub":                  "Distinct groups the grid is indexed by",
+			"kpi.items.label":                 "Feed items",
+			"kpi.items.sub":                   "Active items in the catalog",
+			"kpi.gaps.label":                  "Unconfigured combinations",
+			"kpi.gaps.sub":                    "In-use group and tag combinations with no authored rate",
+			"table.ration_grid.aria":          "Ration grid rows",
+			"table.ration_grid.noun":          "rate",
+			"table.shed_factors.aria":         "Shed factor rows",
+			"table.shed_factors.noun":         "factor",
+			"table.session_template.aria":     "Session template rows",
+			"table.session_template.noun":     "session",
+			"table.schedule.aria":             "Feeding schedule rows",
+			"table.schedule.noun":             "session",
+			"filter.bar_aria":                 "Filter feed configuration",
+			"filter.drawer.title":             "Filter — Feed Config",
+			"filter.park_label":               "Park",
+			"filter.shed_label":               "Shed",
+			"filter.ration_group_label":       "Ration group",
+			"filter.breed_label":              "Breed",
 			// Said out loud on the control, because the grid's own column keeps showing the GROUP a
 			// row belongs to and the two vocabularies would otherwise look inconsistent.
 			"filter.breed_note":      "Breeds are grouped for feeding: Beetal and Sirohi share one rate, so either breed shows the Beetal/Sirohi rows. Kid rates are not breed-specific and are excluded when a breed is picked.",
@@ -5411,6 +5408,19 @@ func countsBreakdownOptionGroups() []domain.OptionGroup {
 				option("male", "Male", "", ""),
 			},
 		},
+		{
+			// The BREED CATALOG, for the inline breed correction. Declared empty here and filled by
+			// the compiler from the live `breeds` reference family: breeds are tenant data and must
+			// never be constants in contract code.
+			//
+			// Deliberately the CATALOG rather than the response's `facets.breeds`. A facet reports
+			// the breeds already ON the herd, and a correction frequently needs one that is not --
+			// that is the whole point of correcting a wrongly recorded breed. This is the same
+			// write-picker-versus-census-facet distinction the operational-location rule draws for
+			// sheds.
+			ID:      "counts_breed",
+			Options: []domain.Option{},
+		},
 	}
 }
 
@@ -6371,6 +6381,8 @@ func humanLabel(key string) string {
 		return "Session name"
 	case "split_fraction":
 		return "Session split"
+	case "feeds":
+		return "Feeds served"
 	case "valid_from":
 		return "Effective from"
 	case "valid_to":

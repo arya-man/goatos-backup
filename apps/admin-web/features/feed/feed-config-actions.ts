@@ -6,6 +6,7 @@ import {
   createFeedConfigFeedItem,
   setFeedConfigExperimentShedStatus,
   setFeedConfigFeedItemStatus,
+  setFeedConfigSessionTemplateItem,
   upsertFeedConfigExperiment,
   upsertFeedConfigExperimentBatch,
   upsertFeedConfigRationRate,
@@ -178,6 +179,8 @@ export async function saveRationRate(formData: FormData): Promise<FeedConfigActi
 
 const FEED_ITEM_REJECTED = "action.feed_item_rejected";
 const FEED_ITEM_SAVED = "action.feed_item_saved";
+const SESSION_FEED_REJECTED = "action.session_feed_rejected";
+const SESSION_FEED_SAVED = "action.session_feed_saved";
 const FEED_ITEM_STATUS_CHANGED = "action.feed_item_status_changed";
 
 /**
@@ -243,6 +246,61 @@ export async function saveFeedItem(formData: FormData): Promise<FeedConfigAction
   // direction and pack list are the same documents they were a moment ago — revalidating them would
   // imply the sheet moved when it did not.
   return { ok: true, messageKey: FEED_ITEM_SAVED };
+}
+
+/**
+ * Declares a feed on one feeding session's recipe, or withdraws it.
+ *
+ * This is the only write on this page that changes WHETHER a feed is served rather than how much of
+ * it. A quantity in the ration grid is looked up only for a feed a session declares, so an
+ * undeclared feed's quantity reaches nobody however carefully it was authored.
+ *
+ * `declared` is read as an explicit string rather than a checkbox presence, because a checkbox that
+ * is simply absent from the payload is indistinguishable from "unchecked" — and here the two
+ * directions are opposite feeding decisions, not a setting with a safe default.
+ */
+export async function saveSessionFeed(formData: FormData): Promise<FeedConfigActionResult> {
+  const parkId = readRequiredText(formData, "park_id");
+  const feedItem = readRequiredText(formData, "feed_item");
+  const sessionNoRaw = readRequiredText(formData, "session_no");
+  const declaredRaw = readRequiredText(formData, "declared");
+
+  // Its own message: an operator who opened the add form and submitted without picking a feed needs
+  // to be told to pick one, not that their values were rejected.
+  if (!feedItem) return { ok: false, messageKey: "reason.session_feed_required" };
+  if (!parkId || !sessionNoRaw || (declaredRaw !== "true" && declaredRaw !== "false")) {
+    return { ok: false, messageKey: SESSION_FEED_REJECTED };
+  }
+  const sessionNo = Number(sessionNoRaw);
+  if (!Number.isInteger(sessionNo) || sessionNo < 1) {
+    return { ok: false, messageKey: SESSION_FEED_REJECTED };
+  }
+
+  const result = await setFeedConfigSessionTemplateItem(
+    { park_id: parkId, session_no: sessionNo, feed_item: feedItem, declared: declaredRaw === "true" },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    // Both refusals are their own explanation, because in each case the operator's next move is
+    // specific: author the missing quantities, or look at the other session.
+    const known: Record<string, string> = {
+      slot_rates_incomplete: "reason.slot_rates_incomplete",
+      slot_not_declared: "reason.slot_not_declared",
+    };
+    const messageKey = known[result.error.code ?? ""];
+    return {
+      ok: false,
+      messageKey: messageKey ?? SESSION_FEED_REJECTED,
+      detail: messageKey ? undefined : result.error.message,
+    };
+  }
+
+  // Every feed surface, not just this page: unlike adding a catalog entry, this genuinely changes
+  // what tomorrow's sheet and pack list contain.
+  revalidatePath("/feed/config");
+  revalidatePath("/feed/direction");
+  revalidatePath("/feed/packing");
+  return { ok: true, messageKey: SESSION_FEED_SAVED };
 }
 
 export async function saveShedFactor(formData: FormData): Promise<FeedConfigActionResult> {

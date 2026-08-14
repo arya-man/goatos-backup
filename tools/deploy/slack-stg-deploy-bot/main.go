@@ -1,0 +1,435 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const maxSlackSkew = 5 * time.Minute
+
+type config struct {
+	ProjectID     string
+	Location      string
+	TriggerID     string
+	SigningSecret string
+	AllowedUsers  map[string]bool
+}
+
+type slackActionPayload struct {
+	Type        string `json:"type"`
+	ResponseURL string `json:"response_url"`
+	User        struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+		Name     string `json:"name"`
+	} `json:"user"`
+	Actions []struct {
+		ActionID string `json:"action_id"`
+		Value    string `json:"value"`
+	} `json:"actions"`
+	State struct {
+		Values map[string]map[string]struct {
+			Type            string `json:"type"`
+			SelectedOptions []struct {
+				Value string `json:"value"`
+			} `json:"selected_options"`
+		} `json:"values"`
+	} `json:"state"`
+}
+
+type cloudBuildRunResponse struct {
+	Metadata struct {
+		Build struct {
+			ID string `json:"id"`
+		} `json:"build"`
+	} `json:"metadata"`
+}
+
+type cloudBuildListResponse struct {
+	Builds []cloudBuildListBuild `json:"builds"`
+}
+
+type cloudBuildListBuild struct {
+	ID             string            `json:"id"`
+	Status         string            `json:"status"`
+	BuildTriggerID string            `json:"buildTriggerId"`
+	Substitutions  map[string]string `json:"substitutions"`
+}
+
+func main() {
+	cfg := config{
+		ProjectID:     env("PROJECT_ID", "goatos-stg"),
+		Location:      env("TRIGGER_LOCATION", "global"),
+		TriggerID:     mustEnv("TRIGGER_ID"),
+		SigningSecret: mustEnv("SLACK_SIGNING_SECRET"),
+		AllowedUsers:  parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("/slack/actions", cfg.handleSlackAction)
+
+	port := env("PORT", "8080")
+	log.Printf("goatos stg deploy bot listening on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, mux))
+}
+
+func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	if err := verifySlackSignature(cfg.SigningSecret, r.Header, body); err != nil {
+		http.Error(w, "bad signature", http.StatusUnauthorized)
+		return
+	}
+
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	var payload slackActionPayload
+	if err := json.Unmarshal([]byte(values.Get("payload")), &payload); err != nil {
+		http.Error(w, "bad payload", http.StatusBadRequest)
+		return
+	}
+	if len(cfg.AllowedUsers) > 0 && !cfg.AllowedUsers[payload.User.ID] {
+		writeSlackJSON(w, map[string]any{
+			"response_type": "ephemeral",
+			"text":          "You are not allowed to deploy Goat OS staging.",
+		})
+		return
+	}
+	if len(payload.Actions) == 0 {
+		writeSlackJSON(w, map[string]any{
+			"response_type": "ephemeral",
+			"text":          "Unknown deploy action.",
+		})
+		return
+	}
+
+	deploySTG, mobileDistribution, actionLabel, err := payload.deployMode()
+	if err != nil {
+		writeSlackJSON(w, map[string]any{
+			"response_type": "ephemeral",
+			"text":          "Unknown deploy action.",
+		})
+		return
+	}
+
+	active, err := cfg.activeDeployBuild(r.Context())
+	if err != nil {
+		log.Printf("active build check failed: %v", err)
+		writeSlackJSON(w, map[string]any{
+			"response_type": "ephemeral",
+			"text":          fmt.Sprintf("Could not check active deployments: `%s`", err.Error()),
+		})
+		return
+	}
+	if active.ID != "" {
+		buildURL := cfg.cloudBuildURL(active.ID)
+		writeSlackJSON(w, map[string]any{
+			"response_type":    "in_channel",
+			"replace_original": true,
+			"text":             fmt.Sprintf("Goat OS deployment already running: `%s`", active.Status),
+			"blocks":           deployAlreadyRunningBlocks(active, buildURL, cfg.cloudDeployURL()),
+		})
+		return
+	}
+
+	buildID, err := cfg.runTrigger(r.Context(), deploySTG, mobileDistribution)
+	if err != nil {
+		log.Printf("run trigger failed: %v", err)
+		writeSlackJSON(w, map[string]any{
+			"response_type": "ephemeral",
+			"text":          fmt.Sprintf("Failed to start %s: `%s`", actionLabel, err.Error()),
+		})
+		return
+	}
+
+	buildURL := cfg.cloudBuildURL(buildID)
+	deployURL := cfg.cloudDeployURL()
+	writeSlackJSON(w, map[string]any{
+		"response_type":    "in_channel",
+		"replace_original": true,
+		"text":             fmt.Sprintf("%s from `main` started by <@%s>.\nCloud Build: %s", actionLabel, payload.User.ID, buildURL),
+		"blocks":           deployStartedBlocks(payload.User.ID, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
+	})
+}
+
+func deployAlreadyRunningBlocks(build cloudBuildListBuild, buildURL, deployURL string) []map[string]any {
+	mode := buildMode(build)
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*Goat OS deploy already running*\nMode: `%s`\nStatus: `%s`\nBuild: `%s`", mode, build.Status, build.ID),
+			},
+		},
+		{
+			"type": "actions",
+			"elements": []map[string]any{
+				{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Build logs"}, "url": buildURL},
+				{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Deploy"}, "url": deployURL},
+			},
+		},
+	}
+}
+
+func deployStartedBlocks(userID, actionLabel string, deploySTG, mobileDistribution bool, buildURL, deployURL string) []map[string]any {
+	links := fmt.Sprintf("<%s|Cloud Build logs>", buildURL)
+	if deploySTG {
+		links += fmt.Sprintf(" | <%s|Cloud Deploy rollout>", deployURL)
+	}
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*%s in progress* by <@%s>\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, userID, deploySTG, mobileDistribution, links),
+			},
+		},
+	}
+}
+
+func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool) (string, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/locations/%s/triggers/%s:run", cfg.ProjectID, cfg.Location, cfg.TriggerID)
+	requestBody := map[string]any{
+		"source": map[string]any{
+			"branchName": "main",
+			"substitutions": map[string]string{
+				"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
+				"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(requestBody); err != nil {
+		return "", err
+	}
+	body := bytes.NewReader(buf.Bytes())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("cloud build trigger returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed cloudBuildRunResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", err
+	}
+	if parsed.Metadata.Build.ID == "" {
+		return "pending", nil
+	}
+	return parsed.Metadata.Build.ID, nil
+}
+
+func (cfg config) activeDeployBuild(ctx context.Context) (cloudBuildListBuild, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/builds?filter=%s", cfg.ProjectID, url.QueryEscape(`(status="QUEUED" OR status="WORKING")`))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return cloudBuildListBuild{}, fmt.Errorf("cloud build list returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed cloudBuildListResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	for _, build := range parsed.Builds {
+		if build.BuildTriggerID == cfg.TriggerID && isDeployBuild(build) {
+			return build, nil
+		}
+	}
+	return cloudBuildListBuild{}, nil
+}
+
+func isDeployBuild(build cloudBuildListBuild) bool {
+	return build.Substitutions["_DEPLOY_STG"] == "true" || build.Substitutions["_DEPLOY_MOBILE"] == "true"
+}
+
+func buildMode(build cloudBuildListBuild) string {
+	deploySTG := build.Substitutions["_DEPLOY_STG"] == "true"
+	deployMobile := build.Substitutions["_DEPLOY_MOBILE"] == "true"
+	switch {
+	case deploySTG && deployMobile:
+		return "STG + Android mobile"
+	case deploySTG:
+		return "STG"
+	case deployMobile:
+		return "Android mobile"
+	default:
+		return "unknown"
+	}
+}
+
+func (cfg config) cloudBuildURL(buildID string) string {
+	return fmt.Sprintf("https://console.cloud.google.com/cloud-build/builds;region=%s/%s?project=%s", cfg.Location, buildID, cfg.ProjectID)
+}
+
+func (cfg config) cloudDeployURL() string {
+	return fmt.Sprintf("https://console.cloud.google.com/deploy/delivery-pipelines/%s/goatos-stg?project=%s", cfg.Location, cfg.ProjectID)
+}
+
+func (payload slackActionPayload) deployMode() (deploySTG, mobileDistribution bool, actionLabel string, err error) {
+	switch payload.Actions[0].ActionID {
+	case "deploy_goatos_stg_main":
+		return true, payload.hasSelectedOption("mobile_distribution"), "STG deploy", nil
+	case "deploy_goatos_mobile_only":
+		return false, true, "Android mobile distribution", nil
+	default:
+		return false, false, "", fmt.Errorf("unknown action %q", payload.Actions[0].ActionID)
+	}
+}
+
+func (payload slackActionPayload) hasSelectedOption(want string) bool {
+	for _, block := range payload.State.Values {
+		for _, action := range block {
+			for _, option := range action.SelectedOptions {
+				if option.Value == want {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func metadataToken(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Metadata-Flavor", "Google")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("metadata token returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var payload struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+	if payload.AccessToken == "" {
+		return "", errors.New("metadata token response missing access_token")
+	}
+	return payload.AccessToken, nil
+}
+
+func verifySlackSignature(secret string, h http.Header, body []byte) error {
+	ts := h.Get("X-Slack-Request-Timestamp")
+	sig := h.Get("X-Slack-Signature")
+	if ts == "" || sig == "" {
+		return errors.New("missing slack signature headers")
+	}
+	unix, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return err
+	}
+	if time.Since(time.Unix(unix, 0)) > maxSlackSkew || time.Until(time.Unix(unix, 0)) > maxSlackSkew {
+		return errors.New("stale slack request")
+	}
+	base := []byte("v0:" + ts + ":")
+	base = append(base, body...)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(base)
+	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(expected), []byte(sig)) {
+		return errors.New("signature mismatch")
+	}
+	return nil
+}
+
+func writeSlackJSON(w http.ResponseWriter, payload map[string]any) {
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(payload)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
+}
+
+func parseAllowedUsers(raw string) map[string]bool {
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out[part] = true
+		}
+	}
+	return out
+}
+
+func env(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func mustEnv(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		log.Fatalf("%s is required", key)
+	}
+	return value
+}
