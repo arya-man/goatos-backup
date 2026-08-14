@@ -1691,21 +1691,13 @@ state_inputs AS (
     enriched.*,
     LEAST(
       enriched.obligation_count,
-      GREATEST(
-        enriched.completed_count,
-        enriched.completion_recorded + enriched.completion_accepted,
-        enriched.proof_submitted_count
-      )
+      enriched.done_count
     ) AS display_done_count,
     GREATEST(
       enriched.obligation_count
         - LEAST(
             enriched.obligation_count,
-            GREATEST(
-              enriched.completed_count,
-              enriched.completion_recorded + enriched.completion_accepted,
-              enriched.proof_submitted_count
-            )
+            enriched.done_count
           )
         - enriched.deferred_count
         - enriched.missed_count
