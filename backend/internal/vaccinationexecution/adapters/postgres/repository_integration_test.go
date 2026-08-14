@@ -1859,6 +1859,73 @@ func TestListVaccinationExecutionFiltersWorkStateBeforeLimit(t *testing.T) {
 	}
 }
 
+func TestListVaccinationExecutionPartialProofOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixFiltersAsInProgress(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "second open goat in same drive",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ('70000000-0000-4000-8000-000000000044', $1, 'alive', 'goat', $2, 'female',
+			   $3, $4, $3, 'K1', 'healthy')`,
+		testTenant, testParty, testShed, testPark)
+	execProjectionSQL(t, ctx, pool, "second open obligation in same drive",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ('70000000-0000-4000-8000-000000000045', $1, $2, $3, $4,
+		   'goat', '70000000-0000-4000-8000-000000000044', 'shed', $5,
+		   TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'vaccexec-partial-open', 1)`,
+		testTenant, testVersion, testRule, testBatch, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	inProgress := domain.WorkStateInProgress
+	inProgressPage, err := projectedExecutionPage(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		WorkState: &inProgress,
+		AsOf:      asOf,
+		DueBefore: dueBefore,
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecutionPage(in_progress) error = %v", err)
+	}
+	if inProgressPage.TotalCount != 1 || len(inProgressPage.Rows) != 1 {
+		t.Fatalf("partial proof page total/rows = %d/%d, want 1/1: %#v",
+			inProgressPage.TotalCount, len(inProgressPage.Rows), inProgressPage.Rows)
+	}
+	row := inProgressPage.Rows[0]
+	if row.WorkState != domain.WorkStateInProgress {
+		t.Fatalf("partial proof work_state = %q, want %q", row.WorkState, domain.WorkStateInProgress)
+	}
+	if row.ObligationCount != 2 || row.CompletionRecorded != 1 || row.CompletedCount != 0 {
+		t.Fatalf("partial proof counts obligation/completion/completed = %d/%d/%d, want 2/1/0",
+			row.ObligationCount, row.CompletionRecorded, row.CompletedCount)
+	}
+
+	verificationPending := domain.WorkStateVerificationPending
+	reviewPage, err := projectedExecutionPage(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		WorkState: &verificationPending,
+		AsOf:      asOf,
+		DueBefore: dueBefore,
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecutionPage(verification_pending) error = %v", err)
+	}
+	if reviewPage.TotalCount != 0 || len(reviewPage.Rows) != 0 {
+		t.Fatalf("partial proof leaked into verification_pending total/rows = %d/%d: %#v",
+			reviewPage.TotalCount, len(reviewPage.Rows), reviewPage.Rows)
+	}
+}
+
 func TestListVaccinationExecutionSurfacesTaskReworkAsRejected(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

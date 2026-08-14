@@ -1674,34 +1674,65 @@ enriched AS (
     LIMIT 1
   ) assignment_operator ON grouped.operator_name IS NULL
 ),
-stateful AS (
+state_inputs AS (
   SELECT
     enriched.*,
+    LEAST(
+      enriched.obligation_count,
+      GREATEST(
+        enriched.completed_count,
+        enriched.completion_recorded + enriched.completion_accepted,
+        enriched.proof_submitted_count
+      )
+    ) AS display_done_count,
+    GREATEST(
+      enriched.obligation_count
+        - LEAST(
+            enriched.obligation_count,
+            GREATEST(
+              enriched.completed_count,
+              enriched.completion_recorded + enriched.completion_accepted,
+              enriched.proof_submitted_count
+            )
+          )
+        - enriched.deferred_count
+        - enriched.missed_count
+        - enriched.canceled_count,
+      0::bigint
+    ) AS display_open_count
+  FROM enriched
+),
+stateful AS (
+  SELECT
+    state_inputs.*,
     CASE
-      WHEN enriched.obligation_count > 0
-       AND enriched.completed_count = enriched.obligation_count
-       AND enriched.completion_rejected = 0
-       AND enriched.completion_recorded = 0 THEN 'completed'
-      WHEN enriched.completion_rejected > 0 THEN 'rejected'
-      WHEN NOT enriched.usable_for_vaccination THEN 'blocked'
-      WHEN enriched.deferred_count > 0
-        OR enriched.health_deferred_count > 0
-        OR enriched.is_quarantine
-        OR enriched.is_icu THEN 'deferred'
-      WHEN enriched.missed_count > 0 THEN 'missed'
-      WHEN COALESCE(enriched.operator_name, enriched.assignment_operator_name) IS NULL
-       AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
-      WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
-      WHEN enriched.completion_recorded > 0
-        OR enriched.proof_submitted_count > 0 THEN 'verification_pending'
-      WHEN enriched.in_progress_count > 0
-        OR enriched.batch_status = 'in_progress'
-        OR enriched.task_state = 'in_progress' THEN 'in_progress'
-      WHEN (enriched.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
-      WHEN enriched.due_count > 0 THEN 'due'
+      WHEN state_inputs.obligation_count > 0
+       AND state_inputs.completed_count = state_inputs.obligation_count
+       AND state_inputs.completion_rejected = 0
+       AND state_inputs.completion_recorded = 0 THEN 'completed'
+      WHEN state_inputs.completion_rejected > 0 THEN 'rejected'
+      WHEN NOT state_inputs.usable_for_vaccination THEN 'blocked'
+      WHEN state_inputs.deferred_count > 0
+        OR state_inputs.health_deferred_count > 0
+        OR state_inputs.is_quarantine
+        OR state_inputs.is_icu THEN 'deferred'
+      WHEN state_inputs.missed_count > 0 THEN 'missed'
+      WHEN COALESCE(state_inputs.operator_name, state_inputs.assignment_operator_name) IS NULL
+       AND state_inputs.completed_count < state_inputs.obligation_count THEN 'blocked'
+      WHEN state_inputs.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
+      WHEN (state_inputs.completion_recorded > 0
+        OR state_inputs.proof_submitted_count > 0)
+       AND state_inputs.display_open_count > 0 THEN 'in_progress'
+      WHEN state_inputs.completion_recorded > 0
+        OR state_inputs.proof_submitted_count > 0 THEN 'verification_pending'
+      WHEN state_inputs.in_progress_count > 0
+        OR state_inputs.batch_status = 'in_progress'
+        OR state_inputs.task_state = 'in_progress' THEN 'in_progress'
+      WHEN (state_inputs.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN state_inputs.due_count > 0 THEN 'due'
       ELSE 'scheduled'
     END AS work_state
-  FROM enriched
+  FROM state_inputs
 ),
 classified AS (
   SELECT
@@ -1752,16 +1783,7 @@ filtered AS (
     )
     AND (
       NOT $10::boolean
-      OR (
-        classified.obligation_count
-        - GREATEST(
-            classified.completed_count,
-            classified.completion_recorded + classified.completion_accepted + classified.completion_rejected
-          )
-        - classified.deferred_count
-        - classified.missed_count
-        - classified.canceled_count
-      ) > 0
+      OR classified.display_open_count > 0
     )
 )
 SELECT
