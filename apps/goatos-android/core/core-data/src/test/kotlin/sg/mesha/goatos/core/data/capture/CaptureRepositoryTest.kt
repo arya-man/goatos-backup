@@ -2358,7 +2358,7 @@ class CaptureRepositoryTest {
             advanceUntilIdle()
 
             // Retry the upload
-            val retryResult = proofs.retryUpload(proofId)
+            val retryResult = proofs.retryUpload("vacc-task-1", proofId)
             assertTrue("Retry succeeds", retryResult is AppResult.Ok)
             advanceUntilIdle()
 
