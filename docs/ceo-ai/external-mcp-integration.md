@@ -127,6 +127,37 @@ handling, leadership allowlist checks, routing to the Mesha assistant, and safe
 exposure of the approved read-only tool catalog. Goat OS API remains the
 authority for bearer validation, tenant binding, CEO/CXO role gating, and audit.
 
+## Freshness For New APIs And Tables
+
+The external MCP endpoint does not expose raw new tables automatically. That is
+intentional. The safe automatic path is:
+
+```text
+new Mesha question
+  -> external MCP ask_goatos
+  -> Goat OS /ceo-ai/ask
+  -> existing covered read APIs, Cube metrics, MCP Toolbox tools, ceo_ai views,
+     or validated read-only SQL fallback
+```
+
+If a future change adds a new leadership-relevant API, OpenAPI path, table,
+view, reporting read, KPI, mobile workflow, admin-web route, or domain event, it
+must also update the leadership assistant coverage layer in the same change.
+That means one of:
+
+- map it to an existing Mesha read API / Cube metric / wired reader,
+- add or update a `ceo_ai.*` reporting view,
+- add or update a curated MCP Toolbox tool,
+- add a validated read-only SQL fallback/query class, or
+- add an explicit exclusion row in `docs/ceo-ai/coverage-matrix.md` explaining
+  why leadership should not see it.
+
+This is machine-gated. `make leadership-assistant-coverage-guard`, registered in
+`tools/ci/guardrail-manifest.json` and wired into `make guardrails` plus normal
+`make ci-local`, detects new APIs/tables/surfaces and fails if coverage or a
+documented exclusion is missing. Claude and Codex also get the same reminder
+through the repo hooks and the `goatos-leadership-assistant` skill.
+
 ## Claude Desktop / Claude Code Configuration
 
 For Claude clients with remote custom connector support:
