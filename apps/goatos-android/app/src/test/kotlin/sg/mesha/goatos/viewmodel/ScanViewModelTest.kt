@@ -2198,6 +2198,63 @@ class ScanViewModelExecutionGateTest {
         assertFalse(vm.state.value.captureAccessRequired)
     }
 
+    // ============================================================================
+    // REGRESSION TEST (a): Recapture-cancel preserves old proof - ScanViewModel
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: a cancelled re-capture must leave the
+    // existing proof alone. The old order discarded the row first and only then
+    // opened the camera, so cancelling it deleted a good proof.
+    @Test
+    fun `a cancelled re-capture of scan video keeps the existing proof`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        // ONE video available: the first capture consumes it, so the retake finds the camera empty
+        // and returns null (camera cancel).
+        val videoSource = FakeProofCaptureSource(
+            mutableListOf(CapturedVideo(localUri = "/proof/scan-video.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+        )
+
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = videoSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(taskDetail = taskDetailFor("scan", listOf())),
+            analytics = NoopAnalytics(),
+            executionRepository = FakeScanExecutionRepository(),
+        )
+
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        // First capture: record scan video
+        scanVm.onEvent(ScanEvent.RecordVideo)
+        advanceUntilIdle()
+        assertEquals("the first capture must record one proof", 1, proofCaptureRepository.captureCalls.size)
+
+        // Retake, and cancel it (camera returns no video because we consumed the single fake video)
+        scanVm.onEvent(ScanEvent.RecordVideo)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a cancelled retake must not write a second proof",
+            1,
+            proofCaptureRepository.captureCalls.size,
+        )
+        // Assert the ROW, not the flag. The flag stays true even when the row is gone.
+        val survivingRows = proofCaptureRepository.observeProofs("any", null).first()
+        assertEquals(
+            "the existing proof row must survive a cancelled retake",
+            1,
+            survivingRows.size,
+        )
+        assertEquals("/proof/scan-video.mp4", survivingRows.first().localUri)
+    }
+
 }
 
 private fun autoVideoProofSource(): FakeProofCaptureSource =
