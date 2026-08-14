@@ -255,16 +255,11 @@ class ShedsViewModelTest {
     }
 
     /**
-     * Pins the maintainer-reported defect: `/app/vaccination/execution` legitimately returns
-     * completed sheds alongside open ones (the backend keeps sending a row for as long as its
-     * drive is active), but a shed whose own `dueDate` had already rolled into the backlog
-     * (before today) and carried NO open/review work used to be dropped from today's list
-     * entirely -- the operator's finished work vanished mid-drive instead of staying visible
-     * until the drive closed. A completed shed must both (a) still render on today's list and
-     * (b) be marked so tapping it cannot re-open the scan screen (`opensRecordOnly`).
+     * Pins the operator rollover rule: previous-date completed sheds must not appear on
+     * today's list, while unfinished backlog remains visible.
      */
     @Test
-    fun `a completed backlog shed stays on today's list and is marked non-openable`() = runTest(dispatcher) {
+    fun `a completed backlog shed is hidden from today's list`() = runTest(dispatcher) {
         val today = LocalDate.now()
         val completedDueDate = today.minusDays(2).toString()
         val repo = FakeShedsPinVmExecutionRepository(
@@ -284,8 +279,7 @@ class ShedsViewModelTest {
                         workState = "open",
                         sopStatus = "open",
                     ),
-                    // Finished days ago, fully accepted, no open/review work left -- exactly the
-                    // shape of Godel 1 / Yashoda 1 / Gandhi 2 in the live repro.
+                    // Finished days ago, fully accepted, no open/review work left.
                     VaccinationExecutionRowDto(
                         shedId = "shed-done",
                         shedName = "Godel 1",
@@ -314,16 +308,11 @@ class ShedsViewModelTest {
         advanceUntilIdle()
 
         val rows = vm.state.value.rows
-        val completedRow = rows.firstOrNull { it.shedId == "shed-done" }
-        assertTrue(
-            "completed shed must still be present on today's list, got: ${rows.map { it.shedId }}",
-            completedRow != null,
+        assertEquals(
+            "completed prior-date shed must not appear on today's list",
+            null,
+            rows.firstOrNull { it.shedId == "shed-done" },
         )
-        assertTrue(
-            "completed shed must be marked so a tap cannot re-open the scan screen",
-            completedRow!!.opensRecordOnly,
-        )
-        assertEquals("5", completedRow.accepted)
         assertTrue(rows.any { it.shedId == "shed-open" })
     }
 
