@@ -119,6 +119,7 @@ Staging deployment authority:
 Cloud Deploy pipeline: deploy/clouddeploy/stg/clouddeploy.yaml
 Release helper:        tools/deploy/stg-clouddeploy-release.sh
 Detailed runbook:      docs/runbooks/cloud-deploy-staging.md
+Default trigger:       Slack #goatos-stg-deploy -> Cloud Build goatos-stg-deploy-main
 ```
 
 Staging releases are the unit of change. A release carries the backend,
@@ -131,20 +132,20 @@ Do not update staging Cloud Run services or jobs directly from GitHub Actions
 or a local shell except as documented break-glass. Direct updates are how staging
 ends up with API, jobs, and schema from different commits.
 
-Staging branch automation:
+Staging deploy automation:
 
 ```text
-main -> stg PR: .github/workflows/stg-pr-gate.yml
-GitHub PR merge: updates stg
-verified stg SHA: .github/workflows/stg-deploy.yml -> Cloud Deploy release
+Slack #goatos-stg-deploy button
+  -> Cloud Run Slack bot goatos-stg-slack-deploy-bot
+  -> Cloud Build trigger goatos-stg-deploy-main on origin/main
+  -> cloudbuild.stg.yaml
+  -> Cloud Deploy release and rollout
 ```
 
-The PR gate runs backend DB/API/migration tests, admin-web checks, and a real
-`stgRelease` Android APK build. The deploy workflow builds/pushes backend,
-migration, and admin-web images, then creates a Cloud Deploy release. Cloud
-Deploy owns all Cloud Run mutations. Never push a local branch, `HEAD`, `main`,
-or refspec directly to remote `stg`; local/agent hooks block it, and the deploy
-workflow rejects any SHA without the matching merged same-repo PR.
+Cloud Build builds/pushes backend, migration, and admin-web images, then
+creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.
+Never push a local branch, `HEAD`, `main`, or refspec directly to remote `stg`;
+local/agent hooks block it, and the `stg` branch is not deployment authority.
 
 If the staging deploy includes publishing an Android employee build, follow
 `docs/mobile/stg-signed-release.md` as an additional release gate. Firebase App
@@ -384,14 +385,14 @@ canonical redirect is a user-friendly fallback, not the primary exposure model.
 For staging, the normal release path is now:
 
 ```text
-open main -> stg PR
-wait for stg-pr-gate
-merge PR in GitHub (the only authorized update to remote stg)
-stg-deploy runs automatically on the stg branch push
+press Deploy main to STG in #goatos-stg-deploy
+watch the Cloud Build link posted by Slack
+open the linked Cloud Deploy rollout if the deploy step fails
+if Android was checked, inspect the mobile step for Firebase/Play/app.apk status
 ```
 
-Manual steps below remain the reference for dev/prod and for break-glass
-staging operations.
+Manual steps below remain the reference for dev/prod and for break-glass staging
+operations only.
 
 ## Manual release steps
 
