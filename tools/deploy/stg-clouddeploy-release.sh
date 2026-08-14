@@ -49,6 +49,7 @@ fi
 STG_DEPLOY_ACCOUNTS=(
   "ravi@mesha.sg"
   "manohark@mesha.sg"
+  "goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com"
 )
 
 active_account="$(gcloud config get-value account 2>/dev/null)"
