@@ -1,9 +1,10 @@
 # Cloud Deploy Staging Runbook
 
-Status: `goatos-stg` deployment authority is Cloud Deploy. GitHub Actions is
-not a Goat OS staging deploy path. A local operator may build images and create
-a release from the latest approved `origin/main`, but Cloud Run staging services
-and jobs must be mutated by the Cloud Deploy rollout task only.
+Status: `goatos-stg` deployment authority is the Slack deploy button backed by
+Google Cloud Build and Cloud Deploy. GitHub Actions is not a Goat OS staging
+deploy path. A local operator may run the scripts only for documented
+break-glass/repair, but Cloud Run staging services and jobs must be mutated by
+the Cloud Deploy rollout task only.
 
 ## Why this exists
 
@@ -62,13 +63,14 @@ list; the rollout discovers existing backend-image jobs and updates them.
 
 ## Create A Release
 
-Normal staging releases originate from a clean repo checkout at the latest
-approved `origin/main`. Do not create or wait for a `main -> stg` pull request,
-GitHub Actions workflow, or remote `stg` branch update as part of staging
-deployment. If a remote button is needed, use the Cloud Build manual trigger
-that reads `origin/main` and runs `cloudbuild.stg.yaml`.
+Normal staging releases originate from the `#goatos-stg-deploy` Slack button.
+The button invokes Cloud Build manual trigger `goatos-stg-deploy-main`, which
+reads latest approved `origin/main` and runs `cloudbuild.stg.yaml`. Do not
+create or wait for a `main -> stg` pull request, GitHub Actions workflow, or
+remote `stg` branch update as part of staging deployment.
 
-Run from a clean repo checkout that points at the intended commit:
+Break-glass only: run from a clean repo checkout that points at the intended
+commit:
 
 ```bash
 git fetch origin main --prune
@@ -81,19 +83,34 @@ gcloud config set project goatos-stg
 tools/deploy/stg-clouddeploy-release.sh
 ```
 
-## Deploy From Google Cloud Build
+## Deploy From Slack / Google Cloud Build
 
-The repository includes `cloudbuild.stg.yaml` for a manual Cloud Build trigger.
-The trigger should point at GitHub repo `vgoats/goatos`, branch `main`, and use
-that build config file. It runs as:
+The Slack app posts a deploy card in `#goatos-stg-deploy`. Pressing
+`Deploy main to STG` calls the Cloud Run Slack bot
+`goatos-stg-slack-deploy-bot`, which starts Cloud Build trigger
+`goatos-stg-deploy-main`.
+
+The trigger points at GitHub repo `vgoats/goatos`, branch `main`, and uses
+`cloudbuild.stg.yaml`. It runs as:
 
 ```text
 goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
 ```
 
-Cloud Build should be used as an operator-controlled button, not as a push-on-
-every-commit deployment. The same release helper still refuses non-`origin/main`
-commits and waits for Cloud Deploy rollout/image verification.
+Cloud Build is an operator-controlled button, not a push-on-every-commit
+deployment. The same release helper still refuses non-`origin/main` commits and
+waits for Cloud Deploy rollout/image verification.
+
+The card has an `Also distribute Android mobile` checkbox. If unchecked, only
+the STG backend/web deploy runs. If checked, Cloud Build runs mobile only after
+the STG deploy step succeeds. Mobile means all three channels, as one release:
+Firebase App Distribution, Google Play Internal Testing package
+`sg.mesha.goatos.stg`, and `https://mesha.sg/app.apk`. Any failure in those
+channels fails the Cloud Build and posts a Slack failure alert.
+
+To inspect progress or failure, open the Cloud Build link posted by Slack. The
+STG deploy step links to Cloud Deploy releases/rollouts; the mobile step logs
+Firebase upload, Play internal upload, and APK mirror verification.
 
 Optional Slack alerts use Secret Manager secret:
 

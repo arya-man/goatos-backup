@@ -2,12 +2,17 @@
   "stg_deploy": {
     "github_actions_enabled": false,
     "pr_driven_deploy": false,
-    "manual_cloud_deploy": true,
-    "deploy_authority": "google-cloud-deploy",
+    "manual_cloud_deploy": false,
+    "deploy_authority": "slack-cloud-build-cloud-deploy",
+    "slack_channel": "#goatos-stg-deploy",
+    "cloud_build_trigger": "goatos-stg-deploy-main",
+    "cloud_build_config": "cloudbuild.stg.yaml",
+    "slack_bot_service": "goatos-stg-slack-deploy-bot",
     "runbook": "docs/runbooks/stg-deploy.md",
     "full_mechanics_runbook": "docs/runbooks/cloud-deploy-staging.md",
     "org_boundary_runbook": "docs/runbooks/google-cloud-environments.md",
     "scripts_glob": "tools/deploy/stg-clouddeploy-*.sh",
+    "scripts_usage": "break_glass_or_repair_only",
     "source_ref": "origin/main",
     "requires_clean_worktree": true,
     "required_account": "ravi@mesha.sg",
@@ -16,6 +21,19 @@
     "forbidden_identities": ["slice", "heva"],
     "forbidden_projects": ["hevaplatform", "goatos-sheets", "system-gsuite", "apps-script"],
     "ci_validation": "make ci-local",
+    "status_source_order": ["slack_posted_cloud_build", "cloud_deploy_rollout", "cloud_run_live_images"],
+    "mobile_distribution_checkbox": {
+      "slack_label": "Also distribute Android mobile",
+      "starts_after_stg_deploy_success": true,
+      "all_or_nothing_channels": [
+        "Firebase App Distribution",
+        "Google Play Internal Testing",
+        "https://mesha.sg/app.apk"
+      ],
+      "play_package": "sg.mesha.goatos.stg",
+      "firebase_gradle_task": ":app:appDistributionUploadStgRelease",
+      "apk_mirror": "gs://goatos-stg-public-downloads/operator/latest/app.apk"
+    },
     "bug_041_blocks_deploy": false
   },
   "stg_seed_closeout": {

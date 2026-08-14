@@ -292,11 +292,15 @@ staging", or similar:
 - load `docs/runbooks/stg-deploy.md` (canonical contract) and
   `context/deploy-contract.json`
 - follow `docs/runbooks/cloud-deploy-staging.md` for full Cloud Deploy mechanics
-- deploy is **manual Google Cloud Deploy** from latest approved `origin/main`
+- deploy is the **Slack button in `#goatos-stg-deploy`**, backed by Cloud Build
+  trigger `goatos-stg-deploy-main` and Cloud Deploy, from latest approved
+  `origin/main`
 - do NOT use generic GitHub/CI assumptions
 - do NOT offer GitHub Actions or PR-driven deploy options
 - do NOT force-push a `stg` branch
 - verify `ravi@mesha.sg` / `vgoats.com` / `goatos-stg` before any cloud command
+- if asked whether it succeeded or failed, check the Slack-started Cloud Build
+  first, then the linked Cloud Deploy rollout
 - every completed release must have a GitHub release tag from `make release-tag`
   with separate Backend, Frontend/Admin Web, Mobile Android, Infra/Deploy,
   Docs/Seed/Data, and Other sections
@@ -309,6 +313,9 @@ staging", or similar:
   `gs://goatos-stg-public-downloads/operator/latest/app.apk` for
   `https://mesha.sg/app.apk`; do not deploy the Mesha marketing website just to
   update the APK
+- if the Slack checkbox `Also distribute Android mobile` is selected, mobile
+  starts only after STG Cloud Deploy succeeds; failure in Firebase, Play
+  Internal, or the APK mirror fails the Cloud Build
 
 ## Context Files
 

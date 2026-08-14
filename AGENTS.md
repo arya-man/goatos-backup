@@ -313,16 +313,23 @@ Do not infer CI deployment from branch names.
 Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
    `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
-2. Use the manual Google Cloud Deploy scripts under
-   `tools/deploy/stg-clouddeploy-*.sh`.
+2. Use the Slack deploy button in `#goatos-stg-deploy`. The button triggers the
+   Google Cloud Build manual trigger `goatos-stg-deploy-main`, which reads
+   `cloudbuild.stg.yaml` and creates the Cloud Deploy release from `origin/main`.
 3. Verify active account is `ravi@mesha.sg`.
 4. Verify target org is `vgoats.com` and environment is Goat OS STG
    (`goatos-stg`).
 5. Never use Slice/Heva GitHub identity or cloud project for Goat OS.
 
 If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
-manual Google Cloud Deploy from the latest approved `origin/main`, following the
-runbook.
+use the Slack button/Cloud Build route from the latest approved `origin/main`,
+following the runbook. Do not run a local deploy unless the Slack/Cloud Build
+route itself is broken and the maintainer explicitly asks for break-glass.
+
+If a user asks whether STG deploy is done, failed, or stuck, check the Cloud
+Build run started by the Slack bot first, then the Cloud Deploy release/rollout
+linked from that build. Do not infer status from local shell output or branch
+names.
 
 If a user asks to "publish Firebase", "upload to Firebase", "Firebase App
 Distribution", "release Android STG", "push the APK", "internal test", "Play
@@ -1643,14 +1650,16 @@ Organization boundaries:
   gmail, or personal identities are blocked by `make git-identity-guard` and
   the local CI common gate. The expected maintainer identity is
   `Raviteja <ravi@mesha.sg>`.
-- **Staging deployment is manual Cloud Deploy only.** Do not create or wait for
-  a `main -> stg` pull request, GitHub Actions workflow, or direct `stg` branch
-  push as a deployment mechanism. Agents must deploy from a clean checkout at
-  the latest approved `origin/main` using `docs/runbooks/stg-deploy.md` and
-  `tools/deploy/stg-clouddeploy-*.sh`. Never push any local ref, local `stg`,
-  `main`, `HEAD`, agent branch, or refspec directly to remote `stg`; the branch
-  is not deployment authority. Run `make ai-setup` so the local guard blocks
-  accidental remote `stg` writes. Do not bypass it with `--no-verify`.
+- **Staging deployment is Slack-triggered Cloud Build into Cloud Deploy.** Do
+  not create or wait for a `main -> stg` pull request, GitHub Actions workflow,
+  or direct `stg` branch push as a deployment mechanism. Agents must use the
+  `#goatos-stg-deploy` Slack button, which runs Cloud Build trigger
+  `goatos-stg-deploy-main` from latest approved `origin/main`; manual scripts
+  under `tools/deploy/stg-clouddeploy-*.sh` are break-glass/repair mechanics.
+  Never push any local ref, local `stg`, `main`, `HEAD`, agent branch, or
+  refspec directly to remote `stg`; the branch is not deployment authority. Run
+  `make ai-setup` so the local guard blocks accidental remote `stg` writes. Do
+  not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
@@ -2124,9 +2133,10 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   normal app DB from E2E. Destructive/load tests must use an isolated DB with
   its own seed/cleanup, such as the explicit local GCP-kernel stack on `55432`;
   that stack must never become the default laptop runtime DB.
-- Deploy `goatos-stg` through Cloud Deploy. Build systems may create images and
-  Cloud Deploy releases, but Cloud Run service/job mutations for staging belong
-  to `deploy/clouddeploy/stg/clouddeploy.yaml` and
+- Deploy `goatos-stg` through the Slack button backed by Cloud Build and Cloud
+  Deploy. Build systems may create images and Cloud Deploy releases, but Cloud
+  Run service/job mutations for staging belong to
+  `deploy/clouddeploy/stg/clouddeploy.yaml` and
   `tools/deploy/stg-clouddeploy-task.sh`. Direct `gcloud run services update`,
   `gcloud run jobs update`, or manual migration execution is break-glass only
   and must be followed by a Cloud Deploy release from the same commit; see
