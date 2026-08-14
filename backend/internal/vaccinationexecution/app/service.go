@@ -619,16 +619,8 @@ func sopStatusFromProjection(p domain.ExecutionProjection, partialProofProgress 
 		return domain.SOPStatusRework
 	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
 		return domain.SOPStatusAccepted
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
-		// Only mark as submitted if all work is done (openCount == 0).
-		// done_count is computed in SQL as per-animal union: has_done = completed OR recorded OR accepted OR shed_proof.
-		// This ensures disjoint completion paths (e.g., 3 animals completed + 2 animals proofed = 5 done, not max=3).
-		openCount := p.ObligationCount - p.DoneCount - p.DeferredCount - p.MissedCount - p.CanceledCount
-		if openCount <= 0 && !partialProofProgress {
-			return domain.SOPStatusSubmitted
-		}
-		// Has completion evidence (recorded or proof) but not all obligations are done or partial proof in progress; remain in_progress.
-		return domain.SOPStatusInProgress
+	case (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) && !partialProofProgress:
+		return domain.SOPStatusSubmitted
 	case taskStateIs(p, "in_progress"):
 		return domain.SOPStatusInProgress
 	default:
