@@ -6,7 +6,7 @@ and the external MCP server (ChatGPT / Claude connectors). Code, guards, docs,
 skills, and agents (Claude and Codex) must conform to this policy. Do not
 re-litigate or re-ask these decisions — they are settled.
 
-## 1. Who — exactly 5 users, no one else
+## 1. Who — exactly 4 users, no one else
 
 The assistant is used ONLY by the CEO/leadership cohort (`ceo_internal`). Current
 authorized users (seed values; the list is editable at runtime, see §4):
@@ -14,7 +14,6 @@ authorized users (seed values; the list is editable at runtime, see §4):
 - ravi@mesha.sg
 - manohark@mesha.sg
 - manju@mesha.sg
-- abhishek@mesha.sg
 - aryaman@mesha.sg
 
 No other user gets access — not operators, not managers, not the public. Any
@@ -32,7 +31,7 @@ These users are CEO-level. There is **NO information restriction of any kind**:
 - Do NOT add per-module hiding, per-scope narrowing, "safe subset", redaction of
   business numbers, or any artificial limit on breadth for these users.
 
-If a future change would narrow what these 5 can see, that change is WRONG unless
+If a future change would narrow what these 4 can see, that change is WRONG unless
 this document is explicitly amended first.
 
 ## 3. The only invariants (these are NOT information restrictions)

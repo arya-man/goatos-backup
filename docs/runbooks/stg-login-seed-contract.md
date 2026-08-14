@@ -16,15 +16,15 @@ admin-web and an empty bottom bar on mobile.
 
 A STG seed is **INCOMPLETE** until:
 
-1. all 10 UID-backed accounts have an **ACTIVE** (`status = 'active'`)
+1. all UID-backed seed accounts have an **ACTIVE** (`status = 'active'`)
    `user_scope_grants` row — not merely a pending email grant — and Jyothi has
    an active CPT verifier pending-email grant that materializes on first
    verified sign-in;
-2. **all 10 UID-backed accounts have an active `workforce_members` profile.** The mobile
+2. **all UID-backed seed accounts have an active `workforce_members` profile.** The mobile
    `/app/bootstrap` (`activeProfileAndGrants`) hard-requires a profile row for
    the signed-in user and returns `403 operator_profile_missing` without one —
-   this applies to the 5 leadership users too, not just field users. The 4
-   field users bind to their existing named roster row (see step 3); the 5
+   this applies to the 4 leadership users too, not just field users. The 4
+   field users bind to their existing named roster row (see step 3); the 4
    leadership users get an `auth:<uid>` profile via `ensureLeadershipMember`.
    Admin-web tolerates a missing profile; the phone does not. (Historical
    failure mode: leadership could open admin-web but got "Couldn't load your
@@ -38,7 +38,7 @@ A STG seed is **INCOMPLETE** until:
    UID-backed accounts, plus the Jyothi verifier sign-in/grant check passes.
 
 `make seed-stg-firebase-password-users` is the required STG credential step. It
-sets the documented Firebase email/password credential for all 10 STG people
+sets the documented Firebase email/password credential for all UID-backed STG seed accounts
 against `goatos-stg`, fails if any Firebase user is missing, and fails if any
 leadership account is not already linked to the `google.com` provider. Backend
 grant materialization depends on the committed Firebase UID table, so this step
@@ -46,7 +46,7 @@ must not create replacement Firebase users during seed.
 
 `make seed-stg-9-person-login` (backend/cmd/seed-stg-login-grants) is the
 permanent, idempotent command that materializes step 1 and 2 directly for the
-all 10 UID-backed accounts — it does not wait for a claim event. Both
+all UID-backed seed accounts — it does not wait for a claim event. Both
 commands are wired as required final steps of `make seed-vaccination-source-full`
 and `make seed-vaccination-cpt-operator-drive` when `GOATOS_ENV=stg`, in this
 order: Firebase passwords first, DB grant/profile materialization second, and
@@ -61,13 +61,13 @@ not consider a STG seed done on pending-grant output alone unless that exception
 is explicitly the Jyothi UID-less verifier lane and her sign-in check has been
 run.
 
-## Canonical STG Personnel Rule (10 people total)
+## Canonical STG Personnel Rule
 
-There are **10 STG people total**: 5 Mesha leadership (Google SSO and Firebase
+The core STG personnel cohort includes 4 Mesha leadership (Google SSO and Firebase
 email/password) + 4 field users (Firebase email/password) + 1 proof verifier
 (Firebase email/password).
 
-### A) 5 Mesha leadership users — Google SSO **and** email/password
+### A) 4 Mesha leadership users — Google SSO **and** email/password
 
 > **Maintainer decision 2026-07-24:** leadership is no longer SSO-only. The
 > previous "Google SSO only / do NOT create email/password credentials" rule is
@@ -83,7 +83,6 @@ email/password) + 4 field users (Firebase email/password) + 1 proof verifier
   | Ravi | `Ravi@2026` |
   | Manohar (Manohark) | `Manohar@2026` |
   | Manju | `Manju@2026` |
-  | Abhishek | `Abhishek@2026` |
   | Aryaman | `Aryaman@2026` |
 
 - These are **STG throwaway credentials only**. The STG seed runs
@@ -126,7 +125,7 @@ Field roles:
 - **ONLY** Amit + Darshan + Sagar count toward vaccination operator animal
   capacity.
 - Chandrakant is **director** and must **NOT** add vaccination operator capacity.
-- The 5 SSO leadership users must **NOT** add vaccination operator capacity.
+- The 4 SSO leadership users must **NOT** add vaccination operator capacity.
 
 ### C) 1 verifier — Firebase email/password login
 
@@ -146,10 +145,10 @@ Field roles:
 - all 4 field users have Firebase email/password credentials
 - all 4 field users have backend grants
 - all 4 field users pass `/app/bootstrap` with correct role/context
-- all 5 leadership users have active `ceo_internal` grants
-- all 5 leadership users have Firebase email/password credentials (in addition
+- all 4 leadership users have active `ceo_internal` grants
+- all 4 leadership users have Firebase email/password credentials (in addition
   to Google SSO) and an active `workforce_members` profile
-- all 5 leadership users pass `/app/bootstrap` (mobile) AND
+- all 4 leadership users pass `/app/bootstrap` (mobile) AND
   `/admin-web/bootstrap` after either SSO or password login
 - Jyothi has Firebase email/password credentials, a verifier pending email
   grant from CPT DB seed, and `/admin-web/bootstrap` verifier access after first
@@ -160,7 +159,7 @@ Field roles:
   operator animal capacity
 
 > **STG seed is FAIL** unless Amit, Darshan, and Sagar appear as HRMS/vaccination
-> operators with capacity, Chandrakant appears as director, and the 5 Mesha
+> operators with capacity, Chandrakant appears as director, and the 4 Mesha
 > leadership users are `ceo_internal` with both Google SSO and Firebase
 > email/password login available. Jyothi must have verifier login/grant
 > readiness. Leadership and verifier users still add no vaccination capacity.
@@ -194,7 +193,7 @@ Agents must not use shared passwords.
 
 ## 2. Leadership Users — SSO **and** email/password
 
-The 5 CEO/internal leadership users log in through **either** Google SSO **or**
+The 4 CEO/internal leadership users log in through **either** Google SSO **or**
 Firebase email/password (maintainer decision 2026-07-24; the prior SSO-only rule
 is retired).
 
@@ -203,7 +202,7 @@ Seed requirements:
 - Firebase email/password provider is added to each leadership account in
   `goatos-stg` (SSO `google.com` provider stays as well)
 - password follows the `<FirstName>@2026` convention (`Ravi@2026`,
-  `Manohar@2026`, `Manju@2026`, `Abhishek@2026`, `Aryaman@2026`)
+  `Manohar@2026`, `Manju@2026`, `Aryaman@2026`)
 - SSO identity is allowlisted for STG
 - `ceo_internal` grant exists and is ACTIVE
 - an active `workforce_members` profile exists (auto-created by
