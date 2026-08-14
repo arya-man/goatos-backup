@@ -23,6 +23,7 @@ steps:
           exit 0
         fi
         umask 077
+        mkdir -p /workspace/.docker
         gcloud auth print-access-token > /workspace/.docker/access-token
 
   - id: build-backend-image
