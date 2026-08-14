@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.database.capture.ProofProcessingState
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.data.sync.GalleryProofSaver
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
@@ -2296,6 +2297,182 @@ class CaptureRepositoryTest {
             assertEquals("Exactly one proof after concurrent replaces", 1, remaining.size)
             assertEquals("The most recent proof is active", thirdId, remaining[0].id)
             assertEquals("Newest proof path is third", "file:///third.mp4", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // REGRESSION TEST (c): Offline-fail → retry → process-death-recovery → exactly one
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: Offline failure must not leak duplicate outbox items
+    // across recovery. When a capture's outbox item fails (FAILED status), retrying it should
+    // succeed without duplicating the proof row or outbox item.
+    @Test
+    fun `offline failure retry and process death recovery produces exactly one outbox item`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = "vacc-task-1",
+                    partitionKey = "whole",
+                ),
+                fieldKey = "vaccination_video",
+            )
+
+            // First capture: succeeds, creates outbox item
+            val firstCapture = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-1",
+                localUri = "file:///proof1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-1",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", firstCapture is AppResult.Ok)
+            val proofId = (firstCapture as AppResult.Ok).value.id
+
+            // Verify one outbox item was enqueued
+            assertEquals("One outbox item after first capture", 1, sync.enqueueCalls.size)
+            val outboxItemId = sync.enqueueCalls[0].outboxItemId
+
+            // Simulate offline failure: drive the outbox item to FAILED state
+            sync.seedConflict(outboxItemId, "network timeout")
+            advanceUntilIdle()
+
+            // Retry the upload
+            val retryResult = proofs.retryUpload(proofId)
+            assertTrue("Retry succeeds", retryResult is AppResult.Ok)
+            advanceUntilIdle()
+
+            // Count calls: one for initial capture, one for retry
+            assertEquals("Two enqueue calls total (initial + retry)", 2, sync.enqueueCalls.size)
+
+            // Simulate process death: create a NEW repository instance over the SAME Room database
+            val recoveredProofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = true,  // Recovery path runs reconciliation
+            )
+            advanceUntilIdle()
+
+            // After recovery, there must be EXACTLY ONE proof row for this proof
+            val recoveredRows = recoveredProofs.observeProofs("vacc-task-1").first()
+            assertEquals("Exactly one proof row after recovery", 1, recoveredRows.size)
+            assertEquals("Same proof ID survives recovery", proofId, recoveredRows[0].id)
+
+            // Verify exactly one outbox item (recovery must not duplicate)
+            val finalEnqueueCalls = sync.enqueueCalls.filter { it.idempotencyKey == recoveredRows[0].id }
+            assertEquals("Exactly one active outbox entry per proof", 1, finalEnqueueCalls.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // REGRESSION TEST (d): Malformed-file validation with REAL files
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: Zero-byte files must be rejected unconditionally.
+    // Truncated/garbage files must follow the plausible-accept rule documented in
+    // FileSystemProofArtifactValidator: if probe threw (not succeeded-with-bad-data)
+    // and file >= threshold, accept it (let server validate); otherwise reject.
+    @Test
+    fun `zero byte file is rejected and truncated file over threshold is plausibly accepted`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val validator = FileSystemProofArtifactValidator()
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                proofArtifactValidator = validator,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = "vacc-task-2",
+                    partitionKey = "whole",
+                ),
+                fieldKey = "vaccination_video",
+            )
+
+            // Test zero-byte file: must be rejected
+            val tempZeroFile = File.createTempFile("proof-zero", ".mp4")
+            try {
+                val zeroCapture = proofs.captureReplacingLatest(
+                    slot = slot,
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-2",
+                    localUri = "file://${tempZeroFile.absolutePath}",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "goat",
+                    scopeId = "goat-2",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 2_000L,
+                    capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = false,
+                )
+                assertTrue(
+                    "Zero-byte file capture is rejected: ${(zeroCapture as? AppResult.Err)?.message}",
+                    zeroCapture is AppResult.Err,
+                )
+            } finally {
+                tempZeroFile.delete()
+            }
+
+            // Test truncated file (4KB garbage, no valid MP4 header): must be accepted (plausible)
+            val tempGarbageFile = File.createTempFile("proof-garbage", ".mp4")
+            try {
+                tempGarbageFile.writeBytes(ByteArray(4096) { it.toByte() })  // 4KB garbage
+                val garbageCapture = proofs.captureReplacingLatest(
+                    slot = slot,
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-2",
+                    localUri = "file://${tempGarbageFile.absolutePath}",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "goat",
+                    scopeId = "goat-2",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 2_000L,
+                    capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = true,
+                )
+                assertTrue(
+                    "Truncated file over threshold is plausibly accepted: ${(garbageCapture as? AppResult.Err)?.message}",
+                    garbageCapture is AppResult.Ok,
+                )
+                // Verify it was enqueued despite the corruption
+                assertEquals("Garbage file produces one enqueue call", 1, sync.enqueueCalls.size)
+            } finally {
+                tempGarbageFile.delete()
+            }
         } finally {
             db.close()
         }
