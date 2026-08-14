@@ -472,13 +472,22 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 // into `open` below, which is what makes the redo visible to whoever owns it.
 func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done int) {
 	target = p.ObligationCount
-	done = p.CompletedCount
-	completionEvidence := p.CompletionRecorded + p.CompletionAccepted
-	if completionEvidence > done {
-		done = completionEvidence
-	}
-	if p.ProofSubmittedCount > done {
-		done = p.ProofSubmittedCount
+	// SQL computes DoneCount as the per-animal UNION of the done paths (completed OR
+	// recorded/accepted completion OR goat proof). Use it as the single source of truth so
+	// display counts cannot diverge from the state CASE for mixed paths (e.g. 3 goats done
+	// via completion records + 2 via proof-only must show done=5, not max(3,2)=3). The
+	// legacy max-of-counters math is kept ONLY as a fallback for projections produced by
+	// older readers that do not populate DoneCount.
+	done = p.DoneCount
+	if done == 0 {
+		done = p.CompletedCount
+		completionEvidence := p.CompletionRecorded + p.CompletionAccepted
+		if completionEvidence > done {
+			done = completionEvidence
+		}
+		if p.ProofSubmittedCount > done {
+			done = p.ProofSubmittedCount
+		}
 	}
 	if done > target {
 		done = target
