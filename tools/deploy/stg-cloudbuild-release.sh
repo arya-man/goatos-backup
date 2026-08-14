@@ -53,6 +53,23 @@ print(json.dumps(payload))
 PY
 }
 
+live_image_tag() {
+  local service="$1"
+  gcloud run services describe "$service" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --format='value(spec.template.spec.containers[0].image)' \
+    2>/dev/null | awk -F: '{print $NF}'
+}
+
+already_deployed() {
+  local api_tag admin_tag
+  api_tag="$(live_image_tag goatos-api-stg)"
+  admin_tag="$(live_image_tag goatos-admin-web-stg)"
+
+  [[ "$api_tag" == "$commit_sha" && "$admin_tag" == "$commit_sha" ]]
+}
+
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -61,6 +78,13 @@ on_exit() {
 }
 
 trap on_exit EXIT
+
+if already_deployed; then
+  notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
+  trap - EXIT
+  echo "ALREADY_DEPLOYED ${commit_sha} on goatos-stg"
+  exit 0
+fi
 
 export RELEASE_ID="$release_id"
 notify_slack "STARTED" "Building images and creating Cloud Deploy release for STG."
