@@ -432,7 +432,6 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partialProofProgress && workState == domain.WorkStateVerificationPending {
 		workState = domain.WorkStateInProgress
 	}
-	targetCount, openCount, doneCount := executionDisplayCounts(p)
 	operatorCanContinue, operatorLockedReason := computeOperatorLockState(p, openCount, workState)
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
 	partition := strings.TrimSpace(p.Partition)
