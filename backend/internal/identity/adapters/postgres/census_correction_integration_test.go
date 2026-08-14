@@ -185,4 +185,11 @@ func TestCorrectCensusSliceCorrectsSexAndReplaysOnce(t *testing.T) {
 	if replay.Corrected != first.Corrected || replay.Field != "sex" {
 		t.Fatalf("replay = %+v, want the original result", replay)
 	}
+
+	conflicting := cmd
+	conflicting.RequestHash = "hash:key-sex-but-different-payload"
+	conflicting.Value = "female"
+	if _, err := repo.CorrectCensusSlice(ctx, conflicting); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting replay err = %v, want ErrIdempotencyConflict", err)
+	}
 }
