@@ -180,6 +180,11 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
 /** In-memory [ProofCaptureRepository] test double — enforces the same 5-video cap the Room-
  *  backed implementation does, records every [capture] call's arguments for assertions. */
 class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureRepository {
+    companion object {
+        /** Sentinel taskId for seeded rows: matches any observed/queried task. */
+        const val SEEDED_ANY_TASK = "__seeded-any-task__"
+    }
+
     data class CaptureCall(
         val fieldKey: String,
         val subject: ProofSubject,
@@ -201,6 +206,8 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     // out-of-band alongside each row rather than folding two different tasks' rows together.
     private data class TrackedRow(val taskId: String, val row: ProofCaptureRow)
 
+    private fun TrackedRow.matches(taskId: String) = this.taskId == taskId || this.taskId == SEEDED_ANY_TASK
+
     private val rows = mutableListOf<TrackedRow>()
     private val flow = MutableStateFlow<List<TrackedRow>>(emptyList())
     val captureCalls = mutableListOf<CaptureCall>()
@@ -208,12 +215,23 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
 
     override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
         flow.map { list ->
-            list.filter { it.taskId == taskId && it.row.partitionKey == testPartitionKey(partitionLabel) }
-                .map { it.row }
+            list.filter {
+                (it.taskId == taskId || it.taskId == SEEDED_ANY_TASK) &&
+                    it.row.partitionKey == testPartitionKey(partitionLabel)
+            }.map { it.row }
         }
 
+    /** All live rows regardless of task scoping — for tests asserting row survival, not scoping. */
+    fun allRows(): List<ProofCaptureRow> = rows.map { it.row }
+
+    /**
+     * Seeded rows model "a proof already durably exists for whatever task the screen addresses" —
+     * seeding tests don't know (and shouldn't reconstruct) the production task key, so seeded rows
+     * match ANY observed taskId. Rows written through [capture] keep strict taskId scoping, which
+     * is what the pen-grain tests assert.
+     */
     fun seedProofs(vararg proofRows: ProofCaptureRow) {
-        rows += proofRows.map { TrackedRow(taskId = "task-1", row = it) }
+        rows += proofRows.map { TrackedRow(taskId = SEEDED_ANY_TASK, row = it) }
         flow.value = rows.toList()
     }
 
@@ -256,7 +274,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             // the real DAO query is taskId+partitionKey+fieldKey, and feed capture embeds the pen in
             // taskId (the capture group key), not just partitionKey.
             val activeForField = rows.count {
-                it.taskId == taskId &&
+                it.matches(taskId) &&
                     it.row.partitionKey == partitionKey &&
                     it.row.fieldKey == fieldKey &&
                     it.row.syncStatus != CaptureSyncStatus.FAILED &&
@@ -267,7 +285,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             }
         }
         val activeRows = rows.count {
-            it.taskId == taskId &&
+            it.matches(taskId) &&
                 it.row.partitionKey == partitionKey &&
                 it.row.subjectId == subjectId &&
                 it.row.syncStatus != CaptureSyncStatus.FAILED
@@ -363,14 +381,14 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     }
 
     override suspend fun clearForTask(taskId: String) {
-        rows.removeAll { it.taskId == taskId }
+        rows.removeAll { it.matches(taskId) }
         flow.value = rows.toList()
     }
 
     override suspend fun activeCount(slot: EvidenceSlot): Int {
         val partitionKey = testPartitionKey(slot.identity.partitionKey.takeUnless { it == "whole" })
         return rows.count {
-            it.taskId == slot.identity.taskId &&
+            it.matches(slot.identity.taskId) &&
                 it.row.partitionKey == partitionKey &&
                 it.row.fieldKey == slot.fieldKey &&
                 it.row.syncStatus != CaptureSyncStatus.FAILED &&

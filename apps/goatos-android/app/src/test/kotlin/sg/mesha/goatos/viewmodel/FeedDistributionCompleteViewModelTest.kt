@@ -96,7 +96,7 @@ class FeedDistributionCompleteViewModelTest {
         )
         // Assert the ROW, not the flag. The flag stays true even when the row is gone -- which is
         // why the defect looked fine on screen and the proof was simply missing underneath.
-        val survivingRows = proofCaptureRepository.observeProofs("any", null).first()
+        val survivingRows = proofCaptureRepository.allRows()
         assertEquals(
             "the existing proof row must survive a cancelled retake -- discarding it first is what lost it",
             1,
