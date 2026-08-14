@@ -2,7 +2,7 @@ SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1;
 GOATOS_LOCAL_TENANT_ID ?= 00000000-0000-4000-8000-000000000001
 GOATOS_VACCINATION_SOURCE_DIR ?= $(REPO_ROOT)/fixtures/vaccination-hrms-source-full
 GOATOS_SHED_MANAGER_MAPPING ?= $(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv
-GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= abhishek@mesha.sg aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
+GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
 GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
@@ -1110,7 +1110,7 @@ verify-stg-9-person-login:
 # exist: backend grant materialization derives user_id from the committed
 # Firebase UID table, so creating a replacement user during seed would produce
 # a different UID and a broken grant. The target sets the documented throwaway
-# passwords for 5 leadership + 4 field users + Jyothi, while leaving Google SSO
+# passwords for 4 leadership + 4 field users + Jyothi, while leaving Google SSO
 # linked for leadership users.
 GOATOS_STG_FIREBASE_PROJECT ?= goatos-stg
 GOATOS_STG_AUTH_CONTINUE_URL ?= https://stg.dashboard.mesha.sg/login
@@ -1126,12 +1126,10 @@ seed-stg-firebase-password-users:
 	  --require-provider "ravi@mesha.sg=google.com" \
 	  --require-provider "manohark@mesha.sg=google.com" \
 	  --require-provider "manju@mesha.sg=google.com" \
-	  --require-provider "abhishek@mesha.sg=google.com" \
 	  --require-provider "aryaman@mesha.sg=google.com" \
 	  --user-password "ravi@mesha.sg=Ravi@2026" \
 	  --user-password "manohark@mesha.sg=Manohar@2026" \
 	  --user-password "manju@mesha.sg=Manju@2026" \
-	  --user-password "abhishek@mesha.sg=Abhishek@2026" \
 	  --user-password "aryaman@mesha.sg=Aryaman@2026" \
 	  --user-password "amit797069@gmail.com=Amit@2026" \
 	  --user-password "darshantalawar033@gmail.com=Darshan@2026" \

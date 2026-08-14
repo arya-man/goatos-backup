@@ -17,7 +17,7 @@ attempt after a fresh STG seed, so the observed failure is a 403
 `permission_denied` on admin-web or an empty bottom bar on mobile — even
 though `seed-stg-email-grants` reported success. `make seed-stg-9-person-login`
 closes this by writing the active grant directly. This checklist proves it
-actually happened, for all 9 accounts, every time.
+actually happened for the seeded accounts every time.
 
 **A STG seed is INCOMPLETE until every row in every table below is checked.**
 
@@ -79,13 +79,14 @@ WHERE d.tenant_id = '00000000-0000-4000-8000-000000000001'
 -- Expect a row with module_key = 'vaccination', status = 'active'.
 ```
 
-## 2b. Workforce profile presence (ALL 9 — SQL, required)
+## 2b. Workforce profile presence (core seeded accounts — SQL, required)
 
 The mobile `/app/bootstrap` (`activeProfileAndGrants`) returns
 `403 operator_profile_missing` for any signed-in user with no active
-`workforce_members` profile — **including the 5 leadership users.** Field users
+`workforce_members` profile — **including the 4 leadership users.** Field users
 get a named roster row (Section 2); leadership get an `auth:<uid>` profile from
-`ensureLeadershipMember`. This query must return **9**:
+`ensureLeadershipMember`. This query must return **8** for the core leadership
+and field/director accounts listed here:
 
 ```sql
 SELECT count(*) AS active_profiles
@@ -95,14 +96,14 @@ JOIN workforce_members wm
  AND wm.status = 'active'
 WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'
   AND g.normalized_email IN (
-    'ravi@mesha.sg','manohark@mesha.sg','manju@mesha.sg','abhishek@mesha.sg','aryaman@mesha.sg',
+    'ravi@mesha.sg','manohark@mesha.sg','manju@mesha.sg','aryaman@mesha.sg',
     'amit797069@gmail.com','darshantalawar033@gmail.com','sagarmahoor143@gmail.com','chandrakanth119527@gmail.com'
   );
--- Expect: active_profiles = 9. Anything < 9 is a FAIL: the missing account(s)
+-- Expect: active_profiles = 8. Anything < 8 is a FAIL: the missing account(s)
 -- authenticate but get "Couldn't load your workspace" on the Android app.
 ```
 
-Historical failure (2026-07-24): all 5 leadership users had an active
+Historical failure (2026-07-24): all leadership users had an active
 `ceo_internal` grant but NO `workforce_members` row, so SSO worked yet the
 Android app showed "Couldn't load your workspace." `ensureLeadershipMember`
 now closes this in `seed-stg-login-grants`.
@@ -114,12 +115,11 @@ now closes this in `seed-stg-login-grants`.
 | 1 | Ravi | ravi@mesha.sg | admin-web `/admin-web/bootstrap` | `ceo_internal`, every built module visible |
 | 2 | Manohar K | manohark@mesha.sg | admin-web `/admin-web/bootstrap` | `ceo_internal`, every built module visible |
 | 3 | Manju | manju@mesha.sg | admin-web `/admin-web/bootstrap` | `ceo_internal`, every built module visible |
-| 4 | Abhishek | abhishek@mesha.sg | admin-web `/admin-web/bootstrap` | `ceo_internal`, every built module visible |
-| 5 | Aryaman | aryaman@mesha.sg | admin-web `/admin-web/bootstrap` | `ceo_internal`, every built module visible |
-| 6 | Amit Kumar | amit797069@gmail.com | mobile `/app/bootstrap` | `operator`, vaccination module in bottom bar |
-| 7 | Darshan Talwar | darshantalawar033@gmail.com | mobile `/app/bootstrap` | `operator` (default vaccination operator), vaccination in bottom bar |
-| 8 | Sagar Mahoor | sagarmahoor143@gmail.com | mobile `/app/bootstrap` | `operator` (fallback vaccination operator), vaccination in bottom bar |
-| 9 | Chandrakant | chandrakanth119527@gmail.com | mobile `/app/bootstrap` | `pc_director`, director/monitoring context, NO vaccination operator capacity |
+| 4 | Aryaman | aryaman@mesha.sg | admin-web `/admin-web/bootstrap` | `ceo_internal`, every built module visible |
+| 5 | Amit Kumar | amit797069@gmail.com | mobile `/app/bootstrap` | `operator`, vaccination module in bottom bar |
+| 6 | Darshan Talwar | darshantalawar033@gmail.com | mobile `/app/bootstrap` | `operator` (default vaccination operator), vaccination in bottom bar |
+| 7 | Sagar Mahoor | sagarmahoor143@gmail.com | mobile `/app/bootstrap` | `operator` (fallback vaccination operator), vaccination in bottom bar |
+| 8 | Chandrakant | chandrakanth119527@gmail.com | mobile `/app/bootstrap` | `pc_director`, director/monitoring context, NO vaccination operator capacity |
 
 Report this table filled in (PASS/FAIL per row) before declaring a STG seed
 done. A row that 403s or shows an empty bottom bar is a FAIL — file it as a
@@ -131,7 +131,7 @@ and Android analytics/log events by email/Firebase UID before deciding whether
 the issue is credentials, backend grants/profile/device state, or a client
 token/session race.
 
-> Leadership (rows 1–5) now also log in on the **mobile** app (SSO or
+> Leadership (rows 1–4) now also log in on the **mobile** app (SSO or
 > `<FirstName>@2026` password) and must load the leadership mobile context
 > (Calendar / Overview / Alerts) via `/app/bootstrap` — not just admin-web.
 > A leadership account that opens admin-web but 403s on the phone is a FAIL
@@ -141,13 +141,13 @@ token/session race.
 
 - Pending grants are NOT enough — see `docs/runbooks/stg-login-seed-contract.md`.
 - Only Amit + Darshan + Sagar count toward vaccination operator animal
-  capacity. Chandrakant and the 5 leadership accounts must NOT.
+  capacity. Chandrakant and the 4 leadership accounts must NOT.
 - Do not invent random passwords or use a shared password — use the
   `<FirstName>@2026` convention. Leadership now DO get email/password logins in
   addition to SSO (maintainer decision 2026-07-24); see
   `docs/runbooks/stg-operator-login-credentials.md`. STG reseed sets the
   documented Firebase passwords through `make seed-stg-firebase-password-users`.
-- ALL 9 accounts (not just field users) must have an active
+- Core seeded accounts (not just field users) must have an active
   `workforce_members` profile — Section 2b. Leadership profiles are the
   `auth:<uid>` rows created by `ensureLeadershipMember`; do not fabricate a
   named roster row for them.
