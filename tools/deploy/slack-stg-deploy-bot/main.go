@@ -59,6 +59,17 @@ type cloudBuildRunResponse struct {
 	} `json:"metadata"`
 }
 
+type cloudBuildListResponse struct {
+	Builds []cloudBuildListBuild `json:"builds"`
+}
+
+type cloudBuildListBuild struct {
+	ID             string            `json:"id"`
+	Status         string            `json:"status"`
+	BuildTriggerID string            `json:"buildTriggerId"`
+	Substitutions  map[string]string `json:"substitutions"`
+}
+
 func main() {
 	cfg := config{
 		ProjectID:     env("PROJECT_ID", "goatos-stg"),
@@ -113,7 +124,7 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if len(payload.Actions) == 0 || payload.Actions[0].ActionID != "deploy_goatos_stg_main" {
+	if len(payload.Actions) == 0 {
 		writeSlackJSON(w, map[string]any{
 			"response_type": "ephemeral",
 			"text":          "Unknown deploy action.",
@@ -121,13 +132,41 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mobileDistribution := payload.hasSelectedOption("mobile_distribution")
-	buildID, err := cfg.runTrigger(r.Context(), mobileDistribution)
+	deploySTG, mobileDistribution, actionLabel, err := payload.deployMode()
+	if err != nil {
+		writeSlackJSON(w, map[string]any{
+			"response_type": "ephemeral",
+			"text":          "Unknown deploy action.",
+		})
+		return
+	}
+
+	if mobileDistribution {
+		active, err := cfg.activeMobileBuild(r.Context())
+		if err != nil {
+			log.Printf("active mobile build check failed: %v", err)
+			writeSlackJSON(w, map[string]any{
+				"response_type": "ephemeral",
+				"text":          fmt.Sprintf("Could not check active mobile deployments: `%s`", err.Error()),
+			})
+			return
+		}
+		if active.ID != "" {
+			buildURL := fmt.Sprintf("https://console.cloud.google.com/cloud-build/builds/%s?project=%s", active.ID, cfg.ProjectID)
+			writeSlackJSON(w, map[string]any{
+				"response_type": "ephemeral",
+				"text":          fmt.Sprintf("Android mobile distribution is already in progress (`%s`). Wait for it to finish before starting another mobile release: %s", active.Status, buildURL),
+			})
+			return
+		}
+	}
+
+	buildID, err := cfg.runTrigger(r.Context(), deploySTG, mobileDistribution)
 	if err != nil {
 		log.Printf("run trigger failed: %v", err)
 		writeSlackJSON(w, map[string]any{
 			"response_type": "ephemeral",
-			"text":          fmt.Sprintf("Failed to start STG deploy: `%s`", err.Error()),
+			"text":          fmt.Sprintf("Failed to start %s: `%s`", actionLabel, err.Error()),
 		})
 		return
 	}
@@ -137,24 +176,28 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 	writeSlackJSON(w, map[string]any{
 		"response_type":    "in_channel",
 		"replace_original": false,
-		"text":             fmt.Sprintf("STG deploy from `main` started by <@%s>.\nMobile distribution: `%t`\nCloud Build: %s\nCloud Deploy: %s", payload.User.ID, mobileDistribution, buildURL, deployURL),
-		"blocks":           deployStartedBlocks(payload.User.ID, mobileDistribution, buildURL, deployURL),
+		"text":             fmt.Sprintf("%s from `main` started by <@%s>.\nCloud Build: %s", actionLabel, payload.User.ID, buildURL),
+		"blocks":           deployStartedBlocks(payload.User.ID, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
 }
 
-func deployStartedBlocks(userID string, mobileDistribution bool, buildURL, deployURL string) []map[string]any {
+func deployStartedBlocks(userID, actionLabel string, deploySTG, mobileDistribution bool, buildURL, deployURL string) []map[string]any {
+	links := fmt.Sprintf("<%s|Cloud Build logs>", buildURL)
+	if deploySTG {
+		links += fmt.Sprintf(" | <%s|Cloud Deploy rollout>", deployURL)
+	}
 	return []map[string]any{
 		{
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*STG deploy started* by <@%s>\nMobile distribution: `%t`\n<%s|Cloud Build logs> | <%s|Cloud Deploy rollout>", userID, mobileDistribution, buildURL, deployURL),
+				"text": fmt.Sprintf("*%s started* by <@%s>\nSTG deploy: `%t`\nMobile distribution: `%t`\n%s", actionLabel, userID, deploySTG, mobileDistribution, links),
 			},
 		},
 	}
 }
 
-func (cfg config) runTrigger(ctx context.Context, mobileDistribution bool) (string, error) {
+func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool) (string, error) {
 	token, err := metadataToken(ctx)
 	if err != nil {
 		return "", err
@@ -163,6 +206,7 @@ func (cfg config) runTrigger(ctx context.Context, mobileDistribution bool) (stri
 	requestBody := map[string]any{
 		"source": map[string]string{"branchName": "main"},
 		"substitutions": map[string]string{
+			"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
 			"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
 		},
 	}
@@ -196,6 +240,51 @@ func (cfg config) runTrigger(ctx context.Context, mobileDistribution bool) (stri
 		return "pending", nil
 	}
 	return parsed.Metadata.Build.ID, nil
+}
+
+func (cfg config) activeMobileBuild(ctx context.Context) (cloudBuildListBuild, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/builds?filter=%s", cfg.ProjectID, url.QueryEscape(`(status="QUEUED" OR status="WORKING")`))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return cloudBuildListBuild{}, fmt.Errorf("cloud build list returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed cloudBuildListResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	for _, build := range parsed.Builds {
+		if build.BuildTriggerID == cfg.TriggerID && build.Substitutions["_DEPLOY_MOBILE"] == "true" {
+			return build, nil
+		}
+	}
+	return cloudBuildListBuild{}, nil
+}
+
+func (payload slackActionPayload) deployMode() (deploySTG, mobileDistribution bool, actionLabel string, err error) {
+	switch payload.Actions[0].ActionID {
+	case "deploy_goatos_stg_main":
+		return true, payload.hasSelectedOption("mobile_distribution"), "STG deploy", nil
+	case "deploy_goatos_mobile_only":
+		return false, true, "Android mobile distribution", nil
+	default:
+		return false, false, "", fmt.Errorf("unknown action %q", payload.Actions[0].ActionID)
+	}
 }
 
 func (payload slackActionPayload) hasSelectedOption(want string) bool {

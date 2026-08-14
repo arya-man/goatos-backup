@@ -104,12 +104,22 @@ Cloud Build is an operator-controlled button, not a push-on-every-commit
 deployment. The same release helper still refuses non-`origin/main` commits and
 waits for Cloud Deploy rollout/image verification.
 
-The card has an `Also distribute Android mobile` checkbox. If unchecked, only
-the STG backend/web deploy runs. If checked, Cloud Build runs mobile only after
-the STG deploy step succeeds. Mobile means all three channels, as one release:
-Firebase App Distribution, Google Play Internal Testing package
-`sg.mesha.goatos.stg`, and `https://mesha.sg/app.apk`. Any failure in those
-channels fails the Cloud Build and posts a Slack failure alert.
+The card has two deploy buttons:
+
+- `Deploy main to STG`: if the `Also distribute Android mobile` checkbox is
+  unchecked, only the STG backend/web deploy runs. If checked, Cloud Build runs
+  mobile only after the STG deploy step succeeds.
+- `Distribute Android only`: skips the STG Cloud Deploy step and runs only the
+  Android STG distribution flow from current `main`.
+
+Mobile means all three channels, as one release: Firebase App Distribution,
+Google Play Internal Testing package `sg.mesha.goatos.stg`, and
+`https://mesha.sg/app.apk`. Any failure in those channels fails the Cloud Build
+and posts a Slack failure alert. The bot refuses any new mobile request while an
+existing mobile distribution build is queued or working, including the reverse
+case where `Deploy main to STG` is clicked with the mobile checkbox while an
+Android-only distribution is already running. Plain STG deploy without mobile is
+still allowed.
 
 To inspect progress or failure, open the Cloud Build link posted by Slack. The
 STG deploy step links to Cloud Deploy releases/rollouts; the mobile step logs

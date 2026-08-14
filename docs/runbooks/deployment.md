@@ -146,6 +146,13 @@ Use the latest bottom-most Slack deploy panel. The bot posts a fresh panel again
 after each deploy reaches success or failure, so operators should not scroll up
 through old deployment history to find the button.
 
+The panel has two actions. `Deploy main to STG` runs Cloud Deploy, optionally
+followed by Android when the mobile checkbox is selected. `Distribute Android
+only` skips Cloud Deploy and publishes the Android STG release only. The bot
+allows only one active mobile distribution at a time: Android-only is blocked
+while STG+mobile is running, and STG+mobile is blocked while Android-only is
+running. Plain STG deploy without mobile remains allowed.
+
 Cloud Build builds/pushes backend, migration, and admin-web images, then
 creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.
 Never push a local branch, `HEAD`, `main`, or refspec directly to remote `stg`;
