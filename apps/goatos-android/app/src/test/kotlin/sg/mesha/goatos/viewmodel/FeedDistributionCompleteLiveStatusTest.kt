@@ -167,9 +167,12 @@ private class NoopFeedDistributionSyncRepository : SyncRepository {
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        distributionProofOutboxItemId: String,
-        feedWeightProofOutboxItemId: String,
-        waterProofOutboxItemId: String,
+        distributionProofOutboxItemId: String?,
+        feedWeightProofOutboxItemId: String?,
+        waterProofOutboxItemId: String?,
+        feedWeightProofRef: String?,
+        distributionProofRef: String?,
+        waterProofRef: String?,
     ): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(
         groupKey: String,
