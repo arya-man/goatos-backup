@@ -22,7 +22,8 @@ steps:
           echo "Docker auth not requested."
           exit 0
         fi
-        gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+        umask 077
+        gcloud auth print-access-token > /workspace/.docker/access-token
 
   - id: build-backend-image
     name: gcr.io/cloud-builders/docker
@@ -41,6 +42,7 @@ steps:
         fi
         tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile -t "$${image}" .
         docker push "$${image}"
 
@@ -61,6 +63,7 @@ steps:
         fi
         tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/migrate:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile.migrate -t "$${image}" .
         docker push "$${image}"
 
@@ -81,6 +84,7 @@ steps:
         fi
         tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$${image}" .
         docker push "$${image}"
 
