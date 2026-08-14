@@ -724,6 +724,59 @@ func TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone(t *testing.T) {
 }
 
 // Value receiver: this fake is used as a struct value, not a pointer.
+// TestVaccinationCardLockInvariant_NeedsReviewWithOpenWork reproduces the field bug: a card at
+// target=17 done=11 open=6, mixed needs_review/pending/verification_pending state, with no final
+// submission. CORE INVARIANT: this MUST NOT lock the card.
+func TestVaccinationCardLockInvariant_NeedsReviewWithOpenWork(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    17,
+		CompletedCount:     11,
+		DoneCount:          11,
+		CompletionRecorded: 11, // proofed, awaiting verdict (needs_review)
+		CompletionAccepted: 0,
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 6 {
+		t.Fatalf("openCount = %d, want 6", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateVerificationPending)
+	if !canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want true (reason=%s)", canContinue, reason)
+	}
+	if reason != "none" {
+		t.Fatalf("OperatorLockedReason = %q, want %q", reason, "none")
+	}
+}
+
+// TestVaccinationCardLockInvariant_FinalSubmit covers the genuinely locked case: target=17
+// done=17 open=0, all completions accepted (a real final submission). MUST lock the card.
+func TestVaccinationCardLockInvariant_FinalSubmit(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    17,
+		CompletedCount:     17,
+		DoneCount:          17,
+		CompletionRecorded: 0,
+		CompletionAccepted: 17,
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 0 {
+		t.Fatalf("openCount = %d, want 0", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateCompleted)
+	if canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want false", canContinue)
+	}
+	if reason != "final_submitted" {
+		t.Fatalf("OperatorLockedReason = %q, want %q", reason, "final_submitted")
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
 func (fakeRepo) ListAlerts(
 	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
 ) (domain.AlertPage, error) {
