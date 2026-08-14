@@ -87,6 +87,7 @@ export function InlineCellEditor({
   const [commitKey, setCommitKey] = useState("");
 
   const open = phase.kind !== "closed";
+  const toggleOpen = () => (open ? close() : setPhase({ kind: "picking" }));
 
   // Outside click and Escape close it, matching every other same-page overlay in the app. Local
   // state only: this never navigates, so the row behind it is not re-fetched on open or close.
@@ -170,12 +171,11 @@ export function InlineCellEditor({
       <button
         type="button"
         className="tagedit-value"
-        onDoubleClick={() => (open ? close() : setPhase({ kind: "picking" }))}
+        onClick={toggleOpen}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
-          if (open) close();
-          else setPhase({ kind: "picking" });
+          toggleOpen();
         }}
         aria-expanded={open}
         aria-haspopup="dialog"

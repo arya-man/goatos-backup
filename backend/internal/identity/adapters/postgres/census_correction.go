@@ -262,7 +262,10 @@ func (r *Repository) replayCensusSliceCorrection(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return nil, fmt.Errorf("identity: correct census slice: read idempotency: %w", err)
 	}
-	if strings.TrimSpace(idempotency.ResultType) == "" {
+	if idempotency.RequestHash != cmd.RequestHash {
+		return nil, ports.ErrIdempotencyConflict
+	}
+	if idempotency.Status != "completed" || idempotency.ResultType != reclassifyResultType {
 		// Reserved but not completed: the first call is still in flight (or died mid-write). The
 		// caller retries rather than getting a half-answer.
 		return nil, ports.ErrIdempotencyPending
