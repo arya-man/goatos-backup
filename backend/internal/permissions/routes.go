@@ -38,6 +38,8 @@ var protectedRoutes = []Route{
 	// who may not perform the action needs to enumerate.
 	{OperationID: "previewReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/preview", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "commitReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/commit", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "previewCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/preview", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "commitCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/commit", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "healthGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/health", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "reproductiveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/reproductive", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "identityGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/identity", Permissions: []string{GoatWriteIdentity}},

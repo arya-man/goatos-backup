@@ -5382,6 +5382,19 @@ func countsBreakdownOptionGroups() []domain.OptionGroup {
 				option("male", "Male", "", ""),
 			},
 		},
+		{
+			// The BREED CATALOG, for the inline breed correction. Declared empty here and filled by
+			// the compiler from the live `breeds` reference family: breeds are tenant data and must
+			// never be constants in contract code.
+			//
+			// Deliberately the CATALOG rather than the response's `facets.breeds`. A facet reports
+			// the breeds already ON the herd, and a correction frequently needs one that is not --
+			// that is the whole point of correcting a wrongly recorded breed. This is the same
+			// write-picker-versus-census-facet distinction the operational-location rule draws for
+			// sheds.
+			ID:      "counts_breed",
+			Options: []domain.Option{},
+		},
 	}
 }
 

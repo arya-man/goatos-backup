@@ -240,3 +240,11 @@ func TestHandlerAcceptsExplicitLogger(t *testing.T) {
 		t.Fatal("expected handler to use the supplied logger")
 	}
 }
+
+func (r errRepo) PreviewCorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSlicePreview, error) {
+	return &ports.CensusSlicePreview{}, nil
+}
+
+func (r errRepo) CorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSliceCorrectionResult, error) {
+	return &ports.CensusSliceCorrectionResult{}, nil
+}

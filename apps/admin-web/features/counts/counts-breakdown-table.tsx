@@ -6,11 +6,25 @@ import { DataTable, columnsFromContract } from "@/components/data-table";
 import type { AdminUiPageContract, AdminUiTableContract } from "@/lib/admin-ui-contract";
 import type { CountsBreakdownResponse } from "@/lib/api/server";
 
+import { CensusValueEditor, type CensusSlice } from "./census-value-editor";
+import type { InlineChoice } from "./inline-cell-editor";
 import { ShedTagEditor } from "./shed-tag-editor";
 import type { StageOption } from "./shed-stage-actions";
 import { operationalLocationLabel } from "@/lib/operational-location";
 
 export type CountsBreakdownRow = CountsBreakdownResponse["items"][number];
+
+// sliceOf names the row the way the correction write matches it. Every field participates in the
+// predicate, so this must stay a faithful copy of the row rather than a convenient subset.
+function sliceOf(row: CountsBreakdownRow): CensusSlice {
+  return {
+    shedId: row.shed_id ?? "",
+    partitionLabel: row.partition_label ?? "",
+    managementStage: row.management_stage,
+    breed: row.breed,
+    sex: row.sex === "male" ? "male" : "female",
+  };
+}
 
 /**
  * The Counts Breakdown census table.
@@ -36,6 +50,8 @@ export function CountsBreakdownTable({
   noBreedLabel,
   noShedLabel,
   stages,
+  breeds,
+  genders,
   retagEnabled,
   retagDisabledReason,
 }: {
@@ -50,6 +66,8 @@ export function CountsBreakdownTable({
   noBreedLabel: string;
   noShedLabel: string;
   stages: StageOption[];
+  breeds: InlineChoice[];
+  genders: InlineChoice[];
   retagEnabled: boolean;
   retagDisabledReason: string;
 }) {
@@ -93,10 +111,44 @@ export function CountsBreakdownTable({
           sortValue: (row) => row.management_stage || noStageLabel,
         },
         breed: {
-          cell: (row) => row.breed || noBreedLabel,
+          // Editable, and scoped to THIS ROW's animals -- unlike the Stage cell beside it, which
+          // moves the whole pen. A row with no shed (the unassigned bucket) has no slice to write
+          // to and stays plain text.
+          cell: (row) =>
+            row.shed_id ? (
+              <CensusValueEditor
+                pageContract={pageContract}
+                slice={sliceOf(row)}
+                field="breed"
+                current={row.breed}
+                emptyLabel={noBreedLabel}
+                choices={breeds}
+                enabled={retagEnabled}
+                disabledReason={retagDisabledReason}
+              />
+            ) : (
+              row.breed || noBreedLabel
+            ),
           sortValue: (row) => row.breed || noBreedLabel,
         },
-        gender: { cell: (row) => row.sex, sortValue: (row) => row.sex },
+        gender: {
+          cell: (row) =>
+            row.shed_id ? (
+              <CensusValueEditor
+                pageContract={pageContract}
+                slice={sliceOf(row)}
+                field="sex"
+                current={row.sex}
+                emptyLabel={noBreedLabel}
+                choices={genders}
+                enabled={retagEnabled}
+                disabledReason={retagDisabledReason}
+              />
+            ) : (
+              row.sex
+            ),
+          sortValue: (row) => row.sex,
+        },
         shed: {
           cell: shedLabel,
           sortValue: shedLabel,
@@ -109,7 +161,19 @@ export function CountsBreakdownTable({
           meta: { align: "right", cellStyle: { fontWeight: 700, color: "var(--brand-d)" } },
         },
       }),
-    [contract, pageContract, noParkLabel, noStageLabel, noBreedLabel, shedLabel, stages, retagEnabled, retagDisabledReason],
+    [
+      contract,
+      pageContract,
+      noParkLabel,
+      noStageLabel,
+      noBreedLabel,
+      shedLabel,
+      stages,
+      breeds,
+      genders,
+      retagEnabled,
+      retagDisabledReason,
+    ],
   );
 
   return (
