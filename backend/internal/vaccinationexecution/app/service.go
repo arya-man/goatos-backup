@@ -385,15 +385,22 @@ func operationsRank(w domain.WorkState) int {
 }
 
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
-	sopStatus := sopStatusFromProjection(p)
+	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	partialProofProgress := openCount > 0 && (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0)
+	sopStatus := sopStatusFromProjection(p, partialProofProgress)
 	proofStatus := proofStatus(p)
-	verificationStatus := verificationStatus(p)
+	verificationStatus := verificationStatus(p, partialProofProgress)
 	workState := p.WorkState
 	computedWorkState := workStateFromProjection(p, q)
+	if partialProofProgress {
+		computedWorkState = domain.WorkStateInProgress
+	}
 	if workState == "" || computedWorkState == domain.WorkStateVerificationPending {
 		workState = computedWorkState
 	}
-	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	if partialProofProgress && workState == domain.WorkStateVerificationPending {
+		workState = domain.WorkStateInProgress
+	}
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
 	partition := strings.TrimSpace(p.Partition)
 	if physicalShed == "" || partition == "" {
@@ -582,13 +589,13 @@ func sopStatus(state *string) domain.SOPStatus {
 	}
 }
 
-func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
+func sopStatusFromProjection(p domain.ExecutionProjection, partialProofProgress bool) domain.SOPStatus {
 	switch {
 	case p.CompletionRejected > 0 || taskStateIs(p, "rework_requested", "rejected"):
 		return domain.SOPStatusRework
 	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
 		return domain.SOPStatusAccepted
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+	case (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) && !partialProofProgress:
 		return domain.SOPStatusSubmitted
 	case taskStateIs(p, "in_progress"):
 		return domain.SOPStatusInProgress
@@ -610,13 +617,13 @@ func proofStatus(p domain.ExecutionProjection) domain.ProofStatus {
 	}
 }
 
-func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus {
+func verificationStatus(p domain.ExecutionProjection, partialProofProgress bool) domain.VerificationStatus {
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
 	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
 		return domain.VerificationStatusVerified
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+	case (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) && !partialProofProgress:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:
 		return domain.VerificationStatusVerified
