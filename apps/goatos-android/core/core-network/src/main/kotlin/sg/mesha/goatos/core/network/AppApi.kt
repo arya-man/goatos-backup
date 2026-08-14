@@ -9,6 +9,12 @@ import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisRequestDto
+import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisResponseDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueuePageDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisRunDto
+import sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
@@ -1190,6 +1196,40 @@ interface AppApi {
 
     suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto
 
+    /** POST /app/health/observations — record one observation and receive a PROPOSAL. Opens nothing. */
+    suspend fun submitHealthObservation(
+        idempotencyKey: String,
+        request: SubmitHealthObservationRequestDto,
+    ): HealthDiagnosisProposalResponseDto
+
+    /**
+     * GET /app/health/observations — the Director's queue, newest first.
+     *
+     * A KEYSET page. `cursor` comes from the previous page's `next_cursor`; there is
+     * no offset, because new observations land at the head of the list and an offset
+     * would re-show or skip rows as work arrives mid-scroll.
+     */
+    suspend fun listHealthObservations(
+        status: String?,
+        goatId: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthDiagnosisQueuePageDto
+
+    /** GET /app/health/observations/{id} — read one diagnosis run and its stored proposal. */
+    suspend fun getHealthObservation(diagnosisRunId: String): HealthDiagnosisRunDto
+
+    /**
+     * POST /app/health/observations/{id}/confirm — the Director's decision, and the
+     * only path that opens a treatment course. An empty list declines the whole
+     * proposal, which is a legitimate override.
+     */
+    suspend fun confirmHealthDiagnosis(
+        diagnosisRunId: String,
+        idempotencyKey: String,
+        request: ConfirmHealthDiagnosisRequestDto,
+    ): ConfirmHealthDiagnosisResponseDto
+
     suspend fun completeHealthWorkItem(
         healthSessionId: String,
         idempotencyKey: String,
@@ -1854,6 +1894,28 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
         HealthWorkItemDetailDto(healthSessionId = healthSessionId)
+
+    override suspend fun submitHealthObservation(
+        idempotencyKey: String,
+        request: SubmitHealthObservationRequestDto,
+    ): HealthDiagnosisProposalResponseDto = HealthDiagnosisProposalResponseDto()
+
+    override suspend fun listHealthObservations(
+        status: String?,
+        goatId: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthDiagnosisQueuePageDto = HealthDiagnosisQueuePageDto()
+
+    override suspend fun getHealthObservation(diagnosisRunId: String): HealthDiagnosisRunDto =
+        HealthDiagnosisRunDto(diagnosisRunId = diagnosisRunId)
+
+    override suspend fun confirmHealthDiagnosis(
+        diagnosisRunId: String,
+        idempotencyKey: String,
+        request: ConfirmHealthDiagnosisRequestDto,
+    ): ConfirmHealthDiagnosisResponseDto =
+        ConfirmHealthDiagnosisResponseDto(diagnosisRunId = diagnosisRunId)
 
     override suspend fun openHealthCase(
         idempotencyKey: String,

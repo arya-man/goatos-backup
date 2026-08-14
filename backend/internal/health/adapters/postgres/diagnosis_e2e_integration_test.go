@@ -1,0 +1,575 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
+	"github.com/vgoats/goatos/backend/internal/health/domain"
+	"github.com/vgoats/goatos/backend/internal/health/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+)
+
+// The production path, end to end: a health manager submits an observation form,
+// the engine proposes, the Director confirms, and a treatment course opens with
+// its visits scheduled. Nothing here seeds a proposal or a case -- every row is
+// produced by the same service and repository the API calls.
+
+func diagnosisStack(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (*healthapp.DiagnosisService, *DiagnosisRepository) {
+	t.Helper()
+	base := NewRepository(pool, 30*time.Second)
+	repo := NewDiagnosisRepository(base)
+	reg, err := diagnosis.AdultRegister()
+	if err != nil {
+		t.Fatalf("load register: %v", err)
+	}
+	svc, err := healthapp.NewDiagnosisService(repo, reg)
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+	return svc, repo
+}
+
+func publishCard(t *testing.T, ctx context.Context, pool *pgxpool.Pool, cards ...domain.SourceProtocol) {
+	t.Helper()
+	if err := NewRepository(pool, 30*time.Second).ReplacePublishedProtocols(
+		ctx, healthTenant, healthActor, "health-test", "hash-e2e", cards); err != nil {
+		t.Fatalf("publish cards: %v", err)
+	}
+}
+
+func feverCard() domain.SourceProtocol {
+	instruction := "Check temperature"
+	medicine, dose, denom, route := "Tylosin", "0.1", "kg", "IM"
+	return domain.SourceProtocol{
+		DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult, DurationDays: 3,
+		Steps: []domain.ProtocolStep{
+			{DayNo: 1, Session: domain.SessionMorning, Seq: 1, RecordType: "action", Instruction: &instruction},
+			{DayNo: 1, Session: domain.SessionMorning, Seq: 2, RecordType: "medication",
+				MedicineName: &medicine, DosageText: &dose, DosageDenominator: &denom, MedicineRoute: &route},
+			{DayNo: 2, Session: domain.SessionMorning, Seq: 3, RecordType: "medication",
+				MedicineName: &medicine, DosageText: &dose, DosageDenominator: &denom, MedicineRoute: &route},
+			{DayNo: 3, Session: domain.SessionMorning, Seq: 4, RecordType: "medication",
+				MedicineName: &medicine, DosageText: &dose, DosageDenominator: &denom, MedicineRoute: &route},
+		},
+	}
+}
+
+func feverObservation(key string) domain.SubmitObservationInput {
+	temp := 104.8
+	return domain.SubmitObservationInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		Findings: diagnosis.Findings{
+			Temp:     &temp,
+			Eating:   diagnosis.MultiValue{"normal"},
+			Activity: "standing",
+		},
+		IdempotencyKey: key, RequestFingerprint: "fp-" + key, TraceID: "trace-" + key,
+	}
+}
+
+// The whole loop. A standing, eating doe at 104.8F is a probable Fever; the
+// Director confirms it and a ward course opens.
+func TestObservationThroughConfirmationOpensACourse(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-1"))
+	if err != nil {
+		t.Fatalf("submit observation: %v", err)
+	}
+	if submitted.Status != domain.DiagnosisStatusProposed {
+		t.Errorf("status = %q, want proposed -- nothing is confirmed by submitting", submitted.Status)
+	}
+	if submitted.Proposal.RegisterVersion != "adult-1" {
+		t.Errorf("register_version = %q, want adult-1", submitted.Proposal.RegisterVersion)
+	}
+	if !containsStr(submitted.Proposal.Problems, "FEVER") {
+		t.Fatalf("expected FEVER, got %v", submitted.Proposal.Problems)
+	}
+	if submitted.Proposal.Housing.Acuity != diagnosis.AcuityWard {
+		t.Errorf("a standing 104.8 fever is ward, got %q", submitted.Proposal.Housing.Acuity)
+	}
+	if len(submitted.Confirmable) != 1 || !submitted.Confirmable[0].SOPAvailable {
+		t.Fatalf("fever card is published, so it must be confirmable: %+v", submitted.Confirmable)
+	}
+
+	// Submitting alone must NOT have opened anything.
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_cases WHERE tenant_id=$1::uuid`, healthTenant); got != 0 {
+		t.Fatalf("a proposal must open no course; found %d", got)
+	}
+
+	confirmed, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-1", RequestFingerprint: "fp-confirm-1",
+	})
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if len(confirmed.OpenedCases) != 1 {
+		t.Fatalf("want one opened course, got %+v", confirmed.OpenedCases)
+	}
+
+	opened := confirmed.OpenedCases[0]
+	if opened.ExitType != domain.ExitTypeFixed {
+		t.Errorf("fever is a fixed course, got exit_type %q", opened.ExitType)
+	}
+	if opened.DurationDays == nil || *opened.DurationDays != 3 {
+		t.Errorf("a fixed course carries its day count, got %v", opened.DurationDays)
+	}
+	// Ward earns ONE visit a day (decision F), so three days is three sessions --
+	// not six, which is what an ICU animal would get.
+	if opened.SessionCount != 3 {
+		t.Errorf("ward for 3 days = 3 visits, got %d", opened.SessionCount)
+	}
+
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM health_treatment_sessions WHERE tenant_id=$1::uuid AND session='evening'`, healthTenant); got != 0 {
+		t.Errorf("a ward course must have no evening visit, found %d", got)
+	}
+	// The register rule is recorded so the next form can reconcile against it.
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM health_cases WHERE tenant_id=$1::uuid AND register_rule_id='FEVER'`, healthTenant); got != 1 {
+		t.Errorf("the case must record the register rule that opened it")
+	}
+	// Nothing may be due in the overnight window.
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM health_treatment_sessions
+WHERE tenant_id=$1::uuid
+  AND EXTRACT(hour FROM due_at AT TIME ZONE 'Asia/Kolkata') BETWEEN 0 AND 5`, healthTenant); got != 0 {
+		t.Errorf("no visit may fall between 00:00 and 06:00 IST, found %d", got)
+	}
+}
+
+// FAIL CLOSED. Nine of the register's thirty diagnoses point at a card nobody
+// has authored. Confirming one must refuse and write NOTHING, rather than open a
+// course with no treatment in it.
+func TestConfirmingADiagnosisWithNoCardFailsClosed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	// Deliberately publish NO fever card.
+	publishCard(t, ctx, pool, domain.SourceProtocol{
+		DiseaseKey: "pinkeye", DisplayName: "Pinkeye", AgeBand: domain.AgeBandAdult, DurationDays: 3,
+	})
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-missing"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	// The Director is told BEFORE deciding, not after.
+	if len(submitted.Confirmable) != 1 {
+		t.Fatalf("want one confirmable, got %+v", submitted.Confirmable)
+	}
+	if submitted.Confirmable[0].SOPAvailable {
+		t.Error("no fever card is published, so it must not report as available")
+	}
+	if submitted.Confirmable[0].BlockedReason == "" {
+		t.Error("an unavailable card must name the gap for the Director")
+	}
+
+	_, err = svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-missing", RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, ports.ErrSOPNotAuthored) {
+		t.Fatalf("want ErrSOPNotAuthored, got %v", err)
+	}
+
+	// The whole transaction rolled back: no case, no sessions, and the run is
+	// still awaiting a decision.
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_cases WHERE tenant_id=$1::uuid`, healthTenant); got != 0 {
+		t.Errorf("a refused confirmation must open no course, found %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_treatment_sessions WHERE tenant_id=$1::uuid`, healthTenant); got != 0 {
+		t.Errorf("a refused confirmation must schedule no visit, found %d", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND status='proposed'`, healthTenant); got != 1 {
+		t.Errorf("the run must stay proposed after a refused confirmation")
+	}
+}
+
+// The confirmation gate: a diagnosis the engine did not propose cannot be
+// confirmed here, even by the Director. Off-register diagnosis is a real power
+// they hold, and it is deliberately a different path.
+func TestConfirmingAnUnproposedDiagnosisIsRefused(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-gate"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	_, err = svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"TETANUS"},
+		IdempotencyKey:    "confirm-gate", RequestFingerprint: "fp",
+	})
+	if !errors.Is(err, ports.ErrDiagnosisNotProposed) {
+		t.Fatalf("want ErrDiagnosisNotProposed, got %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_cases WHERE tenant_id=$1::uuid`, healthTenant); got != 0 {
+		t.Errorf("nothing may open from an unproposed diagnosis, found %d", got)
+	}
+}
+
+// The Director may decline the whole proposal. That is an override, not an
+// error, and the declined diagnosis is reported rather than silently dropped.
+func TestDecliningEverythingStillDecidesTheRun(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-decline"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	confirmed, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: nil,
+		IdempotencyKey:    "confirm-decline", RequestFingerprint: "fp",
+	})
+	if err != nil {
+		t.Fatalf("declining everything is legal: %v", err)
+	}
+	if len(confirmed.OpenedCases) != 0 {
+		t.Errorf("nothing confirmed means nothing opened, got %+v", confirmed.OpenedCases)
+	}
+	if !containsStr(confirmed.Declined, "FEVER") {
+		t.Errorf("the declined diagnosis must be reported, got %v", confirmed.Declined)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND status='confirmed'`, healthTenant); got != 1 {
+		t.Error("the run is decided even when everything was declined")
+	}
+}
+
+// An exact replay returns the original result and runs no side effects. This is
+// what makes a network-failed submit safe for the phone to retry.
+func TestObservationReplayIsIdempotent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	first, err := svc.SubmitObservation(ctx, feverObservation("obs-replay"))
+	if err != nil {
+		t.Fatalf("first submit: %v", err)
+	}
+	again, err := svc.SubmitObservation(ctx, feverObservation("obs-replay"))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if !again.IdempotentReplay {
+		t.Error("a same-key same-body submit is a replay")
+	}
+	if again.DiagnosisRunID != first.DiagnosisRunID {
+		t.Errorf("replay must return the original run, got %s vs %s", again.DiagnosisRunID, first.DiagnosisRunID)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid`, healthTenant); got != 1 {
+		t.Errorf("a replay must write no second run, found %d", got)
+	}
+
+	// Same key, different body is a conflict rather than a silent overwrite.
+	conflicting := feverObservation("obs-replay")
+	conflicting.RequestFingerprint = "different"
+	if _, err := svc.SubmitObservation(ctx, conflicting); !errors.Is(err, ports.ErrConflict) {
+		t.Errorf("want ErrConflict for a same-key different-body submit, got %v", err)
+	}
+}
+
+// The follow-up loop: once a course is open, the next observation must see it as
+// an OPEN problem so the engine reconciles instead of diagnosing afresh.
+func TestSecondObservationSeesTheOpenCourse(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	first, err := svc.SubmitObservation(ctx, feverObservation("obs-day1"))
+	if err != nil {
+		t.Fatalf("submit day 1: %v", err)
+	}
+	if _, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: first.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"}, IdempotencyKey: "confirm-day1", RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("confirm day 1: %v", err)
+	}
+
+	second, err := svc.SubmitObservation(ctx, feverObservation("obs-day2"))
+	if err != nil {
+		t.Fatalf("submit day 2: %v", err)
+	}
+	// FEVER is already under treatment, so it is ONGOING rather than new.
+	if !containsStr(second.Proposal.Ongoing, "FEVER") {
+		t.Errorf("an open course must read as ongoing, got ongoing=%v new=%v",
+			second.Proposal.Ongoing, second.Proposal.New)
+	}
+	if containsStr(second.Proposal.New, "FEVER") {
+		t.Errorf("an open course must not read as new: %v", second.Proposal.New)
+	}
+}
+
+func containsStr(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// The READ must be self-sufficient. A Director opening an assessment on their own
+// phone has never seen the submit response -- the manager submitted from theirs --
+// so a proposal the Director can read but not act on is a dead end.
+func TestReadingARunCarriesWhatTheDirectorCanActOn(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-read"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	run, err := svc.GetDiagnosisRun(ctx, healthTenant, submitted.DiagnosisRunID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(run.Confirmable) == 0 {
+		t.Fatal("a run still awaiting a decision must carry what can be confirmed")
+	}
+	// The published-card lookup has to happen on the READ too, not only on submit:
+	// without it every diagnosis reads as having no treatment plan and the Director
+	// is blocked from confirming work that is perfectly confirmable.
+	var found bool
+	for _, c := range run.Confirmable {
+		if c.ID == "FEVER" {
+			found = true
+			if !c.SOPAvailable {
+				t.Error("FEVER has a published card, so the read must say it can be confirmed")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the proposed diagnosis must appear, got %+v", run.Confirmable)
+	}
+}
+
+// A decided run offers nothing. Re-deriving the list would put live decision
+// controls on a choice already made, and every tap on them fails at the write.
+func TestReadingADecidedRunOffersNoFurtherDecision(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-decided"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if _, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-decided", RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	run, err := svc.GetDiagnosisRun(ctx, healthTenant, submitted.DiagnosisRunID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(run.Confirmable) != 0 {
+		t.Errorf("a decided run must offer nothing, got %+v", run.Confirmable)
+	}
+	// The proposal itself survives: what was confirmed is the thing worth being
+	// able to re-read afterwards.
+	if len(run.Proposal.Problems) == 0 {
+		t.Error("the proposal must remain readable after the decision")
+	}
+}
+
+// The Director's queue, on the production path: submitted observations appear,
+// decided ones leave, and the page walks by keyset without repeating a row.
+func TestQueueShowsWhatIsAwaitingADecision(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	first, err := svc.SubmitObservation(ctx, feverObservation("queue-1"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	second, err := svc.SubmitObservation(ctx, feverObservation("queue-2"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	page, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{TenantID: healthTenant})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("both submissions must be awaiting a decision, got %d", len(page.Items))
+	}
+	// Newest first: the Director opens what just came in, not what has been sitting.
+	if page.Items[0].DiagnosisRunID != second.DiagnosisRunID {
+		t.Errorf("newest must sort first, got %s", page.Items[0].DiagnosisRunID)
+	}
+
+	row := page.Items[0]
+	if row.GoatDisplayID == "" {
+		t.Error("a queue row must name the animal, never only its id")
+	}
+	if len(row.Problems) == 0 {
+		t.Error("the row must carry the ranked problems as its headline")
+	}
+
+	// Deciding one takes it out of the queue -- that is what makes it a queue and
+	// not a log.
+	if _, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: first.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "queue-confirm", RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	page, err = svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{TenantID: healthTenant})
+	if err != nil {
+		t.Fatalf("list after confirm: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].DiagnosisRunID != second.DiagnosisRunID {
+		t.Fatalf("a decided run must leave the queue, got %+v", page.Items)
+	}
+
+	// It is not lost, only decided. An explicit status finds it again.
+	decided, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{
+		TenantID: healthTenant, Status: domain.DiagnosisStatusConfirmed,
+	})
+	if err != nil {
+		t.Fatalf("list confirmed: %v", err)
+	}
+	if len(decided.Items) != 1 || decided.Items[0].DiagnosisRunID != first.DiagnosisRunID {
+		t.Errorf("the decided run must still be readable, got %+v", decided.Items)
+	}
+}
+
+// KEYSET, not offset. New observations land at the HEAD of a newest-first queue,
+// so an offset page would re-show or skip rows as a manager records animals while
+// the Director scrolls. Walking the whole queue must visit every run exactly once.
+func TestQueuePagesByKeysetWithoutRepeatingARow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	const total = 5
+	for i := 0; i < total; i++ {
+		if _, err := svc.SubmitObservation(ctx, feverObservation(fmt.Sprintf("page-%d", i))); err != nil {
+			t.Fatalf("submit %d: %v", i, err)
+		}
+	}
+
+	seen := map[string]int{}
+	cursor := ""
+	for pages := 0; ; pages++ {
+		if pages > total {
+			t.Fatal("the walk did not terminate -- the cursor is not advancing")
+		}
+		page, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{
+			TenantID: healthTenant, Cursor: cursor, Limit: 2,
+		})
+		if err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+		if len(page.Items) > 2 {
+			t.Fatalf("page %d returned %d rows, limit was 2", pages, len(page.Items))
+		}
+		for _, it := range page.Items {
+			seen[it.DiagnosisRunID]++
+		}
+		if page.NextCursor == nil {
+			break
+		}
+		cursor = *page.NextCursor
+	}
+
+	if len(seen) != total {
+		t.Fatalf("the walk saw %d distinct runs, want %d", len(seen), total)
+	}
+	for id, count := range seen {
+		if count != 1 {
+			t.Errorf("run %s appeared %d times; a keyset walk must visit each row once", id, count)
+		}
+	}
+}
+
+// A garbage cursor is refused rather than silently treated as "start from the
+// beginning", which would restart the Director's scroll without saying why.
+func TestQueueRefusesAnUnreadableCursor(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	if _, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{
+		TenantID: healthTenant, Cursor: "not-a-cursor",
+	}); err == nil {
+		t.Fatal("an unreadable cursor must be refused")
+	}
+}
+
+// An unknown status is a client mistake. Quietly clearing the filter would return
+// every run and read as working while showing the wrong queue.
+func TestQueueRejectsAnUnknownStatus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	if _, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{
+		TenantID: healthTenant, Status: "pending",
+	}); err == nil {
+		t.Fatal("an unknown status must be refused, not silently ignored")
+	}
+}

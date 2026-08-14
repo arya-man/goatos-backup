@@ -377,6 +377,23 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
 	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},
+	// The health SOP diagnosis engine. The permission split across these three
+	// routes IS the advisory boundary, and it is the reason they are separate
+	// routes at all:
+	//
+	//   HealthReport   the manager OBSERVES -- submitting proposes and opens nothing
+	//   HealthDiagnose the Director CONFIRMS -- only this opens a treatment course
+	//   HealthRead     reading a proposal back
+	//
+	// Collapsing submit and confirm onto one route would let whoever fills the
+	// form also authorise the treatment, which is exactly what the engine exists
+	// to prevent. Operators hold HealthReport and NOT HealthDiagnose.
+	{OperationID: "submitAppHealthObservation", Method: "POST", Pattern: "/app/health/observations", Permissions: []string{HealthReport}},
+	// The queue is a READ. A health manager may see that what they recorded is
+	// still waiting; only the confirm route below carries the decision authority.
+	{OperationID: "listAppHealthObservations", Method: "GET", Pattern: "/app/health/observations", Permissions: []string{HealthRead}},
+	{OperationID: "getAppHealthObservation", Method: "GET", Pattern: "/app/health/observations/{health_diagnosis_run_id}", Permissions: []string{HealthRead}},
+	{OperationID: "confirmAppHealthDiagnosis", Method: "POST", Pattern: "/app/health/observations/{health_diagnosis_run_id}/confirm", Permissions: []string{HealthDiagnose}},
 	// Authored treatment protocols (/health-config/*), the surface behind the Health Config screen.
 	//
 	// The read/write split is the whole point: a principal may be allowed to INSPECT the standing

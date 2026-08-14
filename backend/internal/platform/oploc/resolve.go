@@ -111,3 +111,62 @@ func ResolveShedLocation(_ context.Context, row RowScanner) (OperationalLocation
 	}
 	return OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}, nil
 }
+
+// ShedScopedLocationBatchSQL resolves MANY shed ids in one round trip.
+//
+// It exists so a list does not have to choose between two bad options: calling
+// ShedScopedLocationSQL once per row (an N+1 fan-out on a read path -- one round
+// trip per animal, which is exactly the banned shape) or hand-writing the
+// partition SELECT inline, which is how `Mandela 2 - 3` reached an operator twice.
+//
+// It is the SAME query as its scalar sibling with the shed id list widened, and
+// every property that makes that one safe is preserved and must stay preserved:
+// `partition_label` never `normalized_label`; the 'whole' sentinel filtered so it
+// cannot reach a caller; and agree-or-go-bare via HAVING count(*) = 1 rather than
+// ORDER BY ... LIMIT 1, which fabricates an answer that flips as partitions change.
+//
+// A shed id with no row is simply ABSENT from the result. Callers degrade to their
+// location-less label for it, the same way ResolveShedLocation returns the zero
+// value rather than an error.
+//
+// Parameters: $1 tenant_id, $2 shed location_ids (uuid[]).
+const ShedScopedLocationBatchSQL = `
+SELECT shed.location_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+       COALESCE((
+         SELECT min(sp.partition_label)
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = shed.tenant_id
+           AND sp.shed_id = shed.location_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), '')
+FROM locations shed
+WHERE shed.tenant_id = $1::uuid AND shed.location_id = ANY($2::uuid[])`
+
+// RowsScanner is the subset of pgx.Rows ResolveShedLocations needs.
+type RowsScanner interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
+
+// ResolveShedLocations scans ShedScopedLocationBatchSQL into a shed-id-keyed map.
+//
+// Keyed by SHED ID, never by shed name: names repeat across parks (two Castro, two
+// Gandhi, two Yashoda), so a name-keyed map silently merges parks.
+func ResolveShedLocations(_ context.Context, rows RowsScanner) (map[string]OperationalLocation, error) {
+	out := map[string]OperationalLocation{}
+	for rows.Next() {
+		var shedID, shedName, partitionLabel string
+		if err := rows.Scan(&shedID, &shedName, &partitionLabel); err != nil {
+			return nil, fmt.Errorf("oploc: scan shed locations: %w", err)
+		}
+		out[shedID] = OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("oploc: read shed locations: %w", err)
+	}
+	return out, nil
+}

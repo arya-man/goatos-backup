@@ -595,15 +595,32 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 	return nil
 }
 
+// aggregate_type is a PARAMETER, not a literal. validate_outbox_event_tenant()
+// dispatches on this column to decide which table the aggregate must exist in,
+// so a hardcoded type would send every Health event to the health_cases check --
+// which is exactly what rejected the first diagnosis-run event.
 const insertHealthOutboxSQL = `INSERT INTO outbox_messages (tenant_id,event_id,event_type,schema_version,aggregate_type,aggregate_id,topic,payload,headers,idempotency_key,trace_id,status,next_attempt_at)
-VALUES ($1::uuid,$2::uuid,$3,'1.0.0','health_case',$4::uuid,$5,$6::jsonb,$7::jsonb,$8,$9,'pending',now()) ON CONFLICT DO NOTHING`
+VALUES ($1::uuid,$2::uuid,$3,'1.0.0',$4,$5::uuid,$6,$7::jsonb,$8::jsonb,$9,$10,'pending',now()) ON CONFLICT DO NOTHING`
 
+// healthOutboxArgs builds a health_case-aggregated outbox row. Health also emits
+// diagnosis-run events, which carry a different aggregate; see
+// healthOutboxArgsFor.
 func healthOutboxArgs(tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) ([]any, error) {
+	return healthOutboxArgsFor("health_case", tenantID, actorID, eventType, caseID, goatID, traceID, payload)
+}
+
+// healthOutboxArgsFor builds an outbox row for one of Health's aggregate types.
+//
+// The aggregate type is explicit because validate_outbox_event_tenant() checks
+// the aggregate EXISTS in the table that type names. Stamping the wrong type
+// makes the row point at nothing, and the trigger rejects it rather than letting
+// a dangling event reach a consumer.
+func healthOutboxArgsFor(aggregateType, tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) ([]any, error) {
 	eventID := platformoutbox.DeterministicUUID(eventType + ":" + tenantID + ":" + caseID + ":" + fmt.Sprint(payload["health_session_id"]))
 	now := time.Now().UTC()
 	idem := eventType + ":" + caseID + ":" + fmt.Sprint(payload["health_session_id"])
 	envelope := map[string]any{"event_id": eventID, "event_type": eventType, "schema_version": "1.0.0", "schema_ref": "contracts/jsonschema/domain-event-envelope.schema.json#" + eventType,
-		"aggregate_type": "health_case", "aggregate_id": caseID, "occurred_at": now.Format(time.RFC3339Nano), "recorded_at": now.Format(time.RFC3339Nano),
+		"aggregate_type": aggregateType, "aggregate_id": caseID, "occurred_at": now.Format(time.RFC3339Nano), "recorded_at": now.Format(time.RFC3339Nano),
 		"producer": map[string]any{"module": "health", "service": "goatos-api"}, "idempotency_key": idem,
 		"actor":        map[string]any{"actor_type": map[bool]string{true: "system_rule", false: "operator"}[actorID == ""], "actor_id": nil, "actor_ref": nil},
 		"subject_type": "goat", "subject_id": goatID, "visibility_scope": map[string]any{"tenant_id": tenantID}, "evidence_refs": []any{}, "payload": payload, "trace_id": traceID}
@@ -615,11 +632,15 @@ func healthOutboxArgs(tenantID, actorID, eventType, caseID, goatID, traceID stri
 		return nil, err
 	}
 	headers, _ := json.Marshal(map[string]any{"content_type": "application/json"})
-	return []any{tenantID, eventID, eventType, caseID, healthTopic, body, headers, idem, traceID}, nil
+	return []any{tenantID, eventID, eventType, aggregateType, caseID, healthTopic, body, headers, idem, traceID}, nil
 }
 
 func insertHealthOutbox(ctx context.Context, tx pgx.Tx, tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) error {
-	args, err := healthOutboxArgs(tenantID, actorID, eventType, caseID, goatID, traceID, payload)
+	return insertHealthOutboxFor(ctx, tx, "health_case", tenantID, actorID, eventType, caseID, goatID, traceID, payload)
+}
+
+func insertHealthOutboxFor(ctx context.Context, tx pgx.Tx, aggregateType, tenantID, actorID, eventType, caseID, goatID, traceID string, payload map[string]any) error {
+	args, err := healthOutboxArgsFor(aggregateType, tenantID, actorID, eventType, caseID, goatID, traceID, payload)
 	if err != nil {
 		return err
 	}
