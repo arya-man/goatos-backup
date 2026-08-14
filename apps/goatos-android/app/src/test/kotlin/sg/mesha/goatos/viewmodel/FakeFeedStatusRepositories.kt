@@ -1,5 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import androidx.paging.PagingData
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +28,8 @@ import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
  * completion screen is open (a verifier decision arriving, or another device's write draining).
  */
 internal class FakeFeedRepository : FeedRepository {
+    override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto> = emptyList()
+
     private val packingStatus = MutableStateFlow<String?>(null)
     private val directionStatus = MutableStateFlow<String?>(null)
     private var delayedPackingStatus: String? = null
