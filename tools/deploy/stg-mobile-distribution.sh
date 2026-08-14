@@ -53,10 +53,23 @@ print(json.dumps(payload))
 PY
 }
 
+post_deploy_panel() {
+  local webhook
+  webhook="$(slack_webhook_url)"
+  [[ -n "$webhook" ]] || return 0
+  [[ -f tools/deploy/slack-stg-deploy-bot/deploy-card.json ]] || return 0
+
+  curl -fsS -X POST \
+    -H 'Content-Type: application/json' \
+    --data-binary @tools/deploy/slack-stg-deploy-bot/deploy-card.json \
+    "$webhook" >/dev/null || true
+}
+
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
     notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass."
+    post_deploy_panel
   fi
 }
 trap on_exit EXIT
@@ -165,6 +178,7 @@ curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/l
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 
 notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+post_deploy_panel
 trap - EXIT
 
 echo "MOBILE_DISTRIBUTED ${commit_sha} ${ANDROID_VERSION_NAME} ${ANDROID_VERSION_CODE}"

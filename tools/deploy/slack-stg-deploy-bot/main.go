@@ -138,7 +138,74 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		"response_type":    "in_channel",
 		"replace_original": false,
 		"text":             fmt.Sprintf("STG deploy from `main` started by <@%s>.\nMobile distribution: `%t`\nCloud Build: %s\nCloud Deploy: %s", payload.User.ID, mobileDistribution, buildURL, deployURL),
+		"blocks":           deployStartedBlocks(payload.User.ID, mobileDistribution, buildURL, deployURL),
 	})
+}
+
+func deployStartedBlocks(userID string, mobileDistribution bool, buildURL, deployURL string) []map[string]any {
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*STG deploy started* by <@%s>\nMobile distribution: `%t`\n<%s|Cloud Build logs> | <%s|Cloud Deploy rollout>", userID, mobileDistribution, buildURL, deployURL),
+			},
+		},
+		{"type": "divider"},
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": "*Goat OS STG deploy*\nUse this fresh panel for the next deploy from `main`.",
+			},
+		},
+		deployOptionsBlock(),
+		deployButtonBlock(),
+	}
+}
+
+func deployOptionsBlock() map[string]any {
+	return map[string]any{
+		"type":     "actions",
+		"block_id": "deploy_options",
+		"elements": []map[string]any{
+			{
+				"type":      "checkboxes",
+				"action_id": "deploy_options",
+				"options": []map[string]any{
+					{
+						"text": map[string]string{
+							"type": "plain_text",
+							"text": "Also distribute Android mobile",
+						},
+						"description": map[string]string{
+							"type": "plain_text",
+							"text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+						},
+						"value": "mobile_distribution",
+					},
+				},
+			},
+		},
+	}
+}
+
+func deployButtonBlock() map[string]any {
+	return map[string]any{
+		"type": "actions",
+		"elements": []map[string]any{
+			{
+				"type": "button",
+				"text": map[string]string{
+					"type": "plain_text",
+					"text": "Deploy main to STG",
+				},
+				"style":     "primary",
+				"action_id": "deploy_goatos_stg_main",
+				"value":     "main",
+			},
+		},
+	}
 }
 
 func (cfg config) runTrigger(ctx context.Context, mobileDistribution bool) (string, error) {
