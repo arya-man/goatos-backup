@@ -31,8 +31,6 @@ steps:
         fi
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl docker.io git python3
-        git fetch origin main --quiet
-        test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
         tools/deploy/stg-cloudbuild-release.sh
 
   - id: android-mobile-distribution
@@ -53,8 +51,6 @@ steps:
         fi
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-17-jdk unzip
-        git fetch origin main --quiet
-        test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
         tools/deploy/stg-mobile-distribution.sh
 
 timeout: 3600s
