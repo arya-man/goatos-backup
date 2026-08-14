@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +138,67 @@ func TestInitializedNotificationWithoutIDReturnsNoContent(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("notification response body=%q, want empty", rec.Body.String())
+	}
+}
+
+func TestMCPWithoutBearerAdvertisesOAuthDiscovery(t *testing.T) {
+	s := newServer(config{
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+		TokenVerifier:  staticTokenVerifier{claims: platformauth.Claims{Email: "ravi@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, http.DefaultClient, nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, `resource_metadata="https://goatos-mcp-stg.example.com/.well-known/oauth-protected-resource"`) {
+		t.Fatalf("WWW-Authenticate=%q", got)
+	}
+}
+
+func TestOAuthMetadataAndCodeExchange(t *testing.T) {
+	s := newServer(config{
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+	}, http.DefaultClient, nil)
+
+	metaReq := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	metaRec := httptest.NewRecorder()
+	s.handleProtectedResourceMetadata(metaRec, metaReq)
+	if metaRec.Code != http.StatusOK || !strings.Contains(metaRec.Body.String(), "authorization_servers") {
+		t.Fatalf("metadata status=%d body=%s", metaRec.Code, metaRec.Body.String())
+	}
+
+	verifier := "codex-pkce-verifier"
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	s.oauthCodes["code-1"] = oauthCode{
+		Token:               "firebase-id-token",
+		ExpiresAt:           time.Now().Add(time.Minute),
+		CodeChallenge:       challenge,
+		CodeChallengeMethod: "S256",
+	}
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", "code-1")
+	form.Set("code_verifier", verifier)
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	s.handleToken(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"access_token":"firebase-id-token"`) {
+		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
 
