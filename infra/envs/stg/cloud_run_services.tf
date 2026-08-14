@@ -356,6 +356,127 @@ resource "google_cloud_run_v2_service" "admin_web" {
   depends_on = [google_project_service.enabled]
 }
 
+resource "google_cloud_run_v2_service" "mcp" {
+  name                = "goatos-mcp-stg"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_ALL"
+  labels              = merge(local.labels, { component = "external-mcp" })
+
+  template {
+    service_account = google_service_account.runtime["mcp"].email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      name    = "mcp"
+      image   = local.backend_image
+      command = ["/app/bin/mcp"]
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+
+      env {
+        name  = "GOATOS_ENV"
+        value = "stg"
+      }
+
+      env {
+        name  = "GOATOS_AUTH_MODE"
+        value = "jwks"
+      }
+
+      env {
+        name = "GOATOS_AUTH_ISSUER"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_issuer"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_AUTH_AUDIENCE"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_audience"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_AUTH_JWKS_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_jwks_url"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name  = "GOATOS_HTTP_ADDR"
+        value = ":8080"
+      }
+
+      env {
+        name  = "MESHA_MCP_PATH"
+        value = "/mcp"
+      }
+
+      env {
+        name  = "MESHA_MCP_UPSTREAM_URL"
+        value = var.api_base_url
+      }
+
+      env {
+        name = "MESHA_MCP_ALLOWED_EMAILS"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_allowed_emails"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      startup_probe {
+        initial_delay_seconds = 0
+        timeout_seconds       = 2
+        period_seconds        = 5
+        failure_threshold     = 12
+
+        http_get {
+          path = "/readyz"
+          port = 8080
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "mcp_public_invoker" {
+  project  = var.project_id
+  location = google_cloud_run_v2_service.mcp.location
+  name     = google_cloud_run_v2_service.mcp.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
 resource "google_cloud_run_v2_service_iam_member" "api_public_invoker" {
   project  = var.project_id
   location = var.region

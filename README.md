@@ -340,6 +340,10 @@ Cube metric layer, and MCP Toolbox are being built, and the staging read-only DB
 roles are a pending deploy step.** Do not read this as "shipped" — it is the
 config/secrets on-ramp so any developer can run the pieces that exist.
 
+For approved leadership users connecting Claude, Claude Code/Desktop, Codex, or
+ChatGPT-style custom GPT/app clients to the staging external MCP endpoint, see
+[`docs/ceo-ai/external-mcp-integration.md`](docs/ceo-ai/external-mcp-integration.md).
+
 ### Routing model (one paragraph)
 
 Every leadership question is planned server-side by **Vertex/Gemini**
