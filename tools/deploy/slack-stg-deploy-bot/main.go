@@ -204,10 +204,12 @@ func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution 
 	}
 	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/locations/%s/triggers/%s:run", cfg.ProjectID, cfg.Location, cfg.TriggerID)
 	requestBody := map[string]any{
-		"source": map[string]string{"branchName": "main"},
-		"substitutions": map[string]string{
-			"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
-			"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
+		"source": map[string]any{
+			"branchName": "main",
+			"substitutions": map[string]string{
+				"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
+				"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
+			},
 		},
 	}
 	var buf bytes.Buffer
