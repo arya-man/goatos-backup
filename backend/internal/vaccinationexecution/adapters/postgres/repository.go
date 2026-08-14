@@ -1470,7 +1470,15 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
     BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
     BOOL_OR(located.scanned OR located.proofed) AS has_scan,
-    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof
+    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof,
+    -- Per-animal union: an animal is done if ANY path to completion occurred (not just GREATEST)
+    BOOL_OR(
+      located.eff_status = 'completed'
+      OR located.completion_status = 'recorded'
+      OR located.completion_status = 'accepted'
+      OR located.shed_proof_submitted
+      OR located.proofed
+    ) AS has_done
   FROM located
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
@@ -1488,6 +1496,7 @@ animal_counts AS (
     animal_rollup.partition_key,
     animal_rollup.batch_id,
     COUNT(*)::bigint AS obligation_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_done)::bigint AS done_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_scheduled)::bigint AS scheduled_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_due)::bigint AS due_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_in_progress)::bigint AS in_progress_count,
@@ -1520,6 +1529,7 @@ grouped AS (
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
     -- as_of-effective status at distinct-animal grain; completion counts use the
     -- pre-aggregated, as-of-bounded completion projection above.
+    MAX(animal_counts.done_count) AS done_count,
     MAX(animal_counts.scheduled_count) AS scheduled_count,
     MAX(animal_counts.due_count) AS due_count,
     MAX(animal_counts.in_progress_count) AS in_progress_count,
@@ -1694,7 +1704,7 @@ stateful AS (
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
       WHEN (enriched.completion_recorded > 0
         OR enriched.proof_submitted_count > 0)
-       AND (enriched.obligation_count - GREATEST(enriched.completed_count, enriched.completion_recorded + enriched.completion_accepted, enriched.proof_submitted_count) - enriched.missed_count - enriched.deferred_count - enriched.canceled_count) <= 0 THEN 'verification_pending'
+       AND (enriched.obligation_count - enriched.done_count - enriched.missed_count - enriched.deferred_count - enriched.canceled_count) <= 0 THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
