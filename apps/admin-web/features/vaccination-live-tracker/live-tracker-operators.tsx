@@ -39,7 +39,6 @@ export function LiveTrackerOperators({
   pageContract: AdminUiPageContract;
 }) {
   const cols = tableLabels(pageContract, "live-operators");
-  const identityReason = copy(pageContract, "section.operators.unavailable");
 
   return (
     <section id="lt-operators" className="card lt-card" style={{ scrollMarginTop: 80 }}>
@@ -122,16 +121,6 @@ export function LiveTrackerOperators({
                         <span className="lt-avx" aria-hidden="true">{initials(row.operator_name)}</span>
                         <ClipText title={row.operator_name}>{row.operator_name}</ClipText>
                       </span>
-                      {/* Operator identity is only partially seeded in some environments: the code
-                          is a raw auth subject rather than a workforce display code. The cell stays
-                          where the mock put it and states the reason instead of showing the token. */}
-                      {!row.identity_resolved ? (
-                        <span className="muted small lt-code" aria-disabled="true" title={identityReason}>
-                          {copy(pageContract, "label.placeholder")}
-                        </span>
-                      ) : (
-                        <span className="muted small lt-code">{row.operator_display_code}</span>
-                      )}
                     </td>
                     <td>{row.park_code || row.park_name || copy(pageContract, "label.placeholder")}</td>
                     <td className="lt-shedlbl">
