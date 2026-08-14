@@ -28,6 +28,7 @@ type fakeRepo struct {
 	lastRateQuery      domain.RationRateQuery
 	lastTagQuery       domain.ShedTagQuery
 	lastSchedQuery     domain.ScheduleConfigQuery
+	lastSessionQuery   domain.SessionTemplateQuery
 
 	lastExperiment       domain.UpsertExperimentConfigCommand
 	lastExperimentStatus domain.SetExperimentShedStatusCommand
@@ -62,6 +63,7 @@ func (f *fakeRepo) ListFeedItems(_ context.Context, _ string, p domain.Page) (do
 }
 
 func (f *fakeRepo) ListSessionTemplates(_ context.Context, q domain.SessionTemplateQuery) (domain.SessionTemplatePage, error) {
+	f.lastSessionQuery = q
 	return domain.SessionTemplatePage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
 }
 
@@ -259,6 +261,21 @@ func TestWriteIdentityDerivesIndiaBusinessDate(t *testing.T) {
 	}
 	if got := repo.lastRationRate.EffectiveFrom; got != "2026-07-20" {
 		t.Fatalf("effective_from = %q, want 2026-07-20 (Asia/Kolkata), not the UTC day", got)
+	}
+}
+
+// TestSessionTemplateReadUsesIndiaBusinessDate keeps the config UI in parity with generation: both
+// must decide the active recipe from the same Asia/Kolkata business date, not PostgreSQL CURRENT_DATE
+// or the UTC day.
+func TestSessionTemplateReadUsesIndiaBusinessDate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.ListSessionTemplates(context.Background(), "tenant", "park", nil, nil); err != nil {
+		t.Fatalf("ListSessionTemplates: %v", err)
+	}
+	if got := repo.lastSessionQuery.AsOfDate; got != "2026-07-20" {
+		t.Fatalf("as_of_date = %q, want 2026-07-20 (Asia/Kolkata), not the UTC day", got)
 	}
 }
 

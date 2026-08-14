@@ -265,7 +265,7 @@ func (s *Service) ListSessionTemplates(ctx context.Context, tenantID, parkID str
 		return domain.SessionTemplatePage{}, err
 	}
 	return s.repo.ListSessionTemplates(ctx, domain.SessionTemplateQuery{
-		TenantID: tenantID, ParkID: strings.TrimSpace(parkID), Page: page,
+		TenantID: tenantID, ParkID: strings.TrimSpace(parkID), AsOfDate: s.businessDate(), Page: page,
 	})
 }
 
