@@ -330,16 +330,17 @@ internal testing", or includes an Android APK/AAB as part of a STG deploy, the
 Android release is not complete after Firebase App Distribution alone. Follow
 `docs/mobile/stg-signed-release.md` and publish the employee/internal release to
 all required channels: Firebase App Distribution, Google Play Internal Testing,
-and the stable operator URL `https://mesha.sg/app.apk` in the Mesha website
-Firebase Hosting site. Use the exact same generated APK bytes for Firebase and
-the website mirror. Play Internal Testing uses an AAB, so build/upload it from
-the same source commit, `versionName`, and `versionCode`; do not invent a second
-release identity. Keep the Play internal tester list to the same email IDs that
-have access to Firebase App Distribution; do not maintain a separate hand-picked
-Play tester list. Do not rebuild Android for the website copy. Keep the browser
-download filename versioned as `Mesha-<versionName>-code-<versionCode>.apk`,
-verify matching APK hashes, and validate the live versioned URL in Chrome before
-reporting done.
+and the stable operator URL `https://mesha.sg/app.apk`. That URL redirects to
+`gs://goatos-stg-public-downloads/operator/latest/app.apk`; do not copy APKs
+into the Mesha marketing website repo and do not deploy Firebase Hosting merely
+to update the APK. Use the exact same generated APK bytes for Firebase App
+Distribution and the Storage mirror. Play Internal Testing uses an AAB, so
+build/upload it from the same source commit, `versionName`, and `versionCode`;
+do not invent a second release identity. Keep the Play internal tester list to
+the same email IDs that have access to Firebase App Distribution; do not
+maintain a separate hand-picked Play tester list. Keep the browser download
+filename versioned as `Mesha-<versionName>.apk`, verify matching APK hashes, and
+validate the live versioned URL in Chrome before reporting done.
 
 Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable

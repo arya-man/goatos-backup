@@ -339,9 +339,14 @@ interface SyncRepository {
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        distributionProofOutboxItemId: String,
-        feedWeightProofOutboxItemId: String,
-        waterProofOutboxItemId: String,
+        distributionProofOutboxItemId: String?,
+        feedWeightProofOutboxItemId: String?,
+        waterProofOutboxItemId: String?,
+        // SERVER proof ids for slots shot on ANOTHER operator's phone, which have no local outbox
+        // row here. Null for a slot this phone recorded itself.
+        feedWeightProofRef: String? = null,
+        distributionProofRef: String? = null,
+        waterProofRef: String? = null,
     ): AppResult<String> = AppResult.Err("feed distribution completion sync is not configured")
 
     /**
@@ -940,9 +945,12 @@ class DefaultSyncRepository(
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        distributionProofOutboxItemId: String,
-        feedWeightProofOutboxItemId: String,
-        waterProofOutboxItemId: String,
+        distributionProofOutboxItemId: String?,
+        feedWeightProofOutboxItemId: String?,
+        waterProofOutboxItemId: String?,
+        feedWeightProofRef: String?,
+        distributionProofRef: String?,
+        waterProofRef: String?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.FEED_DISTRIBUTION_COMPLETE,
         groupKey = groupKey,
@@ -958,6 +966,9 @@ class DefaultSyncRepository(
                 distributionProofOutboxItemId = distributionProofOutboxItemId,
                 feedWeightProofOutboxItemId = feedWeightProofOutboxItemId,
                 waterProofOutboxItemId = waterProofOutboxItemId,
+                feedWeightProofRef = feedWeightProofRef?.trim()?.ifBlank { null },
+                distributionProofRef = distributionProofRef?.trim()?.ifBlank { null },
+                waterProofRef = waterProofRef?.trim()?.ifBlank { null },
             ),
         ),
     )

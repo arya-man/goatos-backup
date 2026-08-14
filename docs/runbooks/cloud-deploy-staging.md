@@ -65,7 +65,8 @@ list; the rollout discovers existing backend-image jobs and updates them.
 Normal staging releases originate from a clean repo checkout at the latest
 approved `origin/main`. Do not create or wait for a `main -> stg` pull request,
 GitHub Actions workflow, or remote `stg` branch update as part of staging
-deployment.
+deployment. If a remote button is needed, use the Cloud Build manual trigger
+that reads `origin/main` and runs `cloudbuild.stg.yaml`.
 
 Run from a clean repo checkout that points at the intended commit:
 
@@ -79,6 +80,28 @@ git rev-parse origin/main
 gcloud config set project goatos-stg
 tools/deploy/stg-clouddeploy-release.sh
 ```
+
+## Deploy From Google Cloud Build
+
+The repository includes `cloudbuild.stg.yaml` for a manual Cloud Build trigger.
+The trigger should point at GitHub repo `vgoats/goatos`, branch `main`, and use
+that build config file. It runs as:
+
+```text
+goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+```
+
+Cloud Build should be used as an operator-controlled button, not as a push-on-
+every-commit deployment. The same release helper still refuses non-`origin/main`
+commits and waits for Cloud Deploy rollout/image verification.
+
+Optional Slack alerts use Secret Manager secret:
+
+```text
+goatos-stg-deploy-slack-webhook-url
+```
+
+If the secret is absent, deploy continues and logs remain in Cloud Build.
 
 The script refuses a dirty working tree unless `GOATOS_ALLOW_DIRTY_RELEASE=1`
 is set. Dirty release is for emergency debugging only; do not use it for normal

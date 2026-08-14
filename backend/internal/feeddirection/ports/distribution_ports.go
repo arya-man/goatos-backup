@@ -112,6 +112,46 @@ type SessionCompletionStatus struct {
 	Status         string
 }
 
+// PenSessionCaptureQuery identifies ONE pen-session's capture state. Every field is part of the
+// identity: a shed alone would answer for the wrong pen, which is the recurring defect this module
+// has paid for twice (migration 000137, and the 2026-08-13 partition_label contract gap).
+type PenSessionCaptureQuery struct {
+	TenantID       string
+	ParkID         string
+	ShedID         string
+	PartitionLabel string
+	SessionNo      int32
+	TargetDate     time.Time
+	Workflow       string
+	// AuthorizedParkIDs is the caller's own park set, threaded through so the PROOF module can run
+	// its own scope check rather than being told to skip it. A park-scoped operator must not be able
+	// to read another park's proofs by naming its shed.
+	AuthorizedParkIDs []string
+}
+
+// CapturedProofSlot is ONE already-uploaded proof for a pen-session, whoever recorded it.
+//
+// This exists because a pen-session's three proofs -- feed weight photo, feed-distribution video,
+// water-distribution video -- may be recorded by THREE DIFFERENT operators, each on their own phone
+// (maintainer decision 2026-08-14). Before this read, a proof was discoverable only on the device
+// that shot it: the others could not see it had been done, and no single phone held all three
+// references, so the pen could never be submitted at all.
+//
+// ProofID is the SERVER proof id, not a device-local outbox id, precisely so a phone that did not
+// shoot this proof can still reference it when submitting.
+type CapturedProofSlot struct {
+	// FieldKey names the slot ("feed_distribution_feed_weight_photo", "feed_distribution_video",
+	// "feed_distribution_water_video").
+	FieldKey string
+	ProofID  string
+	// CapturedAt is when the upload completed. Deliberately NO uploader name in this first cut: the
+	// operator's need is "this slot is already done", and resolving a name means a cross-module
+	// workforce lookup. A name field declared here and left empty would be the contract-lie defect
+	// this module was just repaired for -- add it WITH its resolver, or not at all.
+	CapturedAt time.Time
+	MimeType   string
+}
+
 // ApplyDistributionParams flips a distribution completion whose video a verifier APPROVED
 // 'pending_verification' -> 'completed'. Issued by the verification.verdict.approved consumer.
 type ApplyDistributionParams struct {

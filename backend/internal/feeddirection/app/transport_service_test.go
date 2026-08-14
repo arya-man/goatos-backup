@@ -22,6 +22,13 @@ func (s *transportServiceStore) SubmitTransportAttempt(context.Context, ports.Su
 
 type transportProofValidator struct{ shedID string }
 
+// ListPenSessionCaptures is irrelevant to transport, which has one proof and one operator.
+func (*transportProofValidator) ListPenSessionCaptures(
+	context.Context, ports.PenSessionCaptureQuery,
+) ([]ports.CapturedProofSlot, error) {
+	return nil, nil
+}
+
 func (*transportProofValidator) ValidateFeedProofs(context.Context, string, []string) error {
 	return nil
 }

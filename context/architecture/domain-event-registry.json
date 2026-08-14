@@ -1310,6 +1310,11 @@
       "reason": "canonical Counts shed-stage cohort correction writer; emits per-animal goat.stage_changed into goat_identity_events and matching outbox_messages for changed live animals in one physical pen"
     },
     {
+      "path": "backend/internal/identity/adapters/postgres/census_correction.go",
+      "owner": "identity",
+      "reason": "canonical Counts census-slice data-correction writer for wrongly recorded breed/sex values; audit-only by design because it corrects the register without representing a husbandry state transition or triggering downstream schedule recomputation"
+    },
+    {
       "path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql",
       "owner": "identity",
       "reason": "sqlc source for identity lifecycle commands"

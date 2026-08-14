@@ -169,7 +169,8 @@ day_assignments AS (
     AND a.planned_date = $2::date
   ORDER BY a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, a.assignment_id
 ),
-scoped AS (
+ -- projection-review: membership=assigned obligation_instances by vaccination_drive_assignment_members/vaccination_drive_assignments.planned_date OR unassigned obligation_instances by effective due/override date; group_key=park_id,shed_id,partition_label,vaccine_family,operator_id; join_cardinality=assignment_members is obligation_id-keyed and day_assignments is DISTINCT ON shed plus partition so no OneToMany assignment row can fan out counts; pagination=rollup windows calculate before PageBoundary limits and activity pages after event projection; scope=tenant plus ParkScope auth/selection, shed, partition, operator, vaccine and StatusMatrix dead-obligation exclusions.
+ scoped AS (
   SELECT
     oi.obligation_id,
     oi.target_id AS goat_id,
@@ -181,7 +182,8 @@ scoped AS (
     COALESCE(gsp.partition_label, 'whole') AS partition_label,
     ` + liveTrackerPartitionNormExpr("gsp.partition_label") + ` AS part_norm,
     pr.dose_code,
-    pd.name AS protocol_name,` + liveTrackerVaccineFamilyExpr + ` AS vaccine_family
+    pd.name AS protocol_name,` + liveTrackerVaccineFamilyExpr + ` AS vaccine_family,
+    member_assignment.operator_id AS assigned_operator_id
   FROM obligation_instances oi
   JOIN goats g
     ON g.tenant_id = oi.tenant_id
@@ -210,6 +212,11 @@ scoped AS (
     WHERE dim.tenant_id = pr.tenant_id
       AND dim.rule_id = pr.rule_id
   ) prd ON true
+  LEFT JOIN vaccination_drive_assignment_members member
+    ON member.tenant_id = oi.tenant_id
+   AND member.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments member_assignment
+    ON member_assignment.assignment_id = member.assignment_id
   LEFT JOIN vaccination_drive_date_overrides ovr
     ON ovr.tenant_id = oi.tenant_id
    AND ovr.park_id = g.park_id
@@ -222,14 +229,18 @@ scoped AS (
     -- into the scheduled count inflates the Scheduled tile and Remaining, and holds the shed row at
     -- not_started for the rest of the day. Same exclusion set as repository.go's execution reads.
     AND oi.status NOT IN ('canceled', 'superseded', 'waived')
-    -- Bounded base scan FIRST (see day_window), exact COALESCE equality SECOND. The COALESCE sits
-    -- over a nullable outer-joined column so it can never be pushed down to obligation_instances;
-    -- without the due_at range the planner read the tenant's ENTIRE obligation history, joined it to
-    -- goats, partitions and the protocol chain, and only then discarded the rows that are not on the
-    -- requested day. No index can fix that while the date predicate keeps this shape.
-    AND oi.due_at >= (SELECT due_floor FROM day_window)
-    AND oi.due_at < (SELECT day_end FROM day_window)
-    AND COALESCE(ovr.override_date, (oi.due_at AT TIME ZONE '` + istZone + `')::date) = $2::date
+    -- Assigned obligations belong to their persisted operator drive day. Unassigned obligations
+    -- still use due_at/override. This prevents old completed drive work with a future clinical due
+    -- date from leaking into a later live tracker day with a blank operator.
+    AND (
+      member_assignment.planned_date = $2::date
+      OR (
+        member_assignment.assignment_id IS NULL
+        AND oi.due_at >= (SELECT due_floor FROM day_window)
+        AND oi.due_at < (SELECT day_end FROM day_window)
+        AND COALESCE(ovr.override_date, (oi.due_at AT TIME ZONE '` + istZone + `')::date) = $2::date
+      )
+    )
     AND ($3::text = '' OR g.park_id = NULLIF($3::text, '')::uuid)
     -- $8 is the AUTHORIZATION park set, distinct from $3 (the caller's own park selection). It is
     -- NULL only for a genuinely tenant-wide capability holder. The filter-bar vocabulary is compiled
@@ -241,7 +252,7 @@ scoped AS (
 scoped_enriched AS (
   SELECT
     s.*,
-    asg.operator_id,
+    COALESCE(s.assigned_operator_id, asg.operator_id) AS operator_id,
     COALESCE(dp.completed_count, 0) AS proof_completed_count,
     COALESCE(dp.pending_count, 0) AS proof_pending_count,
     dp.last_proof_at,
@@ -264,7 +275,7 @@ scoped_enriched AS (
   LEFT JOIN day_attempts da ON da.goat_id = s.goat_id
   WHERE ($4::text = '' OR s.shed_id = NULLIF($4::text, '')::uuid)
     AND ($5::text = '' OR s.part_norm = $5::text)
-    AND ($6::text = '' OR asg.operator_id = NULLIF($6::text, '')::uuid)
+    AND ($6::text = '' OR COALESCE(s.assigned_operator_id, asg.operator_id) = NULLIF($6::text, '')::uuid)
     AND ($7::text = '' OR s.vaccine_family = $7::text)
 )`
 

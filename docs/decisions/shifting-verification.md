@@ -95,19 +95,38 @@ all share so a tab badge cannot advertise work the tab hides.
   `409 feed_config_changed`. No feed type or quantity is guessed.
 - The raiser does not choose a management stage (maintainer decision 2026-08-03, superseding the
   `keep_current` / `select_stage` / `destination_stage` chooser). A movement ADOPTS THE DESTINATION
-  SHED's cohort, resolved server-side at raise time by
-  `counts/domain.ResolveShiftingDestinationStage` and snapshotted on the shifting event, so the park
-  head approves the same stage the completion applies. Clients send neither
+  LOCATION's cohort, resolved server-side at raise time and snapshotted on the shifting event, so
+  the park head approves the same stage the completion applies. Clients send neither
   `management_stage_mode` nor `target_management_stage`; both are rejected as unknown fields.
-  The animal KEEPS ITS CURRENT STAGE when the destination is a Flushing shed (flushing is a
-  nutrition cohort owned by its own workflow, not a placement consequence), and — because an
-  ambiguous destination has no truthful answer — when the shed holds more than one cohort, holds no
-  live animals, or holds a cohort absent from active `animal_stage_lookup`. That last case is not
-  hypothetical: real sheds carry `ICU-Kid`, `ICU-Non-Pregnant` and `Quarantine kids`, which the
-  relocation cannot write, so adopting them would pass the raise and then fail at the second gate
-  after the operator's video and the park head's approval. `shed_profiles` remains not
-  movement-stage authority. A resolved `Mother` changes only `management_stage` and creates no
-  pregnancy or lactation record.
+
+  **THE DESTINATION IS A PEN, AND THE PEN'S OWN TAG IS THE COHORT** (maintainer decision
+  2026-08-14, superseding the resident-derived rule for every movement). Animals never move into a
+  bare shed; they move into one of its pens (`Godel 1 - Part 2`), so the cohort adopted is that
+  PEN'S configured tag — `shed_partitions.animal_stage_id`, migration 000161, the same value the
+  Counts → Breakdown Stage cell shows and edits. `counts/domain.ResolveShiftingDestinationPenStage` owns
+  the rule.
+
+  What this replaced, and why: the previous rule derived the cohort from the destination's RESIDENT
+  animals, aggregated across the WHOLE SHED. Two failures followed. A shed whose eight pens
+  legitimately hold different cohorts read as "mixed" and kept each animal's current stage, even
+  when the pen actually chosen is unambiguously one cohort. And the raise matched the catalog on
+  shed id alone, so the pen the operator picked never reached the resolver at all. The authored tag
+  is also the better answer on its own terms: it is what somebody decided the pen is FOR, and it
+  does not drift as animals move in and out.
+
+  Strictly additive. A pen nobody has tagged yet still falls back to the resident-derived rule with
+  every fallback it already had, so no movement that used to adopt a stage stops adopting one. A
+  shed with no pens keeps using `shed_profiles`, because for such a shed the shed IS the
+  operational location.
+
+  The animal KEEPS ITS CURRENT STAGE when the destination's tag is Flushing (a nutrition cohort
+  owned by its own workflow, not a placement consequence), when the tag is absent from active
+  `animal_stage_lookup`, and — for an unconfigured pen falling back to residents — when the pen
+  holds more than one cohort or holds no live animals. The unwritable case is not hypothetical:
+  real sheds carry `ICU-Kid`, `ICU-Non-Pregnant` and `Quarantine kids`, which the relocation cannot
+  write, so adopting one would pass the raise and then fail at the second gate after the operator's
+  video and the park head's approval. A resolved `Mother` changes only `management_stage` and
+  creates no pregnancy or lactation record.
 - `goats.shed_id` and, when the raise resolved one, `management_stage` update in
   the same transaction as `shifting_events.event_status='applied'`. Herd Register and Counts read
   that canonical location, so their count changes at this exact second-gate transaction.

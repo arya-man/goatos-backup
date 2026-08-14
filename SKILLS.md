@@ -303,6 +303,12 @@ staging", or similar:
 - Firebase App Distribution releases must first run
   `make restore-stg-android-release-env`, then record the Firebase release URL
   and Android version/code in the GitHub tag
+- Android employee releases are incomplete until Google Play Internal Testing is
+  updated from the same source/version identity and the exact Firebase APK bytes
+  are mirrored to
+  `gs://goatos-stg-public-downloads/operator/latest/app.apk` for
+  `https://mesha.sg/app.apk`; do not deploy the Mesha marketing website just to
+  update the APK
 
 ## Context Files
 

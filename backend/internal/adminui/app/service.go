@@ -518,7 +518,12 @@ func pages() []domain.PageContract {
 				// energy value blocks a rollup, never a feeding decision, so it is a reportable gap
 				// — and hiding the columns until something fills them would make the gap invisible
 				// on the one screen that can close it.
-				table("feed-items", "Feed items", "/feed-config/feed-items", []string{"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status"}, "feed_item_id"),
+				// Status sorts too: grouping the inactive items together is the fastest way to
+				// audit what is currently off the feed sheets.
+				sortable(
+					table("feed-items", "Feed items", "/feed-config/feed-items", []string{"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status"}, "feed_item_id"),
+					"feed_item", "energy_kcal_per_kg", "dry_matter_factor", "wastage_factor", "display_order", "status",
+				),
 				table("shed-factors", "Shed factors", "/feed-config/shed-factors", []string{"shed", "feed_item", "multiplier", "valid_from", "valid_to"}, "shed_factor_id"),
 				// The EXPERIMENT sheds, deliberately its OWN table rather than extra rows or a
 				// column on the ration grid above. The two are not two views of one thing: a
@@ -2678,22 +2683,49 @@ func pageSpecificCopy(id string) map[string]string {
 			// capped read-time rollup); it was the LABEL that never said the page is not the whole set.
 			"table.breakdown.total_row": "Total · every matching row, not just this page",
 			"table.breakdown.noun":      "row",
-			"filter.bar_aria":           "Filter breakdown rows",
-			"filter.farm_label":         "Farm",
-			"filter.stage_label":        "Stage",
-			"filter.breed_label":        "Breed",
-			"filter.shed_label":         "Shed",
-			"filter.gender_label":       "Gender",
-			"filter.all_option":         "All",
-			"filter.clear_all":          "Clear all",
-			"filter.scope_readonly":     "Park scope is set in the top bar.",
-			"chart.breed.title":         "Count by breed",
-			"chart.breed.caption":       "animals by breed",
-			"chart.stage.title":         "Count by stage",
-			"chart.stage.caption":       "where they are",
-			"chart.gender.title":        "Gender split",
-			"chart.gender.caption":      "animals by sex",
-			"chart.shed.title":          "Shed occupancy",
+			// The inline retag editor on the Stage cell. Every visible string it renders is here:
+			// the frontend composes none of it, including the default reason that lands in the
+			// audit row.
+			//
+			// SCOPE, because the row and the write are not the same thing: a breakdown row is a
+			// census SLICE (one breed and sex within a pen) while the write moves the whole PEN, so
+			// the confirm step reports the pen's own animal total from the preview rather than the
+			// row's count.
+			"action.retag.hint":               "Double-click a tag to change it",
+			"action.retag.search_placeholder": "Type to find a tag",
+			"action.retag.no_matches":         "No tag matches that",
+			"action.retag.reason_label":       "Reason",
+			"action.retag.default_reason":     "Tag corrected from Counts Breakdown",
+			"action.retag.apply":              "Apply",
+			"action.retag.cancel":             "Cancel",
+			"action.retag.applying":           "Applying…",
+			"action.retag.checking":           "Checking…",
+			"action.retag.animals_noun":       "animals",
+			"action.retag.animal_noun":        "animal",
+			"action.retag.empty_scope":        "No animals here yet — this records the tag only",
+			"action.retag.failed":             "That change could not be applied",
+			// The kid/adult consequence. A tag carries its own band, so retagging a pen moves every
+			// animal in it across that line; the picker and the confirm step say so rather than
+			// leaving an operator to find out from the census afterwards.
+			"action.retag.band_kid":   "kids",
+			"action.retag.band_adult": "adults",
+			"action.retag.becomes":    "These animals become",
+			"filter.bar_aria":         "Filter breakdown rows",
+			"filter.farm_label":       "Farm",
+			"filter.stage_label":      "Stage",
+			"filter.breed_label":      "Breed",
+			"filter.shed_label":       "Shed",
+			"filter.gender_label":     "Gender",
+			"filter.all_option":       "All",
+			"filter.clear_all":        "Clear all",
+			"filter.scope_readonly":   "Park scope is set in the top bar.",
+			"chart.breed.title":       "Count by breed",
+			"chart.breed.caption":     "animals by breed",
+			"chart.stage.title":       "Count by stage",
+			"chart.stage.caption":     "where they are",
+			"chart.gender.title":      "Gender split",
+			"chart.gender.caption":    "animals by sex",
+			"chart.shed.title":        "Shed occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
@@ -3230,10 +3262,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
 			"label.feed_item_retired":         "Inactive",
 			"label.feed_item_retired_note":    "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so reactivating it restores them.",
-			"label.energy_kcal_per_kg":        "Energy (kcal/kg)",
-			"label.dry_matter_factor":         "Dry matter factor",
-			"label.wastage_factor":            "Wastage factor",
-			"label.display_order":             "Display order",
+			// The status cell is edited IN PLACE: double-click swaps the chip for a picker and the
+			// choice applies immediately. The hint is contract copy because it is the only thing
+			// telling an operator the cell is editable at all — a chip that looks like every other
+			// read-only chip on the page otherwise advertises nothing.
+			"hint.feed_item_status_edit": "Double-click to change whether this item is fed.",
+			"label.energy_kcal_per_kg":   "Energy (kcal/kg)",
+			"label.dry_matter_factor":    "Dry matter factor",
+			"label.wastage_factor":       "Wastage factor",
+			"label.display_order":        "Display order",
 			// Every attribute hint says the same thing in its own terms: blank is "not measured",
 			// which is a different statement from a measured 0 and is never turned into one.
 			"label.feed_item_attributes_note":  "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",
@@ -5345,6 +5382,19 @@ func countsBreakdownOptionGroups() []domain.OptionGroup {
 				option("male", "Male", "", ""),
 			},
 		},
+		{
+			// The BREED CATALOG, for the inline breed correction. Declared empty here and filled by
+			// the compiler from the live `breeds` reference family: breeds are tenant data and must
+			// never be constants in contract code.
+			//
+			// Deliberately the CATALOG rather than the response's `facets.breeds`. A facet reports
+			// the breeds already ON the herd, and a correction frequently needs one that is not --
+			// that is the whole point of correcting a wrongly recorded breed. This is the same
+			// write-picker-versus-census-facet distinction the operational-location rule draws for
+			// sheds.
+			ID:      "counts_breed",
+			Options: []domain.Option{},
+		},
 	}
 }
 
@@ -5400,6 +5450,22 @@ func feedOptionGroups() []domain.OptionGroup {
 				option("planned", "Planned", "Authored rate greater than zero", "ok"),
 				option("configured_zero", "Configured zero", "Authored 0 g/head — correct and deliberate (K0/K1 kids on milk). The shed IS configured.", "info"),
 				option("not_configured", "No ration configured", "No authored rate at all. Blocking, not zero.", "dng"),
+			},
+		},
+		{
+			// Structural: feed_item_catalog_status_check (000001) constrains status to exactly
+			// these two values, so no tenant can add a third without a migration.
+			//
+			// This is the EDIT vocabulary of the feed-items status cell, which is why it is an
+			// option group rather than two `label.feed_item_*` copy keys: the cell became an inline
+			// picker offering BOTH states at once, and a picker's options must be backend-declared
+			// so a client cannot offer a value the write would reject. The stored value stays
+			// `retired`; the operator's word for it is "Inactive", which is exactly the storage-vs-
+			// display split an option group exists to carry.
+			ID: "feed_item_status",
+			Options: []domain.Option{
+				option("active", "Active", "This item is part of the feed vocabulary. It appears on the ration grid and is packed and served wherever a rate is authored for it.", "ok"),
+				option("retired", "Inactive", "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid — but they are kept, so reactivating it restores them.", "mut"),
 			},
 		},
 		{
