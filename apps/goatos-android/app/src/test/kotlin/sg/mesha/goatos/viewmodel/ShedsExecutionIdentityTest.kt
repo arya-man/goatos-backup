@@ -320,28 +320,79 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
-    fun `today hides old final-done cards but keeps old actionable backlog`() {
-        val window = OperatorWorkWindow.today(
-            ZonedDateTime.of(2026, 8, 14, 9, 30, 0, 0, ZoneId.of("Asia/Kolkata")),
+    fun `card lock invariant - needs_review with open work (17-11-6) opens for scan, not record-only`() {
+        // Field bug reproduction: target=17 done=11 open=6, needs_review, backend says can-continue.
+        val needsReview = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 17,
+                doneCount = 11,
+                openCount = 6,
+                sopStatus = "needs_review",
+                verificationStatus = "pending",
+                workState = "verification_pending",
+                operatorCanContinue = true,
+                operatorLockedReason = "none",
+            ),
         )
-        val oldDone = VaccinationExecutionRowDto(
-            dueDate = "2026-08-05",
-            targetCount = 6,
-            openCount = 0,
-            doneCount = 6,
-            sopStatus = "accepted",
-            workState = "completed",
-        )
-        val oldOpen = oldDone.copy(
-            openCount = 1,
-            doneCount = 5,
-            sopStatus = "draft",
-            workState = "overdue",
-        )
-        val todayDone = oldDone.copy(dueDate = "2026-08-14")
 
-        assertFalse(oldDone.isVisibleForOperatorDay(LocalDate.of(2026, 8, 14), window))
-        assertTrue(oldOpen.isVisibleForOperatorDay(LocalDate.of(2026, 8, 14), window))
-        assertTrue(todayDone.isVisibleForOperatorDay(LocalDate.of(2026, 8, 14), window))
+        assertFalse(
+            "17/11/6 needs_review with operatorCanContinue=true must open scan, never record-only",
+            needsReview.opensSubmittedRecordOnly(),
+        )
+    }
+
+    @Test
+    fun `card lock invariant - final submit (17-17-0) locks to record-only`() {
+        val finalSubmit = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 17,
+                doneCount = 17,
+                openCount = 0,
+                sopStatus = "accepted",
+                verificationStatus = "accepted",
+                workState = "completed",
+                operatorCanContinue = false,
+                operatorLockedReason = "final_submitted",
+            ),
+        )
+
+        assertTrue(
+            "17/17/0 final submission must be record-only",
+            finalSubmit.opensSubmittedRecordOnly(),
+        )
+    }
+
+    @Test
+    fun `card lock invariant - missing backend fields fall back to openCount guard`() {
+        // Backward compat: API responses that predate operatorCanContinue must still never lock
+        // while open work remains, and must lock once openCount hits zero.
+        val olderApiOpenWork = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 17,
+                doneCount = 11,
+                openCount = 6,
+                operatorCanContinue = null,
+                operatorLockedReason = null,
+            ),
+        )
+        assertFalse(
+            "missing field + openCount > 0 must NOT lock",
+            olderApiOpenWork.opensSubmittedRecordOnly(),
+        )
+
+        val olderApiDone = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 17,
+                doneCount = 17,
+                openCount = 0,
+                sopStatus = "accepted", // fallback also requires a terminal sopStatus, not just openCount==0
+                operatorCanContinue = null,
+                operatorLockedReason = null,
+            ),
+        )
+        assertTrue(
+            "missing field + openCount == 0 + terminal sopStatus must lock (fallback)",
+            olderApiDone.opensSubmittedRecordOnly(),
+        )
     }
 }

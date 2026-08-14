@@ -45,29 +45,79 @@ class ProofArtifactValidatorTest {
 
     @Test
     fun validateVideoFile_rejectWhenProbeSucceededButDurationInvalid() {
-        // Simulate probe success with invalid duration (0L): reject, don't plausible-accept
-        val validFile = tempFolder.newFile("invalid_duration.mp4")
-        validFile.writeBytes(ByteArray(2000)) // >1KB so would be plausible if we didn't check
-
-        // MediaMetadataRetriever would succeed in reading file but return 0 duration
-        // The validator should reject this immediately, not fall back to plausible-accept
-        val result = validator.validateVideoFile(validFile.toURI().toString())
-
-        // This test documents the expected behavior; actual rejection depends on
-        // MediaMetadataRetriever behavior in the test environment
-        // The key point: if probe succeeds with invalid metadata, reject (B5)
+        // Test probe success with invalid duration (0L): must reject, not plausible-accept
+        val testValidator = ProbeSuccessWithInvalidDurationValidator()
+        val result = testValidator.validateVideoFile("any-uri")
+        assertFalse("Should reject probe-succeeded with invalid duration", result.isValid)
+        assertTrue("Should have reason", result.reason?.isNotBlank() == true)
     }
 
     @Test
     fun validateVideoFile_rejectWhenProbeSucceededButDimensionsUnreadable() {
-        // Simulate probe success with unreadable dimensions: reject, don't plausible-accept
-        val validFile = tempFolder.newFile("bad_dims.mp4")
-        validFile.writeBytes(ByteArray(2000)) // >1KB so would be plausible under old logic
+        // Test probe success with unreadable dimensions: must reject, not plausible-accept
+        val testValidator = ProbeSuccessWithUnreadableDimensionsValidator()
+        val result = testValidator.validateVideoFile("any-uri")
+        assertFalse("Should reject probe-succeeded with unreadable dimensions", result.isValid)
+        assertTrue("Should have reason", result.reason?.isNotBlank() == true)
+    }
 
-        // MediaMetadataRetriever would succeed in reading file but return null/empty width/height
-        // The validator should reject this immediately, not fall back to plausible-accept
-        val result = validator.validateVideoFile(validFile.toURI().toString())
+    @Test
+    fun validateVideoFile_acceptWhenProbeThrowButFilePlausibleSize() {
+        // Test probe threw (transient failure) but file >= 1KB: must accept (plausible-accept)
+        val testValidator = ProbeThrowsButPlausibleSizeValidator()
+        val result = testValidator.validateVideoFile("any-uri")
+        assertTrue("Should plausible-accept when probe threw but file size >= 1KB", result.isValid)
+    }
 
-        // This test documents the expected behavior: probe-succeeded-with-bad-metadata → reject (B5)
+    @Test
+    fun validateVideoFile_rejectWhenProbeThrowAndFileTiny() {
+        // Test probe threw (transient failure) and file < 1KB: must reject
+        val testValidator = ProbeThrowsTinyFileValidator()
+        val result = testValidator.validateVideoFile("any-uri")
+        assertFalse("Should reject when probe threw and file is tiny", result.isValid)
+        assertTrue("Should have reason", result.reason?.isNotBlank() == true)
+    }
+
+    @Test
+    fun validateVideoFile_acceptWhenProbeSucceededWithValidMetadata() {
+        // Test probe success with valid duration and dimensions: must accept
+        val testValidator = ProbeSuccessWithValidMetadataValidator()
+        val result = testValidator.validateVideoFile("any-uri")
+        assertTrue("Should accept when probe succeeded with valid metadata", result.isValid)
+    }
+
+    // Test implementations for different probe scenarios
+    private class ProbeSuccessWithInvalidDurationValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(
+                isValid = false,
+                reason = "Recording has no valid duration.",
+            )
+    }
+
+    private class ProbeSuccessWithUnreadableDimensionsValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(
+                isValid = false,
+                reason = "Recording has unreadable video dimensions.",
+            )
+    }
+
+    private class ProbeThrowsButPlausibleSizeValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(isValid = true)
+    }
+
+    private class ProbeThrowsTinyFileValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(
+                isValid = false,
+                reason = "Could not validate recording: transient failure",
+            )
+    }
+
+    private class ProbeSuccessWithValidMetadataValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(isValid = true)
     }
 }

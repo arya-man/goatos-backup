@@ -6065,6 +6065,13 @@ export interface components {
             sopTaskRowVersion?: number;
             /** Format: uuid */
             completionId?: string;
+            /** @description Backend-owned gate: true iff tapping this card may open the scan/capture flow. CORE INVARIANT — only a FINAL SUBMIT locks the card (false); partial review/proof/verification state never locks while openCount > 0. */
+            operatorCanContinue: boolean;
+            /**
+             * @description Why operatorCanContinue is false, or "none" when it is true.
+             * @enum {string}
+             */
+            operatorLockedReason: "none" | "final_submitted" | "assigned_elsewhere" | "scheduled_later";
         };
         VaccinationProjectionFreshness: {
             /** Format: int64 */

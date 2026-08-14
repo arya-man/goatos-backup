@@ -23,7 +23,7 @@ import sg.mesha.goatos.core.data.FeedPackingQuery
  * all.
  */
 class FakeSplitFeedRepository(
-    private val slots: List<FeedDistributionCapturedSlotDto>,
+    var slots: List<FeedDistributionCapturedSlotDto>,
 ) : FeedRepository {
     var queries: MutableList<FeedPenSessionCaptureQuery> = mutableListOf()
         private set
@@ -47,17 +47,6 @@ class FakeSplitFeedRepository(
     override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> =
         flowOf(PagingData.empty())
 
-    override fun observePackingRowStatus(
-        shedId: String,
-        partitionLabel: String,
-        workflow: String,
-        sessionNo: Int,
-    ): Flow<String?> = flowOf(null)
-
-    override fun observeDirectionSessionStatus(
-        shedId: String,
-        partitionLabel: String,
-        workflow: String,
-        sessionNo: Int,
-    ): Flow<String?> = flowOf(null)
+    override fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?> = flowOf(null)
+    override fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?> = flowOf(null)
 }

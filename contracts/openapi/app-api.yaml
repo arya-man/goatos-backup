@@ -16142,6 +16142,8 @@ components:
         - verificationStatus
         - nextAction
         - primaryActionKey
+        - operatorCanContinue
+        - operatorLockedReason
       properties:
         parkId:
           type: string
@@ -16259,6 +16261,20 @@ components:
         completionId:
           type: string
           format: uuid
+        operatorCanContinue:
+          type: boolean
+          description: >-
+            Backend-owned gate: true iff tapping this card may open the scan/capture flow.
+            CORE INVARIANT — only a FINAL SUBMIT locks the card (false); partial
+            review/proof/verification state never locks while openCount > 0.
+        operatorLockedReason:
+          type: string
+          enum:
+            - none
+            - final_submitted
+            - assigned_elsewhere
+            - scheduled_later
+          description: Why operatorCanContinue is false, or "none" when it is true.
     VaccinationProjectionFreshness:
       type: object
       additionalProperties: false

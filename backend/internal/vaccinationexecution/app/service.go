@@ -384,6 +384,37 @@ func operationsRank(w domain.WorkState) int {
 	}
 }
 
+// computeOperatorLockState is the single source of truth for whether an operator card may still
+// open into the scan/capture flow. CORE INVARIANT: only a FINAL SUBMIT locks the card. Partial
+// review/proof/verification state NEVER locks the card while openCount > 0 -- sopStatus wording
+// such as "needs_review" or "submitted" is NOT itself a lock signal; it describes evidence state,
+// not remaining work. This closes the field bug where a 17/11/6 needs_review card was refused
+// entry even though 6 animals still had no completion evidence.
+func computeOperatorLockState(p domain.ExecutionProjection, openCount int, workState domain.WorkState) (canContinue bool, reason string) {
+	if openCount > 0 {
+		// No operator owns this work yet: nothing to hand the tapping user, so the card must
+		// stay closed until an operator is assigned.
+		if p.OperatorName == nil {
+			return false, "assigned_elsewhere"
+		}
+		// Scheduled work is real, operator-owned, open work -- it just is not executable yet
+		// (due date is in the future). The card stays closed until it becomes due.
+		if workState == domain.WorkStateScheduled {
+			return false, "scheduled_later"
+		}
+		return true, "none"
+	}
+	// openCount == 0: no field execution remains. Locked iff a FINAL SUBMIT actually happened
+	// (all completions accepted, nothing left recorded-but-unverified). Deferred/missed/canceled
+	// closures with no accepted completion evidence are not a "final submit" in the proof-flow
+	// sense, but there is also no remaining work for the operator, so the card still cannot be
+	// reopened for scan/capture -- reason "none" simply means "not a submission lock".
+	if p.CompletionAccepted > 0 && p.CompletionRecorded == 0 {
+		return false, "final_submitted"
+	}
+	return false, "none"
+}
+
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
 	partialProofProgress := openCount > 0 && (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0)
@@ -401,6 +432,8 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partialProofProgress && workState == domain.WorkStateVerificationPending {
 		workState = domain.WorkStateInProgress
 	}
+	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	operatorCanContinue, operatorLockedReason := computeOperatorLockState(p, openCount, workState)
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
 	partition := strings.TrimSpace(p.Partition)
 	if physicalShed == "" || partition == "" {
@@ -444,26 +477,28 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		// CompletionRecorded + CompletionRejected, so rejections never decremented the number and
 		// operator/CEO/PC-director screens drifted further out of sync with the queue on every
 		// rejection.
-		ReviewCount:        p.CompletionRecorded,
-		DriveID:            p.BatchID,
-		DriveName:          driveName(p),
-		VaccineLabels:      vaccineLabels(p),
-		DueDate:            dueDate(p),
-		WorkState:          workState,
-		Severity:           severity(workState),
-		Owner:              owner(p),
-		BlockerReason:      blockerReason(p, workState),
-		SOPStatus:          sopStatus,
-		ProofStatus:        proofStatus,
-		VerificationStatus: verificationStatus,
-		NextAction:         nextAction(p, workState),
-		PrimaryActionKey:   primaryActionKey(p, workState, openCount),
-		ObligationID:       p.ObligationID,
-		BatchID:            p.BatchID,
-		SOPTaskID:          p.SOPTaskID,
-		SOPVersionID:       p.SOPVersionID,
-		SOPTaskRowVersion:  p.SOPTaskRowVersion,
-		CompletionID:       p.CompletionID,
+		ReviewCount:          p.CompletionRecorded,
+		DriveID:              p.BatchID,
+		DriveName:            driveName(p),
+		VaccineLabels:        vaccineLabels(p),
+		DueDate:              dueDate(p),
+		WorkState:            workState,
+		Severity:             severity(workState),
+		Owner:                owner(p),
+		BlockerReason:        blockerReason(p, workState),
+		SOPStatus:            sopStatus,
+		ProofStatus:          proofStatus,
+		VerificationStatus:   verificationStatus,
+		NextAction:           nextAction(p, workState),
+		PrimaryActionKey:     primaryActionKey(p, workState, openCount),
+		ObligationID:         p.ObligationID,
+		BatchID:              p.BatchID,
+		SOPTaskID:            p.SOPTaskID,
+		SOPVersionID:         p.SOPVersionID,
+		SOPTaskRowVersion:    p.SOPTaskRowVersion,
+		CompletionID:         p.CompletionID,
+		OperatorCanContinue:  operatorCanContinue,
+		OperatorLockedReason: operatorLockedReason,
 	}
 }
 
@@ -526,7 +561,7 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 		return domain.WorkStateBlocked
 	}
 	// Only mark as verification_pending if all work is done (openCount == 0)
-	if (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) {
+	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
 		done := p.CompletedCount
 		completionEvidence := p.CompletionRecorded + p.CompletionAccepted
 		if completionEvidence > done {

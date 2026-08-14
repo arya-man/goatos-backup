@@ -31,6 +31,10 @@ function isPartitioned(rawPartitionLabel: string | null | undefined): rawPartiti
  * If the backend already provides `operational_location_display`, prefer that field
  * directly instead of calling this helper — it exists for surfaces that only receive
  * the raw shed_name/partition_label pair (e.g. a locally composed row).
+ *
+ * Separator rules (maintainer decision, 2026-08-14):
+ *  - Bare numerals (1, 2, 3): space separator → "Castro 1" (matches physical shed name)
+ *  - Worded labels (Part 3): dash separator → "Godel 1 - Part 3" (visual boundary)
  */
 export function operationalLocationLabel({ shedName, partitionLabel, sourceShedName }: OperationalLocationInput): string {
   const shed = (shedName ?? "").trim();
@@ -50,12 +54,18 @@ export function operationalLocationLabel({ shedName, partitionLabel, sourceShedN
   // (" - Part 3") and made admin-web render this edge case differently from Android for the same
   // animal. Matches PartitionLabel.kt and oploc.Display().
   if (!shed) return rawPartition;
-  // One separator for every partition, worded or bare (maintainer decision, 2026-08-06). The old
-  // space form was unreadable wherever the shed NAME ends in a digit: "Godel 1" + "1" read
-  // "Godel 1 1" and "Godel 1" + "10" read "Godel 1 10". That was 98 of 130 real STG destination
-  // options (75%), not an edge case. Worded labels already used the dash, so two formats became
-  // one. Keep identical to oploc.Display() (Go) and PartitionLabel.kt (Android).
-  return `${shed} - ${rawPartition}`;
+  // Separator depends on partition format: bare numerals use space (farm's physical naming),
+  // worded labels use dash (visual boundary, since shed names often end in digits).
+  // Keep identical to oploc.Display() (Go) and PartitionLabel.kt (Android).
+  const separator = isBarNumericPartition(rawPartition) ? " " : " - ";
+  return `${shed}${separator}${rawPartition}`;
+}
+
+/** True when the partition label is a bare ordinal (e.g., "1", "42") with no "Part" prefix or other wording. */
+function isBarNumericPartition(label: string): boolean {
+  const trimmed = label.trim();
+  if (trimmed === "") return false;
+  return /^\d+$/.test(trimmed);
 }
 
 /** True when the given partition label represents a real (non-whole) partition. */
