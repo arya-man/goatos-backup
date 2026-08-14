@@ -56,9 +56,14 @@ const (
 	// endpoint both add an item and rewrite an existing one.
 	feedItemStatusRoute   = "/feed-config/feed-items/status"
 	sessionTemplatesRoute = "/feed-config/session-templates"
-	scheduleRoute         = "/feed-config/schedule"
-	shedFactorsRoute      = "/feed-config/shed-factors"
-	experimentRoute       = "/feed-config/experiment"
+	// sessionTemplateItemsRoute declares a feed on one session's recipe, or withdraws it. Its own
+	// route rather than a field on the session read, because it is the write that decides WHETHER a
+	// feed is served at all -- generation walks these slots, and a feed with a grid quantity but no
+	// slot is never looked up.
+	sessionTemplateItemsRoute = "/feed-config/session-template-items"
+	scheduleRoute             = "/feed-config/schedule"
+	shedFactorsRoute          = "/feed-config/shed-factors"
+	experimentRoute           = "/feed-config/experiment"
 	// pensRoute is the enroller's candidate source: the park's operational locations. It is its own
 	// route rather than a flag on the shed list because a pen, not a shed, is what an experiment is
 	// authored against.
@@ -79,6 +84,7 @@ const (
 	upsertRationRateCommand    = "feedconfig.ration_rate.upsert"
 	createFeedItemCommand      = "feedconfig.feed_item.create"
 	setFeedItemStatusCommand   = "feedconfig.feed_item.set_status"
+	setSessionTemplateItemCmd  = "feedconfig.session_template_item.set"
 	upsertShedFactorCommand    = "feedconfig.shed_factor.upsert"
 	upsertScheduleCommand      = "feedconfig.schedule_config.upsert"
 	upsertExperimentCommand    = "feedconfig.experiment_config.upsert"
@@ -104,6 +110,7 @@ type Service interface {
 	UpsertRationRate(ctx context.Context, in feedconfigapp.UpsertRationRateInput) (domain.WriteResult, error)
 	CreateFeedItem(ctx context.Context, in feedconfigapp.CreateFeedItemInput) (domain.WriteResult, error)
 	UpsertShedFactor(ctx context.Context, in feedconfigapp.UpsertShedFactorInput) (domain.WriteResult, error)
+	SetSessionTemplateItem(ctx context.Context, in feedconfigapp.SetSessionTemplateItemInput) (domain.WriteResult, error)
 	UpsertScheduleConfig(ctx context.Context, in feedconfigapp.UpsertScheduleConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfig(ctx context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfigBatch(ctx context.Context, in feedconfigapp.UpsertExperimentConfigBatchInput) (domain.WriteResult, error)
@@ -137,6 +144,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST "+rationRatesRoute, h.UpsertRationRate)
 	mux.HandleFunc("POST "+feedItemsRoute, h.CreateFeedItem)
 	mux.HandleFunc("POST "+feedItemStatusRoute, h.SetFeedItemStatus)
+	mux.HandleFunc("POST "+sessionTemplateItemsRoute, h.SetSessionTemplateItem)
 	mux.HandleFunc("POST "+shedFactorsRoute, h.UpsertShedFactor)
 	mux.HandleFunc("POST "+scheduleRoute, h.UpsertScheduleConfig)
 	mux.HandleFunc("POST "+experimentRoute, h.UpsertExperimentConfig)
@@ -530,6 +538,56 @@ type upsertShedFactorRequest struct {
 	ShedID     string       `json:"shed_id"`
 	FeedItem   string       `json:"feed_item"`
 	Multiplier *json.Number `json:"multiplier"`
+}
+
+// setSessionTemplateItemRequest declares a feed on one session's recipe, or withdraws it.
+//
+// SessionNo and Declared are pointers so the handler can tell ABSENT from a zero value and reject
+// it, rather than defaulting to session 0 (which no park runs) or guessing between adding a feed and
+// removing one. There is no quantity field on purpose: grams live in the ration grid.
+type setSessionTemplateItemRequest struct {
+	ParkID    string `json:"park_id"`
+	SessionNo *int32 `json:"session_no"`
+	FeedItem  string `json:"feed_item"`
+	Declared  *bool  `json:"declared"`
+}
+
+func (h *Handler) SetSessionTemplateItem(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	key, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req setSessionTemplateItemRequest
+	if !h.decode(w, r, &req, "SetSessionTemplateItemRequest") {
+		return
+	}
+	req.ParkID = strings.TrimSpace(req.ParkID)
+	req.FeedItem = strings.TrimSpace(req.FeedItem)
+
+	fingerprint, err := requestFingerprint(tenantID, setSessionTemplateItemCmd, sessionTemplateItemsRoute, req)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	result, err := h.service.SetSessionTemplateItem(r.Context(), feedconfigapp.SetSessionTemplateItemInput{
+		TenantID:           tenantID,
+		ActorRef:           h.actor(r),
+		ParkID:             req.ParkID,
+		SessionNo:          req.SessionNo,
+		FeedItemLabel:      req.FeedItem,
+		Declared:           req.Declared,
+		IdempotencyKey:     key,
+		RequestFingerprint: fingerprint,
+	})
+	if err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) UpsertShedFactor(w http.ResponseWriter, r *http.Request) {
@@ -956,6 +1014,18 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	case errors.Is(err, ports.ErrFeedItemNotFound):
 		h.writeError(w, r, http.StatusNotFound, "feed_item_not_found",
 			"feed item not found in this tenant", nil)
+	case errors.Is(err, ports.ErrSessionNotFound):
+		h.writeError(w, r, http.StatusNotFound, "session_not_found",
+			"this park does not run that feeding session", nil)
+	case errors.Is(err, ports.ErrSlotRatesIncomplete):
+		// 409, not 400: the request is well formed and the authority is real -- the CONFIGURATION is
+		// not ready. The detail carries the count of unpriced cells, because "author the missing
+		// rates first" is only actionable if the author knows how many and for which feed.
+		h.writeError(w, r, http.StatusConflict, "slot_rates_incomplete",
+			"this feed has no ration rate in every cell of this park; serving it would block those sheds", err)
+	case errors.Is(err, ports.ErrSlotNotDeclared):
+		h.writeError(w, r, http.StatusNotFound, "slot_not_declared",
+			"this session does not serve that feed", nil)
 	case errors.Is(err, ports.ErrParkNotFound):
 		h.writeError(w, r, http.StatusNotFound, "park_not_found", "park not found in this tenant", nil)
 	case errors.Is(err, ports.ErrShedNotFound):

@@ -31,6 +31,7 @@ import {
   saveFeedItem,
   saveRationRate,
   saveSchedule,
+  saveSessionFeed,
   setExperimentShedStatus,
   setFeedItemStatus,
 } from "./feed-config-actions";
@@ -41,6 +42,7 @@ import {
   ExperimentShedSwitch,
   FeedItemCreator,
   ScheduleEditor,
+  SessionFeedsCell,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 
@@ -1173,6 +1175,20 @@ export async function FeedConfigPage({
                       title={copy(pageContract, "label.session_split_note")}
                     >
                       {row.split_fraction}
+                    </td>
+                    {/* The recipe. Cells are rendered POSITIONALLY against the contract's column
+                        list, so this sits between split_fraction and status exactly as the contract
+                        orders them — a column added to one side only shifts every header sideways,
+                        which is what TestFeedTableColumnsAreExact pins. */}
+                    <td style={{ whiteSpace: "normal" }}>
+                      <SessionFeedsCell
+                        pageContract={pageContract}
+                        action={saveSessionFeed}
+                        parkId={row.park_id}
+                        sessionNo={row.session_no}
+                        items={row.items ?? []}
+                        catalogItems={catalogItems}
+                      />
                     </td>
                     <td>
                       <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>{row.status}</span>

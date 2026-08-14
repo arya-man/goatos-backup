@@ -469,6 +469,11 @@ var protectedRoutes = []Route{
 	// Retiring a feed item removes it from every future feed sheet, so it carries the same write
 	// permission as authoring a rate -- it changes what animals are fed, not merely what a screen shows.
 	{OperationID: "setFeedConfigFeedItemStatus", Method: "POST", Pattern: "/feed-config/feed-items/status", Permissions: []string{FeedConfigWrite}},
+	// Declaring a feed on a session's recipe is the write that decides WHETHER a feed is served at
+	// all -- generation walks these slots, so a feed with a grid quantity but no slot is never looked
+	// up. Same authority as rewriting the grid, and for a stronger reason: this one can put a feed in
+	// front of every animal in the park, or take it away from all of them.
+	{OperationID: "setFeedConfigSessionTemplateItem", Method: "POST", Pattern: "/feed-config/session-template-items", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
 	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.

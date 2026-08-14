@@ -741,6 +741,9 @@ export type FeedConfigWriteResult = AppApiComponents["schemas"]["FeedConfigWrite
 export type UpsertFeedConfigRationRateRequest = AppApiComponents["schemas"]["UpsertFeedConfigRationRateRequest"];
 export type CreateFeedConfigFeedItemRequest = AppApiComponents["schemas"]["CreateFeedConfigFeedItemRequest"];
 export type SetFeedConfigFeedItemStatusRequest = AppApiComponents["schemas"]["SetFeedConfigFeedItemStatusRequest"];
+export type SetFeedConfigSessionTemplateItemRequest =
+  AppApiComponents["schemas"]["SetFeedConfigSessionTemplateItemRequest"];
+export type FeedConfigSessionTemplateItem = AppApiComponents["schemas"]["FeedConfigSessionTemplateItem"];
 export type UpsertFeedConfigShedFactorRequest = AppApiComponents["schemas"]["UpsertFeedConfigShedFactorRequest"];
 export type UpsertFeedConfigScheduleRequest = AppApiComponents["schemas"]["UpsertFeedConfigScheduleRequest"];
 export type FeedConfigExperimentPage = Omit<AppApiComponents["schemas"]["FeedConfigExperimentPage"], "items"> & {
@@ -1156,6 +1159,36 @@ export async function setFeedConfigFeedItemStatus(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<FeedConfigWriteResult>("/feed-config/feed-items/status", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/**
+ * Declares a feed on one feeding session's recipe, or withdraws it.
+ *
+ * THIS IS THE WRITE THAT DECIDES WHETHER A FEED REACHES AN ANIMAL. Generation walks a session's
+ * declared slots and looks each one up in the ration grid, so a feed with a grid quantity but no
+ * slot is never looked up — it is absent from the sheet, the totals and the packing worklist, and
+ * nothing reports a gap. Authoring grams for an undeclared feed looks entirely correct and feeds
+ * nobody.
+ *
+ * Declaring is refused (409 `slot_rates_incomplete`) when the feed has no rate in every cell of the
+ * park, because a declared slot is priced for EVERY shed and a missing rate blocks that shed's whole
+ * sheet. Withdrawing closes the row rather than deleting it, so issued sheets stay explainable.
+ */
+export async function setFeedConfigSessionTemplateItem(
+  body: SetFeedConfigSessionTemplateItemRequest,
+  idempotencyKey = `feed-session-slot-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/session-template-items", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },

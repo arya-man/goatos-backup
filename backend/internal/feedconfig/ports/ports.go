@@ -71,6 +71,32 @@ var (
 	// with today's date would violate valid_to > valid_from, and correcting it in place would rewrite
 	// a future authoring using today's intent. So the write fails closed and a human decides.
 	ErrFutureDatedRow = errors.New("feedconfig: currently-open row is future-dated")
+
+	// ErrSessionNotFound is returned when a slot write names a session this park does not run. The
+	// slot table is FK'd to feed_session_templates on (tenant, park, session_no), so this is caught
+	// before the insert rather than surfacing as a constraint violation.
+	ErrSessionNotFound = errors.New("feedconfig: session not found for this park")
+
+	// ErrSlotRatesIncomplete refuses to declare a feed the park cannot price everywhere.
+	//
+	// A DECLARED slot is looked up for EVERY shed in the park, and a missing ration rate is BLOCKED
+	// rather than zero -- the sheet fails with `no currently-open ration rate for ...`. So declaring
+	// a feed that lacks a rate in even one cell would take those sheds down at the next issue, hours
+	// after the author pressed a button that appeared to succeed.
+	//
+	// Failing closed here, rather than silently authoring the missing cells at 0, keeps the two acts
+	// distinct: declaring a feed is a feeding decision, and quietly writing quantities under it would
+	// author business truth the operator never entered. The message names the gap so the fix is
+	// obvious. In practice this should not fire -- migration 000163 completed the grid and
+	// CreateFeedItem now fills every new item -- which is exactly why it is worth keeping as the
+	// backstop for whatever reopens that gap.
+	ErrSlotRatesIncomplete = errors.New("feedconfig: feed has no ration rate in every cell of this park")
+
+	// ErrSlotNotDeclared is returned when a withdrawal names a feed the session does not serve.
+	// Reported rather than treated as an idempotent success, because the author asked to stop a feed
+	// being served and the honest answer is that it never was -- possibly because they are looking at
+	// the wrong session.
+	ErrSlotNotDeclared = errors.New("feedconfig: session does not serve this feed")
 )
 
 // Repository is the feed-config persistence boundary.
@@ -123,10 +149,15 @@ type Repository interface {
 	// row: the catalog is not effective-dated, so an "update" here would overwrite authored
 	// attributes in place on a screen whose control says Add.
 	//
-	// Adding an item authors NO quantity. The new label is selectable on the ration grid, the shed
-	// factors and the experiment sheds from the moment it exists, and every one of those
-	// combinations stays UNCONFIGURED -- and therefore blocking -- until someone authors it. This
-	// write must never create a rate to go with the item, not even 0.
+	// Adding an item authors no QUANTITY, but it does open the item's cells at 0 across the grid the
+	// tenant already has, in the same transaction. Those are different things and the distinction is
+	// the whole point: 0 is a configured "feed none", while an absent row is UNCONFIGURED and
+	// therefore BLOCKING, and an item with no row at all is unreachable from the grid screen, which
+	// renders only rows that exist. `Vijay Concentrate` sat in exactly that state from 2026-08-07
+	// until migration 000163 -- catalogued, apparently added, and unauthorable anywhere.
+	//
+	// It still authors nothing for shed factors or experiment sheds, which stay UNCONFIGURED until
+	// someone enters a value.
 	CreateFeedItem(ctx context.Context, cmd domain.CreateFeedItemCommand) (domain.WriteResult, error)
 
 	// SetFeedItemStatus retires one catalog entry, or restores a retired one.
@@ -141,6 +172,23 @@ type Repository interface {
 	// Already-in-that-state is reported as 'unchanged' rather than as an error — the author asked
 	// for a state, and it holds.
 	SetFeedItemStatus(ctx context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error)
+
+	// SetSessionTemplateItem declares a feed on one session's recipe, or withdraws it.
+	//
+	// THIS IS THE WRITE THAT DECIDES WHETHER A FEED REACHES AN ANIMAL. Generation walks a session's
+	// declared slots and looks each one up in the ration grid; a feed with a grid quantity but no
+	// slot is never looked up, and is absent from the row, the summary, the totals and the packing
+	// worklist without raising a gap. Authoring grams for an undeclared feed therefore looks
+	// completely correct on screen and feeds nobody.
+	//
+	// Declaring REFUSES when the feed lacks a ration rate in any of the park's cells
+	// (ErrSlotRatesIncomplete): a declared slot is priced for every shed, and a missing rate blocks
+	// that shed's whole sheet.
+	//
+	// Withdrawing CLOSES the row, never deletes it, so past sheets stay explainable. A slot declared
+	// and withdrawn on the same business day is retired in place instead, because the schema's
+	// valid_to > valid_from rules out a same-day window and the row has served nothing.
+	SetSessionTemplateItem(ctx context.Context, cmd domain.SetSessionTemplateItemCommand) (domain.WriteResult, error)
 
 	// UpsertScheduleConfig authors one park/workflow dispatch clock on the same effective-dated
 	// terms. All three times are stored as LOCAL Asia/Kolkata wall-clock values with no offset.
