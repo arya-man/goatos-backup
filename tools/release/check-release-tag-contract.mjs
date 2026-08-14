@@ -19,9 +19,9 @@ mustInclude(
   "must expose make release-tag so humans, Codex, and Claude use one release tagging path",
 );
 mustInclude(
-  "tools/deploy/stg-clouddeploy-release.sh",
+  "tools/deploy/stg-release-tag-bookkeeping.sh",
   "tools/release/create-release-tag.sh",
-  "STG Cloud Deploy helper must create the GitHub release tag after verified rollout",
+  "STG release-tag bookkeeping helper must create the GitHub release tag after verified rollout",
 );
 mustInclude(
   "docs/mobile/stg-signed-release.md",
@@ -94,15 +94,40 @@ try {
 try {
   const deploy = read("tools/deploy/stg-clouddeploy-release.sh");
   const verifyIndex = deploy.indexOf("verify_stg_images");
-  const tagIndex = deploy.indexOf("tools/release/create-release-tag.sh");
-  if (verifyIndex < 0 || tagIndex < 0 || tagIndex < verifyIndex) {
-    failures.push("STG deploy helper must invoke create-release-tag.sh after verify_stg_images");
+  if (verifyIndex < 0) {
+    failures.push("STG deploy helper must verify staging images before reporting success");
+  }
+  if (deploy.includes("tools/release/create-release-tag.sh")) {
+    failures.push("STG deploy helper must not run release-tag; bookkeeping belongs in a separate non-blocking step");
   }
   if (deploy.includes("GOATOS_CREATE_RELEASE_TAG")) {
     failures.push("STG deploy helper must not expose a normal release-tag bypass");
   }
 } catch (error) {
   failures.push(`could not inspect STG deploy helper: ${error.message}`);
+}
+
+try {
+  const cloudbuild = read("cloudbuild.stg.yaml");
+  const stepIndex = cloudbuild.indexOf("id: stg-release-tag-bookkeeping");
+  const scriptIndex = cloudbuild.indexOf("tools/deploy/stg-release-tag-bookkeeping.sh");
+  if (stepIndex < 0 || scriptIndex < stepIndex) {
+    failures.push("cloudbuild.stg.yaml must run release-tag bookkeeping in a separate step");
+  }
+} catch (error) {
+  failures.push(`could not inspect STG Cloud Build config: ${error.message}`);
+}
+
+try {
+  const bookkeeping = read("tools/deploy/stg-release-tag-bookkeeping.sh");
+  if (!bookkeeping.includes("tools/release/create-release-tag.sh")) {
+    failures.push("release-tag bookkeeping step must call the canonical create-release-tag.sh helper");
+  }
+  if (!bookkeeping.includes("exit 0")) {
+    failures.push("release-tag bookkeeping step must be non-blocking for verified STG deploys");
+  }
+} catch (error) {
+  failures.push(`could not inspect release-tag bookkeeping helper: ${error.message}`);
 }
 
 if (failures.length) {

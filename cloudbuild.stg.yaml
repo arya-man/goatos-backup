@@ -136,4 +136,22 @@ steps:
         apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-17-jdk unzip
         tools/deploy/stg-mobile-distribution.sh
 
+  - id: stg-release-tag-bookkeeping
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - BUILD_ID=$BUILD_ID
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+    args:
+      - -ceu
+      - |
+        if [[ "${_DEPLOY_STG}" != "true" ]]; then
+          echo "STG release tag bookkeeping not requested."
+          exit 0
+        fi
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git python3
+        tools/deploy/stg-release-tag-bookkeeping.sh
+
 timeout: 3600s
