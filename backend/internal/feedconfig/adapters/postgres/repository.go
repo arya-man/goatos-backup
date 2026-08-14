@@ -1247,8 +1247,10 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.SessionNo).Scan(&sessionExists)
 			return writeEffect{}, fmt.Errorf("feedconfig: lock session template: %w", err)
 		}
 
-		// The slot as it stands today, under the same predicate GENERATION uses. Matching that
-		// predicate is what makes "already declared" mean "already being served".
+		// The open active slot, including a future-dated one. This is deliberately a little broader
+		// than generation's as-of predicate: if a future recipe already exists, declaring the same
+		// feed for an earlier date must fail closed instead of reporting "unchanged" while the feed
+		// is not actually served today.
 		var openID, openValidFrom string
 		err = tx.QueryRow(ctx, `
 SELECT session_template_item_id::text, valid_from::text
@@ -1266,6 +1268,9 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.SessionNo, cmd.FeedItemLabel).Scan(&o
 			return withdrawSessionTemplateItem(ctx, tx, cmd, declared, openID, openValidFrom)
 		}
 		if declared {
+			if openValidFrom > cmd.EffectiveFrom {
+				return writeEffect{}, ports.ErrFutureDatedRow
+			}
 			// Already on the recipe. Reported as unchanged rather than re-slotted: the author asked
 			// for a state and that state holds, and opening a second window would only churn the
 			// packing order.

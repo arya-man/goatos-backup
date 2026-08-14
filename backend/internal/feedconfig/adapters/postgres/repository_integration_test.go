@@ -2066,3 +2066,25 @@ func TestDeclareSessionFeedIsIdempotentAndAppendsInPackingOrder(t *testing.T) {
 		t.Fatalf("declared feeds = %v, want [Concentrate Hybrid] in packing order", got)
 	}
 }
+
+// TestDeclareSessionFeedRefusesEarlierEditAgainstFutureRecipe catches the easy false-green in the
+// declare path: the row lock must see future-dated active rows, but an earlier declare must not
+// report "unchanged" because generation will not serve that row on the earlier business date.
+func TestDeclareSessionFeedRefusesEarlierEditAgainstFutureRecipe(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-future-cell", "fp-future-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-future-add", "2026-07-22")); err != nil {
+		t.Fatalf("declare future feed: %v", err)
+	}
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-future-earlier", "2026-07-20"))
+	if !errors.Is(err, ports.ErrFutureDatedRow) {
+		t.Fatalf("err = %v, want ErrFutureDatedRow", err)
+	}
+}
