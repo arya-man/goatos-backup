@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -89,6 +90,45 @@ class FeedTransportCaptureLiveStatusTest {
         assertFalse(viewModel.state.value.submitEnabled)
     }
 
+    /**
+     * Blocker 7: proves the gate actually BLOCKS the interaction paths (the action functions
+     * behind the buttons), not just the displayed/derived state.
+     */
+    @Test
+    fun `capture and submit taps are no-ops when a stale open nav-arg is overridden by a submitted live status`() = runTest(dispatcher) {
+        val transportRepository = FakeFeedTransportStatusSource()
+        transportRepository.emit(FeedStatus.AWAITING)
+        val proofSource = FakeProofCaptureSource()
+        val sync = CountingFeedTransportSyncRepositoryForBlocking()
+        val viewModel = FeedTransportCaptureViewModel(
+            sync = sync,
+            capture = proofSource,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = InMemoryCaptureDraftRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            feedTransportRepository = transportRepository,
+            saved = savedState("open"),
+        )
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.alreadySubmitted)
+
+        viewModel.onEvent(sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a capture tap must be a no-op once the live status is submitted",
+            0,
+            proofSource.captureCount,
+        )
+        assertEquals(
+            "a submit tap must be a no-op once the live status is submitted",
+            0,
+            sync.submitEnqueueCalls,
+        )
+    }
+
     /** LIVE FLIP WHILE OPEN — see FeedPackingCompleteLiveStatusTest's identical-shaped test. */
     @Test
     fun `live status flips to read-only while the screen stays open`() = runTest(dispatcher) {
@@ -154,6 +194,38 @@ private class NoopFeedTransportSyncRepository : SyncRepository {
     override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
     override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueProofUpload(
+        groupKey: String,
+        idempotencyKey: String,
+        request: ProofUploadRequestDto,
+        localFilePath: String,
+        durationMs: Long?,
+    ): AppResult<String> = AppResult.Ok("proof-outbox-1")
+    override suspend fun enqueueFeedPackingComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, packingProofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String?, feedWeightProofOutboxItemId: String?, waterProofOutboxItemId: String?, feedWeightProofRef: String?, distributionProofRef: String?, waterProofRef: String?): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
+    override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")
+    override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto): AppResult<String> = error("unused")
+    override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+    override suspend fun triggerDrain() = Unit
+}
+
+/** Counts [enqueueFeedTransportSubmit] calls; proves a submit tap is a structural no-op once the
+ *  live status is already submitted (blocker 7), not merely hidden behind a disabled button. */
+private class CountingFeedTransportSyncRepositoryForBlocking : SyncRepository {
+    var submitEnqueueCalls: Int = 0
+        private set
+    private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
+    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> {
+        submitEnqueueCalls += 1
+        return AppResult.Ok("submit-outbox-$submitEnqueueCalls")
+    }
     override suspend fun enqueueProofUpload(
         groupKey: String,
         idempotencyKey: String,
