@@ -69,7 +69,6 @@ class FeedDistributionCompleteViewModelTest {
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
-            feedRepository = FakeFeedRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
@@ -130,7 +129,6 @@ class FeedDistributionCompleteViewModelTest {
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
-            feedRepository = FakeFeedRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
@@ -285,7 +283,6 @@ class FeedDistributionCompleteViewModelTest {
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
-            feedRepository = FakeFeedRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",

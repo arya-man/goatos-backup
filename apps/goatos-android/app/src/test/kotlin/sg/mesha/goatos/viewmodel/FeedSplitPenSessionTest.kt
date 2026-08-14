@@ -46,4 +46,18 @@ class FakeSplitFeedRepository(
 
     override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> =
         flowOf(PagingData.empty())
+
+    override fun observePackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+    ): Flow<String?> = flowOf(null)
+
+    override fun observeDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+    ): Flow<String?> = flowOf(null)
 }
