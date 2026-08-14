@@ -7,7 +7,7 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
-const minimumGo = "1.25.12";
+const minimumGo = "1.25.13";
 const minimumPgx = "5.9.2";
 const pinnedVulncheck = "v1.6.0";
 
@@ -74,9 +74,9 @@ function changedGoFormattingFindings() {
 
 function runSelfTest() {
   const good = validate({
-    goMod: "module example\n\ngo 1.25.12\n\nrequire (\n\tgithub.com/jackc/pgx/v5 v5.9.2\n)\n",
-    docker: "FROM golang:1.25.12-alpine AS build\n",
-    migrateDocker: "FROM golang:1.25.12-alpine AS build\n",
+    goMod: "module example\n\ngo 1.25.13\n\nrequire (\n\tgithub.com/jackc/pgx/v5 v5.9.2\n)\n",
+    docker: "FROM golang:1.25.13-alpine AS build\n",
+    migrateDocker: "FROM golang:1.25.13-alpine AS build\n",
     localCi: "go mod verify; go vet ./...; govulncheck@v1.6.0; sqlc vet -f sqlc.yaml; sqlc diff -f sqlc.yaml; go test -race",
   });
   const bad = validate({
