@@ -101,6 +101,35 @@ data class ProofIdentity(
     }
 }
 
+/**
+ * Blocker 9 (proof-flow-integration audit): a registry of screens/viewmodels that KNOWINGLY build
+ * their own local proof/draft field keys instead of routing through [ProofIdentity]'s
+ * storageKey()/idempotencyKey() producers, so nobody downstream assumes every capture flow in the
+ * app is canonically addressed.
+ *
+ * Each of these was evaluated for migration and rejected as NOT a small, contained change:
+ * - [MilkPreparationViewModel] / [MilkFeedingViewModel] key their per-step proof/draft state off
+ *   `CaptureFlow.MILK_PREPARATION`/`CaptureFlow.MILK_FEEDING` (a DIFFERENT flow-key enum than
+ *   [ProofFlow]) plus a per-step `DraftIdempotencyKey(saved, ...)` that is itself persisted in
+ *   `SavedStateHandle` for process-death survival — [ProofIdentity] has no equivalent
+ *   per-step/per-`SavedStateHandle` concept, so unifying the two would mean redesigning
+ *   [ProofIdentity] itself, not just swapping call sites.
+ * - [WorkflowDetailViewModel] derives its field key from a backend-declared, per-workflow
+ *   `actionId` (`workflowProofFieldKey(actionId)`) whose vocabulary is open-ended and
+ *   server-defined per workflow definition — [ProofIdentity.subjectKey] assumes a bounded,
+ *   client-known identity shape (goat/obligation/shed id), not an arbitrary backend action id.
+ *
+ * Forcing either family through [ProofIdentity] in this pass would risk silently changing
+ * storage/idempotency key formats for already-shipped milk and generic-workflow proofs (a data
+ * migration hazard), so they stay on their own hand-rolled keys instead. If a future change makes
+ * migration safe, remove the corresponding flow name from [NON_CANONICAL_PROOF_KEY_FLOWS] here.
+ */
+val NON_CANONICAL_PROOF_KEY_FLOWS: Set<String> = setOf(
+    "milk_preparation", // MilkPreparationViewModel — CaptureFlow.MILK_PREPARATION, own field keys
+    "milk_feeding", // MilkFeedingViewModel — CaptureFlow.MILK_FEEDING, own field keys
+    "workflow_detail", // WorkflowDetailViewModel — workflowProofFieldKey(actionId), backend-declared
+)
+
 enum class ProofFlow(val wireValue: String) {
     VACCINATION("vaccination"),
     WEIGHING_INDIVIDUAL("weighing_individual"),
