@@ -154,6 +154,14 @@ the same source/version identity and mirror the exact Firebase APK bytes to
 `https://mesha.sg/app.apk`. Do not rebuild or redeploy the Mesha marketing
 website to update the APK.
 
+The Slack deploy card has an `Also distribute Android mobile` checkbox for this
+case. Leaving it unchecked deploys only the staging backend/web Cloud Run
+surfaces. Checking it runs the staging deploy first and then treats mobile as an
+all-or-nothing release: Firebase App Distribution upload, Google Play Internal
+Testing upload to package `sg.mesha.goatos.stg`, and the `mesha.sg/app.apk`
+Storage mirror must all pass or the Cloud Build is failed and Slack reports the
+mobile distribution as failed.
+
 ## Dev Layer 1 foundation plan
 
 P7-preapply adds Terraform for Layer 1 foundation only and stops before apply.

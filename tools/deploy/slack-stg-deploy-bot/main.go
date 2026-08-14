@@ -41,6 +41,14 @@ type slackActionPayload struct {
 		ActionID string `json:"action_id"`
 		Value    string `json:"value"`
 	} `json:"actions"`
+	State struct {
+		Values map[string]map[string]struct {
+			Type            string `json:"type"`
+			SelectedOptions []struct {
+				Value string `json:"value"`
+			} `json:"selected_options"`
+		} `json:"values"`
+	} `json:"state"`
 }
 
 type cloudBuildRunResponse struct {
@@ -113,7 +121,8 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buildID, err := cfg.runTrigger(r.Context())
+	mobileDistribution := payload.hasSelectedOption("mobile_distribution")
+	buildID, err := cfg.runTrigger(r.Context(), mobileDistribution)
 	if err != nil {
 		log.Printf("run trigger failed: %v", err)
 		writeSlackJSON(w, map[string]any{
@@ -128,17 +137,27 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 	writeSlackJSON(w, map[string]any{
 		"response_type":    "in_channel",
 		"replace_original": false,
-		"text":             fmt.Sprintf("STG deploy from `main` started by <@%s>.\nCloud Build: %s\nCloud Deploy: %s", payload.User.ID, buildURL, deployURL),
+		"text":             fmt.Sprintf("STG deploy from `main` started by <@%s>.\nMobile distribution: `%t`\nCloud Build: %s\nCloud Deploy: %s", payload.User.ID, mobileDistribution, buildURL, deployURL),
 	})
 }
 
-func (cfg config) runTrigger(ctx context.Context) (string, error) {
+func (cfg config) runTrigger(ctx context.Context, mobileDistribution bool) (string, error) {
 	token, err := metadataToken(ctx)
 	if err != nil {
 		return "", err
 	}
 	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/locations/%s/triggers/%s:run", cfg.ProjectID, cfg.Location, cfg.TriggerID)
-	body := strings.NewReader(`{"source":{"branchName":"main"}}`)
+	requestBody := map[string]any{
+		"source": map[string]string{"branchName": "main"},
+		"substitutions": map[string]string{
+			"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
+		},
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(requestBody); err != nil {
+		return "", err
+	}
+	body := bytes.NewReader(buf.Bytes())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
 	if err != nil {
 		return "", err
@@ -164,6 +183,19 @@ func (cfg config) runTrigger(ctx context.Context) (string, error) {
 		return "pending", nil
 	}
 	return parsed.Metadata.Build.ID, nil
+}
+
+func (payload slackActionPayload) hasSelectedOption(want string) bool {
+	for _, block := range payload.State.Values {
+		for _, action := range block {
+			for _, option := range action.SelectedOptions {
+				if option.Value == want {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func metadataToken(ctx context.Context) (string, error) {

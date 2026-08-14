@@ -6,6 +6,7 @@ serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goa
 
 substitutions:
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
+  _DEPLOY_MOBILE: "false"
 
 steps:
   - id: stg-cloud-deploy-release
@@ -28,5 +29,27 @@ steps:
         git fetch origin main --quiet
         test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
         tools/deploy/stg-cloudbuild-release.sh
+
+  - id: android-mobile-distribution
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - REGION=asia-south1
+      - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos.stg
+    args:
+      - -ceu
+      - |
+        if [[ "${DEPLOY_MOBILE}" != "true" ]]; then
+          echo "Android mobile distribution not requested."
+          exit 0
+        fi
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-17-jdk unzip
+        git fetch origin main --quiet
+        test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+        tools/deploy/stg-mobile-distribution.sh
 
 timeout: 3600s
