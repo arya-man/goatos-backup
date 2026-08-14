@@ -87,23 +87,23 @@ type OperationalLocation struct {
 // Display renders the user-facing operational location.
 //
 //	non-partitioned:      "Yashoda"
-//	numeric convention:   "Castro - 2", "Gandhi - 3"
-//	prefixed convention:  "Godel 1 - Part 3"
+//	numeric convention:   "Castro 1", "Gandhi 2"    (space only)
+//	prefixed convention:  "Godel 1 - Part 3"        (space-dash-space)
 //
 // The stored label is preserved verbatim rather than rewritten, so the text an
 // operator reads on screen matches the text painted on the shed; only the
 // SEPARATOR is ours.
 //
-// Why a dash and not a space (maintainer decision, 2026-08-06). The space form
-// was unreadable for the majority of real sheds, because shed NAMES themselves
-// end in a digit: "Godel 1" + partition "1" rendered "Godel 1 1", and
-// "Godel 1" + "10" rendered "Godel 1 10" -- which a human cannot parse as
-// shed "Godel 1" partition 10 rather than shed "Godel 1 1" partition 0, or
-// "Godel 1 10" as a name in its own right. On live STG data this was not an
-// edge case: 98 of 130 destination options (75%) had a digit-terminated shed
-// name with a numeric partition. Joining with " - " makes the boundary explicit
-// and, because worded labels already used the dash, collapses two formats into
-// one.
+// Separator rule (maintainer decision, 2026-08-14): bare numerals join with a
+// single SPACE to match the farm's physical naming on sheds ("Castro 1" painted
+// on the building). Worded labels ("Part 3", "Parts 1-3") join with " - " to
+// disambiguate from shed names that end in digits: "Godel 1" + "Part 3" reads
+// "Godel 1 - Part 3" (clear boundary), but "Godel 1" + "1" would read
+// "Godel 1 1" (ambiguous if it is shed "Godel" partition 1, shed "Godel 1"
+// partition 1, or an un-split shed named "Godel 1 1"). On live STG data 98 of
+// 130 destination options (75%) had a digit-terminated shed name, so the space
+// form was not edge-case-only. ONLY worded labels use the dash; this keeps the
+// two naming conventions visually distinct.
 //
 // Keep this identical to PartitionLabel.kt (Android) and
 // lib/operational-location.ts (admin-web); the same animal must never read two
@@ -123,7 +123,27 @@ func (l OperationalLocation) Display() string {
 	if !IsPartitioned(label) {
 		return shed
 	}
+	// Bare numerals (regex ^\d+$) join with space; worded labels ("Part 3") join with " - ".
+	if isBarNumericPartition(label) {
+		return shed + " " + label
+	}
 	return shed + " - " + label
+}
+
+// isBarNumericPartition reports whether a partition label is a bare ordinal (e.g., "1", "42")
+// with no "Part" prefix or other wording. It mirrors the database validation regex ^\d+$ used
+// throughout the codebase to identify bare numeric partitions.
+func isBarNumericPartition(label string) bool {
+	trimmed := strings.TrimSpace(label)
+	if trimmed == "" {
+		return false
+	}
+	for _, ch := range trimmed {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // IsPartitioned reports whether this location names a real partition.
