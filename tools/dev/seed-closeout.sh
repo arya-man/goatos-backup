@@ -470,11 +470,6 @@ fi
 # (identity.resolveDestinationTag). Derive it from canonical goats/locations BEFORE the shifting and
 # vaccination proofs, so a shed a movement targets already has an active configured profile.
 run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
-# Capacity is the other half of a shed's configuration and CANNOT be derived from resident animals
-# the way the cohort above is -- how many head a shed was built to hold is a fact about the
-# building. It comes from the committed capture of the farm's Sheds DB sheet, so a freshly seeded
-# database serves the Counts -> Sheds directory with real capacities instead of a blank column.
-run_go_cmd seed-shed-capacity -tenant-id "$tenant_id" -fixture "$repo/fixtures/shed-capacity-2026-08-14/shed-capacity.json"
 run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching

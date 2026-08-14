@@ -284,6 +284,55 @@ func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *test
 	}
 }
 
+func TestVaccinationExecutionPartialProofProgressRemainsOpen(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+	due := asOf
+	operator := "Natheswar"
+	batchStatus := "planned"
+	taskID := "1c83c480-2c57-4527-8579-bde3d7c29244"
+	rows := []domain.ExecutionProjection{
+		projection("ho-chi-minh-1", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 17
+			p.ScheduledCount = 17
+			p.ScannedCount = 11
+			p.ProofSubmittedCount = 11
+			p.WorkState = domain.WorkStateVerificationPending
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows want 1", len(got))
+	}
+	row := got[0]
+	if row.WorkState != domain.WorkStateInProgress {
+		t.Fatalf("workState = %q want %q for partial proof progress", row.WorkState, domain.WorkStateInProgress)
+	}
+	if row.SOPStatus != domain.SOPStatusNotStarted || row.VerificationStatus != domain.VerificationStatusNotReady {
+		t.Fatalf("sop/verification = %q/%q want not_started/not_ready while 6 animals are still open", row.SOPStatus, row.VerificationStatus)
+	}
+	if row.PrimaryActionKey != "scan" {
+		t.Fatalf("primaryActionKey = %q want scan", row.PrimaryActionKey)
+	}
+	if row.TargetCount != 17 || row.OpenCount != 6 || row.DoneCount != 11 {
+		t.Fatalf("counts = target %d open %d done %d want 17/6/11", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+}
+
 func TestVaccinationExecutionAcceptedCompletionWinsOverStaleSubmittedProof(t *testing.T) {
 	t.Parallel()
 
@@ -376,7 +425,10 @@ func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedPr
 	}
 	// With openCount=1 (1 animal done, 1 still open), state stays in_progress even with proof submitted
 	if got[0].WorkState != domain.WorkStateInProgress || got[0].ProofStatus != domain.ProofStatusUploaded {
-		t.Fatalf("submitted shed state/proof = %q/%q want in_progress/uploaded (openCount=1)", got[0].WorkState, got[0].ProofStatus)
+		t.Fatalf("partially proofed shed state/proof = %q/%q want in_progress/uploaded (openCount=1)", got[0].WorkState, got[0].ProofStatus)
+	}
+	if got[0].PrimaryActionKey != "scan" {
+		t.Fatalf("partially proofed shed primaryActionKey = %q want scan", got[0].PrimaryActionKey)
 	}
 	if got[1].WorkState != domain.WorkStateInProgress {
 		t.Fatalf("unsubmitted shed workState = %q want in_progress", got[1].WorkState)

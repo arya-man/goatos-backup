@@ -216,6 +216,7 @@ export function MeshaShell({
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
   const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
+  const lockTopBarParkSelector = pathname === "/counts/breakdown";
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
 
@@ -515,12 +516,15 @@ export function MeshaShell({
           <button
             type="button"
             className="pscope"
+            disabled={lockTopBarParkSelector}
             onClick={() => {
+              if (lockTopBarParkSelector) return;
               setScopeMenuOpen((o) => !o);
               setRoleMenuOpen(false);
             }}
-            aria-expanded={scopeMenuOpen}
-            title={contract.top_bar.park_selector.label}
+            aria-expanded={lockTopBarParkSelector ? false : scopeMenuOpen}
+            title={lockTopBarParkSelector ? currentPageLabel : contract.top_bar.park_selector.label}
+            style={lockTopBarParkSelector ? { cursor: "not-allowed", opacity: 0.55 } : undefined}
           >
             <MapPin className="ic" style={{ width: 14 }} aria-hidden="true" />
             <b>{activeParkLabel}</b>
@@ -531,7 +535,7 @@ export function MeshaShell({
             ) : null}
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
-          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
+          <div className={`parkmenu ${scopeMenuOpen && !lockTopBarParkSelector ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link

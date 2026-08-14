@@ -6,6 +6,7 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
+MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
 KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
 MIGRATE_JOB="${MIGRATE_JOB:-goatos-stg-migrate}"
@@ -114,6 +115,10 @@ service_image() {
   gcloud run services describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
 }
 
+service_uri() {
+  gcloud run services describe "$1" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)'
+}
+
 job_image() {
   gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
 }
@@ -220,6 +225,7 @@ backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
 rollout_order=quiesce_api_and_kernel_worker,migrate,restore_api_and_kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
+external_mcp_service=$MCP_SERVICE
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"
@@ -244,6 +250,7 @@ deploy() {
   # release target. In particular, never migrate and then discover that the
   # consolidated worker service is absent.
   gcloud run services describe "$API_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud run services describe "$MCP_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
@@ -368,6 +375,22 @@ deploy() {
     --quiet
   wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
 
+  run gcloud run services update "$MCP_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --ingress=all \
+    --update-env-vars="MESHA_MCP_PUBLIC_URL=https://mcp.mesha.sg,MESHA_MCP_TENANT_ID=00000000-0000-4000-8000-000000000001" \
+    --update-secrets="GOATOS_FIREBASE_WEB_CONFIG=goatos-stg-firebase-web-config:latest" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  run gcloud run services update-traffic "$MCP_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
+    --quiet
+  wait_service_ready "$MCP_SERVICE" "post-migration restore"
+
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
     [[ "$job" != "$MIGRATE_JOB" ]] || continue
@@ -400,6 +423,7 @@ deploy() {
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$MCP_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$MCP_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ADMIN_WEB_SERVICE")" == "$ADMIN_WEB_IMAGE" ]] || die "$ADMIN_WEB_SERVICE image did not settle on $ADMIN_WEB_IMAGE"
   [[ "$(job_image "$MIGRATE_JOB")" == "$MIGRATION_IMAGE" ]] || die "$MIGRATE_JOB image did not settle on $MIGRATION_IMAGE"
@@ -411,10 +435,13 @@ deploy() {
 
   smoke_http "$STG_API_URL/livez" "204"
   smoke_http "$STG_API_URL/readyz" "204"
+  mcp_url="$(service_uri "$MCP_SERVICE")"
+  smoke_http "$mcp_url/livez" "200"
+  smoke_http "$mcp_url/readyz" "200"
   curl -fsSIL "$STG_DASHBOARD_URL/login" >/dev/null
 
-  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s worker=%s admin=%s\n' \
-    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
+  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s mcp=%s worker=%s admin=%s\n' \
+    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
   write_results "SUCCEEDED"
 }
 

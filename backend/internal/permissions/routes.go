@@ -21,7 +21,6 @@ var protectedRoutes = []Route{
 	{OperationID: "getGoatTimeline", Method: "GET", Pattern: "/goats/{goat_id}/timeline", Permissions: []string{GoatRead}},
 	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{CountsRead}},
 	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{CountsRead}},
-	{OperationID: "getShedDirectory", Method: "GET", Pattern: "/counts/sheds", Permissions: []string{CountsRead}},
 	{OperationID: "getMilkPreparation", Method: "GET", Pattern: "/counts/milk-preparation", Permissions: []string{CountsRead}},
 	{OperationID: "getAppCountsMilkPreparation", Method: "GET", Pattern: "/app/counts/milk-preparation", Permissions: []string{CountsWrite}},
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
@@ -39,6 +38,8 @@ var protectedRoutes = []Route{
 	// who may not perform the action needs to enumerate.
 	{OperationID: "previewReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/preview", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "commitReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/commit", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "previewCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/preview", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "commitCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/commit", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "healthGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/health", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "reproductiveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/reproductive", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "identityGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/identity", Permissions: []string{GoatWriteIdentity}},
@@ -468,6 +469,11 @@ var protectedRoutes = []Route{
 	// Retiring a feed item removes it from every future feed sheet, so it carries the same write
 	// permission as authoring a rate -- it changes what animals are fed, not merely what a screen shows.
 	{OperationID: "setFeedConfigFeedItemStatus", Method: "POST", Pattern: "/feed-config/feed-items/status", Permissions: []string{FeedConfigWrite}},
+	// Declaring a feed on a session's recipe is the write that decides WHETHER a feed is served at
+	// all -- generation walks these slots, so a feed with a grid quantity but no slot is never looked
+	// up. Same authority as rewriting the grid, and for a stronger reason: this one can put a feed in
+	// front of every animal in the park, or take it away from all of them.
+	{OperationID: "setFeedConfigSessionTemplateItem", Method: "POST", Pattern: "/feed-config/session-template-items", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
 	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.

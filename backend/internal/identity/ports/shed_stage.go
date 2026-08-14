@@ -56,12 +56,12 @@ type ReclassifyShedStageCommand struct {
 	// ConfigureEmpty allows the command to succeed against a location holding NO live animals,
 	// writing only the configured cohort.
 	//
-	// It exists because two callers want two different things from one write. The Counts Breakdown
-	// drawer says "retag the animals in this pen", and an empty pen there is almost always the
-	// wrong pen -- so it leaves this false and gets ErrReclassifyEmptyScope. The Sheds directory
-	// says "this pen's tag is now X", which is a perfectly ordinary thing to record for a pen that
-	// is standing empty before animals arrive -- 12 of the tenant's 116 pens are in that state
-	// today -- so it sets this true and gets a success with Reclassified=0.
+	// It exists because one write serves two intents. A caller who means "retag the animals in this
+	// pen" leaves it false and gets ErrReclassifyEmptyScope, because an empty pen there is almost
+	// always the wrong pen. The Counts Breakdown Stage editor means "this pen's tag is now X",
+	// which is a perfectly ordinary thing to record for a pen standing empty before animals arrive
+	// -- 12 of the tenant's 116 pens are in that state today -- so it sets this true and gets a
+	// success with Reclassified=0.
 	//
 	// It is part of the request hash, so the two intents cannot replay onto each other.
 	ConfigureEmpty bool

@@ -9,7 +9,7 @@
 // operators/director never reliably hit that path during a fresh STG seed,
 // so they see 403 permission_denied / an empty bottom bar on the FIRST login
 // attempt after a reseed. This command closes that gap by materializing the
-// active grant directly, in the same run, for all 10 accounts — no reliance on
+// active grant directly, in the same run, for every UID-backed seed account — no reliance on
 // a runtime claim event.
 //
 // For each of the 10 accounts (backend/cmd/seed-stg-login-grants/accounts.go)

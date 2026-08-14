@@ -27,11 +27,15 @@ if [[ "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
   origin_url="$(git remote get-url origin 2>/dev/null || true)"
   [[ "$origin_url" == "git@github.com:vgoats/goatos.git" || "$origin_url" == "ssh://git@github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos" ]] \
     || die "staging releases must run from vgoats/goatos; got origin=$origin_url"
-  git fetch origin main --quiet
-  main_sha="$(git rev-parse --verify origin/main)"
   head_sha="$(git rev-parse --verify HEAD)"
-  [[ "$head_sha" == "$main_sha" ]] \
-    || die "refusing staging release from non-main commit: HEAD=$head_sha origin/main=$main_sha. Land on main first, or set GOATOS_ALLOW_NON_MAIN_STG_RELEASE=1 for an explicit break-glass release."
+  if [[ -n "${BUILD_ID:-}" ]]; then
+    echo "Cloud Build source is trigger-resolved; using checked-out HEAD ${head_sha} without a private origin fetch."
+  else
+    git fetch origin main --quiet
+    main_sha="$(git rev-parse --verify origin/main)"
+    [[ "$head_sha" == "$main_sha" ]] \
+      || die "refusing staging release from non-main commit: HEAD=$head_sha origin/main=$main_sha. Land on main first, or set GOATOS_ALLOW_NON_MAIN_STG_RELEASE=1 for an explicit break-glass release."
+  fi
 fi
 
 if [[ "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
@@ -49,6 +53,7 @@ fi
 STG_DEPLOY_ACCOUNTS=(
   "ravi@mesha.sg"
   "manohark@mesha.sg"
+  "goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com"
 )
 
 active_account="$(gcloud config get-value account 2>/dev/null)"
@@ -73,16 +78,20 @@ echo "project=$active_project"
 echo "commit=$commit_sha"
 echo "release=$release_id"
 
-gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+if [[ "${GOATOS_SKIP_IMAGE_BUILD:-}" == "1" ]]; then
+  echo "Image build skipped: expecting prebuilt Artifact Registry images for $commit_sha"
+else
+  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile -t "$backend_image" .
-docker push "$backend_image"
+  docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile -t "$backend_image" .
+  docker push "$backend_image"
 
-docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
-docker push "$migration_image"
+  docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
+  docker push "$migration_image"
 
-docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
-docker push "$admin_web_image"
+  docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
+  docker push "$admin_web_image"
+fi
 
 gcloud deploy releases create "$release_id" \
   --project="$PROJECT_ID" \
@@ -185,9 +194,7 @@ verify_stg_images() {
 if [[ "$WAIT_FOR_ROLLOUT" == "1" ]]; then
   wait_for_rollout
   verify_stg_images
-  ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
-    tools/release/create-release-tag.sh
 else
   echo "Rollout wait skipped by GOATOS_STG_RELEASE_WAIT=0; image parity not verified."
-  die "release tag creation requires verified rollout/image parity; rerun with GOATOS_STG_RELEASE_WAIT=1"
+  die "STG deploy success requires verified rollout/image parity; rerun with GOATOS_STG_RELEASE_WAIT=1"
 fi

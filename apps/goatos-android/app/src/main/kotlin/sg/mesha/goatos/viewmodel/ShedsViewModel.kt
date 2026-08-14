@@ -401,25 +401,7 @@ class ShedsViewModel @Inject constructor(
         val base = sampleShedsState()
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
-            val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
-            val hasVisibleWork = row.hasOperatorVisibleWork()
-            when {
-                !hasVisibleWork -> false
-                dueDate == null -> selectedDay == workWindow.today
-                // Today folds in the deep backlog (due on or before today), INCLUDING rows the
-                // operator already finished. A completed shed must stay visible until the drive
-                // itself closes -- and "closed" is not a flag the client tracks; it is simply the
-                // moment the backend stops returning the row at all (it falls outside
-                // workWindow.asOf/dueBefore, the same window this whole list is already scoped
-                // to). As long as the API keeps sending the row, the drive is still active and the
-                // card stays on today's list; the day it silently drops out of `rows` upstream is
-                // the day the operator stops seeing it. Previously this branch additionally
-                // required `hasOpenOrReviewWork()` for backlog rows, which hid every completed
-                // shed the moment its own due date rolled past today -- exactly the maintainer-
-                // reported defect where 3 of 4 finished sheds vanished mid-drive.
-                selectedDay == workWindow.today -> !dueDate.isAfter(workWindow.today)
-                else -> dueDate == selectedDay
-            }
+            row.isVisibleForOperatorDay(selectedDay, workWindow)
         }
         // Group by the exact key rendered by Compose. Do not group by metadata that is not also
         // present in ShedRow.id: the same shed/partition/task can arrive as multiple backend rows
@@ -820,6 +802,20 @@ private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
 
 private fun VaccinationExecutionRowDto.hasOpenOrReviewWork(): Boolean =
     openCount > 0 || isVerificationPending() || (doneCount > 0 && !isFinalClosed())
+
+internal fun VaccinationExecutionRowDto.isVisibleForOperatorDay(
+    selectedDay: LocalDate,
+    workWindow: OperatorWorkWindow,
+): Boolean {
+    val dueDate = currentScheduleDate?.let(::parseExecutionDate)
+    return when {
+        !hasOperatorVisibleWork() -> false
+        dueDate == null -> selectedDay == workWindow.today
+        selectedDay == workWindow.today && dueDate.isBefore(workWindow.today) -> hasOpenOrReviewWork()
+        selectedDay == workWindow.today -> dueDate == workWindow.today
+        else -> dueDate == selectedDay
+    }
+}
 
 private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
     proofStatus.equals("uploaded", ignoreCase = true) ||

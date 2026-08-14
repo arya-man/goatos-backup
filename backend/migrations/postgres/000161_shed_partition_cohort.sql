@@ -1,13 +1,12 @@
 -- +goose Up
 -- Pens get their own configured COHORT (the "tag").
 --
--- Maintainer decision 2026-08-14: the Counts -> Sheds directory lists operational locations at PEN
--- grain and an operator retags one from that screen, so the tag has to belong to the pen. Until
--- now the only configured cohort was shed_profiles.animal_stage_id, a SHED-level fact -- so
--- retagging "Godel 1 - Part 3" would have silently changed the tag shown against all eight of that
--- shed's pens. The farm's own Sheds DB sheet already records pens separately (Mandela 1 - Part 1 is
--- warmup while Part 2 is Buck), so shed-level was the wrong grain for this fact, not merely an
--- inconvenient one.
+-- Maintainer decision 2026-08-14: an operator retags one pen from the Counts Breakdown census, so
+-- the tag has to belong to the pen. Until now the only configured cohort was
+-- shed_profiles.animal_stage_id, a SHED-level fact -- so retagging "Godel 1 - Part 3" would have
+-- silently changed the tag of all eight of that shed's pens. The farm's own Sheds DB sheet already
+-- records pens separately (Mandela 1 - Part 1 is warmup while Part 2 is Buck), so shed-level was
+-- the wrong grain for this fact, not merely an inconvenient one.
 --
 -- BACKFILLED from the parent shed's profile, so every pen opens with exactly the tag the directory
 -- showed the day before this migration and nothing appears to change under the operator. NULL stays
@@ -51,7 +50,7 @@ WHERE profile.tenant_id = sp.tenant_id
   AND sp.animal_stage_id IS NULL;
 
 COMMENT ON COLUMN public.shed_partitions.animal_stage_id IS
-    'Cohort ("tag") configured for THIS pen. NULL means none configured. Backfilled from the parent shed_profiles row in migration 000161; shifting/vaccination/feed still read the SHED-level shed_profiles.animal_stage_id.';
+    'Cohort ("tag") configured for THIS pen. NULL means none configured. Backfilled from the parent shed_profiles row in this migration; shifting/vaccination/feed still read the SHED-level shed_profiles.animal_stage_id.';
 
 -- +goose Down
 ALTER TABLE public.shed_partitions

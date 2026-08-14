@@ -16,6 +16,10 @@ locals {
       account_id   = "goatos-admin-web-stg"
       display_name = "Goat OS staging admin-web runtime"
     }
+    mcp = {
+      account_id   = "goatos-mcp-stg"
+      display_name = "Goat OS staging external MCP runtime"
+    }
     # kernel_worker: the single consolidated long-running SERVICE that replaces
     # the retired per-stage scheduled Cloud Run Jobs (outbox relay, domain
     # consumer, processed-event/idempotency/inventory/SOP sweepers, vaccination
@@ -86,24 +90,28 @@ locals {
       secret_id = "goatos-stg-auth-issuer"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     auth_audience = {
       secret_id = "goatos-stg-auth-audience"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     auth_jwks_url = {
       secret_id = "goatos-stg-auth-jwks-url"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     auth_allowed_emails = {
       secret_id = "goatos-stg-auth-allowed-emails"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     bulk_import_preview_signing_key = {
@@ -122,6 +130,7 @@ locals {
       secret_id = "goatos-stg-firebase-web-config"
       accessors = [
         "admin_web",
+        "mcp",
       ]
     }
     google_oauth_web_credential = {

@@ -1859,6 +1859,73 @@ func TestListVaccinationExecutionFiltersWorkStateBeforeLimit(t *testing.T) {
 	}
 }
 
+func TestListVaccinationExecutionPartialProofOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixFiltersAsInProgress(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "second open goat in same drive",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ('70000000-0000-4000-8000-000000000044', $1, 'alive', 'goat', $2, 'female',
+			   $3, $4, $3, 'K1', 'healthy')`,
+		testTenant, testParty, testShed, testPark)
+	execProjectionSQL(t, ctx, pool, "second open obligation in same drive",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ('70000000-0000-4000-8000-000000000045', $1, $2, $3, $4,
+		   'goat', '70000000-0000-4000-8000-000000000044', 'shed', $5,
+		   TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'vaccexec-partial-open', 1)`,
+		testTenant, testVersion, testRule, testBatch, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	inProgress := domain.WorkStateInProgress
+	inProgressPage, err := projectedExecutionPage(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		WorkState: &inProgress,
+		AsOf:      asOf,
+		DueBefore: dueBefore,
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecutionPage(in_progress) error = %v", err)
+	}
+	if inProgressPage.TotalCount != 1 || len(inProgressPage.Rows) != 1 {
+		t.Fatalf("partial proof page total/rows = %d/%d, want 1/1: %#v",
+			inProgressPage.TotalCount, len(inProgressPage.Rows), inProgressPage.Rows)
+	}
+	row := inProgressPage.Rows[0]
+	if row.WorkState != domain.WorkStateInProgress {
+		t.Fatalf("partial proof work_state = %q, want %q", row.WorkState, domain.WorkStateInProgress)
+	}
+	if row.ObligationCount != 2 || row.CompletionRecorded != 1 || row.CompletedCount != 0 {
+		t.Fatalf("partial proof counts obligation/completion/completed = %d/%d/%d, want 2/1/0",
+			row.ObligationCount, row.CompletionRecorded, row.CompletedCount)
+	}
+
+	verificationPending := domain.WorkStateVerificationPending
+	reviewPage, err := projectedExecutionPage(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ParkID:    strPtr(testPark),
+		WorkState: &verificationPending,
+		AsOf:      asOf,
+		DueBefore: dueBefore,
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecutionPage(verification_pending) error = %v", err)
+	}
+	if reviewPage.TotalCount != 0 || len(reviewPage.Rows) != 0 {
+		t.Fatalf("partial proof leaked into verification_pending total/rows = %d/%d: %#v",
+			reviewPage.TotalCount, len(reviewPage.Rows), reviewPage.Rows)
+	}
+}
+
 func TestListVaccinationExecutionSurfacesTaskReworkAsRejected(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1943,6 +2010,88 @@ func TestListVaccinationExecutionPrioritizesActionableRowsOverClosedHistory(t *t
 	}
 	if rows[0].BatchID == nil || *rows[0].BatchID != testBlockedBatch {
 		t.Fatalf("got batch %v want blocked batch %s", rows[0].BatchID, testBlockedBatch)
+	}
+}
+
+func TestListVaccinationExecutionOperatorScopeHidesPriorDayCompletedHistory(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "seed drive assignment gives the in-progress row an operator",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'whole', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+
+	recentDoneGoat := "70000000-0000-4000-8000-000000000091"
+	recentDoneBatch := "70000000-0000-4000-8000-000000000092"
+	recentDoneObligation := "70000000-0000-4000-8000-000000000093"
+	insertProjectionGoat(t, ctx, pool, recentDoneGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, recentDoneBatch, "completed")
+	insertProjectionObligation(t, ctx, pool, recentDoneObligation, recentDoneBatch, recentDoneGoat, "completed", "2026-06-20 00:00:00+00", "vaccexec-operator-old-done")
+	insertProjectionCompletion(t, ctx, pool, "70000000-0000-4000-8000-000000000094", recentDoneObligation, recentDoneBatch, recentDoneGoat, "vaccexec-operator-old-done-proof")
+	execProjectionSQL(t, ctx, pool, "old completed drive assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-20', $3, $4, $5, 'K1 Shed', 'whole', 1)`,
+		testTenant, recentDoneBatch, testOperator, testPark, testShed)
+
+	oldOpenGoat := "70000000-0000-4000-8000-000000000095"
+	oldOpenBatch := "70000000-0000-4000-8000-000000000096"
+	oldOpenObligation := "70000000-0000-4000-8000-000000000097"
+	insertProjectionGoat(t, ctx, pool, oldOpenGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, oldOpenBatch, "planned")
+	insertProjectionObligation(t, ctx, pool, oldOpenObligation, oldOpenBatch, oldOpenGoat, "scheduled", "2026-06-20 00:00:00+00", "vaccexec-operator-old-open")
+	execProjectionSQL(t, ctx, pool, "old open drive assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-20', $3, $4, $5, 'K1 Shed', 'whole', 1)`,
+		testTenant, oldOpenBatch, testOperator, testPark, testShed)
+
+	todayDoneGoat := "70000000-0000-4000-8000-000000000101"
+	todayDoneBatch := "70000000-0000-4000-8000-000000000102"
+	todayDoneObligation := "70000000-0000-4000-8000-000000000103"
+	insertProjectionGoat(t, ctx, pool, todayDoneGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, todayDoneBatch, "completed")
+	insertProjectionObligation(t, ctx, pool, todayDoneObligation, todayDoneBatch, todayDoneGoat, "completed", "2026-06-24 00:00:00+00", "vaccexec-operator-today-done")
+	insertProjectionCompletion(t, ctx, pool, "70000000-0000-4000-8000-000000000104", todayDoneObligation, todayDoneBatch, todayDoneGoat, "vaccexec-operator-today-done-proof")
+	execProjectionSQL(t, ctx, pool, "today completed drive assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'whole', 1)`,
+		testTenant, todayDoneBatch, testOperator, testPark, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	operatorRows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:             testTenant,
+		OperatorScopeActorID: testOperator,
+		AsOf:                 time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore:            time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:                20,
+	})
+	if err != nil {
+		t.Fatalf("operator ListVaccinationExecution() error = %v", err)
+	}
+	if rowByBatch(operatorRows, recentDoneBatch) != nil {
+		t.Fatalf("operator worklist must not include prior-day completed batch %s: %#v", recentDoneBatch, operatorRows)
+	}
+	if rowByBatch(operatorRows, oldOpenBatch) == nil {
+		t.Fatalf("operator worklist must keep prior-day open backlog %s: %#v", oldOpenBatch, operatorRows)
+	}
+	if rowByBatch(operatorRows, todayDoneBatch) == nil {
+		t.Fatalf("operator worklist must keep same-day completed batch %s: %#v", todayDoneBatch, operatorRows)
+	}
+
+	adminRows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("admin ListVaccinationExecution() error = %v", err)
+	}
+	if rowByBatch(adminRows, recentDoneBatch) == nil {
+		t.Fatalf("admin execution/history read should still include recent completed batch %s: %#v", recentDoneBatch, adminRows)
 	}
 }
 

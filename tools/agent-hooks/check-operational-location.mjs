@@ -771,12 +771,6 @@ const RESPONSE_PARTITION_EXEMPT = new Set([
   // "WeighingShedVideos",
   // Telemetry/event payloads are not rendered as a location label.
   "VerificationReviewEventPayload",
-  // ShedDirectoryCell is ONE PARK's cell on a row whose identity -- shed name, pen label and the
-  // composed display -- lives on the ShedDirectoryRow that owns it. The cell carries shed_id so the
-  // two parks' locations stay distinguishable; duplicating the pen label into every cell would put
-  // one fact behind two fields that could disagree. The ROW is not exempt and declares
-  // partition_label + operational_location_display, so the location always renders in full.
-  "ShedDirectoryCell",
 ]);
 
 const SHED_GRAIN_ONLY_TABLES = [

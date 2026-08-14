@@ -385,15 +385,22 @@ func operationsRank(w domain.WorkState) int {
 }
 
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
-	sopStatus := sopStatusFromProjection(p)
+	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	partialProofProgress := openCount > 0 && (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0)
+	sopStatus := sopStatusFromProjection(p, partialProofProgress)
 	proofStatus := proofStatus(p)
-	verificationStatus := verificationStatus(p)
+	verificationStatus := verificationStatus(p, partialProofProgress)
 	workState := p.WorkState
 	computedWorkState := workStateFromProjection(p, q)
+	if partialProofProgress {
+		computedWorkState = domain.WorkStateInProgress
+	}
 	if workState == "" || computedWorkState == domain.WorkStateVerificationPending {
 		workState = computedWorkState
 	}
-	targetCount, openCount, doneCount := executionDisplayCounts(p)
+	if partialProofProgress && workState == domain.WorkStateVerificationPending {
+		workState = domain.WorkStateInProgress
+	}
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
 	partition := strings.TrimSpace(p.Partition)
 	if physicalShed == "" || partition == "" {
@@ -606,7 +613,7 @@ func sopStatus(state *string) domain.SOPStatus {
 	}
 }
 
-func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
+func sopStatusFromProjection(p domain.ExecutionProjection, partialProofProgress bool) domain.SOPStatus {
 	switch {
 	case p.CompletionRejected > 0 || taskStateIs(p, "rework_requested", "rejected"):
 		return domain.SOPStatusRework
@@ -617,10 +624,12 @@ func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
 		// done_count is computed in SQL as per-animal union: has_done = completed OR recorded OR accepted OR shed_proof.
 		// This ensures disjoint completion paths (e.g., 3 animals completed + 2 animals proofed = 5 done, not max=3).
 		openCount := p.ObligationCount - p.DoneCount - p.DeferredCount - p.MissedCount - p.CanceledCount
-		if openCount <= 0 {
+		if openCount <= 0 && !partialProofProgress {
 			return domain.SOPStatusSubmitted
 		}
-		// Has completion evidence (recorded or proof) but not all obligations are done; remain in_progress.
+		// Has completion evidence (recorded or proof) but not all obligations are done or partial proof in progress; remain in_progress.
+		return domain.SOPStatusInProgress
+	case taskStateIs(p, "in_progress"):
 		return domain.SOPStatusInProgress
 	default:
 		return domain.SOPStatusNotStarted
@@ -640,13 +649,13 @@ func proofStatus(p domain.ExecutionProjection) domain.ProofStatus {
 	}
 }
 
-func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus {
+func verificationStatus(p domain.ExecutionProjection, partialProofProgress bool) domain.VerificationStatus {
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
 	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
 		return domain.VerificationStatusVerified
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+	case (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) && !partialProofProgress:
 		return domain.VerificationStatusPending
 	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:
 		return domain.VerificationStatusVerified

@@ -10,8 +10,11 @@ Use the repo command, not hand-written tags:
 make release-tag ENV=stg
 ```
 
-For staging Cloud Deploy, `tools/deploy/stg-clouddeploy-release.sh` creates the
-tag automatically after rollout success and image parity verification.
+For staging Cloud Deploy, `cloudbuild.stg.yaml` runs release tagging as a
+separate `stg-release-tag-bookkeeping` step after rollout success and image
+parity verification. That step is non-blocking for deploy status: if tagging
+fails after a verified rollout, Slack reports a bookkeeping warning while the
+STG deploy remains successful.
 
 For Firebase App Distribution, pass the Firebase release URL and Android version
 into a mobile release tag after upload:

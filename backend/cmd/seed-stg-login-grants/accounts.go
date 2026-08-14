@@ -60,7 +60,7 @@ type Account struct {
 	ParkCode string
 	// DepartmentCode is the HR department code (departments.code) this
 	// person's existing workforce_members roster row should be bound to.
-	// Empty for the 5 ceo_internal leadership accounts, which have no
+	// Empty for the 4 ceo_internal leadership accounts, which have no
 	// department (bootstrap_copy.go:214 grants them every module without one).
 	// Leadership accounts still get an active auth:<uid> workforce_members
 	// profile via ensureLeadershipMember — the mobile /app/bootstrap requires
@@ -73,17 +73,16 @@ type Account struct {
 	RosterDisplayNameMatch string
 }
 
-// stgLoginAccounts is the canonical 10-person STG roster. Source of truth for
+// stgLoginAccounts is the canonical UID-backed STG roster. Source of truth for
 // names/emails/roles: docs/runbooks/stg-login-seed-contract.md and
 // docs/runbooks/stg-operator-login-credentials.md (do not let this list and
 // those docs drift — update both in the same change).
 var stgLoginAccounts = []Account{
-	// --- 5 leadership: Google SSO + Firebase email/password, ceo_internal,
+	// --- 4 leadership: Google SSO + Firebase email/password, ceo_internal,
 	//     tenant scope, no department, mobile profile via ensureLeadershipMember ---
 	{DisplayName: "Ravi", Email: "ravi@mesha.sg", FirebaseUID: "VNAvpunR93ck7Ckf3mz6JZyDgjV2", Role: permissions.RoleCEOInternal},
 	{DisplayName: "Manohar K", Email: "manohark@mesha.sg", FirebaseUID: "h8oAB7Asc5YCuvR5y5btaUtatX53", Role: permissions.RoleCEOInternal},
 	{DisplayName: "Manju", Email: "manju@mesha.sg", FirebaseUID: "Iz3I6SC3ZTeAjFJQ7sqjb6ZLSHB3", Role: permissions.RoleCEOInternal},
-	{DisplayName: "Abhishek", Email: "abhishek@mesha.sg", FirebaseUID: "mnzDI9IauadgjXxOkXo1WWFsIqq1", Role: permissions.RoleCEOInternal},
 	{DisplayName: "Aryaman", Email: "aryaman@mesha.sg", FirebaseUID: "BKTRgCyvZwMC9c6MiVHtGRDJTuG2", Role: permissions.RoleCEOInternal},
 
 	// --- 3 operators: Firebase email/password, operator role, preventive_care dept ---

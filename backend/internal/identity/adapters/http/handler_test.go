@@ -774,3 +774,11 @@ func handlerPassport() *domain.GoatPassport {
 		RowVersion:   1,
 	}
 }
+
+func (h handlerRepo) PreviewCorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSlicePreview, error) {
+	return &ports.CensusSlicePreview{}, nil
+}
+
+func (h handlerRepo) CorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSliceCorrectionResult, error) {
+	return &ports.CensusSliceCorrectionResult{}, nil
+}

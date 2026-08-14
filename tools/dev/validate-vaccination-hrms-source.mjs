@@ -847,3 +847,6 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // found nothing to validate. Removing milk/aas_health from the preventive_care department affects
 // which modules that department is OFFERED in the app; it is not an HRMS/vaccination source input and
 // changes no column, row count, or hash this auditor reads.
+// Coupling review 2026-08-14: pen capacity/cohort config now lives on shed_partitions for the
+// Counts/Sheds directory. Source validation remains unchanged because those columns are not raw HRMS
+// or vaccination source fields and do not change goat_shed_partitions animal placement semantics.

@@ -313,16 +313,23 @@ Do not infer CI deployment from branch names.
 Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
    `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
-2. Use the manual Google Cloud Deploy scripts under
-   `tools/deploy/stg-clouddeploy-*.sh`.
+2. Use the Slack deploy button in `#goatos-stg-deploy`. The button triggers the
+   Google Cloud Build manual trigger `goatos-stg-deploy-main`, which reads
+   `cloudbuild.stg.yaml` and creates the Cloud Deploy release from `origin/main`.
 3. Verify active account is `ravi@mesha.sg`.
 4. Verify target org is `vgoats.com` and environment is Goat OS STG
    (`goatos-stg`).
 5. Never use Slice/Heva GitHub identity or cloud project for Goat OS.
 
 If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
-manual Google Cloud Deploy from the latest approved `origin/main`, following the
-runbook.
+use the Slack button/Cloud Build route from the latest approved `origin/main`,
+following the runbook. Do not run a local deploy unless the Slack/Cloud Build
+route itself is broken and the maintainer explicitly asks for break-glass.
+
+If a user asks whether STG deploy is done, failed, or stuck, check the Cloud
+Build run started by the Slack bot first, then the Cloud Deploy release/rollout
+linked from that build. Do not infer status from local shell output or branch
+names.
 
 If a user asks to "publish Firebase", "upload to Firebase", "Firebase App
 Distribution", "release Android STG", "push the APK", "internal test", "Play
@@ -330,16 +337,17 @@ internal testing", or includes an Android APK/AAB as part of a STG deploy, the
 Android release is not complete after Firebase App Distribution alone. Follow
 `docs/mobile/stg-signed-release.md` and publish the employee/internal release to
 all required channels: Firebase App Distribution, Google Play Internal Testing,
-and the stable operator URL `https://mesha.sg/app.apk` in the Mesha website
-Firebase Hosting site. Use the exact same generated APK bytes for Firebase and
-the website mirror. Play Internal Testing uses an AAB, so build/upload it from
-the same source commit, `versionName`, and `versionCode`; do not invent a second
-release identity. Keep the Play internal tester list to the same email IDs that
-have access to Firebase App Distribution; do not maintain a separate hand-picked
-Play tester list. Do not rebuild Android for the website copy. Keep the browser
-download filename versioned as `Mesha-<versionName>-code-<versionCode>.apk`,
-verify matching APK hashes, and validate the live versioned URL in Chrome before
-reporting done.
+and the stable operator URL `https://mesha.sg/app.apk`. That URL redirects to
+`gs://goatos-stg-public-downloads/operator/latest/app.apk`; do not copy APKs
+into the Mesha marketing website repo and do not deploy Firebase Hosting merely
+to update the APK. Use the exact same generated APK bytes for Firebase App
+Distribution and the Storage mirror. Play Internal Testing uses an AAB, so
+build/upload it from the same source commit, `versionName`, and `versionCode`;
+do not invent a second release identity. Keep the Play internal tester list to
+the same email IDs that have access to Firebase App Distribution; do not
+maintain a separate hand-picked Play tester list. Keep the browser download
+filename versioned as `Mesha-<versionName>.apk`, verify matching APK hashes, and
+validate the live versioned URL in Chrome before reporting done.
 
 Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
@@ -1642,14 +1650,16 @@ Organization boundaries:
   gmail, or personal identities are blocked by `make git-identity-guard` and
   the local CI common gate. The expected maintainer identity is
   `Raviteja <ravi@mesha.sg>`.
-- **Staging deployment is manual Cloud Deploy only.** Do not create or wait for
-  a `main -> stg` pull request, GitHub Actions workflow, or direct `stg` branch
-  push as a deployment mechanism. Agents must deploy from a clean checkout at
-  the latest approved `origin/main` using `docs/runbooks/stg-deploy.md` and
-  `tools/deploy/stg-clouddeploy-*.sh`. Never push any local ref, local `stg`,
-  `main`, `HEAD`, agent branch, or refspec directly to remote `stg`; the branch
-  is not deployment authority. Run `make ai-setup` so the local guard blocks
-  accidental remote `stg` writes. Do not bypass it with `--no-verify`.
+- **Staging deployment is Slack-triggered Cloud Build into Cloud Deploy.** Do
+  not create or wait for a `main -> stg` pull request, GitHub Actions workflow,
+  or direct `stg` branch push as a deployment mechanism. Agents must use the
+  `#goatos-stg-deploy` Slack button, which runs Cloud Build trigger
+  `goatos-stg-deploy-main` from latest approved `origin/main`; manual scripts
+  under `tools/deploy/stg-clouddeploy-*.sh` are break-glass/repair mechanics.
+  Never push any local ref, local `stg`, `main`, `HEAD`, agent branch, or
+  refspec directly to remote `stg`; the branch is not deployment authority. Run
+  `make ai-setup` so the local guard blocks accidental remote `stg` writes. Do
+  not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
@@ -2123,9 +2133,10 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   normal app DB from E2E. Destructive/load tests must use an isolated DB with
   its own seed/cleanup, such as the explicit local GCP-kernel stack on `55432`;
   that stack must never become the default laptop runtime DB.
-- Deploy `goatos-stg` through Cloud Deploy. Build systems may create images and
-  Cloud Deploy releases, but Cloud Run service/job mutations for staging belong
-  to `deploy/clouddeploy/stg/clouddeploy.yaml` and
+- Deploy `goatos-stg` through the Slack button backed by Cloud Build and Cloud
+  Deploy. Build systems may create images and Cloud Deploy releases, but Cloud
+  Run service/job mutations for staging belong to
+  `deploy/clouddeploy/stg/clouddeploy.yaml` and
   `tools/deploy/stg-clouddeploy-task.sh`. Direct `gcloud run services update`,
   `gcloud run jobs update`, or manual migration execution is break-glass only
   and must be followed by a Cloud Deploy release from the same commit; see
@@ -2892,14 +2903,19 @@ Do not:
   real coverage artifact (`ceo_ai.*` view / MCP tool / Cube binding / wired
   `Set*DataReader`) or a coverage-matrix row/exclusion NAMING that surface in the
   same commit; a bare keyword-bearing doc touch no longer satisfies it, and pure
-  refactors pass without a coverage file. The
-  read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
-  Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
+  refactors pass without a coverage file. The external MCP connector is not a
+  raw table/API auto-publisher; it exposes the leadership assistant product
+  entrypoint. New tables/APIs become visible through Claude/Codex/CEO chat only
+  after they are covered by the Cube/read-API/Toolbox/`ceo_ai`/SQL-fallback
+  layer or explicitly excluded. The read-path routing is Cube-first (official
+  KPI → Cube; then read APIs → MCP Toolbox `ceo_ai.*` tools → read-only SQL
+  fallback). The planner → catalog →
   wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
   every tool name must resolve in the runtime registry (Cube binding, executor spec,
   toolbox tool, or fallback alias), every RouteAPI target must have a wired reader or
   fallback alias, and every coverage row must reference a golden eval question. HOW-TO:
   `.agents/skills/goatos-leadership-assistant/SKILL.md` (includes ROUTE-CLOSURE rules).
+  External MCP setup/docs: `docs/ceo-ai/external-mcp-integration.md`.
   Scaffold: `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
   `make leadership-assistant-coverage-guard` + `make assistant-route-closure-guard`
   (local CI + PostToolUse nudge for Claude and Codex).

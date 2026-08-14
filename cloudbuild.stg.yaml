@@ -1,0 +1,157 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+
+substitutions:
+  _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
+  _DEPLOY_STG: "true"
+  _DEPLOY_MOBILE: "false"
+
+steps:
+  - id: configure-docker-auth
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - DOCKER_CONFIG=/workspace/.docker
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Docker auth not requested."
+          exit 0
+        fi
+        umask 077
+        mkdir -p /workspace/.docker
+        gcloud auth print-access-token > /workspace/.docker/access-token
+
+  - id: build-backend-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - COMMIT_SHA=$COMMIT_SHA
+      - DOCKER_CONFIG=/workspace/.docker
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Backend image build not requested."
+          exit 0
+        fi
+        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
+        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile -t "$${image}" .
+        docker push "$${image}"
+
+  - id: build-migration-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - COMMIT_SHA=$COMMIT_SHA
+      - DOCKER_CONFIG=/workspace/.docker
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Migration image build not requested."
+          exit 0
+        fi
+        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/migrate:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
+        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile.migrate -t "$${image}" .
+        docker push "$${image}"
+
+  - id: build-admin-web-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - COMMIT_SHA=$COMMIT_SHA
+      - DOCKER_CONFIG=/workspace/.docker
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Admin web image build not requested."
+          exit 0
+        fi
+        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
+        docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$${image}" .
+        docker push "$${image}"
+
+  - id: stg-cloud-deploy-release
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - PROJECT_NUMBER=514832198871
+      - REGION=asia-south1
+      - BUILD_ID=$BUILD_ID
+      - ARTIFACT_REPOSITORY=goatos
+      - DELIVERY_PIPELINE=goatos-stg
+      - TARGET_ID=goatos-stg
+      - GOATOS_STG_RELEASE_WAIT=1
+      - GOATOS_SKIP_IMAGE_BUILD=1
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - DEPLOY_STG=${_DEPLOY_STG}
+    args:
+      - -ceu
+      - |
+        if [[ "$${DEPLOY_STG}" != "true" ]]; then
+          echo "STG Cloud Deploy release not requested."
+          exit 0
+        fi
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git python3
+        tools/deploy/stg-cloudbuild-release.sh
+
+  - id: android-mobile-distribution
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - REGION=asia-south1
+      - BUILD_ID=$BUILD_ID
+      - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos.stg
+    args:
+      - -ceu
+      - |
+        if [[ "$${DEPLOY_MOBILE}" != "true" ]]; then
+          echo "Android mobile distribution not requested."
+          exit 0
+        fi
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-17-jdk unzip
+        tools/deploy/stg-mobile-distribution.sh
+
+  - id: stg-release-tag-bookkeeping
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - BUILD_ID=$BUILD_ID
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+    args:
+      - -ceu
+      - |
+        if [[ "${_DEPLOY_STG}" != "true" ]]; then
+          echo "STG release tag bookkeeping not requested."
+          exit 0
+        fi
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git python3
+        tools/deploy/stg-release-tag-bookkeeping.sh
+
+timeout: 3600s

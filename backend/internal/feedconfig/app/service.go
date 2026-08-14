@@ -265,7 +265,7 @@ func (s *Service) ListSessionTemplates(ctx context.Context, tenantID, parkID str
 		return domain.SessionTemplatePage{}, err
 	}
 	return s.repo.ListSessionTemplates(ctx, domain.SessionTemplateQuery{
-		TenantID: tenantID, ParkID: strings.TrimSpace(parkID), Page: page,
+		TenantID: tenantID, ParkID: strings.TrimSpace(parkID), AsOfDate: s.businessDate(), Page: page,
 	})
 }
 
@@ -539,6 +539,62 @@ func (s *Service) UpsertShedFactor(ctx context.Context, in UpsertShedFactorInput
 		ShedID:        shedID,
 		FeedItemLabel: item,
 		Multiplier:    multiplier,
+	})
+}
+
+// SetSessionTemplateItemInput declares a feed on one session's recipe, or withdraws it.
+//
+// Declared is a plain bool rather than a status string because there are exactly two states and the
+// author is choosing between them. There is no quantity here on purpose: grams live in the ration
+// grid, keyed by ration group and shed tag, because one slot feeds every group at a different rate.
+type SetSessionTemplateItemInput struct {
+	TenantID      string
+	ActorRef      string
+	ParkID        string
+	SessionNo     *int32
+	FeedItemLabel string
+	Declared      *bool
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// SetSessionTemplateItem validates the slot write and hands it to the repository.
+//
+// SessionNo and Declared are pointers so ABSENT is distinguishable from a zero value. Defaulting
+// either would be dangerous in opposite directions: a missing session_no would silently target
+// session 0 (which no park runs), and a missing `declared` would have to guess between adding a feed
+// and taking one away.
+func (s *Service) SetSessionTemplateItem(ctx context.Context, in SetSessionTemplateItemInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	item, err := domain.RequireNonBlank("feed_item", in.FeedItemLabel)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	if in.SessionNo == nil {
+		return domain.WriteResult{}, &domain.FieldError{Field: "session_no", Reason: domain.ErrMissingField}
+	}
+	// Mirrors feed_session_template_items_session_no_check. Rejected here rather than left to the
+	// constraint so the author gets a field error instead of a database violation.
+	if *in.SessionNo < 1 {
+		return domain.WriteResult{}, &domain.FieldError{Field: "session_no", Reason: domain.ErrValueOutOfRange}
+	}
+	if in.Declared == nil {
+		return domain.WriteResult{}, &domain.FieldError{Field: "declared", Reason: domain.ErrMissingField}
+	}
+	return s.repo.SetSessionTemplateItem(ctx, domain.SetSessionTemplateItemCommand{
+		WriteIdentity: identity,
+		ParkID:        parkID,
+		SessionNo:     *in.SessionNo,
+		FeedItemLabel: item,
+		Declared:      *in.Declared,
 	})
 }
 
