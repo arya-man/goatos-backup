@@ -115,11 +115,10 @@ The card has two deploy buttons:
 Mobile means all three channels, as one release: Firebase App Distribution,
 Google Play Internal Testing package `sg.mesha.goatos.stg`, and
 `https://mesha.sg/app.apk`. Any failure in those channels fails the Cloud Build
-and posts a Slack failure alert. The bot refuses any new mobile request while an
-existing mobile distribution build is queued or working, including the reverse
-case where `Deploy main to STG` is clicked with the mobile checkbox while an
-Android-only distribution is already running. Plain STG deploy without mobile is
-still allowed.
+and posts a Slack failure alert. The bot allows only one active deployment at a
+time: while any STG, STG+mobile, or Android-only build is queued or working, new
+button clicks replace the panel with an "already running" status card and links
+to Cloud Build / Cloud Deploy instead of starting another build.
 
 To inspect progress or failure, open the Cloud Build link posted by Slack. The
 STG deploy step links to Cloud Deploy releases/rollouts; the mobile step logs
