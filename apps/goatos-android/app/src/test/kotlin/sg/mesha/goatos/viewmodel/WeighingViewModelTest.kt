@@ -2299,6 +2299,57 @@ class WeighingViewModelTest {
             assertTrue(vm.state.value.visibleRows.single().weightSyncConflict)
         }
 
+    // ============================================================================
+    // REGRESSION TEST (a2): Recapture-cancel preserves old proof - WeighingViewModel
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: a cancelled re-capture must leave the
+    // existing proof alone. The old order discarded the row first and only then
+    // opened the camera, so cancelling it deleted a good proof.
+    @Test
+    fun `a cancelled re-capture of weighing video keeps the existing proof`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        // ONE video available: the first capture consumes it, so the retake finds the camera empty
+        // and returns null (camera cancel).
+        val videoSource = FakeProofCaptureSource(
+            mutableListOf(CapturedVideo(localUri = "/proof/weighing-video.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+        )
+
+        val repository = FakeWeighingRepository(
+            scopeState = individualScope(),
+        )
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = videoSource,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // First capture: record weighing video
+        vm.onEvent(sg.mesha.goatos.feature.weighing.WeighingEvent.RecordVideo(TEST_TAG))
+        advanceUntilIdle()
+        assertEquals("the first capture must record one proof", 1, proofCaptureRepository.captureCalls.size)
+
+        // Retake, and cancel it (camera returns no video because we consumed the single fake video)
+        vm.onEvent(sg.mesha.goatos.feature.weighing.WeighingEvent.RecordVideo(TEST_TAG))
+        advanceUntilIdle()
+
+        assertEquals(
+            "a cancelled retake must not write a second proof",
+            1,
+            proofCaptureRepository.captureCalls.size,
+        )
+        // Assert the ROW, not the flag. The flag stays true even when the row is gone.
+        val survivingRows = proofCaptureRepository.observeProofs(SCOPE_KEY, null).first()
+        assertEquals(
+            "the existing proof row must survive a cancelled retake",
+            1,
+            survivingRows.size,
+        )
+        assertEquals("/proof/weighing-video.mp4", survivingRows.first().localUri)
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
