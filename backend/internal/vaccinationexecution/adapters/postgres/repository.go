@@ -1692,8 +1692,9 @@ stateful AS (
       WHEN COALESCE(enriched.operator_name, enriched.assignment_operator_name) IS NULL
        AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
-      WHEN enriched.completion_recorded > 0
-        OR enriched.proof_submitted_count > 0 THEN 'verification_pending'
+      WHEN (enriched.completion_recorded > 0
+        OR enriched.proof_submitted_count > 0)
+       AND (enriched.obligation_count - GREATEST(enriched.completed_count, enriched.completion_recorded + enriched.completion_accepted, enriched.proof_submitted_count) - enriched.missed_count - enriched.deferred_count - enriched.canceled_count) <= 0 THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
