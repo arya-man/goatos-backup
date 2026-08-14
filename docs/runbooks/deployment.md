@@ -149,9 +149,11 @@ through old deployment history to find the button.
 The panel has two actions. `Deploy main to STG` runs Cloud Deploy, optionally
 followed by Android when the mobile checkbox is selected. `Distribute Android
 only` skips Cloud Deploy and publishes the Android STG release only. The bot
-allows only one active mobile distribution at a time: Android-only is blocked
-while STG+mobile is running, and STG+mobile is blocked while Android-only is
-running. Plain STG deploy without mobile remains allowed.
+allows only one active deployment at a time: Android-only, STG-only, and
+STG+mobile all block each other while Cloud Build is queued or working. During
+that time, clicking the panel replaces it with an "already running" status card
+and Cloud Build / Cloud Deploy links; the deploy buttons return only after the
+running build posts success or failure.
 
 Cloud Build builds/pushes backend, migration, and admin-web images, then
 creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.
