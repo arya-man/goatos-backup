@@ -216,9 +216,12 @@ private class CountingFeedDistributionCompleteSyncRepository : SyncRepository {
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        distributionProofOutboxItemId: String,
-        feedWeightProofOutboxItemId: String,
-        waterProofOutboxItemId: String,
+        distributionProofOutboxItemId: String?,
+        feedWeightProofOutboxItemId: String?,
+        waterProofOutboxItemId: String?,
+        feedWeightProofRef: String?,
+        distributionProofRef: String?,
+        waterProofRef: String?,
     ): AppResult<String> {
         pendingGate?.let { gate -> pendingGate = null; gate.await() }
         markDoneEnqueueCalls += 1
