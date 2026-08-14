@@ -459,6 +459,7 @@ type ExecutionProjection struct {
 	DueCount             int
 	InProgressCount      int
 	CompletedCount       int
+	DoneCount            int
 	MissedCount          int
 	DeferredCount        int
 	CanceledCount        int

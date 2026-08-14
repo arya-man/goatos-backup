@@ -161,7 +161,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var vaccineLabels []string
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
-		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
+		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount, doneCount int64
 		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, proofSubmittedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
 		var workState string
@@ -184,6 +184,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&dueCount,
 			&inProgressCount,
 			&completedCount,
+			&doneCount,
 			&missedCount,
 			&deferredCount,
 			&canceledCount,
@@ -224,6 +225,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.DueCount = int(dueCount)
 		p.InProgressCount = int(inProgressCount)
 		p.CompletedCount = int(completedCount)
+		p.DoneCount = int(doneCount)
 		p.MissedCount = int(missedCount)
 		p.DeferredCount = int(deferredCount)
 		p.CanceledCount = int(canceledCount)
@@ -1760,10 +1762,7 @@ filtered AS (
       NOT $10::boolean
       OR (
         classified.obligation_count
-        - GREATEST(
-            classified.completed_count,
-            classified.completion_recorded + classified.completion_accepted + classified.completion_rejected
-          )
+        - classified.done_count
         - classified.deferred_count
         - classified.missed_count
         - classified.canceled_count
@@ -1789,6 +1788,7 @@ SELECT
   grouped.due_count,
   grouped.in_progress_count,
   grouped.completed_count,
+  grouped.done_count,
   grouped.missed_count,
   grouped.deferred_count,
   grouped.canceled_count,
