@@ -6,6 +6,7 @@ serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goa
 
 substitutions:
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
+  _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
 
 steps:
@@ -21,9 +22,14 @@ steps:
       - TARGET_ID=goatos-stg
       - GOATOS_STG_RELEASE_WAIT=1
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - DEPLOY_STG=${_DEPLOY_STG}
     args:
       - -ceu
       - |
+        if [[ "${DEPLOY_STG}" != "true" ]]; then
+          echo "STG Cloud Deploy release not requested."
+          exit 0
+        fi
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl docker.io git python3
         git fetch origin main --quiet

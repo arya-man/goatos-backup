@@ -5,7 +5,7 @@
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging."
+        "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build."
       }
     },
     {
@@ -43,6 +43,15 @@
           "style": "primary",
           "action_id": "deploy_goatos_stg_main",
           "value": "main"
+        },
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Distribute Android only"
+          },
+          "action_id": "deploy_goatos_mobile_only",
+          "value": "mobile"
         }
       ]
     }
