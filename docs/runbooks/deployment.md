@@ -143,8 +143,8 @@ Slack #goatos-stg-deploy button
 ```
 
 Use the latest bottom-most Slack deploy panel. The bot posts a fresh panel again
-whenever a deploy is started, so operators should not scroll up through old
-deployment history to find the button.
+after each deploy reaches success or failure, so operators should not scroll up
+through old deployment history to find the button.
 
 Cloud Build builds/pushes backend, migration, and admin-web images, then
 creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.

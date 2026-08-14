@@ -86,8 +86,9 @@ tools/deploy/stg-clouddeploy-release.sh
 ## Deploy From Slack / Google Cloud Build
 
 The Slack app posts a deploy card in `#goatos-stg-deploy`. Use the latest
-bottom-most deploy panel; each deploy click posts a fresh panel again so no one
-has to scroll channel history to find the next button. Pressing
+bottom-most deploy panel; after each deploy reaches success or failure, the
+automation posts a fresh panel again so no one has to scroll channel history to
+find the next button. Pressing
 `Deploy main to STG` calls the Cloud Run Slack bot
 `goatos-stg-slack-deploy-bot`, which starts Cloud Build trigger
 `goatos-stg-deploy-main`.
