@@ -26,10 +26,6 @@ func (f *milkPreparationHandlerService) GetSummary(context.Context, domain.HerdR
 	return domain.HerdRegisterSummary{}, nil
 }
 
-func (f *milkPreparationHandlerService) GetShedDirectory(context.Context, string) (domain.ShedDirectory, error) {
-	return domain.ShedDirectory{}, nil
-}
-
 func (f *milkPreparationHandlerService) GetBreakdown(context.Context, domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
 	return domain.CountsBreakdown{}, nil
 }
