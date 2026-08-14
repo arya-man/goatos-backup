@@ -98,7 +98,8 @@
       ".codex/",
       "context/",
       "docs/",
-      "fixtures/"
+      "fixtures/",
+      "tools/deploy/"
     ],
     "files": [
       "cloudbuild.stg.yaml",

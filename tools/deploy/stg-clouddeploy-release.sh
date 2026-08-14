@@ -27,11 +27,15 @@ if [[ "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
   origin_url="$(git remote get-url origin 2>/dev/null || true)"
   [[ "$origin_url" == "git@github.com:vgoats/goatos.git" || "$origin_url" == "ssh://git@github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos" ]] \
     || die "staging releases must run from vgoats/goatos; got origin=$origin_url"
-  git fetch origin main --quiet
-  main_sha="$(git rev-parse --verify origin/main)"
   head_sha="$(git rev-parse --verify HEAD)"
-  [[ "$head_sha" == "$main_sha" ]] \
-    || die "refusing staging release from non-main commit: HEAD=$head_sha origin/main=$main_sha. Land on main first, or set GOATOS_ALLOW_NON_MAIN_STG_RELEASE=1 for an explicit break-glass release."
+  if [[ -n "${BUILD_ID:-}" ]]; then
+    echo "Cloud Build source is trigger-resolved; using checked-out HEAD ${head_sha} without a private origin fetch."
+  else
+    git fetch origin main --quiet
+    main_sha="$(git rev-parse --verify origin/main)"
+    [[ "$head_sha" == "$main_sha" ]] \
+      || die "refusing staging release from non-main commit: HEAD=$head_sha origin/main=$main_sha. Land on main first, or set GOATOS_ALLOW_NON_MAIN_STG_RELEASE=1 for an explicit break-glass release."
+  fi
 fi
 
 if [[ "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
