@@ -141,6 +141,21 @@ func TestInitializedNotificationWithoutIDReturnsNoContent(t *testing.T) {
 	}
 }
 
+func TestUnknownNotificationWithoutIDReturnsNoContent(t *testing.T) {
+	s := newServer(config{UpstreamAskURL: "http://example.invalid/ceo-ai/ask", MCPPath: "/mcp", UpstreamTimeout: time.Second}, http.DefaultClient, nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/unknown"}`))
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("notification response body=%q, want empty", rec.Body.String())
+	}
+}
+
 func TestMCPWithoutBearerAdvertisesOAuthDiscovery(t *testing.T) {
 	s := newServer(config{
 		PublicURL:      "https://goatos-mcp-stg.example.com",

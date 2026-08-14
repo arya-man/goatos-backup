@@ -521,18 +521,28 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isNotification := req.ID == nil
 	switch req.Method {
 	case "initialize":
-		writeJSON(w, http.StatusOK, rpcResult(req.ID, initializeResult()))
-	case "notifications/initialized":
-		if req.ID == nil {
+		if isNotification {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeJSON(w, http.StatusOK, rpcResult(req.ID, map[string]any{}))
+		writeJSON(w, http.StatusOK, rpcResult(req.ID, initializeResult()))
+	case "notifications/initialized":
+		w.WriteHeader(http.StatusNoContent)
 	case "tools/list":
+		if isNotification {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		writeJSON(w, http.StatusOK, rpcResult(req.ID, map[string]any{"tools": tools()}))
 	case "tools/call":
+		if isNotification {
+			_, _, _ = s.callTool(r.Context(), r, req.Params)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		result, code, msg := s.callTool(r.Context(), r, req.Params)
 		if msg != "" {
 			writeJSON(w, http.StatusOK, rpcError(req.ID, code, msg))
@@ -540,6 +550,10 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, rpcResult(req.ID, result))
 	default:
+		if isNotification {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		writeJSON(w, http.StatusOK, rpcError(req.ID, -32601, "method_not_found"))
 	}
 }
