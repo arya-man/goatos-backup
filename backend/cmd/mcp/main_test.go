@@ -97,6 +97,36 @@ func TestAskProxiesBearerAndTenantToUpstream(t *testing.T) {
 	}
 }
 
+func TestAskUsesConfiguredTenantWhenClientDoesNotSendTenantHeader(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-GoatOS-Tenant-ID") != "00000000-0000-4000-8000-000000000001" {
+			t.Fatalf("tenant not defaulted: %q", r.Header.Get("X-GoatOS-Tenant-ID"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"answer": "tenant ok"})
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamAskURL: upstream.URL,
+		MCPPath:        "/mcp",
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		AllowedEmails:  mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:  staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"ask_goatos","arguments":{"question":"Which farm is behind?"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "tenant ok") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
+
 func TestAskRejectsEmailOutsideAllowlistBeforeUpstream(t *testing.T) {
 	called := false
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

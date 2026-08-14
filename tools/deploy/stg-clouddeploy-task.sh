@@ -380,7 +380,7 @@ deploy() {
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
     --ingress=all \
-    --update-env-vars="MESHA_MCP_PUBLIC_URL=https://mcp.mesha.sg" \
+    --update-env-vars="MESHA_MCP_PUBLIC_URL=https://mcp.mesha.sg,MESHA_MCP_TENANT_ID=00000000-0000-4000-8000-000000000001" \
     --update-secrets="GOATOS_FIREBASE_WEB_CONFIG=goatos-stg-firebase-web-config:latest" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet

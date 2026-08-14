@@ -71,6 +71,7 @@ type config struct {
 	Addr            string
 	MCPPath         string
 	PublicURL       string
+	TenantID        string
 	UpstreamAskURL  string
 	UpstreamTimeout time.Duration
 	AllowedEmails   authallow.EmailSet
@@ -104,6 +105,7 @@ func configFromEnv() (config, error) {
 		Addr:            envOr("PORT_ADDR", envOr("GOATOS_HTTP_ADDR", defaultAddr)),
 		MCPPath:         envOr("MESHA_MCP_PATH", defaultMCPPath),
 		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("MESHA_MCP_PUBLIC_URL")), "/"),
+		TenantID:        strings.TrimSpace(os.Getenv("MESHA_MCP_TENANT_ID")),
 		UpstreamAskURL:  ask,
 		UpstreamTimeout: timeout,
 		AllowedEmails:   allowed,
@@ -692,6 +694,8 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 		req.Header.Set("X-Mesha-Actor-Email", email)
 	}
 	if tenant := strings.TrimSpace(r.Header.Get("X-GoatOS-Tenant-ID")); tenant != "" {
+		req.Header.Set("X-GoatOS-Tenant-ID", tenant)
+	} else if tenant := strings.TrimSpace(s.cfg.TenantID); tenant != "" {
 		req.Header.Set("X-GoatOS-Tenant-ID", tenant)
 	}
 	if trace := strings.TrimSpace(r.Header.Get("X-Request-ID")); trace != "" {

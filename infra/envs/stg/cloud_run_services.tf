@@ -448,6 +448,11 @@ resource "google_cloud_run_v2_service" "mcp" {
       }
 
       env {
+        name  = "MESHA_MCP_TENANT_ID"
+        value = "00000000-0000-4000-8000-000000000001"
+      }
+
+      env {
         name = "MESHA_MCP_ALLOWED_EMAILS"
         value_source {
           secret_key_ref {
