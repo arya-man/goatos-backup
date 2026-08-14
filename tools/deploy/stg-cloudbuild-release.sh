@@ -53,6 +53,18 @@ print(json.dumps(payload))
 PY
 }
 
+post_deploy_panel() {
+  local webhook
+  webhook="$(slack_webhook_url)"
+  [[ -n "$webhook" ]] || return 0
+  [[ -f tools/deploy/slack-stg-deploy-bot/deploy-card.json ]] || return 0
+
+  curl -fsS -X POST \
+    -H 'Content-Type: application/json' \
+    --data-binary @tools/deploy/slack-stg-deploy-bot/deploy-card.json \
+    "$webhook" >/dev/null || true
+}
+
 live_image_tag() {
   local service="$1"
   gcloud run services describe "$service" \
@@ -74,6 +86,7 @@ on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
     notify_slack "FAILED" "Cloud Build failed before STG rollout completed."
+    post_deploy_panel
   fi
 }
 
@@ -81,6 +94,7 @@ trap on_exit EXIT
 
 if already_deployed; then
   notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
+  post_deploy_panel
   trap - EXIT
   echo "ALREADY_DEPLOYED ${commit_sha} on goatos-stg"
   exit 0
@@ -92,6 +106,7 @@ notify_slack "STARTED" "Building images and creating Cloud Deploy release for ST
 tools/deploy/stg-clouddeploy-release.sh
 
 notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified."
+post_deploy_panel
 trap - EXIT
 
 echo "DEPLOYED ${commit_sha} to goatos-stg"
