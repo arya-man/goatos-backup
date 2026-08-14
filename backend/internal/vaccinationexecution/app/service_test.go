@@ -827,6 +827,58 @@ func TestVaccinationCardLockInvariant_FinalSubmit(t *testing.T) {
 	}
 }
 
+// TestVaccinationCardLockInvariant_AllProofedNotFinalized covers the drive-close loop state:
+// All animals proofed (done_count = obligation_count) but not finalized submission yet.
+// Card should be UNLOCKED so operator can finalize the submission.
+func TestVaccinationCardLockInvariant_AllProofedNotFinalized(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    10,
+		CompletedCount:     0,   // No direct completion path
+		DoneCount:          10,  // All done via proof
+		CompletionRecorded: 10,  // All proofed, awaiting finalization
+		CompletionAccepted: 0,   // None finalized yet
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 0 {
+		t.Fatalf("openCount = %d, want 0 (all proofed)", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateVerificationPending)
+	if !canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want true for all-proofed-not-finalized (reason=%s)", canContinue, reason)
+	}
+	if reason != "none" {
+		t.Fatalf("OperatorLockedReason = %q, want %q for all-proofed state", reason, "none")
+	}
+}
+
+// TestVaccinationCardLockInvariant_FinalizedAllAccepted covers the locked case with all completions accepted.
+// This is a true final submission: all work done, all proofs verified and accepted.
+// Card is LOCKED with reason="final_submitted".
+func TestVaccinationCardLockInvariant_FinalizedAllAccepted(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    10,
+		CompletedCount:     0,
+		DoneCount:          10,
+		CompletionRecorded: 0,   // All verified
+		CompletionAccepted: 10,  // All accepted
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 0 {
+		t.Fatalf("openCount = %d, want 0", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateCompleted)
+	if canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want false for finalized+accepted card", canContinue)
+	}
+	if reason != "final_submitted" {
+		t.Fatalf("OperatorLockedReason = %q, want %q for finalized+accepted", reason, "final_submitted")
+	}
+}
+
 func strPtr(s string) *string { return &s }
 
 func (fakeRepo) ListAlerts(
