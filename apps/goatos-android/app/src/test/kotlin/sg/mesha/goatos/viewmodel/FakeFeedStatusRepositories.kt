@@ -28,7 +28,7 @@ import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
  * completion screen is open (a verifier decision arriving, or another device's write draining).
  */
 internal class FakeFeedRepository : FeedRepository {
-    override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto> = emptyList()
+    override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto>? = emptyList()
 
     private val packingStatus = MutableStateFlow<String?>(null)
     private val directionStatus = MutableStateFlow<String?>(null)

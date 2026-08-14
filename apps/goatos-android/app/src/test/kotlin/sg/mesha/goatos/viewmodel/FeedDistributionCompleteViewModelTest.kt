@@ -252,6 +252,49 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     /**
+     * A network blip during screen entry must NOT read as "no teammate proofs". The failed shape
+     * observed on-device: operator A uploads a proof, operator B opens (or re-enters) the screen
+     * while WiFi blips, the captures read fails, and B's screen stays stale claiming the slot is
+     * free. The read must distinguish failure (null) from empty and retry until it gets an answer.
+     */
+    @Test
+    fun `a failed teammate-captures read retries instead of treating the blip as no proofs`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-15T02:04:00Z",
+                ),
+            ),
+        ).apply { failuresBeforeSuccess = 2 }
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-15",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        // Two failures then a success: three reads total, and the slot still hydrates.
+        assertEquals(3, teammates.queries.size)
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+    }
+
+    /**
      * Manual Sync must re-fetch teammate/server proof slots, not only drain the local outbox.
      * The stale shape: operator opens the screen at 1/3 slots, teammates upload the other two
      * while it stays open, operator taps Sync — before the fix the screen kept showing 1/3

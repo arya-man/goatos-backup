@@ -28,10 +28,17 @@ class FakeSplitFeedRepository(
     var queries: MutableList<FeedPenSessionCaptureQuery> = mutableListOf()
         private set
 
+    /** Number of leading penSessionCaptures calls that fail (return null) before [slots] is served. */
+    var failuresBeforeSuccess: Int = 0
+
     override suspend fun penSessionCaptures(
         query: FeedPenSessionCaptureQuery,
-    ): List<FeedDistributionCapturedSlotDto> {
+    ): List<FeedDistributionCapturedSlotDto>? {
         queries += query
+        if (failuresBeforeSuccess > 0) {
+            failuresBeforeSuccess--
+            return null
+        }
         return slots
     }
 
