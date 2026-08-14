@@ -9,9 +9,11 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedPackingQuery
 import sg.mesha.goatos.core.data.FeedRepository
+import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
 import sg.mesha.goatos.core.data.FeedTransportStatusSource
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 
@@ -83,6 +85,7 @@ internal class FakeFeedRepository : FeedRepository {
     override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
     override fun observePackingTotals(query: FeedPackingQuery): Flow<Resource<FeedPackingWorklistPageDto>> = error("unused")
     override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> = error("unused")
+    override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto> = error("unused")
 }
 
 /**

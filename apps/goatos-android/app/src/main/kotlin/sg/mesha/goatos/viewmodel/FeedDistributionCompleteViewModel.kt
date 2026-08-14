@@ -28,11 +28,10 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedRepository
+import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
-import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
-import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -73,7 +72,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     @ApplicationContext private val appContext: Context,
-    private val feedRepository: FeedRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -607,6 +605,14 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     }
             },
         )
+    }
+
+    private fun clearProofRowId(slot: ProofSlot) {
+        when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value = null
+            ProofSlot.FEED_VIDEO -> videoProofRowId.value = null
+            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value = null
+        }
     }
 
     private suspend fun discardExistingProof(slot: ProofSlot): Boolean {
