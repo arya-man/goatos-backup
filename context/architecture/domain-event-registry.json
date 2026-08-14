@@ -305,7 +305,7 @@
     },
     {
       "eventType": "weighing.shed.verified_closed",
-      "producer": "weighing NORMAL completion — emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
+      "producer": "weighing NORMAL completion \u2014 emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -330,7 +330,7 @@
     },
     {
       "eventType": "weighing.campaign.verified_closed",
-      "producer": "weighing NORMAL completion CASCADE — same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
+      "producer": "weighing NORMAL completion CASCADE \u2014 same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -1209,56 +1209,140 @@
     {
       "eventType": "health.protocol.published",
       "producer": "strict Health SOP snapshot import transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/protocol_import.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/protocol_import.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.opened",
       "producer": "Health diagnosis/course open transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "health.observation.submitted",
+      "producer": "health diagnosis engine observation submit",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/diagnosis_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/diagnosis_e2e_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "notes": "Aggregate health_diagnosis_run. Carries the proposal's emergencies and field actions, which are actionable WITHOUT a Director confirmation -- a consumer that pages on a red flag must not be gated behind the review. No consumer is wired yet; the event is durable and available for the notification bridge."
+    },
+    {
+      "eventType": "health.diagnosis.confirmed",
+      "producer": "health diagnosis engine Director confirmation",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/diagnosis_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/diagnosis_e2e_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "notes": "Aggregate health_diagnosis_run. Emitted when the Health Director confirms; carries both the confirmed and the DECLINED diagnoses, because an override is a rule defect worth reviewing and must not be lost. No consumer is wired yet."
     },
     {
       "eventType": "health.case.death_held",
       "producer": "Health counts.death.reported consumer transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.death_resumed",
       "producer": "Health counts.death.rejected consumer transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.closed_dead",
       "producer": "Health goat.exited consumer transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.treatment.completed",
       "producer": "Health treatment-session completion transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "weighing.work_item.merged_on_carry_over",

@@ -24,6 +24,12 @@ import retrofit2.http.Query
 import retrofit2.http.Streaming
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
+import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisRequestDto
+import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisResponseDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueuePageDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisRunDto
+import sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
@@ -775,6 +781,34 @@ interface AppApiService {
         @Body request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
 
+    // The diagnosis engine. Submit PROPOSES; only confirm opens a treatment course,
+    // and the two carry different permissions server-side.
+    @POST("app/health/observations")
+    suspend fun submitHealthObservation(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: SubmitHealthObservationRequestDto,
+    ): HealthDiagnosisProposalResponseDto
+
+    @GET("app/health/observations")
+    suspend fun listHealthObservations(
+        @Query("status") status: String?,
+        @Query("goat_id") goatId: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): HealthDiagnosisQueuePageDto
+
+    @GET("app/health/observations/{health_diagnosis_run_id}")
+    suspend fun getHealthObservation(
+        @Path("health_diagnosis_run_id") diagnosisRunId: String,
+    ): HealthDiagnosisRunDto
+
+    @POST("app/health/observations/{health_diagnosis_run_id}/confirm")
+    suspend fun confirmHealthDiagnosis(
+        @Path("health_diagnosis_run_id") diagnosisRunId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ConfirmHealthDiagnosisRequestDto,
+    ): ConfirmHealthDiagnosisResponseDto
+
     @GET("goats/search")
     suspend fun searchGoats(
         @Query("q") q: String?,
@@ -1447,6 +1481,28 @@ class RetrofitAppApi(
 
     override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
         service.getHealthWorkItem(healthSessionId)
+
+    override suspend fun submitHealthObservation(
+        idempotencyKey: String,
+        request: SubmitHealthObservationRequestDto,
+    ): HealthDiagnosisProposalResponseDto = service.submitHealthObservation(idempotencyKey, request)
+
+    override suspend fun listHealthObservations(
+        status: String?,
+        goatId: String?,
+        cursor: String?,
+        limit: Int?,
+    ): HealthDiagnosisQueuePageDto = service.listHealthObservations(status, goatId, cursor, limit)
+
+    override suspend fun getHealthObservation(diagnosisRunId: String): HealthDiagnosisRunDto =
+        service.getHealthObservation(diagnosisRunId)
+
+    override suspend fun confirmHealthDiagnosis(
+        diagnosisRunId: String,
+        idempotencyKey: String,
+        request: ConfirmHealthDiagnosisRequestDto,
+    ): ConfirmHealthDiagnosisResponseDto =
+        service.confirmHealthDiagnosis(diagnosisRunId, idempotencyKey, request)
 
     override suspend fun completeHealthWorkItem(
         healthSessionId: String,

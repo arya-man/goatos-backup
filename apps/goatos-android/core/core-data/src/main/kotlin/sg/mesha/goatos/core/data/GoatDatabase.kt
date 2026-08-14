@@ -57,6 +57,12 @@ import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisQueueDao
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisQueueItemEntity
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisQueueKeyDao
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisQueueKeyEntity
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunDao
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunEntity
 import sg.mesha.goatos.core.data.cache.HealthPageMetaDao
 import sg.mesha.goatos.core.data.cache.HealthPageMetaEntity
 import sg.mesha.goatos.core.data.cache.HealthRemoteKeyDao
@@ -243,6 +249,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         HealthRemoteKeyEntity::class,
         HealthPageMetaEntity::class,
         HealthWorkItemDetailEntity::class,
+        HealthDiagnosisRunEntity::class,
+        HealthDiagnosisQueueItemEntity::class,
+        HealthDiagnosisQueueKeyEntity::class,
         CaptureEvidenceDraftEntity::class,
         WeighingTaskRowEntity::class,
         WeighingTaskRemoteKeyEntity::class,
@@ -261,7 +270,13 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
     ],
-    version = 42,
+    // v43 (see [MIGRATION_42_43]) adds the three diagnosis tables. `health_diagnosis_runs` is the
+    // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
+    // has just recorded an observation can re-open what came back without a request that may never
+    // complete. `health_diagnosis_queue_items` + `health_diagnosis_queue_keys` are the Director's
+    // QUEUE: a bounded keyset window plus its server-issued cursor. Deliberately separate tables —
+    // a refresh of a paged list must not evict a detail cache that shares its rows.
+    version = 43,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -390,6 +405,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun healthRemoteKeyDao(): HealthRemoteKeyDao
     abstract fun healthPageMetaDao(): HealthPageMetaDao
     abstract fun healthWorkItemDetailDao(): HealthWorkItemDetailDao
+    abstract fun healthDiagnosisRunDao(): HealthDiagnosisRunDao
+    abstract fun healthDiagnosisQueueDao(): HealthDiagnosisQueueDao
+    abstract fun healthDiagnosisQueueKeyDao(): HealthDiagnosisQueueKeyDao
     abstract fun weighingRosterDao(): WeighingRosterDao
     abstract fun weighingObservationDao(): WeighingObservationDao
     abstract fun weighingShedObservationDao(): WeighingShedObservationDao

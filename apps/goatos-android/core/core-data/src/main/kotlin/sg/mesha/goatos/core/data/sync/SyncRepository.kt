@@ -20,6 +20,8 @@ import sg.mesha.goatos.core.common.OutboxWritePhase
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
+import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
@@ -456,6 +458,32 @@ interface SyncRepository {
 
     /** Enqueues one Health session completion. The session id is both the ordering group and the
      * stable idempotency identity, preventing duplicate medicine administration rows on retry. */
+    /**
+     * Queues one completed observation form. The GOAT is the ordering group, so two
+     * observations on the same animal drain in the order they were recorded.
+     *
+     * Durable and offline-first: the manager finishes the form in a shed with no
+     * signal and the write survives. The PROPOSAL only exists once this reaches the
+     * server, which is why the screen must not promise a diagnosis on enqueue.
+     */
+    suspend fun enqueueHealthObservationSubmit(
+        goatId: String,
+        findings: HealthObservationFindingsDto,
+        context: HealthObservationContextDto,
+        idempotencyKey: String,
+        goatDisplayId: String,
+    ): AppResult<String> = AppResult.Err("health observation sync is not configured")
+
+    /**
+     * Queues the Director's decision. The RUN is the ordering group; an empty
+     * confirmed list is a real decision that declines the whole proposal.
+     */
+    suspend fun enqueueHealthDiagnosisConfirm(
+        diagnosisRunId: String,
+        confirmedProblems: List<String>,
+        idempotencyKey: String,
+    ): AppResult<String> = AppResult.Err("health diagnosis sync is not configured")
+
     suspend fun enqueueHealthTreatmentComplete(
         healthSessionId: String,
         idempotencyKey: String,
@@ -1173,6 +1201,42 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
             HealthTreatmentCompletePayload(healthSessionId = healthSessionId, proofRef = proofRef),
+        ),
+    )
+
+    override suspend fun enqueueHealthObservationSubmit(
+        goatId: String,
+        findings: HealthObservationFindingsDto,
+        context: HealthObservationContextDto,
+        idempotencyKey: String,
+        goatDisplayId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_OBSERVATION_SUBMIT,
+        groupKey = goatId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthObservationSubmitPayload(
+                goatId = goatId,
+                findings = findings,
+                context = context,
+                goatDisplayId = goatDisplayId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueHealthDiagnosisConfirm(
+        diagnosisRunId: String,
+        confirmedProblems: List<String>,
+        idempotencyKey: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM,
+        groupKey = diagnosisRunId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthDiagnosisConfirmPayload(
+                diagnosisRunId = diagnosisRunId,
+                confirmedProblems = confirmedProblems,
+            ),
         ),
     )
 

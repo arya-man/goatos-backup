@@ -102,6 +102,8 @@ abstract class HealthListViewModel(
 
     fun onEvent(event: HealthListEvent) {
         when (event) {
+            // Navigation only: the queue is its own destination with its own view model.
+            HealthListEvent.OpenDiagnosisQueue -> Unit
             is HealthListEvent.SelectDate -> filters.value = filters.value.copy(date = event.value)
             is HealthListEvent.SelectStatus -> filters.value = filters.value.copy(status = event.value)
             is HealthListEvent.SelectDisease -> filters.value = filters.value.copy(diseaseKey = event.value)
@@ -188,14 +190,8 @@ class AddHealthCaseViewModel @Inject constructor(
                 _state.value = _state.value.copy(selectedGoat = _state.value.matches.firstOrNull { it.goatId == event.goatId })
                 recompute()
             }
-            is AddHealthCaseEvent.SelectDisease -> {
-                _state.value = _state.value.copy(diseaseKey = event.diseaseKey)
-                recompute()
-            }
-            is AddHealthCaseEvent.SelectStartDate -> {
-                _state.value = _state.value.copy(startDate = event.date)
-                recompute()
-            }
+            // Navigation only: the screen hands the animal to the observation form.
+            is AddHealthCaseEvent.CheckAnimal -> Unit
             AddHealthCaseEvent.Submit -> submit()
             AddHealthCaseEvent.NavigationHandled -> _state.value = _state.value.copy(returnToList = false)
             AddHealthCaseEvent.Back -> Unit

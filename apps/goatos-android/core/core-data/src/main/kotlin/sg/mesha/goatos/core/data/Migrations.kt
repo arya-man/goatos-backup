@@ -1147,3 +1147,53 @@ val MIGRATION_41_42: Migration = object : Migration(41, 42) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gallerySavedUri` TEXT")
     }
 }
+
+/**
+ * Adds the diagnosis-run cache: one row per assessment the register produced, so
+ * the proposal screen and the Director's queue read from Room like every other
+ * screen-facing read model instead of a bare network call.
+ *
+ * CREATE, not ALTER: an @Entity added to the @Database with no migration to
+ * create its table works on a fresh install and crashes every upgrade on open.
+ */
+val MIGRATION_42_43: Migration = object : Migration(42, 43) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_diagnosis_runs` (" +
+                "`diagnosisRunId` TEXT NOT NULL, " +
+                "`goatId` TEXT NOT NULL, " +
+                "`goatDisplayId` TEXT NOT NULL, " +
+                "`status` TEXT NOT NULL, " +
+                "`observedAtMs` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`diagnosisRunId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_health_diagnosis_runs_goatId_observedAtMs` " +
+                "ON `health_diagnosis_runs` (`goatId`, `observedAtMs`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_diagnosis_queue_items` (" +
+                "`scopeKey` TEXT NOT NULL, " +
+                "`diagnosisRunId` TEXT NOT NULL, " +
+                "`sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`, `diagnosisRunId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_health_diagnosis_queue_items_scopeKey_sortIndex` " +
+                "ON `health_diagnosis_queue_items` (`scopeKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_diagnosis_queue_keys` (" +
+                "`scopeKey` TEXT NOT NULL, " +
+                "`nextCursor` TEXT, " +
+                "`endReached` INTEGER NOT NULL, " +
+                "`mayConfirm` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`))",
+        )
+    }
+}
