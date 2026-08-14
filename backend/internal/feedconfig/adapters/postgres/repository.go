@@ -1034,8 +1034,63 @@ RETURNING feed_item_id::text`,
 			}
 			return writeEffect{}, fmt.Errorf("feedconfig: insert feed item: %w", err)
 		}
+
+		// The new item gets a 0 g/head row in every cell the grid already has, in THIS transaction.
+		//
+		// Without it a created item is unreachable: the grid renders only rows that exist, so an
+		// item with no rate row has no cell to edit and no way to gain one. That is not
+		// hypothetical -- `Vijay Concentrate` and `RGS Concentrate` sat in that state from
+		// 2026-08-07 until migration 000163, looking successfully added while being unauthorable.
+		//
+		// Same transaction, not a follow-up write, because the half-created state IS the defect. An
+		// item whose catalog row committed and whose rates did not is exactly what we are repairing,
+		// and a caller who saw "added" would have no way to know which half landed.
+		if err := fillRationGridForItem(ctx, tx, cmd.TenantID, cmd.FeedItemLabel); err != nil {
+			return writeEffect{}, err
+		}
 		return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
 	})
+}
+
+// fillRationGridForItem opens a 0 g/head rate for one feed item in every cell the tenant's grid
+// already carries, skipping any cell where the item already has an open row.
+//
+// INSERT ONLY. It holds the same two guarantees as migration 000163, whose SELECT this mirrors:
+// an authored quantity is never overwritten, closed or replaced, and no cell is invented. Scope is
+// the cells that EXIST -- the authored grid is ragged on purpose (Boer carries 1 shed tag where
+// Beetal/Sirohi carries 13), so filling the group x tag cartesian would unblock feeding
+// combinations nobody authored.
+//
+// Labels come from the existing rows rather than the group/tag catalogs, so a filled row is spelled
+// like its neighbours in the same cell and normalizes onto the same generated key.
+//
+// `source_system = 'grid_fill'` marks these apart from an authored 'manual' zero. Nothing reads the
+// column; it keeps a machine-written row distinguishable from a human decision that the answer is
+// none, which are different facts even though today they carry the same number.
+func fillRationGridForItem(ctx context.Context, tx pgx.Tx, tenantID, feedItemLabel string) error {
+	if _, err := tx.Exec(ctx, `
+WITH cells AS (
+    SELECT DISTINCT tenant_id, park_id, ration_group_label, shed_tag_label
+    FROM feed_ration_rates
+    WHERE tenant_id = $1::uuid AND valid_to IS NULL
+)
+INSERT INTO feed_ration_rates (tenant_id, park_id, ration_group_label, shed_tag_label, feed_item_label,
+                               grams_per_head, valid_from, source_system)
+SELECT c.tenant_id, c.park_id, c.ration_group_label, c.shed_tag_label, $2,
+       0, CURRENT_DATE, 'grid_fill'
+FROM cells c
+WHERE NOT EXISTS (
+    SELECT 1 FROM feed_ration_rates r
+    WHERE r.tenant_id        = c.tenant_id
+      AND r.park_id          = c.park_id
+      AND r.ration_group_key = feed_config_norm(c.ration_group_label)
+      AND r.shed_tag_key     = feed_config_norm(c.shed_tag_label)
+      AND r.feed_item_key    = feed_config_norm($2)
+      AND r.valid_to IS NULL)
+ON CONFLICT DO NOTHING`, tenantID, feedItemLabel); err != nil {
+		return fmt.Errorf("feedconfig: fill ration grid for feed item: %w", err)
+	}
+	return nil
 }
 
 // SetFeedItemStatus retires one catalog entry, or restores a retired one.
@@ -1052,12 +1107,12 @@ RETURNING feed_item_id::text`,
 // state is OutcomeUnchanged rather than an error: the caller asked for a state and that state holds.
 func (r *Repository) SetFeedItemStatus(ctx context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error) {
 	return r.runWrite(ctx, domain.WriteKindFeedItem, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
-		var current string
+		var current, label string
 		err := tx.QueryRow(ctx, `
-SELECT status
+SELECT status, feed_item_label
 FROM feed_item_catalog
 WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid
-FOR UPDATE`, cmd.TenantID, cmd.FeedItemID).Scan(&current)
+FOR UPDATE`, cmd.TenantID, cmd.FeedItemID).Scan(&current, &label)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			return writeEffect{}, ports.ErrFeedItemNotFound
@@ -1075,6 +1130,20 @@ SET status = $3, updated_at = now()
 WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid`,
 			cmd.TenantID, cmd.FeedItemID, cmd.Status); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: set feed item status: %w", err)
+		}
+
+		// A RESTORE tops the item back up to the current shape of the grid. Its own rates survived
+		// the retirement untouched (that is the point of a status flip over a delete), but cells
+		// authored while it was away have no row for it -- and a cell with no row is BLOCKED, not
+		// zero. Restoring an item into a state where some sheds cannot be fed would undo the very
+		// guarantee the retire path documents.
+		//
+		// Retiring skips this: a retired item drops out of both the grid read and generation, so
+		// filling cells for it would write rows nothing can see.
+		if cmd.Status == domain.FeedItemStatusActive {
+			if err := fillRationGridForItem(ctx, tx, cmd.TenantID, label); err != nil {
+				return writeEffect{}, err
+			}
 		}
 		// Corrected, not superseded: feed_item_catalog is not effective-dated, so this edits the one
 		// row in place rather than closing a window and opening another.

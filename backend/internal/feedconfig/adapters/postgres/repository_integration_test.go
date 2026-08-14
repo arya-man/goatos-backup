@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1534,6 +1536,9 @@ func TestCreateFeedItemAuthorsNoQuantity(t *testing.T) {
 	if _, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00002", "fp-item", "Vijay Concentrate")); err != nil {
 		t.Fatalf("CreateFeedItem: %v", err)
 	}
+	// An EMPTY grid has no cells, so there is nothing to complete and no row is written. The item
+	// authors no quantity of its own in any case — see the sibling below for the populated grid,
+	// where cells are opened at 0 and 0 is not a quantity but the absence of one made authorable.
 	for _, table := range []string{"feed_ration_rates", "feed_shed_factors", "feed_experiment_config"} {
 		var count int
 		if err := pool.QueryRow(ctx,
@@ -1543,6 +1548,156 @@ func TestCreateFeedItemAuthorsNoQuantity(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("%s holds %d rows after adding a catalog item; adding an item must author no quantity", table, count)
 		}
+	}
+}
+
+// TestCreateFeedItemOpensZeroRowsInEveryExistingCell is the proof for the second half of the
+// 2026-08-14 grid-completion rule, and the reason it exists is a real stranding: `Vijay Concentrate`
+// and `RGS Concentrate` were added to the catalog on 2026-08-07 and never given a rate, which left
+// them UNAUTHORABLE — the grid renders only rows that exist, so an item with no row has no cell to
+// edit and no way to gain one.
+//
+// Three things are asserted together because each is a different way to get this wrong:
+//
+//  1. Every EXISTING cell gains an open row for the new item, at 0.
+//  2. No cell is INVENTED. The authored grid is ragged on purpose, so filling the group x tag
+//     cartesian would unblock feeding combinations nobody authored. Here the ragged shape is a
+//     second group that exists in only one of the two tags.
+//  3. Not one authored quantity moves. This is the assertion that would catch a fill written as an
+//     upsert instead of an insert-where-absent.
+func TestCreateFeedItemOpensZeroRowsInEveryExistingCell(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	// Three cells, deliberately ragged: Boer is authored in both tags, Sojat in only one. The
+	// (Sojat, Pregnant) cell must NOT appear, even though both labels exist in the fixture.
+	authored := []struct{ group, tag, grams string }{
+		{"Boer", "Pregnant", "500.000"},
+		{"Boer", "Non-Pregnant", "250.000"},
+		{"Sojat", "Non-Pregnant", "125.000"},
+	}
+	for i, cell := range authored {
+		cmd := rateCommand(fmt.Sprintf("key-cell-%02d", i), fmt.Sprintf("fp-cell-%02d", i), cell.grams, "2026-07-19")
+		cmd.RationGroupLabel, cmd.ShedTagLabel = cell.group, cell.tag
+		if _, err := repo.UpsertRationRate(ctx, cmd); err != nil {
+			t.Fatalf("seed cell %s/%s: %v", cell.group, cell.tag, err)
+		}
+	}
+
+	if _, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-fill", "fp-item-fill", "Vijay Concentrate")); err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+SELECT ration_group_label, shed_tag_label, grams_per_head::text, source_system
+FROM feed_ration_rates
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Vijay Concentrate') AND valid_to IS NULL
+ORDER BY ration_group_label, shed_tag_label`, fcTenant)
+	if err != nil {
+		t.Fatalf("read filled rows: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var group, tag, grams, source string
+		if err := rows.Scan(&group, &tag, &grams, &source); err != nil {
+			t.Fatalf("scan filled row: %v", err)
+		}
+		if grams != "0.000" {
+			t.Fatalf("%s/%s filled at %s; a completed cell carries 0, never a quantity nobody authored", group, tag, grams)
+		}
+		if source != "grid_fill" {
+			t.Fatalf("%s/%s filled with source_system=%q; a machine-written row must stay distinguishable from an authored 'manual' zero", group, tag, source)
+		}
+		got = append(got, group+"/"+tag)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read filled rows: %v", err)
+	}
+
+	want := []string{"Boer/Non-Pregnant", "Boer/Pregnant", "Sojat/Non-Pregnant"}
+	if !reflect.DeepEqual(got, want) {
+		// A got of 4 with Sojat/Pregnant present means the fill walked the group x tag cartesian and
+		// invented a cell; a got of 0 means it never ran.
+		t.Fatalf("filled cells = %v, want %v", got, want)
+	}
+
+	// The seeded quantities are still exactly what was authored, each still on its 'manual' row.
+	for _, cell := range authored {
+		var grams, source string
+		if err := pool.QueryRow(ctx, `
+SELECT grams_per_head::text, source_system
+FROM feed_ration_rates
+WHERE tenant_id = $1::uuid
+  AND ration_group_key = feed_config_norm($2) AND shed_tag_key = feed_config_norm($3)
+  AND feed_item_key = feed_config_norm('Concentrate') AND valid_to IS NULL`,
+			fcTenant, cell.group, cell.tag).Scan(&grams, &source); err != nil {
+			t.Fatalf("read authored %s/%s: %v", cell.group, cell.tag, err)
+		}
+		if grams != cell.grams || source != "manual" {
+			t.Fatalf("authored %s/%s is now %s g (%s); adding a feed item must never touch an authored quantity",
+				cell.group, cell.tag, grams, source)
+		}
+	}
+}
+
+// TestRestoreFeedItemTopsUpCellsAddedWhileRetired covers the other door into the same defect.
+//
+// Retiring is a status flip, never a delete, so the item's own rates survive — but a cell authored
+// while it was away has no row for it, and a cell with no row is BLOCKED rather than zero. Restoring
+// an item into a state where some sheds cannot be fed would undo the guarantee the retire path
+// documents.
+func TestRestoreFeedItemTopsUpCellsAddedWhileRetired(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	first := rateCommand("key-restore-00", "fp-restore-00", "500.000", "2026-07-19")
+	if _, err := repo.UpsertRationRate(ctx, first); err != nil {
+		t.Fatalf("seed first cell: %v", err)
+	}
+	created, err := repo.CreateFeedItem(ctx, feedItemCommand("key-restore-item", "fp-restore-item", "Vijay Concentrate"))
+	if err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+
+	retire := domain.SetFeedItemStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
+			IdempotencyKey: "key-restore-off", RequestFingerprint: "fp-restore-off",
+		},
+		FeedItemID: created.ResultRowID, Status: domain.FeedItemStatusRetired,
+	}
+	if _, err := repo.SetFeedItemStatus(ctx, retire); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+
+	// A cell authored while the item is retired. The item is out of the grid read and out of
+	// generation, so nothing fills it now.
+	second := rateCommand("key-restore-01", "fp-restore-01", "250.000", "2026-07-19")
+	second.ShedTagLabel = "Non-Pregnant"
+	if _, err := repo.UpsertRationRate(ctx, second); err != nil {
+		t.Fatalf("seed second cell: %v", err)
+	}
+
+	restore := retire
+	restore.Status = domain.FeedItemStatusActive
+	restore.IdempotencyKey, restore.RequestFingerprint = "key-restore-on", "fp-restore-on"
+	if _, err := repo.SetFeedItemStatus(ctx, restore); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	var cells int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM feed_ration_rates
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Vijay Concentrate')
+  AND grams_per_head = 0 AND valid_to IS NULL`, fcTenant).Scan(&cells); err != nil {
+		t.Fatalf("count restored cells: %v", err)
+	}
+	if cells != 2 {
+		t.Fatalf("restored item covers %d cells, want 2; a cell authored during retirement is BLOCKED, not zero", cells)
 	}
 }
 
