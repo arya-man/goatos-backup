@@ -9,6 +9,78 @@ substitutions:
   _DEPLOY_MOBILE: "false"
 
 steps:
+  - id: configure-docker-auth
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - DOCKER_CONFIG=/workspace/.docker
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Docker auth not requested."
+          exit 0
+        fi
+        gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+  - id: build-backend-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - COMMIT_SHA=$COMMIT_SHA
+      - DOCKER_CONFIG=/workspace/.docker
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Backend image build not requested."
+          exit 0
+        fi
+        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:$${tag}"
+        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile -t "$${image}" .
+        docker push "$${image}"
+
+  - id: build-migration-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - COMMIT_SHA=$COMMIT_SHA
+      - DOCKER_CONFIG=/workspace/.docker
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Migration image build not requested."
+          exit 0
+        fi
+        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/migrate:$${tag}"
+        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile.migrate -t "$${image}" .
+        docker push "$${image}"
+
+  - id: build-admin-web-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - COMMIT_SHA=$COMMIT_SHA
+      - DOCKER_CONFIG=/workspace/.docker
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ]; then
+          echo "Admin web image build not requested."
+          exit 0
+        fi
+        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:$${tag}"
+        docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$${image}" .
+        docker push "$${image}"
+
   - id: stg-cloud-deploy-release
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
@@ -21,6 +93,7 @@ steps:
       - DELIVERY_PIPELINE=goatos-stg
       - TARGET_ID=goatos-stg
       - GOATOS_STG_RELEASE_WAIT=1
+      - GOATOS_SKIP_IMAGE_BUILD=1
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - DEPLOY_STG=${_DEPLOY_STG}
     args:
@@ -31,8 +104,7 @@ steps:
           exit 0
         fi
         apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl docker.io git python3
-        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$${PATH}"
+        apt-get install -y --no-install-recommends ca-certificates curl git python3
         tools/deploy/stg-cloudbuild-release.sh
 
   - id: android-mobile-distribution

@@ -78,16 +78,20 @@ echo "project=$active_project"
 echo "commit=$commit_sha"
 echo "release=$release_id"
 
-gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+if [[ "${GOATOS_SKIP_IMAGE_BUILD:-}" == "1" ]]; then
+  echo "Image build skipped: expecting prebuilt Artifact Registry images for $commit_sha"
+else
+  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile -t "$backend_image" .
-docker push "$backend_image"
+  docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile -t "$backend_image" .
+  docker push "$backend_image"
 
-docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
-docker push "$migration_image"
+  docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
+  docker push "$migration_image"
 
-docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
-docker push "$admin_web_image"
+  docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
+  docker push "$admin_web_image"
+fi
 
 gcloud deploy releases create "$release_id" \
   --project="$PROJECT_ID" \
