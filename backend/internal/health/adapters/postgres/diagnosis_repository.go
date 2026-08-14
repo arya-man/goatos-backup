@@ -322,13 +322,15 @@ func (r *DiagnosisRepository) ConfirmDiagnosis(ctx context.Context, in domain.Co
 	}()
 
 	var goatID, status, ageBand string
+	var confirmationKey, confirmationFingerprint *string
 	var proposalJSON []byte
 	err = tx.QueryRow(ctx, `
-SELECT r.goat_id::text, r.status, r.proposal, coalesce(g.age_band,'')
+SELECT r.goat_id::text, r.status, r.proposal, coalesce(g.age_band,''),
+       r.confirmation_idempotency_key, r.confirmation_fingerprint
 FROM health_diagnosis_runs r
 JOIN goats g ON g.tenant_id = r.tenant_id AND g.goat_id = r.goat_id
 WHERE r.tenant_id=$1::uuid AND r.health_diagnosis_run_id=$2::uuid
-FOR UPDATE OF r`, in.TenantID, in.DiagnosisRunID).Scan(&goatID, &status, &proposalJSON, &ageBand)
+FOR UPDATE OF r`, in.TenantID, in.DiagnosisRunID).Scan(&goatID, &status, &proposalJSON, &ageBand, &confirmationKey, &confirmationFingerprint)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ConfirmDiagnosisResult{}, ports.ErrNotFound
 	}
@@ -338,7 +340,7 @@ FOR UPDATE OF r`, in.TenantID, in.DiagnosisRunID).Scan(&goatID, &status, &propos
 
 	if status != domain.DiagnosisStatusProposed {
 		// An exact replay reads back the decision; a different one is refused.
-		existing, replay, rerr := r.replayConfirmation(ctx, tx, in, status)
+		existing, replay, rerr := r.replayConfirmation(ctx, tx, in, status, confirmationKey, confirmationFingerprint)
 		if rerr != nil {
 			return domain.ConfirmDiagnosisResult{}, rerr
 		}
@@ -379,9 +381,10 @@ FOR UPDATE OF r`, in.TenantID, in.DiagnosisRunID).Scan(&goatID, &status, &propos
 	if _, err := tx.Exec(ctx, `
 UPDATE health_diagnosis_runs
 SET status='confirmed', confirmed_by=$3::uuid, confirmed_at=now(),
+    confirmation_idempotency_key=$4, confirmation_fingerprint=$5,
     row_version=row_version+1, updated_at=now()
 WHERE tenant_id=$1::uuid AND health_diagnosis_run_id=$2::uuid`,
-		in.TenantID, in.DiagnosisRunID, in.ActorID); err != nil {
+		in.TenantID, in.DiagnosisRunID, in.ActorID, in.IdempotencyKey, in.RequestFingerprint); err != nil {
 		return domain.ConfirmDiagnosisResult{}, fmt.Errorf("health: confirm run: %w", err)
 	}
 
@@ -448,6 +451,7 @@ func (r *DiagnosisRepository) openCourseFromDiagnosis(
 	// content.
 	sessions := domain.SessionsForHousing(proposal.Housing.Acuity, proposal.Housing.Containment)
 	visits := domain.ScheduleCourse(card.steps, horizonDays, sessions)
+	start := biztime.BusinessDayStart(r.now())
 
 	var parkID, shedID *string
 	if err := tx.QueryRow(ctx, `SELECT park_id::text, shed_id::text FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
@@ -462,12 +466,12 @@ INSERT INTO health_cases
  (tenant_id,goat_id,health_protocol_version_id,disease_key,disease_name,age_band,start_date,
   duration_days,exit_type,status,park_id,shed_id,diagnosed_by,idempotency_key,request_fingerprint,
   health_diagnosis_run_id,register_rule_id)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,current_date,
-  $7,$8,'active',nullif($9,'')::uuid,nullif($10,'')::uuid,$11::uuid,$12,$13,
-  $14::uuid,$15)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7::date,
+  $8,$9,'active',nullif($10,'')::uuid,nullif($11,'')::uuid,$12::uuid,$13,$14,
+  $15::uuid,$16)
 RETURNING health_case_id::text`,
 		in.TenantID, goatID, card.id, card.diseaseKey, card.diseaseName, card.ageBand,
-		durationDays, problem.ExitType, valueOrEmpty(parkID), valueOrEmpty(shedID), in.ActorID,
+		start.Format("2006-01-02"), durationDays, problem.ExitType, valueOrEmpty(parkID), valueOrEmpty(shedID), in.ActorID,
 		caseKey, in.RequestFingerprint, in.DiagnosisRunID, problem.ID).Scan(&caseID)
 	if err != nil {
 		return domain.OpenedCase{}, fmt.Errorf("health: open course for %s: %w", problem.ID, err)
@@ -537,9 +541,18 @@ INSERT INTO health_session_steps (
 	return len(visits), nil
 }
 
-func (r *DiagnosisRepository) replayConfirmation(ctx context.Context, tx pgx.Tx, in domain.ConfirmDiagnosisInput, status string) (domain.ConfirmDiagnosisResult, bool, error) {
+func (r *DiagnosisRepository) replayConfirmation(
+	ctx context.Context, tx pgx.Tx, in domain.ConfirmDiagnosisInput, status string,
+	confirmationKey, confirmationFingerprint *string,
+) (domain.ConfirmDiagnosisResult, bool, error) {
 	if status != domain.DiagnosisStatusConfirmed {
 		return domain.ConfirmDiagnosisResult{}, false, nil
+	}
+	if confirmationKey == nil || *confirmationKey != in.IdempotencyKey {
+		return domain.ConfirmDiagnosisResult{}, false, nil
+	}
+	if confirmationFingerprint == nil || *confirmationFingerprint != in.RequestFingerprint {
+		return domain.ConfirmDiagnosisResult{}, false, ports.ErrConflict
 	}
 	rows, err := tx.Query(ctx, `
 SELECT health_case_id::text, disease_key, exit_type, duration_days,

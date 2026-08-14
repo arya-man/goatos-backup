@@ -151,6 +151,54 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+func TestDiagnosisConfirmationUsesBusinessDateForCaseStart(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, repo := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-business-day"))
+	if err != nil {
+		t.Fatalf("submit observation: %v", err)
+	}
+
+	// 20:30 UTC is already the next Goat OS business day in Asia/Kolkata. The
+	// case row and its sessions must agree on that business date instead of
+	// letting Postgres current_date pick the DB server's timezone.
+	repo.Repository.now = func() time.Time {
+		return time.Date(2026, time.August, 13, 20, 30, 0, 0, time.UTC)
+	}
+	confirmed, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-business-day", RequestFingerprint: "fp-confirm-business-day",
+	})
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if len(confirmed.OpenedCases) != 1 {
+		t.Fatalf("want one opened course, got %+v", confirmed.OpenedCases)
+	}
+
+	var caseStart, firstSessionDate time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT c.start_date, min(s.business_date)
+FROM health_cases c
+JOIN health_treatment_sessions s ON s.tenant_id=c.tenant_id AND s.health_case_id=c.health_case_id
+WHERE c.tenant_id=$1::uuid AND c.health_case_id=$2::uuid
+GROUP BY c.start_date`, healthTenant, confirmed.OpenedCases[0].CaseID).Scan(&caseStart, &firstSessionDate); err != nil {
+		t.Fatalf("read course dates: %v", err)
+	}
+	if got, want := caseStart.Format("2006-01-02"), "2026-08-14"; got != want {
+		t.Fatalf("case start_date = %s, want Goat OS business date %s", got, want)
+	}
+	if got, want := firstSessionDate.Format("2006-01-02"), "2026-08-14"; got != want {
+		t.Fatalf("first session business_date = %s, want %s", got, want)
+	}
+}
+
 // FAIL CLOSED. Nine of the register's thirty diagnoses point at a card nobody
 // has authored. Confirming one must refuse and write NOTHING, rather than open a
 // course with no treatment in it.
@@ -298,6 +346,64 @@ func TestObservationReplayIsIdempotent(t *testing.T) {
 	conflicting.RequestFingerprint = "different"
 	if _, err := svc.SubmitObservation(ctx, conflicting); !errors.Is(err, ports.ErrConflict) {
 		t.Errorf("want ErrConflict for a same-key different-body submit, got %v", err)
+	}
+}
+
+func TestConfirmationReplayRequiresSameDecisionKeyAndBody(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-confirm-replay"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	first, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-replay", RequestFingerprint: "fp-confirm-replay",
+	})
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+
+	again, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-replay", RequestFingerprint: "fp-confirm-replay",
+	})
+	if err != nil {
+		t.Fatalf("exact replay: %v", err)
+	}
+	if !again.IdempotentReplay {
+		t.Fatal("same confirmation key and body must replay")
+	}
+	if len(again.OpenedCases) != len(first.OpenedCases) {
+		t.Fatalf("replay opened cases = %+v, want %+v", again.OpenedCases, first.OpenedCases)
+	}
+
+	_, err = svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"},
+		IdempotencyKey:    "confirm-replay", RequestFingerprint: "different-body",
+	})
+	if !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("same key different body must conflict, got %v", err)
+	}
+
+	_, err = svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: nil,
+		IdempotencyKey:    "confirm-different", RequestFingerprint: "fp-confirm-different",
+	})
+	if !errors.Is(err, ports.ErrDiagnosisAlreadyDecided) {
+		t.Fatalf("different decision after confirmation must be rejected, got %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_cases WHERE tenant_id=$1::uuid`, healthTenant); got != 1 {
+		t.Fatalf("replays and rejected decisions must not open extra courses, found %d", got)
 	}
 }
 
