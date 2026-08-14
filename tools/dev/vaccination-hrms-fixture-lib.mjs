@@ -681,3 +681,7 @@ export function updateManifestHashes(directory, manifest) {
 // milk + aas_health department_module_grants rows. Nothing in this fixture contract changes: module
 // grants gate a bottom bar, not a vaccination source input. No fixture byte, hash, row count, goat
 // field, protocol rule or operator capacity is touched, so no validator here needed updating.
+// Coupling review 2026-08-14: migrations 000160/000161 add capacity and cohort columns to
+// shed_partitions for the Counts/Sheds directory. Those are pen-catalog configuration fields, not
+// vaccination HRMS source fields; the committed fixture bytes, hashes, row counts, SOP proof grain,
+// protocol rows, goat_shed_partitions placement contract, and operator capacity rules stay unchanged.
