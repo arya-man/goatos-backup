@@ -188,14 +188,9 @@ class ScanViewModel @Inject constructor(
     // needs its video.") when that goat's capture is cancelled in favor of a newly scanned goat.
     private var strandedGoatTag: String? = null
     private var proofCaptureJob: Job? = null
-    // The ONE goat queued behind an in-flight capture for a DIFFERENT goat. An in-flight capture
-    // (recording or already-captured-and-uploading) is NEVER cancelled by a later scan — that
-    // would destroy an unrecoverable field recording, the exact defect confirmed from real shed
-    // use ("RFID scan mid-recording stops recording and comes out"). Instead the newly scanned
-    // goat is queued here and [requestGoatProof]'s own `finally` opens its camera automatically
-    // the instant the in-flight job completes. Only the LAST queued goat survives a later scan —
-    // see the drop notice in [requestGoatProof].
-    private var pendingProofRequest: PendingProofRequest? = null
+    // NOTE: no queued-goat field. A scan that arrives while ANY capture is in flight — same goat
+    // or a different one — is REJECTED with a visible notice ([_proofCaptureBusyNotice]) instead
+    // of being remembered for auto-open; see [requestGoatProof]'s "visible block" doc.
     // Flips true the instant `proofCaptureSource.captureVideo(...)` RETURNS a non-null
     // [sg.mesha.goatos.capture.CapturedVideo] for the in-flight goat — i.e. once a real, complete
     // recording exists and hand-off to Room/the outbox has begun. From that point the capture must
@@ -235,6 +230,10 @@ class ScanViewModel @Inject constructor(
     // already-DONE tag. Does NOT add a feed row (that would pile up duplicates) — cleared on the
     // next ACCEPTED scan and when capture is disabled, so it never lingers stale.
     private val _duplicateNotice = MutableStateFlow<String?>(null)
+    // True only while [_duplicateNotice] holds the localized "capture busy" rejection copy
+    // (see [requestGoatProof]) — lets the Composable render the LOCALIZED string resource for
+    // this specific notice while other duplicate/notice strings stay as-is.
+    private val _proofCaptureBusyNotice = MutableStateFlow(false)
     private val _scanErrorNotice = MutableStateFlow<ScanError?>(null)
     private val _proofReplacementGoatId = MutableStateFlow<String?>(null)
     private val _proofSyncingStartedAt = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -271,6 +270,7 @@ class ScanViewModel @Inject constructor(
         _proofSyncingStartedAt,
         _lastProofCaptureError,
         shedCompletionSummary,
+        _proofCaptureBusyNotice,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
         val total = values[1] as Int
@@ -301,6 +301,7 @@ class ScanViewModel @Inject constructor(
         val proofSyncingStartedAt = values[24] as Map<String, Long>
         val lastProofCaptureError = values[25] as String?
         val shedSummary = values[26] as ShedCompletionSummaryDto?
+        val proofCaptureBusy = values[27] as Boolean
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -457,6 +458,7 @@ class ScanViewModel @Inject constructor(
             },
             readerConnection = readerStatus.toScanReaderConnection(readerName),
             duplicateNotice = duplicateNotice,
+            proofCaptureBusy = proofCaptureBusy && duplicateNotice == PROOF_CAPTURE_BUSY_MESSAGE,
             proofReplacementGoatId = proofReplacementGoatId,
             lastProofCaptureError = lastProofCaptureError,
         )
@@ -494,6 +496,7 @@ class ScanViewModel @Inject constructor(
             // Input re-enabled (e.g. returning to the Scan screen) — clear any stale strip from a
             // prior session rather than showing an old duplicate notice.
             _duplicateNotice.value = null
+            _proofCaptureBusyNotice.value = false
             reader.refreshStatus()
             if (readerRefreshJob?.isActive == true) return
             readerRefreshJob = viewModelScope.launch {
@@ -612,6 +615,7 @@ class ScanViewModel @Inject constructor(
             val dbRow = repo.findScanRosterByTag(id, taskId, target, partitionLabel) ?: run {
                 _proofReplacementGoatId.value = null
                 _duplicateNotice.value = null
+                _proofCaptureBusyNotice.value = false
                 _scanErrorNotice.value = ScanError(message = "Unknown tag · not in this shed", tag = tag)
                 recordScanAttempt(
                     tag = tag,
@@ -665,6 +669,7 @@ class ScanViewModel @Inject constructor(
                     )
                     _proofReplacementGoatId.value = null
                     _duplicateNotice.value = null
+                    _proofCaptureBusyNotice.value = false
                     _scanErrorNotice.value = null
                     val reason = if (armedReplacementGoatId == dbRow.goatId) "proof_replace_requested" else "proof_needed_rescan"
                     recordScanAttempt(tag, replacementRow, RfidScanAttemptOutcome.DUPLICATE, replacementRow.tagRoleFor(target), reason, capturedAtMs)
@@ -673,6 +678,7 @@ class ScanViewModel @Inject constructor(
                 }
                 _proofReplacementGoatId.value = null
                 _duplicateNotice.value = null
+                _proofCaptureBusyNotice.value = false
                 _scanErrorNotice.value = ScanError(message = "Not due in this drive", tag = tag)
                 recordScanAttempt(
                     tag = tag,
@@ -726,6 +732,7 @@ class ScanViewModel @Inject constructor(
                     _proofReplacementGoatId.value = null
                     _manualDone.update { it - row.obligationId }
                     _duplicateNotice.value = null
+                    _proofCaptureBusyNotice.value = false
                     _scanErrorNotice.value = null
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null, capturedAtMs)
                     if (proofPolicy.value.isPerGoatVideo) {
@@ -749,6 +756,7 @@ class ScanViewModel @Inject constructor(
                         _proofReplacementGoatId.value = null
                         _manualDone.update { it - scanObligationIds }
                         _duplicateNotice.value = null
+                        _proofCaptureBusyNotice.value = false
                         _scanErrorNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "manual_done_replaced_by_reader_scan", capturedAtMs)
                         recordRosterScan(row, tag, capturedAtMs, scannableSameGoatRows)
@@ -756,6 +764,7 @@ class ScanViewModel @Inject constructor(
                     } else if (proofPolicy.value.isPerGoatVideo && armedReplacementGoatId == row.goatId) {
                         _proofReplacementGoatId.value = null
                         _duplicateNotice.value = null
+                        _proofCaptureBusyNotice.value = false
                         _scanErrorNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "proof_replace_requested", capturedAtMs)
                         requestGoatProof(row)
@@ -765,6 +774,7 @@ class ScanViewModel @Inject constructor(
                     ) {
                         _proofReplacementGoatId.value = null
                         _duplicateNotice.value = null
+                        _proofCaptureBusyNotice.value = false
                         _scanErrorNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "proof_rescan", capturedAtMs)
                         recordRosterScan(row, tag, capturedAtMs, scannableSameGoatRows)
@@ -774,11 +784,13 @@ class ScanViewModel @Inject constructor(
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned", capturedAtMs)
                         _scanErrorNotice.value = null
                         _duplicateNotice.value = "Already scanned · ${row.vaccineLabel}"
+                        _proofCaptureBusyNotice.value = false
                     }
                 }
                 ScanStatus.SKIPPED -> {
                     _proofReplacementGoatId.value = null
                     _duplicateNotice.value = null
+                    _proofCaptureBusyNotice.value = false
                     _scanErrorNotice.value = ScanError(message = "Not due · ${row.vaccineLabel}", tag = tag)
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.NOT_DUE, tagRole, "not_due", capturedAtMs)
                     _feed.update {
@@ -909,6 +921,7 @@ class ScanViewModel @Inject constructor(
         _proofReplacementGoatId.value = goatId
         _scanErrorNotice.value = null
         _duplicateNotice.value = null
+        _proofCaptureBusyNotice.value = false
     }
 
     /** R50-008: derive ring/tile counters from the FULL shed roster (Room GROUP BY aggregates),
@@ -1356,35 +1369,22 @@ class ScanViewModel @Inject constructor(
 
         val strandedGoatId = proofCaptureGoatId
         if (proofCaptureInFlight && strandedGoatId != null) {
-            if (strandedGoatId == row.goatId) {
-                // Same goat re-scanned mid-recording — nothing to do, restarting would just reopen
-                // the same camera on itself.
-                _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
-                return
-            }
-            // A DIFFERENT goat was scanned while a capture is still in flight for another one —
-            // recording, or already captured and mid-upload. The camera can never be cancelled to
-            // serve this new scan (that is the defect this fix removes), so queue it instead.
-            val pendingRequest = PendingProofRequest(row, pendingScanCommit)
-            val replaced = pendingProofRequest
-            if (replaced != null && replaced.row.goatId != row.goatId) {
-                // An earlier queued goat is overtaken before its camera ever opened — a genuine
-                // drop, not a silent one.
-                analytics.track(
-                    AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED,
-                    mapOf(AnalyticsEvents.Params.KIND to "vaccination"),
-                )
-                _duplicateNotice.value = "${replaced.row.primaryTag} still needs its video — dropped for ${row.primaryTag}."
-            } else {
-                val strandedTag = strandedGoatTag ?: strandedGoatId
-                _duplicateNotice.value = "${row.primaryTag} queued — camera opens once $strandedTag's video is saved."
-            }
-            pendingProofRequest = pendingRequest
+            // "Visible block" (not a queue): while ANY goat's capture is in flight — same goat
+            // re-scanned, or a DIFFERENT goat scanned ahead — the new scan is REJECTED outright
+            // with a visible, localized notice. It is never silently dropped and never queued for
+            // auto-open: queueing previously auto-opened B's camera the instant A's job finished,
+            // which (a) surprised the operator with a camera they did not just scan for and (b)
+            // made B's fate depend on A's timing instead of a deliberate re-scan. The in-flight
+            // capture (A) is completely unaffected either way — this branch never touches
+            // [proofCaptureJob]/[proofCaptureGoatId]. Once A's capture finishes (see the `finally`
+            // below), B is simply not remembered: the operator re-scans B like any other animal.
+            _proofCaptureBusyNotice.value = true
+            _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
             analytics.track(
-                AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED,
+                AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED,
                 mapOf(
                     AnalyticsEvents.Params.KIND to "vaccination",
-                    AnalyticsEvents.Params.REASON to "recording_in_progress",
+                    AnalyticsEvents.Params.REASON to if (strandedGoatId == row.goatId) "same_goat_recording_in_progress" else "recording_in_progress",
                 ),
             )
             return
@@ -1522,16 +1522,11 @@ class ScanViewModel @Inject constructor(
                     // scanned · X") is never clobbered.
                     if (_duplicateNotice.value == PROOF_CAPTURE_BUSY_MESSAGE) {
                         _duplicateNotice.value = null
+                        _proofCaptureBusyNotice.value = false
                     }
-                    // The camera just freed up — if a goat was queued behind this capture (see
-                    // [pendingProofRequest]'s doc), open its camera now instead of stranding it until
-                    // another scan happens to arrive. This runs whether the capture succeeded or
-                    // failed: either way the physical camera is free again.
-                    val queued = pendingProofRequest
-                    pendingProofRequest = null
-                    if (queued != null) {
-                        requestGoatProof(queued.row, queued.pendingScanCommit)
-                    }
+                    // No queued goat to auto-open (see the visible-block doc above): the camera is
+                    // simply free again, and a rejected scan is only picked up by a deliberate
+                    // re-scan from the operator.
                 }
             }
         }
@@ -1619,11 +1614,6 @@ private data class PendingScanCommit(
     val capturedAtMs: Long,
     val obligationIds: Set<String>,
     val rosterRows: List<ScanRosterRowEntity>,
-)
-
-private data class PendingProofRequest(
-    val row: RosterRow,
-    val pendingScanCommit: PendingScanCommit?,
 )
 
 private fun vaccinationProofTitle(row: RosterRow, screenTitle: String, detail: TaskDetail?): String =
