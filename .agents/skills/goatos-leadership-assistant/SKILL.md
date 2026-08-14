@@ -16,6 +16,11 @@ The assistant is **read-only** over business data. Tenant + role scope come from
 the **server-side session, never from user text**. User-visible brand is
 **Mesha**, never "Goat OS".
 
+The external MCP connector is a product entrypoint into this assistant. It is
+not a raw database/API publishing mechanism. Claude, Codex, and CEO-facing MCP
+clients only see new data after the assistant coverage layer below maps it to a
+governed read path or records an explicit exclusion.
+
 > **Boundary (one-way only).** The assistant/reporting namespace `ceo_ai`
 > (chatbot `backend/internal/ceoai/**`, `/api/ceo-ai/*`, and the `ceo_ai.*`
 > reporting schema) **consumes** core operator data — it must never sit between
@@ -53,6 +58,10 @@ the same change, OR a documented exclusion. `make leadership-assistant-coverage-
 > 5. a **documented exclusion** in `docs/ceo-ai/coverage-matrix.md` with a reason.
 >
 > Nothing may be leadership-relevant AND uncovered AND undocumented.
+>
+> Adding a table, API, or OpenAPI path does not automatically make it safe for
+> MCP. It becomes available through external MCP only after the covered
+> read-path exists and this guard can prove or document that coverage.
 
 ## Read-path routing hierarchy (Cube-first)
 
@@ -126,6 +135,7 @@ files and copy-paste patterns.
 |---|---|
 | Read-path plan / architecture | `docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md` |
 | MCP Toolbox plan | `docs/ceo-ai/mcp-toolbox-plan.md` |
+| External MCP connector setup / OAuth / client docs | `docs/ceo-ai/external-mcp-integration.md` |
 | MCP Toolbox tool catalog | `docs/ceo-ai/mcp-toolbox-tools.yaml` |
 | Coverage matrix (backfill baseline) | `docs/ceo-ai/coverage-matrix.md` |
 | Developer guide (architecture map) | `docs/ceo-ai/leadership-assistant-developer-guide.md` |

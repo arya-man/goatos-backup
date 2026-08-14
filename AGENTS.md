@@ -2903,14 +2903,19 @@ Do not:
   real coverage artifact (`ceo_ai.*` view / MCP tool / Cube binding / wired
   `Set*DataReader`) or a coverage-matrix row/exclusion NAMING that surface in the
   same commit; a bare keyword-bearing doc touch no longer satisfies it, and pure
-  refactors pass without a coverage file. The
-  read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
-  Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
+  refactors pass without a coverage file. The external MCP connector is not a
+  raw table/API auto-publisher; it exposes the leadership assistant product
+  entrypoint. New tables/APIs become visible through Claude/Codex/CEO chat only
+  after they are covered by the Cube/read-API/Toolbox/`ceo_ai`/SQL-fallback
+  layer or explicitly excluded. The read-path routing is Cube-first (official
+  KPI → Cube; then read APIs → MCP Toolbox `ceo_ai.*` tools → read-only SQL
+  fallback). The planner → catalog →
   wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
   every tool name must resolve in the runtime registry (Cube binding, executor spec,
   toolbox tool, or fallback alias), every RouteAPI target must have a wired reader or
   fallback alias, and every coverage row must reference a golden eval question. HOW-TO:
   `.agents/skills/goatos-leadership-assistant/SKILL.md` (includes ROUTE-CLOSURE rules).
+  External MCP setup/docs: `docs/ceo-ai/external-mcp-integration.md`.
   Scaffold: `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
   `make leadership-assistant-coverage-guard` + `make assistant-route-closure-guard`
   (local CI + PostToolUse nudge for Claude and Codex).

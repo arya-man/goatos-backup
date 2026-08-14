@@ -205,7 +205,10 @@ mobile workflow, reporting view, domain event, or official KPI. It is the
 canonical HOW-TO for keeping the Mesha leadership assistant (CEO/CXO read-only
 chatbot) read path in sync — Cube-first routing, `ceo_ai.*` views, MCP Toolbox
 tools, read-API mappings, GenAI query-classes, evals — or writing a documented
-exclusion.
+exclusion. The external MCP connector is only the product entrypoint; it must
+not be treated as a raw table/API dump. New tables and APIs become visible to
+Claude/Codex/CEO chat only after this coverage layer is updated or explicitly
+excluded.
 
 ```text
 .agents/skills/goatos-leadership-assistant/SKILL.md
@@ -231,7 +234,8 @@ Machine gate: `make leadership-assistant-coverage-guard`
 `tools/ci/run-local-ci.sh`, and nudged on PostToolUse for Claude
 (`.claude/settings.json`) and Codex (`.codex/hooks.json`). Scaffold:
 `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Backfill baseline:
-`docs/ceo-ai/coverage-matrix.md`.
+`docs/ceo-ai/coverage-matrix.md`. External connector/operator setup:
+`docs/ceo-ai/external-mcp-integration.md`.
 
 ## Agent tool routing (human)
 
