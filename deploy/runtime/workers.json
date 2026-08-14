@@ -67,6 +67,16 @@
       "notes": "No command/args override in Terraform: infra/envs/{dev,stg}/cloud_run_services.tf (stg) and the dev API service run the image's Dockerfile ENTRYPOINT as-is."
     },
     {
+      "name": "mcp",
+      "binary": "mcp",
+      "kind": "service",
+      "args": [],
+      "health_signal": "GET /readyz returns 200 when MESHA_MCP_UPSTREAM_URL or MESHA_MCP_UPSTREAM_ASK_URL is configured",
+      "deployed_environments": ["stg"],
+      "service_tf_files": { "stg": "infra/envs/stg/cloud_run_services.tf" },
+      "notes": "External leadership-assistant MCP facade for Claude, Codex, and ChatGPT-style clients. Terraform runs /app/bin/mcp from the backend image and proxies tool calls to goatos-api-stg /ceo-ai/ask so the API remains authoritative for auth, tenant scope, ceo_internal role, audit, and read-only business access."
+    },
+    {
       "name": "kernel_worker",
       "binary": "kernel-worker",
       "kind": "service",
