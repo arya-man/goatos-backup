@@ -444,7 +444,7 @@ resource "google_cloud_run_v2_service" "mcp" {
 
       env {
         name  = "MESHA_MCP_PUBLIC_URL"
-        value = "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app"
+        value = "https://mcp.mesha.sg"
       }
 
       env {
