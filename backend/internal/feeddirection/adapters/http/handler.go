@@ -680,10 +680,14 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, ports.ErrDistributionAlreadyRecorded),
 		errors.Is(err, ports.ErrPackingAlreadyRecorded):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
-	case errors.Is(err, ports.ErrDistributionProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
-	case errors.Is(err, ports.ErrWaterProofRequired):
+	// Every mandatory distribution capture answers the same way, listed together so a fourth proof
+	// cannot be added to the service and silently fall through to the 500 default -- which is what
+	// happened to the feed-weight photo, telling an operator who had not taken it yet that the
+	// server was broken. The message names which capture is missing; the code stays one value so a
+	// client can branch on "you still owe a capture" without parsing prose.
+	case errors.Is(err, ports.ErrFeedWeightProofRequired),
+		errors.Is(err, ports.ErrDistributionProofRequired),
+		errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):

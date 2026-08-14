@@ -1581,11 +1581,15 @@ export interface paths {
         put?: never;
         /**
          * Submit one shed-session's feed distribution for verifier approval.
-         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits TWO mandatory proofs -- a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution proof (`water_proof_ref`, which may be a photo OR a video) -- which writes a `pending_verification` row and enqueues ONE verification item carrying both proofs. NOTHING is completed here.
+         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits THREE mandatory proofs -- a feed-weight PHOTO (`feed_weight_proof_ref`, which must come from the live in-app camera), a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution VIDEO (`water_proof_ref`) -- which writes a `pending_verification` row and enqueues ONE verification item carrying all three proofs. NOTHING is completed here.
+         *
+         *     The capture KIND is part of the contract, not a client preference: a still frame where a clip was promised leaves the verifier something they cannot judge. The weight photo additionally demands a live capture, because a gallery pick is a photo of a scale from some other day and only a live one ties the reading to this pen's feed.
+         *
+         *     The three proofs may be captured by THREE DIFFERENT operators on three different phones (maintainer decision, 2026-08-14). Read `GET /feed-direction/distribution/captures` to learn which slots a pen-session already has and each one's server proof id, then send those ids here -- a phone that shot none of them can still submit.
          *
          *     The session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-direction/preview` rows for that shed-session report `completed: true`.
          *
-         *     Both proofs are MANDATORY: a request missing `distribution_proof_ref` or `water_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         *     All three proofs are MANDATORY: a request missing any of `feed_weight_proof_ref`, `distribution_proof_ref` or `water_proof_ref` -- or carrying one of the wrong capture kind -- is rejected `422 proof_required` before any state changes, because there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
          */
         post: operations["completeFeedDistribution"];
         delete?: never;
@@ -12878,7 +12882,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            /** @description A mandatory proof is missing (`code: proof_required`): either the feed-distribution video or the water-distribution proof was blank. */
+            /** @description A mandatory proof is missing or is the wrong capture kind (`code: proof_required`): the feed-weight photo, the feed-distribution video, or the water-distribution video. The message names which one; the code is the same for all three. */
             422: {
                 headers: {
                     [name: string]: unknown;
