@@ -465,6 +465,49 @@ class ShedsViewModelTest {
             row.opensRecordOnly,
         )
     }
+
+    @Test
+    fun `verification pending alone without terminal sopStatus must not trigger record-only`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-verification-pending",
+                        shedName = "Test Shed",
+                        parkId = "park-test",
+                        parkName = "Test Park",
+                        dueDate = today.toString(),
+                        targetCount = 5,
+                        openCount = 4,
+                        doneCount = 1,
+                        acceptedCount = 0,
+                        reviewCount = 1,
+                        workState = "in_progress",
+                        sopStatus = "in_progress",
+                        verificationStatus = "pending",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-verification-pending" }
+        assertTrue("partial proof shed must stay on the list", row != null)
+        assertEquals(
+            "verificationStatus=pending alone (partial evidence, no terminal sopStatus) must not lock",
+            false,
+            row!!.opensRecordOnly,
+        )
+    }
 }
 
 private class ShedsRecordingAnalytics : AnalyticsPort {

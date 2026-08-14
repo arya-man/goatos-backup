@@ -691,6 +691,11 @@ class ScanViewModel @Inject constructor(
                 .map { it.obligationId }
                 .filter { it.isNotBlank() }
                 .toSet()
+            // When scannableSameGoatRows is non-empty, use the scannable sibling (e.g., a due obligation
+            // for the same goat) instead of dbRow's arbitrary obligation. This ensures same-goat
+            // multi-vaccine cases record to the correct, outstanding obligation.
+            // Fall back to dbRow only when no scannable sibling exists.
+            val selectedRow = if (scannableSameGoatRows.isNotEmpty()) scannableSameGoatRows.first() else dbRow
             // Map DB row to UI row for status and tag-role matching, overlaying the session's
             // local unsynced DONE edits (same overlay as applyResource) so a re-scan of an
             // already-locally-done goat takes the DUPLICATE path, not a second capture.
@@ -699,11 +704,11 @@ class ScanViewModel @Inject constructor(
                 primaryTag = dbRow.primaryTag,
                 secondaryTag = dbRow.secondaryTag,
                 vaccineLabel = scanVaccineLabel,
-                status = if (locallyDone) ScanStatus.DONE else statusOf(dbRow.status),
+                status = if (locallyDone) ScanStatus.DONE else statusOf(selectedRow.status),
                 unsynced = locallyDone,
                 goatId = dbRow.goatId,
-                obligationId = dbRow.obligationId,
-                obligationRowVersion = dbRow.obligationRowVersion,
+                obligationId = selectedRow.obligationId,
+                obligationRowVersion = selectedRow.obligationRowVersion,
                 proofRequired = proofPolicy.value.isPerGoatVideo,
             )
             val tagRole = row.tagRoleFor(target)

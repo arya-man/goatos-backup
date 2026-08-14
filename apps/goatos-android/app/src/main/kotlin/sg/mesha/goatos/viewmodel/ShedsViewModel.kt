@@ -888,13 +888,11 @@ internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolea
         all { row -> row.hasSubmittedRecord() }
 
 private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
-    openCount == 0 && (
-        sopStatus.isSubmissionTerminalStatus() ||
-            verificationStatus.equals("pending", ignoreCase = true) ||
-            verificationStatus.equals("accepted", ignoreCase = true) ||
-            verificationStatus.equals("verified", ignoreCase = true) ||
-            workState.equals("verification_pending", ignoreCase = true)
-    )
+    // Record-only iff sopStatus is a TERMINAL submission status (submitted/needs_review/accepted/closed).
+    // Backend guarantees these only when all obligations are truly done (via SQL union done_count).
+    // verificationStatus="pending" alone (partial proof, no terminal sopStatus) must NOT trigger record-only
+    // to keep the scan/camera workflow available until final submission.
+    sopStatus.isSubmissionTerminalStatus()
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

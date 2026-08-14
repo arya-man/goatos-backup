@@ -174,10 +174,13 @@ interface ScanRosterRowDao {
     @Query("SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId IN (:goatIds)")
     suspend fun rowsByGoatIds(scopeKey: String, goatIds: List<String>): List<ScanRosterRowEntity>
 
-    /** Exact lookup over the canonical tag persisted at refresh time. */
+    /** Exact lookup over the canonical tag persisted at refresh time.
+     *  ORDER BY: PENDING obligations first (outstanding status), then others.
+     *  This ensures sibling rows (same goat, different obligations) favor the due/open obligation. */
     @Query(
         "SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND " +
             "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag) " +
+            "ORDER BY CASE WHEN status IN ('pending', 'due') THEN 0 ELSE 1 END, rowId ASC " +
             "LIMIT 1"
     )
     suspend fun findByTag(scopeKey: String, normalizedTag: String): ScanRosterRowEntity?
