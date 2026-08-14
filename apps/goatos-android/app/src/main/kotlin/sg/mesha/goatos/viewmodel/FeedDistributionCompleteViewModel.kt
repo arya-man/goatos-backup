@@ -555,6 +555,10 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED)
         viewModelScope.launch {
             syncRepository.triggerDrain()
+            // Manual sync must also re-fetch teammate/server proof slots: another operator may
+            // have uploaded the missing captures while this screen is open, and draining the
+            // local outbox alone leaves the slot display stale until back/reopen.
+            refreshTeammateCaptures()
         }
     }
 

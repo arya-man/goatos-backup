@@ -69,7 +69,6 @@ class FeedDistributionCompleteViewModelTest {
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
-            feedRepository = FakeFeedRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
@@ -130,7 +129,6 @@ class FeedDistributionCompleteViewModelTest {
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
-            feedRepository = FakeFeedRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
@@ -254,6 +252,80 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     /**
+     * Manual Sync must re-fetch teammate/server proof slots, not only drain the local outbox.
+     * The stale shape: operator opens the screen at 1/3 slots, teammates upload the other two
+     * while it stays open, operator taps Sync — before the fix the screen kept showing 1/3
+     * until back/reopen, because refreshTeammateCaptures() ran on init only.
+     */
+    @Test
+    fun `tapping Sync re-fetches teammate captures and unlocks submit with server refs`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-14T03:44:56Z",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "2",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 8",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        // Opened at 1/3: only the weight photo exists server-side.
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+        assertEquals(false, viewModel.state.value.videoCaptured)
+        assertEquals(false, viewModel.state.value.submitEnabled)
+
+        // Teammates upload the remaining two slots while the screen stays open.
+        teammates.slots = teammates.slots + listOf(
+            FeedDistributionCapturedSlotDto(
+                fieldKey = "feed_distribution_video",
+                proofRef = "server-proof-feed-video",
+                capturedAt = "2026-08-14T03:45:26Z",
+            ),
+            FeedDistributionCapturedSlotDto(
+                fieldKey = "feed_distribution_water_video",
+                proofRef = "server-proof-water-video",
+                capturedAt = "2026-08-14T03:45:47Z",
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.SyncNow)
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.videoCaptured)
+        assertEquals(true, viewModel.state.value.waterVideoCaptured)
+        assertEquals(true, viewModel.state.value.submitEnabled)
+
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        advanceUntilIdle()
+
+        assertEquals(1, syncRepository.completionEnqueueCount)
+        assertEquals("server-proof-feed-video", syncRepository.lastDistributionProofRef)
+        assertEquals("server-proof-water-video", syncRepository.lastWaterProofRef)
+    }
+
+    /**
      * Re-entering the screen on a PARTITIONED pen must rehydrate an already-captured proof from
      * Room. The view model is scoped to its nav back stack entry, so leaving the screen clears all
      * in-memory state (and the SavedStateHandle with it) — the durable proof read is the only thing
@@ -285,7 +357,6 @@ class FeedDistributionCompleteViewModelTest {
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
-            feedRepository = FakeFeedRepository(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
