@@ -130,6 +130,7 @@ locals {
       secret_id = "goatos-stg-firebase-web-config"
       accessors = [
         "admin_web",
+        "mcp",
       ]
     }
     google_oauth_web_credential = {

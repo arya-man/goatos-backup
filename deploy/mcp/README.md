@@ -23,8 +23,9 @@ Region:           asia-south1
 Service:          goatos-mcp-stg
 Artifact image:   asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:<tag>
 Service account:  goatos-mcp-stg@goatos-stg.iam.gserviceaccount.com
-Ingress:          public Cloud Run invoker, application-gated by bearer token
+Ingress:          public Cloud Run invoker, application-gated by OAuth login / bearer token
 Secret:            goatos-stg-auth-allowed-emails -> MESHA_MCP_ALLOWED_EMAILS
+Secret:            goatos-stg-firebase-web-config -> GOATOS_FIREBASE_WEB_CONFIG
 Upstream:          GOATOS API /ceo-ai/ask
 ```
 
@@ -52,6 +53,7 @@ Terraform owns creation of:
 - `google_cloud_run_v2_service_iam_member.mcp_public_invoker`
 - runtime service account key `mcp`
 - Secret Manager accessor for `goatos-stg-auth-allowed-emails`
+- Secret Manager accessor for `goatos-stg-firebase-web-config`
 
 Use Terraform only to create or change the service shape. Use Cloud Deploy for
 normal image promotion.
@@ -73,7 +75,15 @@ gcloud run services describe goatos-mcp-stg \
   --format='value(status.url,status.latestReadyRevisionName)'
 ```
 
-Then smoke `/readyz`, followed by an MCP `tools/list` request. Real
-`tools/call` requests must include the caller bearer token and
-`X-GoatOS-Tenant-ID`; the MCP service verifies the token email against the
-leadership allowlist before it reaches the upstream API.
+Then smoke `/readyz`, OAuth discovery, and first-time MCP login:
+
+```bash
+curl -fsS "$MCP_URL/.well-known/oauth-protected-resource" | jq .
+curl -fsS "$MCP_URL/.well-known/oauth-authorization-server" | jq .
+```
+
+Unauthenticated `/mcp` requests should return `401` with a
+`WWW-Authenticate` header that points clients to the protected-resource
+metadata. After login, real `tools/call` requests carry the caller bearer token
+issued through the OAuth flow; the MCP service verifies the token email against
+the leadership allowlist before it reaches the upstream API.

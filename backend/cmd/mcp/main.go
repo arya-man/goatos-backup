@@ -8,15 +8,21 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
@@ -42,6 +48,11 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/livez", srv.handleLive)
 	mux.HandleFunc("/readyz", srv.handleReady)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", srv.handleProtectedResourceMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", srv.handleAuthorizationServerMetadata)
+	mux.HandleFunc("/register", srv.handleRegister)
+	mux.HandleFunc("/authorize", srv.handleAuthorize)
+	mux.HandleFunc("/token", srv.handleToken)
 	mux.HandleFunc(cfg.MCPPath, srv.handleMCP)
 
 	httpSrv := &http.Server{
@@ -59,10 +70,12 @@ func main() {
 type config struct {
 	Addr            string
 	MCPPath         string
+	PublicURL       string
 	UpstreamAskURL  string
 	UpstreamTimeout time.Duration
 	AllowedEmails   authallow.EmailSet
 	TokenVerifier   tokenVerifier
+	FirebaseAPIKey  string
 }
 
 type tokenVerifier interface {
@@ -90,11 +103,30 @@ func configFromEnv() (config, error) {
 	return config{
 		Addr:            envOr("PORT_ADDR", envOr("GOATOS_HTTP_ADDR", defaultAddr)),
 		MCPPath:         envOr("MESHA_MCP_PATH", defaultMCPPath),
+		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("MESHA_MCP_PUBLIC_URL")), "/"),
 		UpstreamAskURL:  ask,
 		UpstreamTimeout: timeout,
 		AllowedEmails:   allowed,
 		TokenVerifier:   verifier,
+		FirebaseAPIKey:  firebaseAPIKeyFromEnv(),
 	}, nil
+}
+
+func firebaseAPIKeyFromEnv() string {
+	if key := strings.TrimSpace(os.Getenv("GOATOS_FIREBASE_WEB_API_KEY")); key != "" {
+		return key
+	}
+	raw := strings.TrimSpace(os.Getenv("GOATOS_FIREBASE_WEB_CONFIG"))
+	if raw == "" {
+		return ""
+	}
+	var cfg struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.APIKey)
 }
 
 func tokenVerifierFromEnv() (tokenVerifier, error) {
@@ -172,16 +204,18 @@ func parseAllowedEmails(raw string) (authallow.EmailSet, error) {
 }
 
 type server struct {
-	cfg    config
-	client *http.Client
-	log    *slog.Logger
+	cfg        config
+	client     *http.Client
+	log        *slog.Logger
+	oauthCodes map[string]oauthCode
+	oauthMu    sync.Mutex
 }
 
 func newServer(cfg config, client *http.Client, log *slog.Logger) *server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &server{cfg: cfg, client: client, log: log}
+	return &server{cfg: cfg, client: client, log: log, oauthCodes: map[string]oauthCode{}}
 }
 
 func (s *server) handleLive(w http.ResponseWriter, _ *http.Request) {
@@ -196,10 +230,280 @@ func (s *server) handleReady(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *server) publicURL(r *http.Request) string {
+	if s.cfg.PublicURL != "" {
+		return s.cfg.PublicURL
+	}
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
+		scheme = strings.Split(proto, ",")[0]
+	}
+	return scheme + "://" + r.Host
+}
+
+func (s *server) handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
+	base := s.publicURL(r)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resource":                 base,
+		"authorization_servers":    []string{base},
+		"bearer_methods_supported": []string{"header"},
+		"scopes_supported":         []string{"goatos.read"},
+		"resource_name":            "Mesha Goat OS leadership assistant",
+		"resource_documentation":   "https://github.com/vgoats/goatos/blob/main/docs/ceo-ai/external-mcp-integration.md",
+	})
+}
+
+func (s *server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *http.Request) {
+	base := s.publicURL(r)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issuer":                                base,
+		"authorization_endpoint":                base + "/authorize",
+		"token_endpoint":                        base + "/token",
+		"registration_endpoint":                 base + "/register",
+		"response_types_supported":              []string{"code"},
+		"grant_types_supported":                 []string{"authorization_code"},
+		"code_challenge_methods_supported":      []string{"S256", "plain"},
+		"token_endpoint_auth_methods_supported": []string{"none"},
+		"scopes_supported":                      []string{"goatos.read", "offline_access"},
+	})
+}
+
+func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"client_id":                  "goatos-mcp-" + randomString(12),
+		"client_id_issued_at":        time.Now().Unix(),
+		"token_endpoint_auth_method": "none",
+		"grant_types":                []string{"authorization_code"},
+		"response_types":             []string{"code"},
+	})
+}
+
+func (s *server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.renderLogin(w, r, "")
+	case http.MethodPost:
+		s.completeLogin(w, r)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+	}
+}
+
+func (s *server) renderLogin(w http.ResponseWriter, r *http.Request, message string) {
+	q := r.URL.Query()
+	if strings.TrimSpace(q.Get("redirect_uri")) == "" || strings.TrimSpace(q.Get("state")) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_redirect_uri_or_state"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	msg := ""
+	if message != "" {
+		msg = `<p class="error">` + html.EscapeString(message) + `</p>`
+	}
+	_, _ = fmt.Fprintf(w, `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Mesha Goat OS</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#07110d;color:#eef7ef;margin:0;display:grid;min-height:100vh;place-items:center}
+main{width:min(420px,calc(100vw - 32px));border:1px solid #244333;border-radius:14px;padding:28px;background:#0c1b14}
+h1{font-size:24px;margin:0 0 8px}p{color:#b9cabd;line-height:1.45}.error{color:#ffb4a8}
+label{display:block;margin:16px 0 6px;color:#d6e8d9}input{width:100%%;box-sizing:border-box;border:1px solid #31533d;border-radius:8px;background:#07110d;color:#fff;padding:12px;font-size:16px}
+button{margin-top:20px;width:100%%;border:0;border-radius:8px;background:#7bd957;color:#07110d;font-weight:700;padding:12px;font-size:16px}
+small{display:block;color:#87a38e;margin-top:14px}
+</style></head><body><main>
+<h1>Connect Mesha Goat OS</h1>
+<p>Sign in with your approved leadership account. After this, Claude or Codex can answer Goat OS questions in plain English.</p>
+%s
+<form method="post" action="/authorize">
+<input type="hidden" name="client_id" value="%s">
+<input type="hidden" name="redirect_uri" value="%s">
+<input type="hidden" name="state" value="%s">
+<input type="hidden" name="code_challenge" value="%s">
+<input type="hidden" name="code_challenge_method" value="%s">
+<input type="hidden" name="scope" value="%s">
+<label>Email</label><input name="email" type="email" autocomplete="username" required autofocus>
+<label>Password</label><input name="password" type="password" autocomplete="current-password" required>
+<button type="submit">Connect Goat OS</button>
+<small>Allowed: ravi, manohar, manju, aryaman at mesha.sg. Read-only leadership access.</small>
+</form></main></body></html>`,
+		msg,
+		html.EscapeString(q.Get("client_id")),
+		html.EscapeString(q.Get("redirect_uri")),
+		html.EscapeString(q.Get("state")),
+		html.EscapeString(q.Get("code_challenge")),
+		html.EscapeString(q.Get("code_challenge_method")),
+		html.EscapeString(q.Get("scope")),
+	)
+}
+
+func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_form"})
+		return
+	}
+	redirectURI := strings.TrimSpace(r.Form.Get("redirect_uri"))
+	state := strings.TrimSpace(r.Form.Get("state"))
+	if redirectURI == "" || state == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_redirect_uri_or_state"})
+		return
+	}
+	idToken, claims, err := s.signInWithFirebase(r.Context(), strings.TrimSpace(r.Form.Get("email")), r.Form.Get("password"))
+	if err != nil {
+		s.log.Warn("goatos_mcp_login_failed", slog.Any("error", err))
+		s.renderLogin(w, r, "Login failed. Check the Goat OS staging email and password.")
+		return
+	}
+	email := normalizedEmail(claims.Email)
+	if len(s.cfg.AllowedEmails) > 0 && !s.cfg.AllowedEmails.Allows(email, claims.EmailVerified) {
+		s.renderLogin(w, r, "This account is not allowed to connect Goat OS MCP.")
+		return
+	}
+	code := randomString(32)
+	s.oauthMu.Lock()
+	s.oauthCodes[code] = oauthCode{
+		Token:               idToken,
+		Email:               email,
+		ExpiresAt:           time.Now().Add(5 * time.Minute),
+		CodeChallenge:       strings.TrimSpace(r.Form.Get("code_challenge")),
+		CodeChallengeMethod: strings.TrimSpace(r.Form.Get("code_challenge_method")),
+	}
+	s.oauthMu.Unlock()
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
+		return
+	}
+	q := u.Query()
+	q.Set("code", code)
+	q.Set("state", state)
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+type oauthCode struct {
+	Token               string
+	Email               string
+	ExpiresAt           time.Time
+	CodeChallenge       string
+	CodeChallengeMethod string
+}
+
+func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	code := strings.TrimSpace(r.Form.Get("code"))
+	s.oauthMu.Lock()
+	entry, ok := s.oauthCodes[code]
+	delete(s.oauthCodes, code)
+	s.oauthMu.Unlock()
+	if !ok || time.Now().After(entry.ExpiresAt) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
+	if !entry.pkceAllows(strings.TrimSpace(r.Form.Get("code_verifier"))) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token": entry.Token,
+		"token_type":   "Bearer",
+		"expires_in":   3600,
+		"scope":        "goatos.read",
+	})
+}
+
+func (c oauthCode) pkceAllows(verifier string) bool {
+	if c.CodeChallenge == "" {
+		return true
+	}
+	if verifier == "" {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(c.CodeChallengeMethod)) {
+	case "", "PLAIN":
+		return verifier == c.CodeChallenge
+	case "S256":
+		sum := sha256.Sum256([]byte(verifier))
+		return base64.RawURLEncoding.EncodeToString(sum[:]) == c.CodeChallenge
+	default:
+		return false
+	}
+}
+
+func (s *server) signInWithFirebase(ctx context.Context, email, password string) (string, platformauth.Claims, error) {
+	if s.cfg.FirebaseAPIKey == "" {
+		return "", platformauth.Claims{}, errors.New("firebase_api_key_missing")
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"email":             email,
+		"password":          password,
+		"returnSecureToken": true,
+	})
+	endpoint := "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + url.QueryEscape(s.cfg.FirebaseAPIKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return "", platformauth.Claims{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", platformauth.Claims{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", platformauth.Claims{}, fmt.Errorf("firebase_sign_in_status_%d", resp.StatusCode)
+	}
+	var out struct {
+		IDToken string `json:"idToken"`
+		Email   string `json:"email"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", platformauth.Claims{}, err
+	}
+	if strings.TrimSpace(out.IDToken) == "" {
+		return "", platformauth.Claims{}, errors.New("firebase_id_token_missing")
+	}
+	claims, err := s.cfg.TokenVerifier.Verify(out.IDToken)
+	if err != nil {
+		return "", platformauth.Claims{}, err
+	}
+	return out.IDToken, claims, nil
+}
+
+func randomString(bytesLen int) string {
+	buf := make([]byte, bytesLen)
+	if _, err := rand.Read(buf); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
 func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		writeJSON(w, http.StatusMethodNotAllowed, rpcError(nil, -32000, "method_not_allowed"))
+		return
+	}
+	if s.cfg.TokenVerifier != nil && strings.TrimSpace(r.Header.Get("Authorization")) == "" {
+		s.writeUnauthorized(w, r)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
@@ -238,6 +542,15 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, rpcError(req.ID, -32601, "method_not_found"))
 	}
+}
+
+func (s *server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
+	base := s.publicURL(r)
+	w.Header().Set("WWW-Authenticate", `Bearer realm="goatos-mcp", resource_metadata="`+base+`/.well-known/oauth-protected-resource"`)
+	writeJSON(w, http.StatusUnauthorized, map[string]any{
+		"error":             "authorization_required",
+		"resource_metadata": base + "/.well-known/oauth-protected-resource",
+	})
 }
 
 type rpcRequest struct {

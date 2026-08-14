@@ -368,7 +368,7 @@ resource "google_cloud_run_v2_service" "mcp" {
 
     scaling {
       min_instance_count = 0
-      max_instance_count = 3
+      max_instance_count = 1
     }
 
     containers {
@@ -443,10 +443,25 @@ resource "google_cloud_run_v2_service" "mcp" {
       }
 
       env {
+        name  = "MESHA_MCP_PUBLIC_URL"
+        value = "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app"
+      }
+
+      env {
         name = "MESHA_MCP_ALLOWED_EMAILS"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.container["auth_allowed_emails"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_FIREBASE_WEB_CONFIG"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["firebase_web_config"].secret_id
             version = "latest"
           }
         }

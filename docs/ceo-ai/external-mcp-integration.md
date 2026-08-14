@@ -41,11 +41,10 @@ Region:       asia-south1
 Service:      Mesha / Goat OS external MCP service
 ```
 
-Use the deployed HTTPS URL supplied by the staging operator. The MCP JSON-RPC
-path is `/mcp`:
+Use this staging URL. The MCP JSON-RPC path is `/mcp`:
 
 ```text
-<STG_EXTERNAL_MCP_URL>/mcp
+https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp
 ```
 
 Do not point external clients at the internal MCP Toolbox service
@@ -54,19 +53,25 @@ the public connector contract for Claude, Codex, ChatGPT, or custom GPTs.
 
 ## Access Model
 
-External MCP v1 access uses the same Goat OS staging bearer token that the
-backend already trusts. The MCP client or local proxy must send:
+External MCP access is CEO-friendly OAuth-style login. The CEO does not paste a
+token. Claude, Codex, Cursor, and similar clients discover the login flow from
+the MCP endpoint, open a Goat OS login page, and then keep the session token in
+the client.
+
+Under the hood, the MCP service still uses the same Goat OS staging identity
+token that the backend already trusts:
 
 ```text
 Authorization: Bearer <GOATOS_STG_USER_TOKEN>
 ```
 
-The verified email inside that bearer token must match the explicit leadership
-allowlist from `docs/ceo-ai/access-policy.md`. The MCP facade verifies the token
-and checks the token email before proxying, and the upstream Goat OS API still
-validates the bearer token, tenant scope, and CEO/CXO authorization. The
-allowlist check is a full email match, case insensitive. It is not a domain
-suffix rule.
+That token is produced by the login flow, not by the user copying anything from
+DevTools or documentation. The verified email inside the token must match the
+explicit leadership allowlist from `docs/ceo-ai/access-policy.md`. The MCP
+facade verifies the token and checks the token email before proxying, and the
+upstream Goat OS API still validates the bearer token, tenant scope, and CEO/CXO
+authorization. The allowlist check is a full email match, case insensitive. It
+is not a domain suffix rule.
 
 The current authorized leadership cohort is:
 
@@ -124,39 +129,42 @@ authority for bearer validation, tenant binding, CEO/CXO role gating, and audit.
 
 ## Claude Desktop / Claude Code Configuration
 
-For clients that support a remote HTTP MCP server with request headers, register
-the staging MCP URL and provide the Goat OS bearer token in client-managed
-secrets or local user config.
+For Claude clients with remote custom connector support:
 
-Example shape:
+1. Open Claude settings.
+2. Go to Connectors / MCP servers.
+3. Add a custom connector named `Mesha Goat OS`.
+4. Paste this URL:
+   ```text
+   https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp
+   ```
+5. Save. Claude should open the Goat OS login page.
+6. Sign in with an approved leadership account.
+7. Ask normal Mesha questions.
+
+Config shape for clients that use JSON:
 
 ```json
 {
   "mcpServers": {
     "mesha-goatos-stg": {
       "type": "http",
-      "url": "<STG_EXTERNAL_MCP_URL>/mcp",
-      "headers": {
-        "Authorization": "Bearer ${GOATOS_STG_USER_TOKEN}"
-      }
+      "url": "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"
     }
   }
 }
 ```
 
 If your Claude client expects a command-launched proxy instead of native remote
-HTTP MCP, use the proxy recommended by that client and keep the Mesha URL and
-token in environment or user-level config, not in the repo:
+HTTP MCP, use `mcp-remote`. The proxy will open the Goat OS login flow; no token
+goes in the config:
 
 ```json
 {
   "mcpServers": {
     "mesha-goatos-stg": {
       "command": "npx",
-      "args": ["-y", "<remote-mcp-proxy-package>", "<STG_EXTERNAL_MCP_URL>/mcp"],
-      "env": {
-        "GOATOS_STG_USER_TOKEN": "<token outside repo>"
-      }
+      "args": ["-y", "mcp-remote", "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"]
     }
   }
 }
@@ -173,28 +181,25 @@ tool name. Tool selection is part of the MCP/client/runtime contract.
 
 ## Codex Configuration
 
-For Codex environments that support remote MCP registration with headers, add
-the same staging endpoint to the user-level MCP config and provide the Goat OS
-bearer token from local user config or a secret store.
+For Codex, add the staging endpoint to the user-level MCP config. Codex should
+open the browser login during MCP startup/connection through the proxy.
 
-Example shape:
+Native remote HTTP shape, where supported:
 
 ```toml
 [mcp_servers.mesha-goatos-stg]
 type = "http"
-url = "<STG_EXTERNAL_MCP_URL>/mcp"
-headers = { Authorization = "Bearer ${GOATOS_STG_USER_TOKEN}" }
+url = "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"
 ```
 
-If the Codex runtime in use only supports command-launched MCP servers, use the
-same remote proxy pattern as Claude and keep secrets/tokens outside the Goat OS
-repo:
+Current Codex Desktop/CLI-compatible proxy shape:
 
 ```toml
 [mcp_servers.mesha-goatos-stg]
 command = "npx"
-args = ["-y", "<remote-mcp-proxy-package>", "<STG_EXTERNAL_MCP_URL>/mcp"]
-env = { GOATOS_STG_USER_TOKEN = "<token outside repo>" }
+args = ["-y", "mcp-remote", "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"]
+startup_timeout_sec = 30.0
+tool_timeout_sec = 120.0
 ```
 
 The Codex user should still type ordinary questions:
@@ -212,12 +217,10 @@ For a ChatGPT-style custom GPT, app, or connector:
 
 1. Register the external MCP endpoint URL:
    ```text
-   <STG_EXTERNAL_MCP_URL>
+   https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp
    ```
-2. Configure the client or connector backend to forward the Goat OS bearer
-   token.
-3. Sign in or provision the connector identity with an allowlisted leadership
-   email.
+2. The connector should use the MCP OAuth discovery flow and show Goat OS login.
+3. Sign in with an allowlisted leadership email.
 4. Describe the connector to users as "Mesha Goat OS leadership read-only
    operations assistant."
 5. Test with one normal operating question before sharing it with other
@@ -230,7 +233,8 @@ or raw SQL examples in the GPT/app instructions.
 
 | Symptom | Likely cause | What to check |
 | --- | --- | --- |
-| Tool call returns `missing_authorization_bearer` | The client/proxy did not send `Authorization` | Put the Goat OS staging token in user-level client config or a secret store |
+| Client opens login page | Expected first-time connection flow | Sign in with an allowlisted Goat OS staging leadership account |
+| Tool call returns `authorization_required` or `missing_authorization_bearer` | The client/proxy did not finish the login flow or did not send `Authorization` | Reconnect the MCP server and complete Goat OS login |
 | Tool call returns `actor_email_not_allowed` | The verified bearer-token email is missing, unverified, or not on the explicit allowlist | Confirm the exact token email and compare it to `docs/ceo-ai/access-policy.md` |
 | Mesha returns forbidden/unauthorized | Bearer token is invalid, expired, wrong environment, wrong tenant, or lacks CEO/CXO authorization | Refresh the Goat OS staging token and verify the user's assistant authorization |
 | Client asks for tool commands or JSON | The GPT/app instructions are overfitted to protocol mechanics | Tell the user to ask plain English operating questions |
@@ -248,5 +252,7 @@ Before handing the endpoint to a leadership user:
   internal Toolbox service.
 - Confirm the user's exact token email is on the allowlist.
 - Confirm the user has the CEO/CXO assistant authorization.
-- Run one smoke question through the target client.
+- Run one first-time connect flow through the target client and confirm the Goat
+  OS login page appears.
+- Run one smoke question through the target client after login.
 - Confirm the answer includes source/freshness metadata and no internal trace.
