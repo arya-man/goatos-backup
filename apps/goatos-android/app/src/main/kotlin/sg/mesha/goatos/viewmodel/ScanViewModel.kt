@@ -638,7 +638,15 @@ class ScanViewModel @Inject constructor(
                 .filter { it.status.isCurrentScannableObligationStatus() }
             if (scannableSameGoatRows.isEmpty()) {
                 val armedReplacementGoatId = _proofReplacementGoatId.value
-                if (proofPolicy.value.isPerGoatVideo && armedReplacementGoatId == dbRow.goatId) {
+                // Split-brain guard: the proof-needed panel (computeProofGate) and this
+                // obligation-status check are two independent views of the same goat. A goat the
+                // panel currently lists as needing proof MUST stay scannable here — otherwise a
+                // hardware re-scan of exactly the animal the operator is trying to fix answers
+                // "Not due in this drive" while the panel still says "scan again to record proof".
+                // Route both the explicitly-armed replacement AND any goat the gate already flagged
+                // through the same proof-recapture path instead of rejecting the scan.
+                val needsProofRecapture = state.value.proofActionNeeded.any { it.goatId == dbRow.goatId }
+                if (proofPolicy.value.isPerGoatVideo && (armedReplacementGoatId == dbRow.goatId || needsProofRecapture)) {
                     val replacementLabel = sameGoatRows
                         .map { it.vaccineLabel.trim() }
                         .filter { it.isNotBlank() }
@@ -658,7 +666,8 @@ class ScanViewModel @Inject constructor(
                     _proofReplacementGoatId.value = null
                     _duplicateNotice.value = null
                     _scanErrorNotice.value = null
-                    recordScanAttempt(tag, replacementRow, RfidScanAttemptOutcome.DUPLICATE, replacementRow.tagRoleFor(target), "proof_replace_requested", capturedAtMs)
+                    val reason = if (armedReplacementGoatId == dbRow.goatId) "proof_replace_requested" else "proof_needed_rescan"
+                    recordScanAttempt(tag, replacementRow, RfidScanAttemptOutcome.DUPLICATE, replacementRow.tagRoleFor(target), reason, capturedAtMs)
                     requestGoatProof(replacementRow)
                     return@launch
                 }
@@ -1165,11 +1174,22 @@ class ScanViewModel @Inject constructor(
             return base.copy(canSubmit = false, proofActionNeeded = emptyList())
         }
         val proofRows = proofs.orEmpty()
+        // Split-brain fix: a SYNCED capture with a serverProofId IS the server confirming the
+        // proof for this goat -- that is the same truth onTagRead trusts via the obligation's
+        // CURRENT server status. The previous `capturedAtMs >= scannedAt(THIS session)` freshness
+        // check was a crude same-device proxy for "is this proof for the current obligation
+        // cycle" and produced false negatives for a proof confirmed on another device/session, or
+        // captured just before this session's scan -- the panel would demand "scan again to record
+        // proof" for a goat whose obligation status already made it unscannable. Freshness is kept
+        // ONLY for the one case it actually protects: a goat the operator has explicitly armed for
+        // same-session recapture (ArmProofReplacement) must not be satisfied by the stale row it is
+        // in the middle of replacing.
+        val armedReplacementGoatId = _proofReplacementGoatId.value
         val rosterSyncedGoatIds = base.roster
             .filter { row ->
                 row.status == ScanStatus.DONE &&
                     row.goatId.isNotBlank() &&
-                    scannedAtByGoatId[row.goatId] == null &&
+                    row.goatId != armedReplacementGoatId &&
                     (row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0)
             }
             .map { it.goatId }
@@ -1181,7 +1201,7 @@ class ScanViewModel @Inject constructor(
                     proofGoatId != null &&
                     it.syncStatus == CaptureSyncStatus.SYNCED &&
                     !it.serverProofId.isNullOrBlank() &&
-                    it.capturedAtMs >= (scannedAtByGoatId[proofGoatId] ?: Long.MIN_VALUE)
+                    proofGoatId != armedReplacementGoatId
             }
             .mapNotNull { it.subjectId }
             .toSet() + rosterSyncedGoatIds

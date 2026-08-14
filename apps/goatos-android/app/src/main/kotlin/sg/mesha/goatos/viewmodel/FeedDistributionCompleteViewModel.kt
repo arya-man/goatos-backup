@@ -28,10 +28,10 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedRepository
-import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -555,6 +555,10 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED)
         viewModelScope.launch {
             syncRepository.triggerDrain()
+            // Manual sync must also re-fetch teammate/server proof slots: another operator may
+            // have uploaded the missing captures while this screen is open, and draining the
+            // local outbox alone leaves the slot display stale until back/reopen.
+            refreshTeammateCaptures()
         }
     }
 
@@ -605,14 +609,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     }
             },
         )
-    }
-
-    private fun clearProofRowId(slot: ProofSlot) {
-        when (slot) {
-            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value = null
-            ProofSlot.FEED_VIDEO -> videoProofRowId.value = null
-            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value = null
-        }
     }
 
     private suspend fun discardExistingProof(slot: ProofSlot): Boolean {
@@ -733,6 +729,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
         }
     }
+
+    private fun clearProofRowId(slot: ProofSlot) {
+        when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value = null
+            ProofSlot.FEED_VIDEO -> videoProofRowId.value = null
+            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value = null
+        }
+    }
+
     private fun observeDurableProofs() {
         viewModelScope.launch {
             // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds

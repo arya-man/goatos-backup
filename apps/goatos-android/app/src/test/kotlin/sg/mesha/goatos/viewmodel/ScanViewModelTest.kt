@@ -38,6 +38,8 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
@@ -1378,6 +1380,121 @@ class ScanViewModelTest {
         seedSyncedProof(proofRepo, "goat-21")
         advanceUntilIdle()
         assertTrue("all done animals synced ⇒ submit allowed", vm.state.value.canSubmit)
+    }
+
+    /**
+     * Proof-panel / scan split-brain (judge-confirmed MEDIUM, merge-blocker).
+     *
+     * computeProofGate used to require a LOCAL ProofCaptureRow's `capturedAtMs` to be >= THIS
+     * SESSION's scan timestamp before trusting a SYNCED, server-confirmed proof. A proof that
+     * reached the backend on another device/session (or was captured moments before this session's
+     * scan) always fails that comparison, so the panel kept demanding "scan again to record proof"
+     * for an animal whose proof the server had already accepted — while a real rescan of the SAME
+     * animal would separately be told "Not due in this drive" by the obligation-status check,
+     * because the backend already considers it resolved. The freshness comparison must not be the
+     * SOLE determinant: a SYNCED capture with a serverProofId IS server confirmation regardless of
+     * which device/session produced it or how the local timestamps compare.
+     */
+    @Test
+    fun `a synced proof captured before this session's scan still satisfies the panel`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        // This session scans goat-1 at t=5_000 -- LATER than the proof below.
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "TAG-100",
+            goatId = "goat-1",
+            obligationId = "obl-1",
+            capturedAtMs = 5_000L,
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(
+                ProofCaptureRow(
+                    id = "proof-other-device",
+                    fieldKey = "vaccination_goat_proof",
+                    proofSubject = ProofSubject.GOAT,
+                    subjectId = "goat-1",
+                    localUri = "file://other-device.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    // Captured well BEFORE this session's scan -- e.g. on another device, or in an
+                    // earlier session, and already confirmed by the backend.
+                    capturedAtMs = 1L,
+                    capturedStartMs = 1L,
+                    capturedEndMs = 2L,
+                    capturedByPrincipalId = "other-operator",
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-1",
+                    lastError = null,
+                ),
+            )
+        }
+        val vm = ScanViewModel(
+            repo = rosterRepo(listOf(scanRow("goat-1", "TAG-100", "obl-1").copy(status = "done"))),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofs,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(
+            "a server-confirmed proof from another device/session must NOT appear in the needs-proof panel",
+            vm.state.value.proofActionNeeded.none { it.goatId == "goat-1" },
+        )
+        assertTrue("proof is satisfied ⇒ submit allowed", vm.state.value.canSubmit)
+    }
+
+    /**
+     * The other half of the same invariant: a goat the panel still lists as needing proof (because
+     * no synced proof exists yet at all) must remain scannable via RFID -- a rescan must route into
+     * the proof-recapture flow, never "Not due in this drive". Panel and scan must agree.
+     */
+    @Test
+    fun `a goat the panel lists as needing proof is still scannable and opens the proof camera`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofSource = FakeProofCaptureSource()
+        val reader = FakeRfidReaderPort()
+        val vm = ScanViewModel(
+            // The backend already reports this obligation "done" (e.g. reopened-then-resolved by
+            // another path) but no proof has synced yet -- exactly the state that used to make
+            // onTagRead answer "not due" while the panel still asked for proof.
+            repo = rosterRepo(listOf(scanRow("goat-1", "TAG-100", "obl-1").copy(status = "done"))),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(
+            "goat-1 has no synced proof yet ⇒ panel lists it as needing proof",
+            vm.state.value.proofActionNeeded.any { it.goatId == "goat-1" },
+        )
+
+        proofSource.queue(CapturedVideo(localUri = "file://recapture.mp4", startedAtMs = 10, endedAtMs = 20))
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals(
+            "a goat the panel lists as needing proof must be scannable, not rejected as not-due",
+            "proof_needed_rescan",
+            scanAttempts.calls.last().reason,
+        )
+        assertEquals(1, proofSource.captureCount)
     }
 
     @Test
