@@ -626,3 +626,115 @@ func TestReclassifyShedStageUnknownPartitionFailsClosed(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidReference for a partition absent from the catalog", err)
 	}
 }
+
+// penCohort reads the CONFIGURED cohort of one pen from the catalog, which is what the Sheds
+// directory renders -- deliberately not the animals' stage, so a test cannot pass by looking at the
+// half of the write it already asserts elsewhere.
+func penCohort(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, partition string) string {
+	t.Helper()
+	var code string
+	err := pool.QueryRow(ctx, `
+SELECT COALESCE(a.stage_code, '')
+FROM shed_partitions sp
+LEFT JOIN animal_stage_lookup a ON a.tenant_id = sp.tenant_id AND a.animal_stage_id = sp.animal_stage_id
+WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND sp.partition_label = $3`,
+		ssTenant, shedID, partition).Scan(&code)
+	if err != nil {
+		t.Fatalf("read pen cohort: %v", err)
+	}
+	return code
+}
+
+// TestReclassifyShedStageWritesThePensOwnCohortAndLeavesSiblingsAlone is the pen-grain half of the
+// write, added when the Sheds directory made a pen's tag editable (migration 000161).
+//
+// The animals moving is asserted by the scope test above; what this pins is that the pen's own
+// CONFIGURED tag moves with them, in the same command, WITHOUT touching a sibling pen or the parent
+// shed's profile. That last part is load-bearing: shifting resolves a destination cohort from
+// shed_profiles, so a pen edit that quietly rewrote the shed's profile would change which stage an
+// animal adopts when it is moved -- a business rule under the maintainer lock.
+func TestReclassifyShedStageWritesThePensOwnCohortAndLeavesSiblingsAlone(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+	seedStageVocabulary(t, ctx, pool)
+
+	seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+	seedStageGoat(t, ctx, pool, f.castroShed, "Part 2", "K2", "kid")
+
+	if _, err := pool.Exec(ctx, `
+UPDATE shed_partitions sp SET animal_stage_id = a.animal_stage_id
+FROM animal_stage_lookup a
+WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND a.tenant_id = sp.tenant_id AND a.stage_code = 'K2'`,
+		ssTenant, f.castroShed); err != nil {
+		t.Fatalf("seed pen cohorts: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, row_version)
+SELECT $2::uuid, $1::uuid, a.animal_stage_id, 1 FROM animal_stage_lookup a
+WHERE a.tenant_id = $1::uuid AND a.stage_code = 'K2'`, ssTenant, f.castroShed); err != nil {
+		t.Fatalf("seed shed profile: %v", err)
+	}
+
+	if _, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-pen-cohort")); err != nil {
+		t.Fatalf("reclassify: %v", err)
+	}
+
+	if got := penCohort(t, ctx, pool, f.castroShed, "1"); got != "Mother" {
+		t.Fatalf("edited pen cohort = %q, want Mother -- the animals moved but the pen's tag did not", got)
+	}
+	if got := penCohort(t, ctx, pool, f.castroShed, "Part 2"); got != "K2" {
+		t.Fatalf("sibling pen cohort = %q, want K2 -- the write reached beyond the selected pen", got)
+	}
+
+	var shedProfileStage string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(a.stage_code, '') FROM shed_profiles p
+LEFT JOIN animal_stage_lookup a ON a.tenant_id = p.tenant_id AND a.animal_stage_id = p.animal_stage_id
+WHERE p.tenant_id = $1::uuid AND p.location_id = $2::uuid`, ssTenant, f.castroShed).Scan(&shedProfileStage); err != nil {
+		t.Fatalf("read shed profile: %v", err)
+	}
+	if shedProfileStage != "K2" {
+		t.Fatalf("shed profile = %q, want K2 -- a pen edit must not rewrite the SHED cohort that shifting reads", shedProfileStage)
+	}
+}
+
+// TestReclassifyShedStageConfigureEmptyRecordsTheTagWithoutAnimals pins the two intents the
+// ConfigureEmpty flag separates.
+//
+// Without it, an empty pen is the Counts Breakdown drawer's "you picked the wrong pen" error. With
+// it, the Sheds directory records a tag for a pen standing empty before animals arrive -- 12 of the
+// live tenant's 116 pens are in that state -- and reports zero animals reclassified rather than
+// pretending it moved some.
+func TestReclassifyShedStageConfigureEmptyRecordsTheTagWithoutAnimals(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+	seedStageVocabulary(t, ctx, pool)
+
+	refused := reclassifyCmd(f.castroShed, "1", "Mother", "key-empty-refused")
+	if _, err := repo.ReclassifyShedStage(ctx, refused); !errors.Is(err, ports.ErrReclassifyEmptyScope) {
+		t.Fatalf("err = %v, want ErrReclassifyEmptyScope -- the drawer's intent must still fail closed", err)
+	}
+	if got := penCohort(t, ctx, pool, f.castroShed, "1"); got != "" {
+		t.Fatalf("pen cohort = %q after a REFUSED command, want empty -- the failed write left state behind", got)
+	}
+
+	accepted := reclassifyCmd(f.castroShed, "1", "Mother", "key-empty-configured")
+	accepted.ConfigureEmpty = true
+	result, err := repo.ReclassifyShedStage(ctx, accepted)
+	if err != nil {
+		t.Fatalf("configure empty pen: %v", err)
+	}
+	if result.Reclassified != 0 || result.TotalLive != 0 {
+		t.Fatalf("reclassified=%d total=%d, want 0/0 -- an empty pen must not report animals it did not move",
+			result.Reclassified, result.TotalLive)
+	}
+	if got := penCohort(t, ctx, pool, f.castroShed, "1"); got != "Mother" {
+		t.Fatalf("pen cohort = %q, want Mother -- configuring an empty pen recorded nothing", got)
+	}
+}

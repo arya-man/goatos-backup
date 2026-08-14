@@ -53,6 +53,7 @@ func (s *Service) PreviewReclassifyShedStage(ctx context.Context, input Reclassi
 		ShedID:          body.ShedID,
 		PartitionLabel:  partitionParam(body.PartitionLabel),
 		ManagementStage: body.ManagementStage,
+		ConfigureEmpty:  body.ConfigureEmpty,
 	})
 	if err != nil {
 		return nil, mapReclassifyErr(err)
@@ -121,6 +122,7 @@ func (s *Service) CommitReclassifyShedStage(ctx context.Context, input Reclassif
 		PartitionLabel:       partitionParam(body.PartitionLabel),
 		ManagementStage:      body.ManagementStage,
 		Reason:               body.Reason,
+		ConfigureEmpty:       body.ConfigureEmpty,
 		OccurredAt:           s.now().UTC(),
 	})
 	if err != nil {

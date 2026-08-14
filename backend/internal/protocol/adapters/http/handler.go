@@ -301,9 +301,15 @@ type animalStageResponse struct {
 	AnimalStageID string `json:"animal_stage_id"`
 	StageCode     string `json:"stage_code"`
 	Name          string `json:"name"`
-	MinAgeDays    *int32 `json:"min_age_days,omitempty"`
-	MaxAgeDays    *int32 `json:"max_age_days,omitempty"`
-	SortOrder     int32  `json:"sort_order"`
+	// AgeBand and AssignableAsCohort exist for pickers that ASSIGN this vocabulary rather than just
+	// list it: the band is what an animal inherits when its pen is retagged, and a clinical tag is
+	// one the assigning writes reject. Both are always emitted -- an absent field would read to a
+	// client as "adult" and "assignable", which are the wrong defaults for a safety-bearing value.
+	AgeBand            string `json:"age_band"`
+	AssignableAsCohort bool   `json:"assignable_as_cohort"`
+	MinAgeDays         *int32 `json:"min_age_days,omitempty"`
+	MaxAgeDays         *int32 `json:"max_age_days,omitempty"`
+	SortOrder          int32  `json:"sort_order"`
 }
 
 type animalStageListResponse struct {
@@ -324,6 +330,7 @@ func (h *Handler) ListAnimalStages(w http.ResponseWriter, r *http.Request) {
 	for _, s := range stages {
 		resp.Items = append(resp.Items, animalStageResponse{
 			AnimalStageID: s.AnimalStageID, StageCode: s.StageCode, Name: s.Name,
+			AgeBand: s.AgeBand, AssignableAsCohort: s.AssignableAsCohort,
 			MinAgeDays: s.MinAgeDays, MaxAgeDays: s.MaxAgeDays, SortOrder: s.SortOrder,
 		})
 	}

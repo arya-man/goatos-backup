@@ -16,6 +16,12 @@ type ReclassifyShedStageRequest struct {
 	// Reason is required on the commit and ignored on the preview. It lands in the audit row and on
 	// every animal's stage-change event.
 	Reason string `json:"reason,omitempty"`
+	// ConfigureEmpty lets the caller record a cohort for a location holding NO live animals. The
+	// Counts Breakdown drawer leaves it false ("retag these animals", where an empty pen means the
+	// wrong pen was picked); the Sheds directory sets it true ("this pen's tag is now X", which is
+	// ordinary for a pen standing empty before animals arrive). Part of the request hash, so the
+	// two intents cannot replay onto each other.
+	ConfigureEmpty bool `json:"configure_empty,omitempty"`
 }
 
 // ReclassifyShedStageBucket is one current-cohort row of the preview. Grain: LIVE ANIMAL. Buckets

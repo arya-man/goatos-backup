@@ -397,13 +397,31 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 			return
 		}
 		var destinationStages []string
+		var destinationConfiguredStage string
 		var destinationEntries []domain.ShiftingDestinationShed
+		wantPartition := ""
+		if normalized.DestinationPartitionLabel != nil {
+			wantPartition = oploc.NormalizePartition(*normalized.DestinationPartitionLabel)
+		}
 		for _, park := range catalog.Parks {
 			for _, shed := range park.Sheds {
-				if shed.ShedID == normalized.DestinationShedID {
-					destinationStages = shed.ManagementStages
-					destinationEntries = append(destinationEntries, shed)
+				if shed.ShedID != normalized.DestinationShedID {
+					continue
 				}
+				destinationEntries = append(destinationEntries, shed)
+				// Match the SELECTED pen, not merely the building. A shed contributes one catalog
+				// entry per pen, so keying on the shed alone took whichever pen happened to be last
+				// and made the operator's choice of pen invisible to the resolver (maintainer
+				// decision 2026-08-14: animals move into a pen, so the pen's tag is the cohort).
+				entryPartition := ""
+				if shed.PartitionLabel != nil {
+					entryPartition = oploc.NormalizePartition(*shed.PartitionLabel)
+				}
+				if entryPartition != wantPartition {
+					continue
+				}
+				destinationStages = shed.ManagementStages
+				destinationConfiguredStage = shed.ConfiguredStage
 			}
 		}
 		// The destination catalog is built ONLY from active locations (see
@@ -421,7 +439,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 				return
 			}
 		}
-		if resolved := domain.ResolveShiftingDestinationStage(destinationStages, catalog.ManagementStages); resolved != "" {
+		if resolved := domain.ResolveShiftingDestinationPenStage(destinationConfiguredStage, destinationStages, catalog.ManagementStages); resolved != "" {
 			// Recorded as the existing 'destination_stage' mode: the column's meaning ("this target
 			// came from the destination shed") is exactly what the resolver produced, so no schema
 			// change is needed and pre-existing rows keep their recorded raise-time intent.
