@@ -374,8 +374,9 @@ func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedPr
 	if len(got) != 2 {
 		t.Fatalf("got %d rows want 2", len(got))
 	}
-	if got[0].WorkState != domain.WorkStateVerificationPending || got[0].ProofStatus != domain.ProofStatusUploaded {
-		t.Fatalf("submitted shed state/proof = %q/%q want verification_pending/uploaded", got[0].WorkState, got[0].ProofStatus)
+	// With openCount=1 (1 animal done, 1 still open), state stays in_progress even with proof submitted
+	if got[0].WorkState != domain.WorkStateInProgress || got[0].ProofStatus != domain.ProofStatusUploaded {
+		t.Fatalf("submitted shed state/proof = %q/%q want in_progress/uploaded (openCount=1)", got[0].WorkState, got[0].ProofStatus)
 	}
 	if got[1].WorkState != domain.WorkStateInProgress {
 		t.Fatalf("unsubmitted shed workState = %q want in_progress", got[1].WorkState)

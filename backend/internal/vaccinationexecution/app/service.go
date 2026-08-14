@@ -509,8 +509,23 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateBlocked
 	}
-	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
-		return domain.WorkStateVerificationPending
+	// Only mark as verification_pending if all work is done (openCount == 0)
+	if (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) {
+		done := p.CompletedCount
+		completionEvidence := p.CompletionRecorded + p.CompletionAccepted
+		if completionEvidence > done {
+			done = completionEvidence
+		}
+		if p.ProofSubmittedCount > done {
+			done = p.ProofSubmittedCount
+		}
+		if done > p.ObligationCount {
+			done = p.ObligationCount
+		}
+		openCount := p.ObligationCount - done - p.DeferredCount - p.MissedCount - p.CanceledCount
+		if openCount <= 0 {
+			return domain.WorkStateVerificationPending
+		}
 	}
 	if p.InProgressCount > 0 || batchStatusIs(p, "in_progress") || taskStateIs(p, "in_progress") {
 		return domain.WorkStateInProgress
@@ -589,7 +604,23 @@ func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
 	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
 		return domain.SOPStatusAccepted
 	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
-		return domain.SOPStatusSubmitted
+		// Only mark as submitted if all work is done (openCount == 0)
+		done := p.CompletedCount
+		completionEvidence := p.CompletionRecorded + p.CompletionAccepted
+		if completionEvidence > done {
+			done = completionEvidence
+		}
+		if p.ProofSubmittedCount > done {
+			done = p.ProofSubmittedCount
+		}
+		if done > p.ObligationCount {
+			done = p.ObligationCount
+		}
+		openCount := p.ObligationCount - done - p.DeferredCount - p.MissedCount - p.CanceledCount
+		if openCount <= 0 {
+			return domain.SOPStatusSubmitted
+		}
+		fallthrough
 	case taskStateIs(p, "in_progress"):
 		return domain.SOPStatusInProgress
 	default:
