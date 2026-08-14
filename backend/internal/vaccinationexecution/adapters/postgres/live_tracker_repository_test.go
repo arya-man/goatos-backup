@@ -199,6 +199,27 @@ func TestLiveTrackerDateShiftUsesEffectiveDriveDate(t *testing.T) {
 	}
 }
 
+// TestLiveTrackerAssignedWorkUsesAssignmentScheduledDateWithOneToManyPageBoundaryParkScopeStatusMatrix pins the operational source of truth: once a row is
+// assigned to an operator drive, planned_date is the live-track day. due_at can represent clinical
+// due timing or bad seed history and must not pull assigned closed work into another day's board.
+func TestLiveTrackerAssignedWorkUsesAssignmentScheduledDateWithOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	for _, snippet := range []string{
+		"LEFT JOIN vaccination_drive_assignment_members member",
+		"LEFT JOIN vaccination_drive_assignments member_assignment",
+		"member_assignment.planned_date = $2::date",
+		"member_assignment.assignment_id IS NULL",
+		"COALESCE(s.assigned_operator_id, asg.operator_id) AS operator_id",
+	} {
+		if !strings.Contains(liveTrackerScopedCTE, snippet) {
+			t.Fatalf("live tracker membership/operator attribution missing %q", snippet)
+		}
+	}
+	if strings.Index(liveTrackerScopedCTE, "member_assignment.planned_date = $2::date") >
+		strings.Index(liveTrackerScopedCTE, "AND oi.due_at >= (SELECT due_floor FROM day_window)") {
+		t.Fatal("assigned work must be admitted by planned_date before falling back to due_at")
+	}
+}
+
 // TestLiveTrackerScheduledDateCutsEveryDayBoundaryInBusinessTime pins that every day boundary on the
 // page is an IST boundary. A single UTC comparison would put the last two evening hours of a drive
 // on the next day for one section and not the others.
