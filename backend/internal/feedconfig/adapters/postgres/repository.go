@@ -350,7 +350,7 @@ LIMIT $3 OFFSET $4`
 		return domain.SessionTemplatePage{}, fmt.Errorf("feedconfig: list session templates: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
-	if err := r.attachSessionTemplateItems(ctx, q.TenantID, q.ParkID, out.Items); err != nil {
+	if err := r.attachSessionTemplateItems(ctx, q.TenantID, q.ParkID, q.AsOfDate, out.Items); err != nil {
 		return domain.SessionTemplatePage{}, err
 	}
 	return out, nil
@@ -366,7 +366,7 @@ LIMIT $3 OFFSET $4`
 // status = 'active' AND the window open today. The authoring screen must show the recipe that is
 // actually being served, not a superset that includes withdrawn feeds — an author who sees a feed
 // listed will reasonably believe animals are getting it.
-func (r *Repository) attachSessionTemplateItems(ctx context.Context, tenantID, parkID string, sessions []domain.SessionTemplate) error {
+func (r *Repository) attachSessionTemplateItems(ctx context.Context, tenantID, parkID, asOfDate string, sessions []domain.SessionTemplate) error {
 	for i := range sessions {
 		sessions[i].Items = []domain.SessionTemplateItem{}
 	}
@@ -381,10 +381,10 @@ FROM feed_session_template_items
 WHERE tenant_id = $1::uuid
   AND park_id = $2::uuid
   AND status = 'active'
-  AND valid_from <= CURRENT_DATE
-  AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+  AND valid_from <= $3::date
+  AND (valid_to IS NULL OR valid_to > $3::date)
 ORDER BY session_no, slot_no
-LIMIT $3`, tenantID, parkID, maxSessionTemplateItemRows+1)
+LIMIT $4`, tenantID, parkID, asOfDate, maxSessionTemplateItemRows+1)
 	if err != nil {
 		return fmt.Errorf("feedconfig: list session template items: %w", err)
 	}
@@ -1114,7 +1114,7 @@ RETURNING feed_item_id::text`,
 		// Same transaction, not a follow-up write, because the half-created state IS the defect. An
 		// item whose catalog row committed and whose rates did not is exactly what we are repairing,
 		// and a caller who saw "added" would have no way to know which half landed.
-		if err := fillRationGridForItem(ctx, tx, cmd.TenantID, cmd.FeedItemLabel); err != nil {
+		if err := fillRationGridForItem(ctx, tx, cmd.TenantID, cmd.FeedItemLabel, cmd.EffectiveFrom); err != nil {
 			return writeEffect{}, err
 		}
 		return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
@@ -1136,7 +1136,7 @@ RETURNING feed_item_id::text`,
 // `source_system = 'grid_fill'` marks these apart from an authored 'manual' zero. Nothing reads the
 // column; it keeps a machine-written row distinguishable from a human decision that the answer is
 // none, which are different facts even though today they carry the same number.
-func fillRationGridForItem(ctx context.Context, tx pgx.Tx, tenantID, feedItemLabel string) error {
+func fillRationGridForItem(ctx context.Context, tx pgx.Tx, tenantID, feedItemLabel, effectiveFrom string) error {
 	if _, err := tx.Exec(ctx, `
 WITH cells AS (
     SELECT DISTINCT tenant_id, park_id, ration_group_label, shed_tag_label
@@ -1146,7 +1146,7 @@ WITH cells AS (
 INSERT INTO feed_ration_rates (tenant_id, park_id, ration_group_label, shed_tag_label, feed_item_label,
                                grams_per_head, valid_from, source_system)
 SELECT c.tenant_id, c.park_id, c.ration_group_label, c.shed_tag_label, $2,
-       0, CURRENT_DATE, 'grid_fill'
+       0, $3::date, 'grid_fill'
 FROM cells c
 WHERE NOT EXISTS (
     SELECT 1 FROM feed_ration_rates r
@@ -1156,7 +1156,7 @@ WHERE NOT EXISTS (
       AND r.shed_tag_key     = feed_config_norm(c.shed_tag_label)
       AND r.feed_item_key    = feed_config_norm($2)
       AND r.valid_to IS NULL)
-ON CONFLICT DO NOTHING`, tenantID, feedItemLabel); err != nil {
+ON CONFLICT DO NOTHING`, tenantID, feedItemLabel, effectiveFrom); err != nil {
 		return fmt.Errorf("feedconfig: fill ration grid for feed item: %w", err)
 	}
 	return nil
@@ -1210,7 +1210,7 @@ WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid`,
 		// Retiring skips this: a retired item drops out of both the grid read and generation, so
 		// filling cells for it would write rows nothing can see.
 		if cmd.Status == domain.FeedItemStatusActive {
-			if err := fillRationGridForItem(ctx, tx, cmd.TenantID, label); err != nil {
+			if err := fillRationGridForItem(ctx, tx, cmd.TenantID, label, cmd.EffectiveFrom); err != nil {
 				return writeEffect{}, err
 			}
 		}

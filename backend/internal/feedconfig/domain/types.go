@@ -381,6 +381,8 @@ type SetSessionTemplateItemCommand struct {
 type SessionTemplateQuery struct {
 	TenantID string
 	ParkID   string
+	// AsOfDate is the Asia/Kolkata business date whose active recipe the config screen renders.
+	AsOfDate string
 	Page     Page
 }
 

@@ -43,6 +43,7 @@ DECLARE
     authored_before   numeric;
     authored_after    numeric;
     filled            bigint;
+    business_date     date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
 BEGIN
     SELECT count(*), coalesce(sum(grams_per_head), 0)
       INTO open_rows_before, authored_before
@@ -68,7 +69,7 @@ BEGIN
         grams_per_head, valid_from, source_system
     )
     SELECT c.tenant_id, c.park_id, c.ration_group_label, c.shed_tag_label, i.feed_item_label,
-           0, CURRENT_DATE, 'grid_fill'
+           0, business_date, 'grid_fill'
       FROM cells c
       JOIN items i ON i.tenant_id = c.tenant_id
      WHERE NOT EXISTS (
@@ -81,7 +82,7 @@ BEGIN
            AND r.feed_item_key    = public.feed_config_norm(i.feed_item_label)
            AND r.valid_to IS NULL)
     -- Re-runnable and safe against a same-day authored-then-superseded row occupying this
-    -- (cell, item, CURRENT_DATE) natural key. Skipping is correct: the cell then already has an
+    -- (cell, item, business_date) natural key. Skipping is correct: the cell then already has an
     -- open row, which is the state this migration exists to reach.
     ON CONFLICT DO NOTHING;
 

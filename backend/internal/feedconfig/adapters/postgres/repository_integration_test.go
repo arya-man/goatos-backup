@@ -1590,7 +1590,7 @@ func TestCreateFeedItemOpensZeroRowsInEveryExistingCell(t *testing.T) {
 	}
 
 	rows, err := pool.Query(ctx, `
-SELECT ration_group_label, shed_tag_label, grams_per_head::text, source_system
+SELECT ration_group_label, shed_tag_label, grams_per_head::text, source_system, valid_from::text
 FROM feed_ration_rates
 WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Vijay Concentrate') AND valid_to IS NULL
 ORDER BY ration_group_label, shed_tag_label`, fcTenant)
@@ -1601,8 +1601,8 @@ ORDER BY ration_group_label, shed_tag_label`, fcTenant)
 
 	var got []string
 	for rows.Next() {
-		var group, tag, grams, source string
-		if err := rows.Scan(&group, &tag, &grams, &source); err != nil {
+		var group, tag, grams, source, validFrom string
+		if err := rows.Scan(&group, &tag, &grams, &source, &validFrom); err != nil {
 			t.Fatalf("scan filled row: %v", err)
 		}
 		if grams != "0.000" {
@@ -1610,6 +1610,9 @@ ORDER BY ration_group_label, shed_tag_label`, fcTenant)
 		}
 		if source != "grid_fill" {
 			t.Fatalf("%s/%s filled with source_system=%q; a machine-written row must stay distinguishable from an authored 'manual' zero", group, tag, source)
+		}
+		if validFrom != "2026-07-19" {
+			t.Fatalf("%s/%s filled with valid_from=%q, want the command's Asia/Kolkata business date", group, tag, validFrom)
 		}
 		got = append(got, group+"/"+tag)
 	}
@@ -1690,14 +1693,18 @@ func TestRestoreFeedItemTopsUpCellsAddedWhileRetired(t *testing.T) {
 	}
 
 	var cells int
+	var minValidFrom, maxValidFrom string
 	if err := pool.QueryRow(ctx, `
-SELECT count(*) FROM feed_ration_rates
+SELECT count(*), min(valid_from)::text, max(valid_from)::text FROM feed_ration_rates
 WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Vijay Concentrate')
-  AND grams_per_head = 0 AND valid_to IS NULL`, fcTenant).Scan(&cells); err != nil {
+  AND grams_per_head = 0 AND valid_to IS NULL`, fcTenant).Scan(&cells, &minValidFrom, &maxValidFrom); err != nil {
 		t.Fatalf("count restored cells: %v", err)
 	}
 	if cells != 2 {
 		t.Fatalf("restored item covers %d cells, want 2; a cell authored during retirement is BLOCKED, not zero", cells)
+	}
+	if minValidFrom != "2026-07-19" || maxValidFrom != "2026-07-19" {
+		t.Fatalf("restored cells valid_from range = %s..%s, want restore command business date", minValidFrom, maxValidFrom)
 	}
 }
 
@@ -1865,13 +1872,13 @@ func sessionSlotCommand(sessionNo int32, feedItem string, declared bool, key, ef
 
 // declaredFeeds reads the session's recipe under the predicate GENERATION uses, which is the only
 // predicate that answers "is this feed actually being served".
-func declaredFeeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sessionNo int32) []string {
+func declaredFeeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sessionNo int32, asOfDate string) []string {
 	t.Helper()
 	rows, err := pool.Query(ctx, `
 SELECT feed_item_label FROM feed_session_template_items
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND session_no = $3
-  AND status = 'active' AND valid_from <= CURRENT_DATE AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
-ORDER BY slot_no`, fcTenant, fcPark, sessionNo)
+  AND status = 'active' AND valid_from <= $4::date AND (valid_to IS NULL OR valid_to > $4::date)
+ORDER BY slot_no`, fcTenant, fcPark, sessionNo, asOfDate)
 	if err != nil {
 		t.Fatalf("read declared feeds: %v", err)
 	}
@@ -1920,7 +1927,7 @@ func TestDeclareSessionFeedRefusesAFeedTheParkCannotPriceEverywhere(t *testing.T
 	if !errors.Is(err, ports.ErrSlotRatesIncomplete) {
 		t.Fatalf("err = %v, want ErrSlotRatesIncomplete", err)
 	}
-	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 0 {
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 0 {
 		t.Fatalf("a REFUSED declare still wrote a slot: %v", got)
 	}
 
@@ -1929,7 +1936,7 @@ func TestDeclareSessionFeedRefusesAFeedTheParkCannotPriceEverywhere(t *testing.T
 	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-slot-ok", "2026-07-19")); err != nil {
 		t.Fatalf("declare fully-priced feed: %v", err)
 	}
-	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 1 || got[0] != "Concentrate" {
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 1 || got[0] != "Concentrate" {
 		t.Fatalf("declared feeds = %v, want [Concentrate]", got)
 	}
 }
@@ -1964,7 +1971,7 @@ func TestWithdrawSessionFeedClosesTheRowAndNeverDeletesIt(t *testing.T) {
 	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", false, "key-w-del", "2026-07-20")); err != nil {
 		t.Fatalf("withdraw: %v", err)
 	}
-	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 0 {
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 0 {
 		t.Fatalf("withdrawn feed is still served: %v", got)
 	}
 
@@ -2003,7 +2010,7 @@ func TestSessionFeedsAreIndependentPerSession(t *testing.T) {
 	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-s-1", "2026-07-19")); err != nil {
 		t.Fatalf("declare morning: %v", err)
 	}
-	if got := declaredFeeds(t, ctx, pool, 2); len(got) != 0 {
+	if got := declaredFeeds(t, ctx, pool, 2, "2026-07-19"); len(got) != 0 {
 		t.Fatalf("evening session serves %v after declaring only on the morning session", got)
 	}
 
@@ -2011,7 +2018,7 @@ func TestSessionFeedsAreIndependentPerSession(t *testing.T) {
 	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(2, "Concentrate", true, "key-s-2", "2026-07-19")); err != nil {
 		t.Fatalf("declare evening: %v", err)
 	}
-	if got := declaredFeeds(t, ctx, pool, 2); len(got) != 1 || got[0] != "Concentrate" {
+	if got := declaredFeeds(t, ctx, pool, 2, "2026-07-19"); len(got) != 1 || got[0] != "Concentrate" {
 		t.Fatalf("evening feeds = %v, want [Concentrate]", got)
 	}
 
@@ -2019,6 +2026,43 @@ func TestSessionFeedsAreIndependentPerSession(t *testing.T) {
 	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(9, "Concentrate", true, "key-s-9", "2026-07-19"))
 	if !errors.Is(err, ports.ErrSessionNotFound) {
 		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+// TestListSessionTemplatesReadsRecipeAsOfExplicitBusinessDate proves the config UI read uses the
+// same explicit business date as generation. A SQL CURRENT_DATE predicate would make this depend on
+// the database session timezone and hide the slot around the IST/UTC boundary.
+func TestListSessionTemplatesReadsRecipeAsOfExplicitBusinessDate(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-asof-cell", "fp-asof-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-asof-add", "2026-07-20")); err != nil {
+		t.Fatalf("declare future feed: %v", err)
+	}
+
+	before, err := repo.ListSessionTemplates(ctx, domain.SessionTemplateQuery{
+		TenantID: fcTenant, ParkID: fcPark, AsOfDate: "2026-07-19", Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("list before as-of: %v", err)
+	}
+	if len(before.Items) != 1 || len(before.Items[0].Items) != 0 {
+		t.Fatalf("before date items = %#v, want no served feeds", before.Items)
+	}
+
+	onDate, err := repo.ListSessionTemplates(ctx, domain.SessionTemplateQuery{
+		TenantID: fcTenant, ParkID: fcPark, AsOfDate: "2026-07-20", Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("list on as-of: %v", err)
+	}
+	if len(onDate.Items) != 1 || len(onDate.Items[0].Items) != 1 || onDate.Items[0].Items[0].FeedItemLabel != "Concentrate" {
+		t.Fatalf("on-date items = %#v, want Concentrate served", onDate.Items)
 	}
 }
 
@@ -2062,7 +2106,7 @@ func TestDeclareSessionFeedIsIdempotentAndAppendsInPackingOrder(t *testing.T) {
 	}
 	// Appended, never inserted mid-list: slot order is the PACKING order and renumbering it would
 	// reorder what packers already know.
-	if got := declaredFeeds(t, ctx, pool, 1); len(got) != 2 || got[0] != "Concentrate" || got[1] != "Hybrid" {
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 2 || got[0] != "Concentrate" || got[1] != "Hybrid" {
 		t.Fatalf("declared feeds = %v, want [Concentrate Hybrid] in packing order", got)
 	}
 }
