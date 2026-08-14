@@ -78,7 +78,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
             ),
             mandatoryCapturePermissionsForSdk(29),
@@ -91,7 +90,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -106,7 +104,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -121,7 +118,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.POST_NOTIFICATIONS,
                 Manifest.permission.BLUETOOTH_CONNECT,
@@ -138,6 +134,22 @@ class ProofAudioCaptureTest {
                 "language (copy firewall) — never the raw RECORD_AUDIO constant.",
             "Microphone",
             permissionLabel(Manifest.permission.RECORD_AUDIO),
+        )
+    }
+
+    @Test
+    fun `precise location request includes coarse without making coarse a blocker`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ),
+            requestPermissionsFor(setOf(Manifest.permission.ACCESS_FINE_LOCATION)),
+        )
+        assertFalse(
+            "Coarse must not be a separately blocking capture permission. If precise location " +
+                "is already granted after an update, a false coarse grant must not keep asking.",
+            Manifest.permission.ACCESS_COARSE_LOCATION in mandatoryCapturePermissionsForSdk(33),
         )
     }
 
