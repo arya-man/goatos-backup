@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
@@ -664,19 +666,27 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private fun refreshTeammateCaptures() {
         if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
         viewModelScope.launch {
-            val slots = feedRepository.penSessionCaptures(
-                FeedPenSessionCaptureQuery(
-                    parkId = parkId,
-                    shedId = shedId,
-                    // The PEN. Without it the server answers for the shed and would claim a sibling
-                    // pen's work as this one's.
-                    partitionLabel = partitionLabel,
-                    sessionNo = sessionNo,
-                    targetDate = targetDate,
-                    workflow = workflow,
-                ),
+            // A failed read (null) and an empty read are different answers. Empty is final: the
+            // server confirmed no teammate proof exists. Null means offline/timeout/5xx — retry,
+            // because concluding "slot free" from a network blip leaves this phone stale even
+            // after back-and-reenter (the blip usually outlives one screen entry on farm WiFi).
+            val query = FeedPenSessionCaptureQuery(
+                parkId = parkId,
+                shedId = shedId,
+                // The PEN. Without it the server answers for the shed and would claim a sibling
+                // pen's work as this one's.
+                partitionLabel = partitionLabel,
+                sessionNo = sessionNo,
+                targetDate = targetDate,
+                workflow = workflow,
             )
-            if (slots.isEmpty()) return@launch
+            var slots: List<FeedDistributionCapturedSlotDto>? = feedRepository.penSessionCaptures(query)
+            for (delayMs in TEAMMATE_CAPTURE_RETRY_DELAYS_MS) {
+                if (slots != null) break
+                delay(delayMs)
+                slots = feedRepository.penSessionCaptures(query)
+            }
+            if (slots.isNullOrEmpty()) return@launch
             slots.forEach { slot ->
                 when (slot.fieldKey) {
                     FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO ->
@@ -945,6 +955,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         const val ARG_PARK_LABEL = "park_label"
         const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
+
+        /** Retry cadence for the teammate-capture read; a farm-WiFi blip usually outlives one attempt. */
+        private val TEAMMATE_CAPTURE_RETRY_DELAYS_MS = longArrayOf(2_000L, 5_000L, 10_000L)
 
         private const val KEY_FEED_WEIGHT_PHOTO_IDEMPOTENCY = "feedDistribution.feedWeightPhotoKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedDistribution.videoKey"

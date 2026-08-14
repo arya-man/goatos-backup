@@ -162,7 +162,13 @@ interface FeedRepository {
      * just done or claim work that was withdrawn. A failure returns an empty list, so the capture
      * screen degrades to exactly its pre-2026-08-14 single-phone behaviour rather than breaking.
      */
-    suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto>
+    /**
+     * Server-recorded proof slots for ONE pen-session, or `null` when the read FAILED (offline,
+     * timeout, 5xx). `null` and empty are different answers: empty means the server confirmed no
+     * teammate has recorded anything; null means we do not know and the caller should retry
+     * rather than conclude the slots are free.
+     */
+    suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto>?
 }
 
 /** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
@@ -292,7 +298,7 @@ class DefaultFeedRepository(
 
     override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
         query: FeedPenSessionCaptureQuery,
-    ): List<FeedDistributionCapturedSlotDto> =
+    ): List<FeedDistributionCapturedSlotDto>? =
         runCatching {
             api.getFeedDistributionCaptures(
                 parkId = query.parkId.takeIf { it.isNotBlank() },
@@ -303,10 +309,10 @@ class DefaultFeedRepository(
                 workflow = query.workflow,
             ).items
         }.getOrElse {
-            // Fail SOFT and silent. This read only ADDS knowledge of other operators' work; without
-            // it the screen behaves exactly as it did before the read existed. Surfacing an error
-            // here would put a failure banner on a screen whose own capture state is perfectly fine.
-            emptyList()
+            // Fail soft but NOT silent to the caller: null tells the ViewModel the read failed so
+            // it can retry, instead of treating a network blip as "no teammate has recorded
+            // anything" and leaving the screen stale until the operator taps Sync.
+            null
         }
 }
 
