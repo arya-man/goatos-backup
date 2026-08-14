@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_runs (
     CHECK (status IN ('proposed', 'confirmed', 'superseded')),
   confirmed_by uuid,
   confirmed_at timestamptz,
+  confirmation_idempotency_key text,
+  confirmation_fingerprint text,
 
   idempotency_key text NOT NULL,
   request_fingerprint text NOT NULL,
@@ -115,7 +117,20 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_runs (
   -- A confirmed run names who confirmed it and when; an unconfirmed one must not
   -- carry either. This is the advisory boundary expressed as a constraint.
   CONSTRAINT health_diagnosis_runs_confirmation_complete
-    CHECK ((status = 'confirmed') = (confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL)),
+    CHECK ((status = 'confirmed') = (
+      confirmed_by IS NOT NULL
+      AND confirmed_at IS NOT NULL
+      AND confirmation_idempotency_key IS NOT NULL
+      AND confirmation_fingerprint IS NOT NULL
+    )),
+
+  CONSTRAINT health_diagnosis_runs_confirmation_empty_until_confirmed
+    CHECK (status = 'confirmed' OR (
+      confirmed_by IS NULL
+      AND confirmed_at IS NULL
+      AND confirmation_idempotency_key IS NULL
+      AND confirmation_fingerprint IS NULL
+    )),
 
   -- An invalid form is not diagnosed at all, so it can never be confirmed.
   CONSTRAINT health_diagnosis_runs_invalid_is_terminal

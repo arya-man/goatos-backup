@@ -106,13 +106,16 @@ func TestDiagnosisRunConfirmationConstraints(t *testing.T) {
 	tenantID, goatID, _ := diagnosisSchemaFixture(t, ctx, pool)
 
 	insert := func(valid bool, rejectReason *string, status string, confirmedBy *string, key string) error {
+		confirmationKey := confirmedBy
+		confirmationFingerprint := confirmedBy
 		_, err := pool.Exec(ctx, `
 INSERT INTO health_diagnosis_runs
  (tenant_id,goat_id,register_version,observed_by,business_date,form,proposal,
-  valid,reject_reason,scope,status,confirmed_by,confirmed_at,idempotency_key,request_fingerprint)
+  valid,reject_reason,scope,status,confirmed_by,confirmed_at,confirmation_idempotency_key,
+  confirmation_fingerprint,idempotency_key,request_fingerprint)
 VALUES ($1::uuid,$2::uuid,'adult-1',$2::uuid,current_date,'{}'::jsonb,'{}'::jsonb,
-  $3,$4,'adult',$5,$6::uuid,CASE WHEN $6 IS NULL THEN NULL ELSE now() END,$7,'fp')`,
-			tenantID, goatID, valid, rejectReason, status, confirmedBy, key)
+  $3,$4,'adult',$5,$6::uuid,CASE WHEN $6 IS NULL THEN NULL ELSE now() END,$7,$8,$9,'fp')`,
+			tenantID, goatID, valid, rejectReason, status, confirmedBy, confirmationKey, confirmationFingerprint, key)
 		return err
 	}
 	reason := "not_eating_with_feed"
@@ -130,7 +133,7 @@ VALUES ($1::uuid,$2::uuid,'adult-1',$2::uuid,current_date,'{}'::jsonb,'{}'::json
 
 	t.Run("a proposed run must not carry a confirmer", func(t *testing.T) {
 		err := insert(true, nil, "proposed", &goatID, "bad-proposed-confirmer")
-		requireConstraintViolation(t, err, "health_diagnosis_runs_confirmation_complete")
+		requireConstraintViolation(t, err, "health_diagnosis_runs_confirmation_empty_until_confirmed")
 	})
 
 	t.Run("an invalid form can never be confirmed", func(t *testing.T) {
