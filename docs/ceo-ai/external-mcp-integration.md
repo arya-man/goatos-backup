@@ -44,7 +44,7 @@ Service:      Mesha / Goat OS external MCP service
 Use this staging URL. The MCP JSON-RPC path is `/mcp`:
 
 ```text
-https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp
+https://mcp.mesha.sg/mcp
 ```
 
 Do not point external clients at the internal MCP Toolbox service
@@ -167,7 +167,7 @@ For Claude clients with remote custom connector support:
 3. Add a custom connector named `Mesha Goat OS`.
 4. Paste this URL:
    ```text
-   https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp
+   https://mcp.mesha.sg/mcp
    ```
 5. Save. Claude should open the Goat OS login page.
 6. Sign in with an approved leadership account.
@@ -180,7 +180,7 @@ Config shape for clients that use JSON:
   "mcpServers": {
     "mesha-goatos-stg": {
       "type": "http",
-      "url": "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"
+      "url": "https://mcp.mesha.sg/mcp"
     }
   }
 }
@@ -195,7 +195,7 @@ goes in the config:
   "mcpServers": {
     "mesha-goatos-stg": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"]
+      "args": ["-y", "mcp-remote", "https://mcp.mesha.sg/mcp"]
     }
   }
 }
@@ -220,7 +220,7 @@ Native remote HTTP shape, where supported:
 ```toml
 [mcp_servers.mesha-goatos-stg]
 type = "http"
-url = "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"
+url = "https://mcp.mesha.sg/mcp"
 ```
 
 Current Codex Desktop/CLI-compatible proxy shape:
@@ -228,7 +228,7 @@ Current Codex Desktop/CLI-compatible proxy shape:
 ```toml
 [mcp_servers.mesha-goatos-stg]
 command = "npx"
-args = ["-y", "mcp-remote", "https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp"]
+args = ["-y", "mcp-remote", "https://mcp.mesha.sg/mcp"]
 startup_timeout_sec = 30.0
 tool_timeout_sec = 120.0
 ```
@@ -248,7 +248,7 @@ For a ChatGPT-style custom GPT, app, or connector:
 
 1. Register the external MCP endpoint URL:
    ```text
-   https://goatos-mcp-stg-awtrpmn4za-el.a.run.app/mcp
+   https://mcp.mesha.sg/mcp
    ```
 2. The connector should use the MCP OAuth discovery flow and show Goat OS login.
 3. Sign in with an allowlisted leadership email.
