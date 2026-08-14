@@ -266,10 +266,25 @@ data class FeedDistributionCompletePayload(
      */
     @SerialName("feed_weight_proof_outbox_item_id") val feedWeightProofOutboxItemId: String? = null,
     /** Outbox id of the MANDATORY feed-distribution VIDEO's PROOF_UPLOAD item. */
-    @SerialName("distribution_proof_outbox_item_id") val distributionProofOutboxItemId: String,
+    @SerialName("distribution_proof_outbox_item_id") val distributionProofOutboxItemId: String? = null,
     /** Outbox id of the MANDATORY water-distribution VIDEO's PROOF_UPLOAD item. Video-only since
      *  2026-08-11; a row queued earlier may reference a photo, which the backend now rejects. */
-    @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String,
+    @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String? = null,
+    /**
+     * SERVER proof ids for slots this phone did NOT shoot.
+     *
+     * A pen-session's three proofs may be recorded by three different operators (maintainer decision
+     * 2026-08-14). A proof shot on another phone has no PROOF_UPLOAD outbox row here, so the outbox
+     * ids above cannot name it — the dispatcher uses these instead, verbatim. The backend already
+     * accepts them: ValidateFeedProofMedia checks tenant, upload state and media kind, never the
+     * uploader.
+     *
+     * Nullable with a default so a row queued by an older build still decodes; a slot the operator
+     * shot themselves leaves these null and resolves through its own outbox row exactly as before.
+     */
+    @SerialName("feed_weight_proof_ref") val feedWeightProofRef: String? = null,
+    @SerialName("distribution_proof_ref") val distributionProofRef: String? = null,
+    @SerialName("water_proof_ref") val waterProofRef: String? = null,
 )
 
 /**

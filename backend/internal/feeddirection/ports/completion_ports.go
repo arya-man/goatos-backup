@@ -114,6 +114,19 @@ type ProofValidator interface {
 	// water = VIDEO), and a submission that satisfies presence while carrying the wrong kind produces a
 	// verification item the verifier cannot judge -- a still frame where a clip was promised.
 	ValidateFeedProofMedia(ctx context.Context, tenantID string, expected []ExpectedProofMedia) error
+
+	// ListPenSessionCaptures returns the COMPLETED proof uploads already recorded for ONE pen-session,
+	// by ANY operator, newest per slot.
+	//
+	// A pen-session's three proofs may be shot by three different people on three phones (maintainer
+	// decision 2026-08-14). Before this read a proof was discoverable only on the device that shot it,
+	// so the others could not tell the slot was done AND no single phone held all three references --
+	// the pen could not be submitted at all. It returns SERVER proof ids precisely so a phone that shot
+	// none of them can still submit.
+	//
+	// Completed uploads only: an in-flight upload is not yet referenceable and the completion route
+	// would reject it.
+	ListPenSessionCaptures(ctx context.Context, q PenSessionCaptureQuery) ([]CapturedProofSlot, error)
 }
 
 // MediaKind is the capture kind a proof step demands.

@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -126,7 +127,27 @@ interface FeedRepository {
 
     /** The paged Feed Packing lines, a Room PagingSource filled by a RemoteMediator. */
     fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>>
+
+    /**
+     * Which of ONE pen-session's proof slots are already recorded, by ANY operator.
+     *
+     * Deliberately NOT cache-first: this answers "has someone else done this slot in the last few
+     * minutes", and a stale cached answer is worse than none — it would either hide work that was
+     * just done or claim work that was withdrawn. A failure returns an empty list, so the capture
+     * screen degrades to exactly its pre-2026-08-14 single-phone behaviour rather than breaking.
+     */
+    suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto>
 }
+
+/** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
+data class FeedPenSessionCaptureQuery(
+    val parkId: String,
+    val shedId: String,
+    val partitionLabel: String,
+    val sessionNo: Int,
+    val targetDate: String,
+    val workflow: String,
+)
 
 class DefaultFeedRepository(
     private val api: AppApi,
@@ -210,6 +231,25 @@ class DefaultFeedRepository(
             .map { page -> page.map { entity -> json.decodeFromString<FeedPackingRowDto>(entity.dtoJson) } }
             .flowOn(Dispatchers.Default)
     }
+
+    override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
+        query: FeedPenSessionCaptureQuery,
+    ): List<FeedDistributionCapturedSlotDto> =
+        runCatching {
+            api.getFeedDistributionCaptures(
+                parkId = query.parkId.takeIf { it.isNotBlank() },
+                shedId = query.shedId,
+                partitionLabel = query.partitionLabel.takeIf { it.isNotBlank() },
+                sessionNo = query.sessionNo,
+                targetDate = query.targetDate,
+                workflow = query.workflow,
+            ).items
+        }.getOrElse {
+            // Fail SOFT and silent. This read only ADDS knowledge of other operators' work; without
+            // it the screen behaves exactly as it did before the read existed. Surfacing an error
+            // here would put a failure banner on a screen whose own capture state is perfectly fine.
+            emptyList()
+        }
 }
 
 /**

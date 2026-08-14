@@ -136,6 +136,14 @@ type fakeProofValidator struct {
 	kindErr error
 }
 
+// ListPenSessionCaptures: this fake exercises the completion path, where nothing is discovered
+// from other operators' phones. Empty keeps that path's behaviour identical.
+func (f *fakeProofValidator) ListPenSessionCaptures(
+	context.Context, ports.PenSessionCaptureQuery,
+) ([]ports.CapturedProofSlot, error) {
+	return nil, nil
+}
+
 func (f *fakeProofValidator) ValidateFeedProofs(_ context.Context, _ string, ids []string) error {
 	f.calls++
 	f.lastIDs = ids
