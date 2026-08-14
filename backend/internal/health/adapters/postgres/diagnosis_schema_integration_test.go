@@ -131,8 +131,29 @@ VALUES ($1::uuid,$2::uuid,'adult-1',$2::uuid,current_date,'{}'::jsonb,'{}'::json
 		requireConstraintViolation(t, err, "health_diagnosis_runs_confirmation_complete")
 	})
 
+	// A proposed run carrying a FULL confirmation trips the equivalence first.
+	// Postgres evaluates CHECK constraints in name order, and "complete" sorts
+	// before "empty_until_confirmed", so asserting the latter here can never pass --
+	// both are violated and only the first is reported.
 	t.Run("a proposed run must not carry a confirmer", func(t *testing.T) {
 		err := insert(true, nil, "proposed", &goatID, "bad-proposed-confirmer")
+		requireConstraintViolation(t, err, "health_diagnosis_runs_confirmation_complete")
+	})
+
+	// The case the equivalence CANNOT catch, and the reason the second constraint
+	// exists: a proposed run holding PARTIAL confirmation residue. Both sides of
+	// `(status='confirmed') = (all four non-null)` are false, so it satisfies the
+	// equivalence while carrying a confirmer on work nobody confirmed -- which is
+	// what a half-rolled-back confirmation would leave behind.
+	t.Run("a proposed run must not carry partial confirmation residue", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `
+INSERT INTO health_diagnosis_runs
+ (tenant_id,goat_id,register_version,observed_by,business_date,form,proposal,
+  valid,reject_reason,scope,status,confirmed_by,confirmed_at,confirmation_idempotency_key,
+  confirmation_fingerprint,idempotency_key,request_fingerprint)
+VALUES ($1::uuid,$2::uuid,'adult-1',$2::uuid,current_date,'{}'::jsonb,'{}'::jsonb,
+  true,NULL,'adult','proposed',$2::uuid,now(),NULL,NULL,'bad-partial-residue','fp')`,
+			tenantID, goatID)
 		requireConstraintViolation(t, err, "health_diagnosis_runs_confirmation_empty_until_confirmed")
 	})
 
