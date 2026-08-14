@@ -32,16 +32,23 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 		{
 			name: "5 targets 1 proof only",
 			scenario: func() string {
-				bid := fmt.Sprintf("batch-proof1-%d", time.Now().UnixNano())
+				bid := fmt.Sprintf("e2b00000-0000-4000-8000-%012d", time.Now().UnixNano()%1000000000000)
 				execProjectionSQL(t, ctx, pool, "batch",
 					`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
 					 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5)`,
 					bid, testTenant, testVersion, testShed, testOperator)
+				tid := taskFor(bid)
+				execProjectionSQL(t, ctx, pool, "task",
+					`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, assigned_to, scope_type, scope_id, context)
+					 VALUES ($1, $2, $3, $4, 'vaccination', 'T', 'assigned', $5, 'shed', $6, jsonb_build_object('obligation_batch_id',$7::text))`,
+					tid, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, bid)
+				execProjectionSQL(t, ctx, pool, "link task batch",
+					`UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, tid, testTenant, bid)
 				// Create 5 obligations, mark 1 with proof
 				for i := 1; i <= 5; i++ {
-					gid := fmt.Sprintf("goat-proof1-%d", i)
+					gid := fmt.Sprintf("e2c00001-0000-4000-8000-%012d", i)
 					insertProjectionGoat(t, ctx, pool, gid, testShed, testPark)
-					oid := fmt.Sprintf("obl-proof1-%d", i)
+					oid := fmt.Sprintf("e2d00001-0000-4000-8000-%012d", i)
 					execProjectionSQL(t, ctx, pool, "obligation",
 						`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
 						 target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
@@ -49,9 +56,13 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 						oid, testTenant, testVersion, testRule, bid, gid, testShed, fmt.Sprintf("key-proof1-%d", i), i)
 					if i == 1 {
 						execProjectionSQL(t, ctx, pool, "proof",
-							`UPDATE obligation_instances SET shed_proof_submitted = true WHERE obligation_id = $1`, oid)
+							`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by, created_at, uploaded_at)
+							 VALUES (gen_random_uuid(), $1, 'local', 'k/'||$2::text, 'video/mp4', 'completed', 'task', $3::uuid, 'goat', $2::uuid, 'video', $4, TIMESTAMPTZ '2026-06-24 09:30:00+00', TIMESTAMPTZ '2026-06-24 09:30:00+00')`,
+							testTenant, gid, taskFor(bid), testOperator)
 					}
 				}
+				execProjectionSQL(t, ctx, pool, "link obligations",
+					`UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, taskFor(bid), testTenant, bid)
 				return bid
 			},
 			expectedDone:  1,
@@ -61,22 +72,35 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 		{
 			name: "5 all proofed",
 			scenario: func() string {
-				bid := fmt.Sprintf("batch-proof5-%d", time.Now().UnixNano())
+				bid := fmt.Sprintf("e2b00001-0000-4000-8000-%012d", time.Now().UnixNano()%1000000000000)
 				execProjectionSQL(t, ctx, pool, "batch",
 					`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
 					 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5)`,
 					bid, testTenant, testVersion, testShed, testOperator)
+				tid := taskFor(bid)
+				execProjectionSQL(t, ctx, pool, "task",
+					`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, assigned_to, scope_type, scope_id, context)
+					 VALUES ($1, $2, $3, $4, 'vaccination', 'T', 'assigned', $5, 'shed', $6, jsonb_build_object('obligation_batch_id',$7::text))`,
+					tid, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, bid)
+				execProjectionSQL(t, ctx, pool, "link task batch",
+					`UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, tid, testTenant, bid)
 				// Create 5 obligations, all with proof
 				for i := 1; i <= 5; i++ {
-					gid := fmt.Sprintf("goat-proof5-%d", i)
+					gid := fmt.Sprintf("e2c00005-0000-4000-8000-%012d", i)
 					insertProjectionGoat(t, ctx, pool, gid, testShed, testPark)
-					oid := fmt.Sprintf("obl-proof5-%d", i)
+					oid := fmt.Sprintf("e2d00005-0000-4000-8000-%012d", i)
 					execProjectionSQL(t, ctx, pool, "obligation",
 						`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
-						 target_type, target_id, scope_type, scope_id, due_at, status, shed_proof_submitted, idempotency_key, sequence)
-						 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', true, $8, $9)`,
+						 target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+						 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', $8, $9)`,
 						oid, testTenant, testVersion, testRule, bid, gid, testShed, fmt.Sprintf("key-proof5-%d", i), i)
+					execProjectionSQL(t, ctx, pool, "proof",
+						`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by, created_at, uploaded_at)
+						 VALUES (gen_random_uuid(), $1, 'local', 'k5/'||$2::text, 'video/mp4', 'completed', 'task', $3::uuid, 'goat', $2::uuid, 'video', $4, TIMESTAMPTZ '2026-06-24 09:30:00+00', TIMESTAMPTZ '2026-06-24 09:30:00+00')`,
+						testTenant, gid, taskFor(bid), testOperator)
 				}
+				execProjectionSQL(t, ctx, pool, "link obligations",
+					`UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, taskFor(bid), testTenant, bid)
 				return bid
 			},
 			expectedDone:  5,
@@ -86,16 +110,23 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 		{
 			name: "3 completed + 2 proof disjoint union",
 			scenario: func() string {
-				bid := fmt.Sprintf("batch-disj-%d", time.Now().UnixNano())
+				bid := fmt.Sprintf("e2b00002-0000-4000-8000-%012d", time.Now().UnixNano()%1000000000000)
 				execProjectionSQL(t, ctx, pool, "batch",
 					`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
 					 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5)`,
 					bid, testTenant, testVersion, testShed, testOperator)
+				tid := taskFor(bid)
+				execProjectionSQL(t, ctx, pool, "task",
+					`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, assigned_to, scope_type, scope_id, context)
+					 VALUES ($1, $2, $3, $4, 'vaccination', 'T', 'assigned', $5, 'shed', $6, jsonb_build_object('obligation_batch_id',$7::text))`,
+					tid, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, bid)
+				execProjectionSQL(t, ctx, pool, "link task batch",
+					`UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, tid, testTenant, bid)
 				// Create 5 obligations: first 3 completed, last 2 proof-only
 				for i := 1; i <= 5; i++ {
-					gid := fmt.Sprintf("goat-disj-%d", i)
+					gid := fmt.Sprintf("e2c00009-0000-4000-8000-%012d", i)
 					insertProjectionGoat(t, ctx, pool, gid, testShed, testPark)
-					oid := fmt.Sprintf("obl-disj-%d", i)
+					oid := fmt.Sprintf("e2d00009-0000-4000-8000-%012d", i)
 					execProjectionSQL(t, ctx, pool, "obligation",
 						`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
 						 target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
@@ -103,7 +134,7 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 						oid, testTenant, testVersion, testRule, bid, gid, testShed, fmt.Sprintf("key-disj-%d", i), i)
 					if i <= 3 {
 						// Completed path
-						cid := fmt.Sprintf("comp-disj-%d", i)
+						cid := fmt.Sprintf("e2e00009-0000-4000-8000-%012d", i)
 						execProjectionSQL(t, ctx, pool, "completion",
 							`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
 							 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-24 09:00:00+00', 'recorded', $6, $7)`,
@@ -111,9 +142,13 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 					} else {
 						// Proof-only path
 						execProjectionSQL(t, ctx, pool, "proof",
-							`UPDATE obligation_instances SET shed_proof_submitted = true WHERE obligation_id = $1`, oid)
+							`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by, created_at, uploaded_at)
+							 VALUES (gen_random_uuid(), $1, 'local', 'kd/'||$2::text, 'video/mp4', 'completed', 'task', $3::uuid, 'goat', $2::uuid, 'video', $4, TIMESTAMPTZ '2026-06-24 09:30:00+00', TIMESTAMPTZ '2026-06-24 09:30:00+00')`,
+							testTenant, gid, taskFor(bid), testOperator)
 					}
 				}
+				execProjectionSQL(t, ctx, pool, "link obligations",
+					`UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, taskFor(bid), testTenant, bid)
 				return bid
 			},
 			expectedDone:  5, // Union: 3 completed + 2 proof = 5 done
@@ -170,4 +205,9 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 			}
 		})
 	}
+}
+
+// taskFor derives a stable per-batch sop_task uuid from a batch uuid (flip first byte group).
+func taskFor(batchID string) string {
+	return "e2f" + batchID[3:]
 }
