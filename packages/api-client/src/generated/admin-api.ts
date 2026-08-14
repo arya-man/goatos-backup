@@ -806,6 +806,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/census-slice/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * How many animals a breed or sex correction would change.
+         * @description Reports the size of one Counts Breakdown row before anything is written. Writes nothing and takes no idempotency key.
+         */
+        post: operations["previewCorrectCensusSlice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/census-slice/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct a wrongly recorded breed or sex on one census row.
+         * @description A DATA CORRECTION, not a husbandry event: nothing about the animal changed, only what the register says. Scope is the ROW (park + stage + breed + sex + pen), NOT the pen — breed and sex are properties of the animal, and one pen legitimately holds several of each, so this touches nothing else standing there. Requires `Idempotency-Key`; an exact replay returns the original result without correcting twice.
+         *
+         *     It does NOT re-evaluate anything downstream that keyed on the old value: a vaccination schedule derived from a wrong sex is not recomputed here.
+         */
+        post: operations["commitCorrectCensusSlice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/{goat_id}/stage": {
         parameters: {
             query?: never;
@@ -2124,6 +2166,63 @@ export interface components {
             reason?: string;
             /** @description Optional; absent means false. Allows the commit to succeed against a location holding NO live animals, writing only the configured cohort. It separates two intents on one write. Absent (false) keeps the original behaviour and suits a caller who means "retag the animals in this pen", where an empty pen almost always means the wrong pen was picked: it receives 409 `reclassify_empty_scope`. The Counts Breakdown Stage editor sets it true, because "this pen's tag is now X" is an ordinary thing to record for a pen standing empty before animals arrive, and receives a success with `reclassified` = 0. Part of the request hash, so the two intents cannot replay onto each other. */
             configure_empty?: boolean;
+        };
+        CorrectCensusSliceRequest: {
+            /**
+             * Format: uuid
+             * @description The PARENT physical shed of the row's pen.
+             */
+            shed_id: string;
+            /** @description The pen inside shed_id ('1', 'Part 3'); omitted for a shed with no pens. */
+            partition_label?: string;
+            /** @description The row's cohort tag. Part of the predicate, not something this call changes. */
+            management_stage: string;
+            /** @description The row's breed. May be empty — the census renders a blank breed as its own row, and correcting exactly those animals is the commonest reason to use this. */
+            breed: string;
+            /**
+             * @description The row's sex. Part of the predicate, not something this call changes unless field=sex.
+             * @enum {string}
+             */
+            sex: "female" | "male";
+            /**
+             * @description Which column to correct. One field per command, so one audit row states one decision.
+             * @enum {string}
+             */
+            field: "breed" | "sex";
+            /** @description The corrected value. Validated against the tenant's active breed catalog for `breed`, and against female/male for `sex`. A value equal to what the row already carries is rejected rather than written. */
+            value: string;
+            /** @description Required on commit, ignored on preview. This write has no approval step and no proof behind it, so the reason is the account of why the register was changed. */
+            reason?: string;
+        };
+        CensusSliceCorrectionPreviewResponse: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            partition_label?: string;
+            operational_location_display: string;
+            /** @enum {string} */
+            field: "breed" | "sex";
+            current_value: string;
+            value: string;
+            /** @description Live animals in the WHOLE row, computed over the same predicate the commit uses. */
+            total_live: number;
+            trace_id?: string;
+        };
+        CensusSliceCorrectionResponse: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            partition_label?: string;
+            operational_location_display: string;
+            /** @enum {string} */
+            field: "breed" | "sex";
+            current_value: string;
+            value: string;
+            total_live: number;
+            /** @description Animals whose row actually changed. Lower than total_live only when another writer moved animals out of the slice between the preview and the commit. */
+            corrected: number;
+            idempotency_key?: string;
+            trace_id?: string;
         };
         ReclassifyShedStageBucket: {
             management_stage: string;
@@ -5503,6 +5602,65 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    previewCorrectCensusSlice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectCensusSliceRequest"];
+            };
+        };
+        responses: {
+            /** @description The slice and the number of live animals in it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CensusSliceCorrectionPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    commitCorrectCensusSlice: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectCensusSliceRequest"];
+            };
+        };
+        responses: {
+            /** @description The correction that was applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CensusSliceCorrectionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["ServerError"];
         };
     };
     stageGoat: {

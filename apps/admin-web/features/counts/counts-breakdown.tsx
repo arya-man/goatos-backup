@@ -23,6 +23,7 @@ import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-brea
 import { CountsBreakdownTable } from "./counts-breakdown-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 import type { StageOption } from "./shed-stage-actions";
+import type { InlineChoice } from "./inline-cell-editor";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
 // farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
@@ -291,6 +292,19 @@ export async function CountsBreakdownPage({
   // goat.reclassify_shed_stage gets a DISABLED button carrying the backend's reason, not a missing
   // one -- and the routes require the same permission, so the button is the honest label, not the
   // lock.
+  // Vocabularies for the inline Breed and Gender corrections, both backend-owned. Breed is the
+  // CATALOG (compiled from the tenant's breeds reference family), deliberately not the response's
+  // `facets.breeds`: a facet reports the breeds already on the herd, and a correction frequently
+  // needs one that is not -- that is the point of correcting a wrongly recorded breed.
+  const breedChoices: InlineChoice[] = optionGroup(pageContract, "counts_breed").map((option) => ({
+    value: option.key,
+    label: option.label,
+  }));
+  const genderChoices: InlineChoice[] = optionGroup(pageContract, "counts_gender").map((option) => ({
+    value: option.key,
+    label: option.label,
+  }));
+
   // Authority for the inline Stage editor, read off the compiled control -- the same control id and
   // permission the write itself is gated on.
   const stageChangeEnabled = controlEnabled(pageContract, "change_shed_stage", false);
@@ -376,6 +390,8 @@ export async function CountsBreakdownPage({
             pageContract={pageContract}
             rows={rows}
             stages={stageOptions}
+            breeds={breedChoices}
+            genders={genderChoices}
             retagEnabled={stageChangeEnabled}
             retagDisabledReason={stageChangeReason}
             ariaLabel={copy(pageContract, "table.breakdown.aria")}

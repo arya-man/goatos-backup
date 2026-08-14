@@ -1716,6 +1716,83 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/census-slice/preview:
+    post:
+      tags:
+        - Goats
+      operationId: previewCorrectCensusSlice
+      summary: How many animals a breed or sex correction would change.
+      description: >-
+        Reports the size of one Counts Breakdown row before anything is written. Writes nothing and
+        takes no idempotency key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrectCensusSliceRequest"
+      responses:
+        "200":
+          description: The slice and the number of live animals in it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CensusSliceCorrectionPreviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/goats/census-slice/commit:
+    post:
+      tags:
+        - Goats
+      operationId: commitCorrectCensusSlice
+      summary: Correct a wrongly recorded breed or sex on one census row.
+      description: >-
+        A DATA CORRECTION, not a husbandry event: nothing about the animal changed, only what the
+        register says. Scope is the ROW (park + stage + breed + sex + pen), NOT the pen — breed and
+        sex are properties of the animal, and one pen legitimately holds several of each, so this
+        touches nothing else standing there. Requires `Idempotency-Key`; an exact replay returns the
+        original result without correcting twice.
+
+
+        It does NOT re-evaluate anything downstream that keyed on the old value: a vaccination
+        schedule derived from a wrong sex is not recomputed here.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrectCensusSliceRequest"
+      responses:
+        "200":
+          description: The correction that was applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CensusSliceCorrectionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/goats/{goat_id}/stage:
     post:
       tags:
@@ -5364,6 +5441,110 @@ components:
             it true, because "this pen's tag is now X" is an ordinary thing to record for a pen
             standing empty before animals arrive, and receives a success with `reclassified` = 0.
             Part of the request hash, so the two intents cannot replay onto each other.
+    CorrectCensusSliceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - management_stage
+        - breed
+        - sex
+        - field
+        - value
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+          description: The PARENT physical shed of the row's pen.
+        partition_label:
+          type: string
+          maxLength: 80
+          description: The pen inside shed_id ('1', 'Part 3'); omitted for a shed with no pens.
+        management_stage:
+          type: string
+          maxLength: 80
+          description: The row's cohort tag. Part of the predicate, not something this call changes.
+        breed:
+          type: string
+          maxLength: 120
+          description: >-
+            The row's breed. May be empty — the census renders a blank breed as its own row, and
+            correcting exactly those animals is the commonest reason to use this.
+        sex:
+          type: string
+          enum: [female, male]
+          description: The row's sex. Part of the predicate, not something this call changes unless field=sex.
+        field:
+          type: string
+          enum: [breed, sex]
+          description: Which column to correct. One field per command, so one audit row states one decision.
+        value:
+          type: string
+          maxLength: 120
+          description: >-
+            The corrected value. Validated against the tenant's active breed catalog for
+            `breed`, and against female/male for `sex`. A value equal to what the row already
+            carries is rejected rather than written.
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: >-
+            Required on commit, ignored on preview. This write has no approval step and no proof
+            behind it, so the reason is the account of why the register was changed.
+    CensusSliceCorrectionPreviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - operational_location_display
+        - field
+        - current_value
+        - value
+        - total_live
+      properties:
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string }
+        field: { type: string, enum: [breed, sex] }
+        current_value: { type: string }
+        value: { type: string }
+        total_live:
+          type: integer
+          minimum: 0
+          description: Live animals in the WHOLE row, computed over the same predicate the commit uses.
+        trace_id: { type: string }
+    CensusSliceCorrectionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - operational_location_display
+        - field
+        - current_value
+        - value
+        - total_live
+        - corrected
+      properties:
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string }
+        field: { type: string, enum: [breed, sex] }
+        current_value: { type: string }
+        value: { type: string }
+        total_live: { type: integer, minimum: 0 }
+        corrected:
+          type: integer
+          minimum: 0
+          description: >-
+            Animals whose row actually changed. Lower than total_live only when another writer moved
+            animals out of the slice between the preview and the commit.
+        idempotency_key: { type: string }
+        trace_id: { type: string }
     ReclassifyShedStageBucket:
       type: object
       additionalProperties: false

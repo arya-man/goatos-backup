@@ -790,6 +790,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
+			// The breed catalog for the inline breed correction, injected the same way Feed's
+			// vocabularies are. Contract code declares the group; the values are tenant rows.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(families.Breeds, ""))
 		}
 	}
 	return out
