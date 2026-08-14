@@ -10,6 +10,29 @@
     },
     {
       "type": "actions",
+      "block_id": "deploy_options",
+      "elements": [
+        {
+          "type": "checkboxes",
+          "action_id": "deploy_options",
+          "options": [
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "Also distribute Android mobile"
+              },
+              "description": {
+                "type": "plain_text",
+                "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk"
+              },
+              "value": "mobile_distribution"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "actions",
       "elements": [
         {
           "type": "button",
