@@ -85,7 +85,7 @@ internal class FakeFeedRepository : FeedRepository {
     override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
     override fun observePackingTotals(query: FeedPackingQuery): Flow<Resource<FeedPackingWorklistPageDto>> = error("unused")
     override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> = error("unused")
-    override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto> = error("unused")
+    override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto> = emptyList()
 }
 
 /**
