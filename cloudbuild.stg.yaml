@@ -32,6 +32,7 @@ steps:
         fi
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl docker.io git python3
+        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$${PATH}"
         tools/deploy/stg-cloudbuild-release.sh
 
   - id: android-mobile-distribution
