@@ -2,7 +2,6 @@ package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_GOAT
@@ -226,24 +225,28 @@ class FeedProofCapGrainTest {
             )
         }
 
-        // Both proofs must be in the repository (two separate rows)
-        val allProofs = kotlinx.coroutines.runBlocking {
-            repository.observeProofs("feed-dist:2026-08-14:shed-1", null).first()
+        // Production addresses proof storage by the FULL capture group key as taskId (see
+        // buildFeedEvidenceSlotIdentity's kdoc) -- there is no shared "shed" parent to query by
+        // prefix. The regression this guards is collision: each pen's own taskId must resolve to
+        // exactly its own row, and never leak or overwrite the sibling pen's row.
+        val proofsForPenA = kotlinx.coroutines.runBlocking {
+            repository.observeProofs(taskIdA, null).first()
         }
-        assertEquals("both pens must have their own proof rows", 2, allProofs.size)
+        val proofsForPenB = kotlinx.coroutines.runBlocking {
+            repository.observeProofs(taskIdB, null).first()
+        }
+        assertEquals("Pen A's own key sees exactly its own row", 1, proofsForPenA.size)
+        assertEquals("Pen B's own key sees exactly its own row", 1, proofsForPenB.size)
+        assertEquals("Pen A's row is its own capture", "/proof/pen-a-weight.jpg", proofsForPenA.single().localUri)
+        assertEquals("Pen B's row is its own capture", "/proof/pen-b-weight.jpg", proofsForPenB.single().localUri)
 
-        // Extract idempotency keys (internal; this is a guard that the caller can observe)
-        val proofA = allProofs.find { it.localUri == "/proof/pen-a-weight.jpg" }
-        val proofB = allProofs.find { it.localUri == "/proof/pen-b-weight.jpg" }
-        assertTrue("Pen A proof found", proofA != null)
-        assertTrue("Pen B proof found", proofB != null)
-
-        // Idempotency keys must differ (they encode the partition or partition position)
-        assertNotEquals(
-            "Pen A and Pen B must have different idempotency keys: " +
-                "A=${proofA?.id}, B=${proofB?.id}",
-            proofA?.id,
-            proofB?.id,
+        // The 2026-08-09 defect collapsed both pens onto one draft/idempotency key derived from
+        // taskId, so proof-upload's idempotency key ("proof-upload:$taskId:$id") also collapsed.
+        // Since the two pens now carry different taskId, capture ids alone already prove distinct
+        // rows -- but this asserts the actual failure mode: no row id is visible from BOTH pens.
+        assertTrue(
+            "Pen A's row must not be visible from Pen B's key",
+            proofsForPenB.none { it.id == proofsForPenA.single().id },
         )
     }
 }

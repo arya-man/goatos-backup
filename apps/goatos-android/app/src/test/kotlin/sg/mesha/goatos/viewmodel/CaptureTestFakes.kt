@@ -195,16 +195,25 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val capturedByPrincipalId: String?,
     )
 
-    private val rows = mutableListOf<ProofCaptureRow>()
-    private val flow = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
+    // The production DAO scopes every query (activeCountForField/activeCountForSubject/
+    // observeForTaskPartition) by taskId + partitionKey, not partitionKey alone. [ProofCaptureRow]
+    // itself has no taskId column (it's the UI-facing projection), so this fake tracks it
+    // out-of-band alongside each row rather than folding two different tasks' rows together.
+    private data class TrackedRow(val taskId: String, val row: ProofCaptureRow)
+
+    private val rows = mutableListOf<TrackedRow>()
+    private val flow = MutableStateFlow<List<TrackedRow>>(emptyList())
     val captureCalls = mutableListOf<CaptureCall>()
     private var nextId = 0
 
     override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
-        flow.map { list -> list.filter { it.partitionKey == testPartitionKey(partitionLabel) } }
+        flow.map { list ->
+            list.filter { it.taskId == taskId && it.row.partitionKey == testPartitionKey(partitionLabel) }
+                .map { it.row }
+        }
 
     fun seedProofs(vararg proofRows: ProofCaptureRow) {
-        rows += proofRows
+        rows += proofRows.map { TrackedRow(taskId = "task-1", row = it) }
         flow.value = rows.toList()
     }
 
@@ -243,21 +252,25 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         proofPolicy.maximumCountPerField?.let { perFieldCap ->
             // Mirrors activeCountForField: a DELIVERED row (serverProofId set) is history, not an
             // in-flight duplicate, so it does not hold the slot. Keeping it counted here would make
-            // this fake disagree with the DAO and hide the reopened-pen case.
+            // this fake disagree with the DAO and hide the reopened-pen case. Scoped by taskId too —
+            // the real DAO query is taskId+partitionKey+fieldKey, and feed capture embeds the pen in
+            // taskId (the capture group key), not just partitionKey.
             val activeForField = rows.count {
-                it.partitionKey == partitionKey &&
-                    it.fieldKey == fieldKey &&
-                    it.syncStatus != CaptureSyncStatus.FAILED &&
-                    it.serverProofId == null
+                it.taskId == taskId &&
+                    it.row.partitionKey == partitionKey &&
+                    it.row.fieldKey == fieldKey &&
+                    it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                    it.row.serverProofId == null
             }
             if (activeForField >= perFieldCap) {
                 return AppResult.Err("This proof is already recorded. Use re-capture to replace it.")
             }
         }
         val activeRows = rows.count {
-            it.partitionKey == partitionKey &&
-                it.subjectId == subjectId &&
-                it.syncStatus != CaptureSyncStatus.FAILED
+            it.taskId == taskId &&
+                it.row.partitionKey == partitionKey &&
+                it.row.subjectId == subjectId &&
+                it.row.syncStatus != CaptureSyncStatus.FAILED
         }
         if (activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
@@ -287,28 +300,28 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             lastError = null,
             partitionKey = partitionKey,
         )
-        rows += row
+        rows += TrackedRow(taskId = taskId, row = row)
         flow.value = rows.toList()
         return AppResult.Ok(row)
     }
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(caption = caption)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(caption = caption))
             flow.value = rows.toList()
         }
         return AppResult.Ok(Unit)
     }
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> {
-        rows.removeAll { it.id == id }
+        rows.removeAll { it.row.id == id }
         flow.value = rows.toList()
         return AppResult.Ok(Unit)
     }
 
     fun markSynced(id: String, serverProofId: String, syncStatus: String = "SYNCED") {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
             val status = when (syncStatus.uppercase()) {
                 "SYNCED" -> CaptureSyncStatus.SYNCED
@@ -317,50 +330,51 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
                 "IN_FLIGHT" -> CaptureSyncStatus.IN_FLIGHT
                 else -> CaptureSyncStatus.SYNCED
             }
-            rows[index] = rows[index].copy(syncStatus = status, serverProofId = serverProofId)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = status, serverProofId = serverProofId))
             flow.value = rows.toList()
         }
     }
 
-    fun getProofById(id: String): ProofCaptureRow? = rows.find { it.id == id }
+    fun getProofById(id: String): ProofCaptureRow? = rows.find { it.row.id == id }?.row
 
     fun markFailed(id: String, error: String) {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.FAILED, lastError = error)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.FAILED, lastError = error))
             flow.value = rows.toList()
         }
     }
 
     fun markInFlight(id: String) {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.IN_FLIGHT)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.IN_FLIGHT))
             flow.value = rows.toList()
         }
     }
 
     override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> {
-        val index = rows.indexOfFirst { it.id == id }
-        if (index >= 0 && rows[index].syncStatus == CaptureSyncStatus.FAILED) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.PENDING, lastError = null)
+        val index = rows.indexOfFirst { it.row.id == id }
+        if (index >= 0 && rows[index].row.syncStatus == CaptureSyncStatus.FAILED) {
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.PENDING, lastError = null))
             flow.value = rows.toList()
         }
         return AppResult.Ok(Unit)
     }
 
     override suspend fun clearForTask(taskId: String) {
-        rows.clear()
-        flow.value = emptyList()
+        rows.removeAll { it.taskId == taskId }
+        flow.value = rows.toList()
     }
 
     override suspend fun activeCount(slot: EvidenceSlot): Int {
         val partitionKey = testPartitionKey(slot.identity.partitionKey.takeUnless { it == "whole" })
         return rows.count {
-            it.partitionKey == partitionKey &&
-                it.fieldKey == slot.fieldKey &&
-                it.syncStatus != CaptureSyncStatus.FAILED &&
-                it.serverProofId == null
+            it.taskId == slot.identity.taskId &&
+                it.row.partitionKey == partitionKey &&
+                it.row.fieldKey == slot.fieldKey &&
+                it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                it.row.serverProofId == null
         }
     }
 }

@@ -2357,13 +2357,15 @@ class CaptureRepositoryTest {
             sync.seedConflict(outboxItemId, "network timeout")
             advanceUntilIdle()
 
-            // Retry the upload
+            // Retry the upload. A manual retry of an already-registered proof re-arms the SAME
+            // outbox item (SyncRepository.retry -> OutboxDao.markRetryReady): it does not mint a
+            // new outbox row via enqueueProofUpload, which is reserved for a fresh registration.
             val retryResult = proofs.retryUpload("vacc-task-1", proofId)
             assertTrue("Retry succeeds", retryResult is AppResult.Ok)
             advanceUntilIdle()
 
-            // Count calls: one for initial capture, one for retry
-            assertEquals("Two enqueue calls total (initial + retry)", 2, sync.enqueueCalls.size)
+            assertEquals("Retry re-arms the existing outbox item", listOf(outboxItemId), sync.retryCalls)
+            assertEquals("Retry does not mint a second outbox item", 1, sync.enqueueCalls.size)
 
             // Simulate process death: create a NEW repository instance over the SAME Room database
             val recoveredProofs = DefaultProofCaptureRepository(
@@ -2381,7 +2383,8 @@ class CaptureRepositoryTest {
             assertEquals("Same proof ID survives recovery", proofId, recoveredRows[0].id)
 
             // Verify exactly one outbox item (recovery must not duplicate)
-            val finalEnqueueCalls = sync.enqueueCalls.filter { it.idempotencyKey == recoveredRows[0].id }
+            val expectedIdempotencyKey = "proof-upload:vacc-task-1:${recoveredRows[0].id}"
+            val finalEnqueueCalls = sync.enqueueCalls.filter { it.idempotencyKey == expectedIdempotencyKey }
             assertEquals("Exactly one active outbox entry per proof", 1, finalEnqueueCalls.size)
         } finally {
             db.close()
@@ -2392,11 +2395,17 @@ class CaptureRepositoryTest {
     // REGRESSION TEST (d): Malformed-file validation with REAL files
     // ============================================================================
     // MOB-003 Proof-flow-integration: Zero-byte files must be rejected unconditionally.
-    // Truncated/garbage files must follow the plausible-accept rule documented in
-    // FileSystemProofArtifactValidator: if probe threw (not succeeded-with-bad-data)
-    // and file >= threshold, accept it (let server validate); otherwise reject.
+    // Truncated/garbage files are validated through the SAME [MediaMetadataRetriever] probe
+    // FileSystemProofArtifactValidator uses in production -- under Robolectric's shadow retriever,
+    // setDataSource() on 4KB of non-MP4 bytes does NOT throw (it never really parses the
+    // container), so the probe "succeeds" with a null/zero duration. That is the OTHER definitive
+    // rejection branch the validator documents ("probe succeeded but duration invalid" -- not
+    // plausible-accept, which requires the probe to actually throw). This still proves a malformed
+    // file is rejected end-to-end; it exercises the succeeded-with-bad-metadata path rather than
+    // the threw-on-probe path, because that is the path this JVM test environment can reach
+    // deterministically.
     @Test
-    fun `zero byte file is rejected and truncated file over threshold is plausibly accepted`() = runTest {
+    fun `zero byte file is rejected and truncated file with unreadable metadata is rejected`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -2445,7 +2454,11 @@ class CaptureRepositoryTest {
                 tempZeroFile.delete()
             }
 
-            // Test truncated file (4KB garbage, no valid MP4 header): must be accepted (plausible)
+            // Test truncated file (4KB garbage, no valid MP4 header, over the 1KB size floor):
+            // Robolectric's shadow retriever succeeds on setDataSource() without ever really
+            // parsing it, then reports no duration -- the validator's "probe succeeded but
+            // duration invalid" branch rejects it, same as production would for any file whose
+            // container metadata reads back empty.
             val tempGarbageFile = File.createTempFile("proof-garbage", ".mp4")
             try {
                 tempGarbageFile.writeBytes(ByteArray(4096) { it.toByte() })  // 4KB garbage
@@ -2465,11 +2478,17 @@ class CaptureRepositoryTest {
                     awaitUploadEnqueue = true,
                 )
                 assertTrue(
-                    "Truncated file over threshold is plausibly accepted: ${(garbageCapture as? AppResult.Err)?.message}",
-                    garbageCapture is AppResult.Ok,
+                    "Truncated file with unreadable metadata is rejected: " +
+                        (garbageCapture as? AppResult.Ok)?.value,
+                    garbageCapture is AppResult.Err,
                 )
-                // Verify it was enqueued despite the corruption
-                assertEquals("Garbage file produces one enqueue call", 1, sync.enqueueCalls.size)
+                assertEquals(
+                    "Rejection names the unreadable duration",
+                    "Recording has no valid duration.",
+                    (garbageCapture as AppResult.Err).message,
+                )
+                // Verify it was never enqueued -- validation runs before the outbox write
+                assertEquals("Rejected garbage file produces no enqueue call", 0, sync.enqueueCalls.size)
             } finally {
                 tempGarbageFile.delete()
             }
@@ -2655,6 +2674,18 @@ private class FakeSyncRepository(
 
     override suspend fun retry(itemId: String): AppResult<Unit> {
         retryCalls += itemId
+        // Mirrors OutboxDao.markRetryReady: a manual retry only re-arms a terminal FAILED row,
+        // resetting it to QUEUED and clearing conflict/lastError, so a subsequent followOutboxItem
+        // collection does not immediately replay the same conflict back onto the proof row.
+        status.value = status.value.copy(
+            items = status.value.items.map { item ->
+                if (item.id == itemId && item.status == SyncItemStatus.FAILED) {
+                    item.copy(status = SyncItemStatus.QUEUED, conflict = false, lastError = null)
+                } else {
+                    item
+                }
+            },
+        )
         return AppResult.Ok(Unit)
     }
 
