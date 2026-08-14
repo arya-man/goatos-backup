@@ -170,6 +170,9 @@ class MilkFeedingViewModel @Inject constructor(
 ) : ViewModel() {
     private val taskId = saved.get<String>(ARG_TASK_ID).orEmpty()
     private val feedingDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+    // NON-CANONICAL proof/draft key building: see
+    // sg.mesha.goatos.core.data.capture.NON_CANONICAL_PROOF_KEY_FLOWS ("milk_feeding") for why this
+    // ViewModel does NOT route through ProofIdentity.storageKey()/idempotencyKey().
     private val submitKey = DraftIdempotencyKey(saved, "milkFeeding.submitKey.$taskId", "milk-feeding-submit")
     private val proofKeys = listOf("clean_bottles", "mixing_and_filling").associateWith { DraftIdempotencyKey(saved, "milkFeeding.proofKey.$taskId.$it", "milk-feeding-$it") }
     private val draft = MutableStateFlow(MilkFeedingDraft())

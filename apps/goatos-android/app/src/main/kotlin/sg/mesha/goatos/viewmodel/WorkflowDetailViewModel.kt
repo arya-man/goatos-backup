@@ -790,6 +790,10 @@ internal fun operatorFinishedWorkflowStatus(status: String): Boolean =
 internal fun workflowProofUploadKey(actionId: String, capturedStartedAtMs: Long): String =
     "wf-proof:$actionId:$capturedStartedAtMs"
 
+// NON-CANONICAL proof/draft key building: see
+// sg.mesha.goatos.core.data.capture.NON_CANONICAL_PROOF_KEY_FLOWS ("workflow_detail") for why
+// WorkflowDetailViewModel does NOT route through ProofIdentity.storageKey()/idempotencyKey() —
+// actionId is an open-ended, backend-declared vocabulary per workflow definition.
 internal fun workflowProofFieldKey(actionId: String): String =
     "workflow_${actionId}_video"
 
