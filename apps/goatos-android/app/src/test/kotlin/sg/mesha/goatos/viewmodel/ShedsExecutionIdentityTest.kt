@@ -276,10 +276,10 @@ class ShedsExecutionIdentityTest {
                 targetCount = 3,
                 openCount = 0,
                 doneCount = 3,
-                workState = "in_progress",
+                workState = "verification_pending",
                 proofStatus = "uploaded",
                 verificationStatus = "pending",
-                sopStatus = "draft",
+                sopStatus = "submitted", // Backend authority: TERMINAL sopStatus signals all work done
             ),
         )
 
