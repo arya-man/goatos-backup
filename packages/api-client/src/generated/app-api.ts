@@ -2371,26 +2371,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/counts/sheds": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Every operational location with the cohort and capacity configured for it.
-         * @description A CONFIGURATION read, not a census one: what the farm has built, what cohort each place is configured to hold, and how many head it is meant to hold. A pen with no animals in it still appears. One row per OPERATIONAL LOCATION -- a pen where the shed has pens ("Godel 1 - Part 3"), the bare shed where it has none ("Q1") -- with one cell per park, because the same names run in both parks and are read as a pair; every cell keeps its own `shed_id`, so two parks' locations are never merged. Pens come from the shed_partitions CATALOG, so an EMPTY pen is present; legacy partition-alias location rows are excluded, so a pen appears once rather than twice. `capacity` is the pen's own, or the shed's for a shed with no pens -- never the shed's total repeated across its pens. `tag` has no pen-grain source in the database, so a pen reports its shed's configured cohort. Unpaginated and unfiltered: a bounded configuration catalog whose size is governed by how many pens the business has built. `items` is a display PAGE; `total_rows` is the whole catalog and is independent of limit/offset.
-         */
-        get: operations["getShedDirectory"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/counts/milk-preparation": {
         parameters: {
             query?: never;
@@ -8611,43 +8591,6 @@ export interface components {
             /** @description Sheds holding animals, keyed by shed_id and carrying park_id so a Park -> Shed cascade can filter them. Whole-result rollup, independent of limit/offset. UNCAPPED on purpose — unlike charts.shed, which is display-capped to the top 12 bars, this is a filter vocabulary and a silent truncation would present a partial shed list as the complete one. Bounded by the distinct shed vocabulary, not by herd size. */
             sheds: components["schemas"]["CountsBreakdownShedFacet"][];
         };
-        ShedDirectoryPark: {
-            /** Format: uuid */
-            park_id: string;
-            /** @description The park's own code ("CBE", "CPT"). Tenant data, never a literal in a client. */
-            park_code: string;
-            /** @description The park's display name. Column HEADERS are not emitted here: they are table copy and come from the admin-web page contract, compiled from these same live park rows. */
-            park_label: string;
-        };
-        ShedDirectoryCell: {
-            /**
-             * Format: uuid
-             * @description THIS park's shed. Two parks' same-named sheds keep different ids and are never merged.
-             */
-            shed_id: string;
-            /** @description The configured cohort ("Non-Pregnant", "F2-Male", "Buck", "Quarantine"), or "" when the shed has no profile yet. */
-            tag: string;
-            /** @description Head count the shed is configured to hold, or null when it has never been configured. null and 0 are different facts: 0 means someone recorded that it holds nothing. */
-            capacity: number | null;
-        };
-        ShedDirectoryRow: {
-            shed_name: string;
-            /** @description The pen's HUMAN label ("Part 3", "2"), or "" for a shed with no pens. Never normalized_label, which is a matching key and must not reach a screen. */
-            partition_label: string;
-            /** @description Backend-composed "Godel 1 - Part 3" for a pen, bare "Q1" for a shed with none, never a synthetic "Q1 whole". Rendered verbatim; a client must not recompose it. */
-            operational_location_display: string;
-            /** @description Keyed by park_id — never by park code or name, so a renamed park cannot re-associate a shed with the wrong column. A park with no shed of this name has NO entry here, which is how "this park does not have it" stays distinct from "it exists but is unconfigured". */
-            cells: {
-                [key: string]: components["schemas"]["ShedDirectoryCell"];
-            };
-        };
-        ShedDirectoryResponse: {
-            /** @description One column-pair per park, ordered by label so the pairs are stable across calls. */
-            parks: components["schemas"]["ShedDirectoryPark"][];
-            items: components["schemas"]["ShedDirectoryRow"][];
-            /** @description Operational-location rows across the WHOLE catalog, independent of limit/offset. It is never the page length. */
-            total_rows: number;
-        };
         CountsBreakdownResponse: {
             items: components["schemas"]["CountsBreakdownRow"][];
             /** @description Distinct grain combinations across the FULL filtered set, independent of limit/offset. */
@@ -14446,34 +14389,6 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getShedDirectory: {
-        parameters: {
-            query?: {
-                /** @description Page size over the pivoted operational-location rows. */
-                limit?: number;
-                /** @description Page offset over the pivoted operational-location rows. */
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The shed configuration directory, pivoted across parks. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShedDirectoryResponse"];
-                };
-            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

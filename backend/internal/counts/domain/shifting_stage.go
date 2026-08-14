@@ -99,7 +99,8 @@ func ResolveShiftingDestinationStage(shedStages, writableStages []string) string
 // configuredStage is the tag AUTHORED for the destination location: the pen's own
 // (shed_partitions.animal_stage_id, migration 000161), or the shed's profile for a shed with no
 // pens. It is preferred over residents on purpose -- it is what somebody decided the pen is for,
-// it is stable while animals move in and out, and it is exactly what the Sheds directory shows.
+// it is stable while animals move in and out, and it is exactly what the Counts Breakdown Stage
+// cell shows and edits.
 //
 // residentStages remains the FALLBACK for a location nobody has configured yet, so this is strictly
 // additive: every movement that resolved to a stage before still resolves to one now.

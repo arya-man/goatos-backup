@@ -24,7 +24,6 @@ import (
 type HerdRegisterService interface {
 	GetSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
-	GetShedDirectory(ctx context.Context, tenantID string) (domain.ShedDirectory, error)
 	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
 	SubmitMilkPreparation(ctx context.Context, req domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
 	ListMilkFeedingTasks(ctx context.Context, req domain.MilkFeedingQuery) (domain.MilkFeedingPage, error)
@@ -46,7 +45,6 @@ func NewHandler(service HerdRegisterService, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-register/summary", h.GetSummary)
 	mux.HandleFunc("GET /counts/breakdown", h.GetBreakdown)
-	mux.HandleFunc("GET /counts/sheds", h.GetShedDirectory)
 	mux.HandleFunc("GET /counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("GET /app/counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("POST /app/counts/milk-preparation/submit", h.SubmitMilkPreparation)
@@ -378,61 +376,7 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, breakdown)
 }
 
-// GetShedDirectory serves the Sheds directory: every operational location with the cohort and
-// capacity configured for it, paired across parks.
-//
-// It takes no FILTERS -- park scope narrows a worklist, and this screen's whole job is to show the
-// parks side by side -- but it does PAGE. The underlying read is a bounded configuration catalog
-// (~120 pens) fetched whole, so paging here is a display window rather than a scale measure:
-// `total_rows` stays the whole catalog and never shrinks to the page, exactly as the operational
-// read-model contract requires of a summary figure.
-func (h *Handler) GetShedDirectory(w http.ResponseWriter, r *http.Request) {
-	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
-	if tenantID == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
-		return
-	}
-
-	query := r.URL.Query()
-	// A present-but-invalid paging value is rejected, never silently rewritten to a default the
-	// caller never asked for.
-	limit, err := boundedIntParam(query, "limit", shedDirectoryDefaultLimit, 1, shedDirectoryMaxLimit)
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	offset, err := boundedIntParam(query, "offset", 0, 0, shedDirectoryMaxOffset)
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-
-	directory, err := h.service.GetShedDirectory(r.Context(), tenantID)
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "shed directory", err)
-		return
-	}
-
-	// TotalRows is set by the pivot to the WHOLE catalog and is deliberately not touched here. An
-	// offset past the end returns an empty page rather than an error: the pager can legitimately
-	// land there when the catalog shrinks between two requests.
-	start := int(offset)
-	if start > len(directory.Items) {
-		start = len(directory.Items)
-	}
-	end := start + int(limit)
-	if end > len(directory.Items) {
-		end = len(directory.Items)
-	}
-	directory.Items = directory.Items[start:end]
-
-	httpresponse.WriteJSON(w, http.StatusOK, directory)
-}
-
 const (
-	shedDirectoryDefaultLimit   = 25
-	shedDirectoryMaxLimit       = 100
-	shedDirectoryMaxOffset      = 5000
 	countsBreakdownDefaultLimit = 10
 	countsBreakdownMaxLimit     = 100
 	countsBreakdownMaxOffset    = 5000

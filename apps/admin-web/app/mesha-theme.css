@@ -825,10 +825,13 @@
   .main table.counts-breakdown-table th:nth-child(6),.main table.counts-breakdown-table td:nth-child(6){min-width:80px}
   /* Total row reads as a summary band, not another data row. */
   .main table.counts-breakdown-table tfoot th{border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
-  /* Sheds directory inline tag editor. A same-page popover: local open/closed state, no navigation,
+  /* Counts Breakdown inline tag editor. A same-page popover: local open/closed state, no navigation,
      so opening it never re-runs the route. Anchored to its own cell rather than the viewport so it
      stays with the row while the table scrolls horizontally. */
   .tagedit{position:relative;display:inline-block}
+  /* The popover sits inside a nowrap census cell, so it opts back into normal wrapping and is
+     allowed to paint outside the cell box. */
+  .tagedit-pop{white-space:normal}
   .tagedit-value{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-radius:6px}
   .tagedit-value:hover .tag{border-color:var(--brand)}
   .tagedit-value:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
@@ -849,13 +852,6 @@
   .tagedit-reason{display:grid;gap:4px}
   .tagedit-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
   .tagedit-actions .btn{flex:0 0 auto;white-space:nowrap}
-  /* Sheds directory (Shed + a Tag/Capacity pair per park, so the column count grows with the
-     parks). Same nowrap contract as the tables above (failure mode 4b): the table owns horizontal
-     scrolling, so "Non-Pregnant", "Old Yashoda" and "Not configured" never wrap mid-value.
-     Deliberately NO table-level min-width: the column count is not fixed, the content already sizes
-     the columns past the viewport, and forcing an extra floor only grew the scroll container into
-     the fixed assistant bubble (caught by the live smoke's overlap check). */
-  .main table.shed-directory-table th,.main table.shed-directory-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   /* Feed Direction / Packing / Config tables. Same nowrap contract as the breakdown table above
      (failure mode 4b): the table owns horizontal scrolling, so short business values such as
      "F2-Male", "0.000", "Dry Masoor Bhusa" or a wall-clock time never wrap mid-value. */

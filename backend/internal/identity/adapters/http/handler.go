@@ -47,6 +47,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/goats/{goat_id}/critical-death-exit", h.CriticalDeathExit)
 	mux.HandleFunc("POST /admin/goats/shed-stage/preview", h.PreviewReclassifyShedStage)
 	mux.HandleFunc("POST /admin/goats/shed-stage/commit", h.CommitReclassifyShedStage)
+	mux.HandleFunc("POST /admin/goats/census-slice/preview", h.PreviewCorrectCensusSlice)
+	mux.HandleFunc("POST /admin/goats/census-slice/commit", h.CommitCorrectCensusSlice)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/stage", h.StageGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/health", h.HealthGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/reproductive", h.ReproductiveGoat)
@@ -510,4 +512,35 @@ func optionalQuery(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// PreviewCorrectCensusSlice reports how many animals a breed/sex correction would change. Writes
+// nothing and takes no idempotency key.
+func (h *Handler) PreviewCorrectCensusSlice(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.PreviewCorrectCensusSlice(r.Context(), app.CorrectCensusSliceInput{
+		TenantID: tenantID(r),
+		TraceID:  traceID(r),
+		RawBody:  body,
+	})
+	h.respond(w, r, result, err)
+}
+
+// CommitCorrectCensusSlice applies the correction to the animals of one census row.
+func (h *Handler) CommitCorrectCensusSlice(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.CommitCorrectCensusSlice(r.Context(), app.CorrectCensusSliceInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
 }

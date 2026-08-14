@@ -22,8 +22,8 @@ import {
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
 import { CountsBreakdownTable } from "./counts-breakdown-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
-import { ShedStageDrawer, type PenOption, type StageOption } from "./shed-stage-drawer";
-import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
+import type { StageOption } from "./shed-stage-actions";
+import type { InlineChoice } from "./inline-cell-editor";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
 // farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
@@ -44,12 +44,6 @@ import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
 
 const PAGE_PATH = "/counts/breakdown";
 const DEFAULT_PAGE_SIZE = 10;
-
-type FeedConfigPenOptionItem = {
-  shed_id: string;
-  partition_label?: string | null;
-  operational_location_display: string;
-};
 
 type AnimalStageOptionItem = {
   stage_code: string;
@@ -103,11 +97,7 @@ export async function CountsBreakdownPage({
   // The stage-change picker's two vocabularies ride along in the SAME fan-out rather than a serial
   // await: neither depends on the breakdown, and both are small tenant reference sets.
   //
-  // Pens come from the partition CATALOG (feed-config pens reads locations x shed_partitions), not
-  // from `breakdown.facets.sheds`. That is the write-picker rule: facets answer "where animals
-  // currently are", and a real pen holding zero animals would silently vanish from a picker built
-  // on them -- while remaining a perfectly valid place to retag when animals arrive.
-  const [breakdownResult, penResult, stageResult] = await Promise.all([
+  const [breakdownResult, stageResult] = await Promise.all([
     getCountsBreakdown({
       park_id: parkId || farmParkId,
       shed_id: shedId,
@@ -118,7 +108,6 @@ export async function CountsBreakdownPage({
       limit: pageSize,
       offset: (requestedPage - 1) * pageSize,
     }),
-    listAllFeedConfigPens(),
     listAnimalStages(),
   ]);
 
@@ -280,18 +269,6 @@ export async function CountsBreakdownPage({
   const totalAdults = breakdown?.total_adults ?? 0;
   const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
 
-  // Keyed by shed_id + partition, never by shed NAME: 66 of 154 shed names exist in both parks, so
-  // a name key would merge two different buildings into one picker row. The label is the backend's
-  // own `operational_location_display`, prefixed with the park for the duplicate-name case -- this
-  // does NOT recompose the location, it only disambiguates two pens that legitimately render the
-  // same string.
-  const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen: FeedConfigPenOptionItem) => ({
-    key: `${pen.shed_id}|${pen.partition_label ?? ""}`,
-    shedId: pen.shed_id,
-    partitionLabel: pen.partition_label ?? "",
-    label: pen.operational_location_display,
-  }));
-
   // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
   // and `stage_code` is what the write sends.
   // Clinical tags (ICU, Quarantine) are dropped because the write rejects them: offering one and
@@ -315,6 +292,21 @@ export async function CountsBreakdownPage({
   // goat.reclassify_shed_stage gets a DISABLED button carrying the backend's reason, not a missing
   // one -- and the routes require the same permission, so the button is the honest label, not the
   // lock.
+  // Vocabularies for the inline Breed and Gender corrections, both backend-owned. Breed is the
+  // CATALOG (compiled from the tenant's breeds reference family), deliberately not the response's
+  // `facets.breeds`: a facet reports the breeds already on the herd, and a correction frequently
+  // needs one that is not -- that is the point of correcting a wrongly recorded breed.
+  const breedChoices: InlineChoice[] = optionGroup(pageContract, "counts_breed").map((option) => ({
+    value: option.key,
+    label: option.label,
+  }));
+  const genderChoices: InlineChoice[] = optionGroup(pageContract, "counts_gender").map((option) => ({
+    value: option.key,
+    label: option.label,
+  }));
+
+  // Authority for the inline Stage editor, read off the compiled control -- the same control id and
+  // permission the write itself is gated on.
   const stageChangeEnabled = controlEnabled(pageContract, "change_shed_stage", false);
   const stageChangeReason = control(pageContract, "change_shed_stage").disabled_reason ?? "";
 
@@ -328,13 +320,6 @@ export async function CountsBreakdownPage({
           <h1>{pageContract.title}</h1>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <ShedStageDrawer
-          pageContract={pageContract}
-          pens={penOptions}
-          stages={stageOptions}
-          enabled={stageChangeEnabled}
-          disabledReason={stageChangeReason}
-        />
       </div>
 
       {/* An API failure surfaces as a visible error band, never as an empty table that reads
@@ -349,6 +334,13 @@ export async function CountsBreakdownPage({
         <div className="hd">
           <h3>{copy(pageContract, "section.breakdown.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.breakdown.caption")}</span>
+          {/* Double-click is invisible as an affordance, so the page says it out loud -- and only
+              to a principal who may actually use it, since the backend decides that. */}
+          {stageChangeEnabled ? (
+            <span className="small muted" style={{ marginLeft: "auto" }}>
+              {copy(pageContract, "action.retag.hint")}
+            </span>
+          ) : null}
         </div>
         <CountsBreakdownFilters fields={filterFields} pageContract={pageContract} />
 
@@ -395,7 +387,13 @@ export async function CountsBreakdownPage({
               column list. */}
           <CountsBreakdownTable
             contract={breakdownTable}
+            pageContract={pageContract}
             rows={rows}
+            stages={stageOptions}
+            breeds={breedChoices}
+            genders={genderChoices}
+            retagEnabled={stageChangeEnabled}
+            retagDisabledReason={stageChangeReason}
             ariaLabel={copy(pageContract, "table.breakdown.aria")}
             noParkLabel={noParkLabel}
             noStageLabel={noStageLabel}

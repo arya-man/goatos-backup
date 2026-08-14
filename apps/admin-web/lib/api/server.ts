@@ -17,7 +17,6 @@ export type AdminWebPageContract = AppApiComponents["schemas"]["AdminWebPageCont
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
-export type ShedDirectoryResponse = AppApiComponents["schemas"]["ShedDirectoryResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
 export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
@@ -148,6 +147,9 @@ export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"]
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
 export type ReproductiveGoatRequest = AdminApiComponents["schemas"]["ReproductiveGoatRequest"];
 export type ReclassifyShedStageRequest = AdminApiComponents["schemas"]["ReclassifyShedStageRequest"];
+export type CorrectCensusSliceRequest = AdminApiComponents["schemas"]["CorrectCensusSliceRequest"];
+export type CensusSliceCorrectionPreviewResponse = AdminApiComponents["schemas"]["CensusSliceCorrectionPreviewResponse"];
+export type CensusSliceCorrectionResponse = AdminApiComponents["schemas"]["CensusSliceCorrectionResponse"];
 export type ReclassifyShedStagePreviewResponse = AdminApiComponents["schemas"]["ReclassifyShedStagePreviewResponse"];
 export type ReclassifyShedStageResponse = AdminApiComponents["schemas"]["ReclassifyShedStageResponse"];
 export type BulkStatusPreviewRequest = AdminApiComponents["schemas"]["BulkStatusPreviewRequest"];
@@ -583,26 +585,6 @@ export async function getCountsBreakdown(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CountsBreakdownResponse>("/counts/breakdown", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
-  );
-}
-
-/**
- * The shed CONFIGURATION directory: what the farm has built, the cohort each place is configured
- * for, and the head count it is meant to hold. Takes no filters — the screen's job is to show the
- * parks side by side rather than narrow to one — but it does page, and `total_rows` on the
- * response stays the whole catalog rather than the page.
- */
-export async function getShedDirectory(
-  params: { limit?: number; offset?: number } = {},
-): Promise<ApiResult<ShedDirectoryResponse>> {
-  const config = await getServerConfig();
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<ShedDirectoryResponse>("/counts/sheds", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -2663,6 +2645,44 @@ export async function commitReclassifyShedStage(
   const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ReclassifyShedStageResponse>("/admin/goats/shed-stage/commit", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Census-slice correction: fix a wrongly recorded breed or sex on ONE Counts Breakdown row. Same
+// preview/commit split and the same reasoning as the stage change above -- the preview is a pure
+// read that repeats freely, the commit is idempotent on Idempotency-Key.
+//
+// Scope differs from the stage change and that is the point: this touches the ROW's animals, not
+// the whole pen, because breed and sex belong to the animal while a cohort tag belongs to the pen.
+export async function previewCorrectCensusSlice(
+  body: CorrectCensusSliceRequest,
+): Promise<ApiResult<CensusSliceCorrectionPreviewResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CensusSliceCorrectionPreviewResponse>("/admin/goats/census-slice/preview", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function commitCorrectCensusSlice(
+  body: CorrectCensusSliceRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<CensusSliceCorrectionResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CensusSliceCorrectionResponse>("/admin/goats/census-slice/commit", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
