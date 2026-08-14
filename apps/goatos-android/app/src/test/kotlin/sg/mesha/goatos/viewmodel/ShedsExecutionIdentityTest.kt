@@ -318,4 +318,30 @@ class ShedsExecutionIdentityTest {
 
         assertEquals("2026-08-03", row.currentScheduleDate)
     }
+
+    @Test
+    fun `today hides old final-done cards but keeps old actionable backlog`() {
+        val window = OperatorWorkWindow.today(
+            ZonedDateTime.of(2026, 8, 14, 9, 30, 0, 0, ZoneId.of("Asia/Kolkata")),
+        )
+        val oldDone = VaccinationExecutionRowDto(
+            dueDate = "2026-08-05",
+            targetCount = 6,
+            openCount = 0,
+            doneCount = 6,
+            sopStatus = "accepted",
+            workState = "completed",
+        )
+        val oldOpen = oldDone.copy(
+            openCount = 1,
+            doneCount = 5,
+            sopStatus = "draft",
+            workState = "overdue",
+        )
+        val todayDone = oldDone.copy(dueDate = "2026-08-14")
+
+        assertFalse(oldDone.isVisibleForOperatorDay(LocalDate.of(2026, 8, 14), window))
+        assertTrue(oldOpen.isVisibleForOperatorDay(LocalDate.of(2026, 8, 14), window))
+        assertTrue(todayDone.isVisibleForOperatorDay(LocalDate.of(2026, 8, 14), window))
+    }
 }

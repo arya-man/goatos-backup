@@ -1746,6 +1746,11 @@ filtered AS (
   WHERE ($6::text = '' OR classified.work_state = $6::text)
     AND ($9::text = '' OR classified.severity = $9::text)
     AND (
+      $15::text = ''
+      OR classified.work_state <> 'completed'
+      OR (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    )
+    AND (
       NOT $10::boolean
       OR (
         classified.obligation_count
