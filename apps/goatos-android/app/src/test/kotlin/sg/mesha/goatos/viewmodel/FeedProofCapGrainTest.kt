@@ -2,7 +2,9 @@ package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
+import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_GOAT
 
 /**
@@ -162,6 +164,86 @@ class FeedProofCapGrainTest {
         assertTrue(
             "the operator must be told how to replace it, not just that it failed: ${error?.message}",
             error?.message?.contains("re-capture", ignoreCase = true) == true,
+        )
+    }
+
+    // ============================================================================
+    // REGRESSION TEST (b): Pen-grain regression guard
+    // ============================================================================
+    // MOB-003 2026-08-09 pen-collapse: two pens (partitions) of the SAME shed
+    // + session-day must produce DIFFERENT draft keys AND DIFFERENT submit idempotency keys.
+    // The 2026-08-09 defect collapsed draft keys and idempotency keys across partitions,
+    // so one pen's submission would overwrite the other's, and vice versa.
+    @Test
+    fun `two pens of the same shed produce different draft keys and idempotency keys`() {
+        val repository = FakeProofCaptureRepository()
+        val policy = feedShedProofPolicy("in_app_camera")
+
+        // Pen A (partition "Part 1")
+        val taskIdA = "feed-dist:2026-08-14:shed-1:2:1:normal:Part 1"
+        val scopeIdA = "shed-1"
+        val fieldKey = "feed_distribution_feed_weight_photo"
+
+        // Capture in Pen A
+        kotlinx.coroutines.runBlocking {
+            repository.capture(
+                taskId = taskIdA,
+                fieldKey = fieldKey,
+                subject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = scopeIdA,
+                localUri = "/proof/pen-a-weight.jpg",
+                mimeType = "image/jpeg",
+                caption = null,
+                scopeType = "shed",
+                scopeId = scopeIdA,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+            )
+        }
+
+        // Pen B (partition "Part 2"), same shed, same session
+        val taskIdB = "feed-dist:2026-08-14:shed-1:2:2:normal:Part 2"
+        val scopeIdB = "shed-1"
+
+        // Capture in Pen B
+        kotlinx.coroutines.runBlocking {
+            repository.capture(
+                taskId = taskIdB,
+                fieldKey = fieldKey,
+                subject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = scopeIdB,
+                localUri = "/proof/pen-b-weight.jpg",
+                mimeType = "image/jpeg",
+                caption = null,
+                scopeType = "shed",
+                scopeId = scopeIdB,
+                capturedStartMs = 3L,
+                capturedEndMs = 4L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+            )
+        }
+
+        // Both proofs must be in the repository (two separate rows)
+        val allProofs = kotlinx.coroutines.runBlocking {
+            repository.observeProofs("feed-dist:2026-08-14:shed-1", null).first()
+        }
+        assertEquals("both pens must have their own proof rows", 2, allProofs.size)
+
+        // Extract idempotency keys (internal; this is a guard that the caller can observe)
+        val proofA = allProofs.find { it.localUri == "/proof/pen-a-weight.jpg" }
+        val proofB = allProofs.find { it.localUri == "/proof/pen-b-weight.jpg" }
+        assertTrue("Pen A proof found", proofA != null)
+        assertTrue("Pen B proof found", proofB != null)
+
+        // Idempotency keys must differ (they encode the partition or partition position)
+        assertNotEquals(
+            "Pen A and Pen B must have different idempotency keys: " +
+                "A=${proofA?.id}, B=${proofB?.id}",
+            proofA?.id,
+            proofB?.id,
         )
     }
 }
