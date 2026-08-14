@@ -404,14 +404,24 @@ func computeOperatorLockState(p domain.ExecutionProjection, openCount int, workS
 		}
 		return true, "none"
 	}
-	// openCount == 0: no field execution remains. Locked iff a FINAL SUBMIT actually happened
-	// (all completions accepted, nothing left recorded-but-unverified). Deferred/missed/canceled
-	// closures with no accepted completion evidence are not a "final submit" in the proof-flow
-	// sense, but there is also no remaining work for the operator, so the card still cannot be
-	// reopened for scan/capture -- reason "none" simply means "not a submission lock".
+	// openCount == 0: no per-animal field execution remains. Locked iff a FINAL SUBMIT actually
+	// happened. The final-submit signal is the SOP task state -- it only reaches
+	// submitted/needs_review/accepted through the operator's finalize action -- with the
+	// all-accepted completion shape kept as the legacy equivalent for rows without a task state.
+	if taskStateIs(p, "submitted", "needs_review", "accepted") {
+		return false, "final_submitted"
+	}
 	if p.CompletionAccepted > 0 && p.CompletionRecorded == 0 {
 		return false, "final_submitted"
 	}
+	// All animals done via completions/proofs but the drive-close submission has not happened:
+	// the operator must still be able to open the card to FINALIZE. Locking here reproduces the
+	// field bug where an all-proofed card could never be submitted.
+	if (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) && p.OperatorName != nil {
+		return true, "none"
+	}
+	// Deferred/missed/canceled closures with no completion evidence: nothing to finalize, and no
+	// scan/capture work remains -- reason "none" simply means "not a submission lock".
 	return false, "none"
 }
 
