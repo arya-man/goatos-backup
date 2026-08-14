@@ -2122,6 +2122,8 @@ export interface components {
             management_stage: string;
             /** @description Required on commit, ignored on preview. Recorded in audit and on every animal's event. */
             reason?: string;
+            /** @description Optional; absent means false. Allows the commit to succeed against a location holding NO live animals, writing only the configured cohort. Two callers want two different things from this write: the Counts Breakdown drawer means "retag the animals in this pen", where an empty pen almost always means the wrong pen was picked, so it leaves this false and receives 409 `reclassify_empty_scope`; the Sheds directory means "this pen's tag is now X", which is ordinary for a pen standing empty before animals arrive, so it sets this true and receives a success with `reclassified` = 0. Part of the request hash, so the two intents cannot replay onto each other. */
+            configure_empty?: boolean;
         };
         ReclassifyShedStageBucket: {
             management_stage: string;

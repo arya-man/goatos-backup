@@ -118,6 +118,13 @@ func (s *HerdRegisterService) GetBreakdown(ctx context.Context, req domain.Count
 	return s.repo.GetCountsBreakdown(ctx, req)
 }
 
+// GetShedDirectory returns the shed configuration catalog: what the farm has built, what cohort
+// each shed is configured for, and how many head it is meant to hold. Configuration, not census --
+// a shed with no animals in it still belongs in the answer.
+func (s *HerdRegisterService) GetShedDirectory(ctx context.Context, tenantID string) (domain.ShedDirectory, error) {
+	return s.repo.ShedDirectory(ctx, tenantID)
+}
+
 // GetMilkPreparation returns the current live-herd preparation direction. A zero AsOf is filled at
 // the service boundary so every downstream date uses the same instant and the India business day.
 func (s *HerdRegisterService) GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error) {

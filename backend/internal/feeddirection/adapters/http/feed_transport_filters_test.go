@@ -28,6 +28,15 @@ func (transportFilterService) PackingWorklist(context.Context, domain.PackingQue
 func (transportFilterService) CompleteSession(context.Context, app.CompleteSessionInput) (ports.CompleteSessionResult, error) {
 	return ports.CompleteSessionResult{}, nil
 }
+
+// ListPenSessionCaptures: these handler tests drive filters and completion bodies, not the
+// multi-operator discovery read.
+func (transportFilterService) ListPenSessionCaptures(
+	context.Context, app.PenSessionCapturesInput,
+) ([]ports.CapturedProofSlot, error) {
+	return nil, nil
+}
+
 func (transportFilterService) CompleteDistribution(context.Context, app.CompleteDistributionInput) (ports.CompleteDistributionResult, error) {
 	return ports.CompleteDistributionResult{}, nil
 }
@@ -106,6 +115,7 @@ type transportScopeSpyService struct {
 
 	completeDistributionCalls int
 	completeDistributionInput app.CompleteDistributionInput
+	completeDistributionErr   error
 }
 
 func (s *transportScopeSpyService) CompleteDistribution(
@@ -113,6 +123,9 @@ func (s *transportScopeSpyService) CompleteDistribution(
 ) (ports.CompleteDistributionResult, error) {
 	s.completeDistributionCalls++
 	s.completeDistributionInput = in
+	if s.completeDistributionErr != nil {
+		return ports.CompleteDistributionResult{}, s.completeDistributionErr
+	}
 	return ports.CompleteDistributionResult{
 		CompletionID: "50000000-0000-4000-8000-000000000002",
 		Status:       "pending_verification",
@@ -308,6 +321,61 @@ func TestPostCompleteDistributionPassesPartitionLabel(t *testing.T) {
 	}
 	if got := service.completeDistributionInput.PartitionLabel; got != "1" {
 		t.Fatalf("partition_label=%q, want 1 -- the pen the phone sent must reach the service", got)
+	}
+}
+
+// TestPostCompleteDistributionMissingProofIsUnprocessable pins that EVERY mandatory distribution
+// proof reports the same client error, one per step.
+//
+// The feed-weight photo was added as a third mandatory proof but never given a branch in
+// writeCompletionError, so it fell to the default arm and answered 500 -- a server fault, for an
+// operator who simply had not taken the photo yet. The distribution video and water video, added
+// earlier, both map to 422 proof_required. Two consequences of the 500: the phone shows a generic
+// failure instead of naming the capture that is missing, and a retryable-looking server error
+// invites a retry loop against a request that can never succeed until the operator shoots it.
+//
+// RequireLiveCamera routes through the SAME error, so a weight photo picked from the gallery lands
+// here too -- the case most likely to be hit in the field, since the phone offers a picker.
+func TestPostCompleteDistributionMissingProofIsUnprocessable(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+	)
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "feed weight photo", err: ports.ErrFeedWeightProofRequired},
+		{name: "distribution video", err: ports.ErrDistributionProofRequired},
+		{name: "water video", err: ports.ErrWaterProofRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &transportScopeSpyService{completeDistributionErr: tc.err}
+			req := httptest.NewRequest(http.MethodPost, "/feed-direction/distribution/complete", strings.NewReader(`{
+				"park_id":"20000000-0000-4000-8000-000000000001",
+				"shed_id":"30000000-0000-4000-8000-000000000001",
+				"partition_label":"1",
+				"session_no":1,
+				"target_date":"2026-08-13",
+				"workflow":"experiment",
+				"feed_weight_proof_ref":"proof-feed-weight-photo-1",
+				"distribution_proof_ref":"proof-feed-distribution-video-1",
+				"water_proof_ref":"proof-water-video-1"
+			}`))
+			req.Header.Set("Idempotency-Key", "feed-distribution-complete-test-0003")
+			ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+			recorder := httptest.NewRecorder()
+
+			NewHandler(service, slog.Default()).PostCompleteDistribution(recorder, req.WithContext(ctx))
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d, want 422 -- a missing capture is the operator's to fix, not a server fault; body=%s",
+					recorder.Code, recorder.Body.String())
+			}
+			if body := recorder.Body.String(); !strings.Contains(body, `"proof_required"`) {
+				t.Fatalf("body=%s, want code proof_required so the client can tell this apart from a real failure", body)
+			}
+		})
 	}
 }
 

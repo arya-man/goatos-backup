@@ -17,6 +17,7 @@ export type AdminWebPageContract = AppApiComponents["schemas"]["AdminWebPageCont
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
+export type ShedDirectoryResponse = AppApiComponents["schemas"]["ShedDirectoryResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
 export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
@@ -582,6 +583,26 @@ export async function getCountsBreakdown(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CountsBreakdownResponse>("/counts/breakdown", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * The shed CONFIGURATION directory: what the farm has built, the cohort each place is configured
+ * for, and the head count it is meant to hold. Takes no filters — the screen's job is to show the
+ * parks side by side rather than narrow to one — but it does page, and `total_rows` on the
+ * response stays the whole catalog rather than the page.
+ */
+export async function getShedDirectory(
+  params: { limit?: number; offset?: number } = {},
+): Promise<ApiResult<ShedDirectoryResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ShedDirectoryResponse>("/counts/sheds", {
       cache: "no-store",
       query: compactQuery(params),
     }),

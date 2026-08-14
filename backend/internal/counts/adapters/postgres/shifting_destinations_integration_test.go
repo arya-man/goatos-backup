@@ -453,3 +453,79 @@ UPDATE goats SET merged_into_goat_id = $2::uuid WHERE goat_id = $1::uuid`, merge
 		t.Fatalf("foreign tenant resolved %d facts, want 0", len(foreign))
 	}
 }
+
+// TestShiftingDestinationCatalogCarriesEachPensOwnConfiguredCohort pins the maintainer decision of
+// 2026-08-14: a movement targets a PEN, so the catalog must report the cohort configured for that
+// pen, not one derived from the whole building.
+//
+// Two pens of ONE shed are given different tags. Before shed_partitions carried a cohort there was
+// no way to tell them apart, and the raise resolved from the shed's mixed residents -- which is
+// precisely the case that produced "keep current" for a pen that is unambiguously one cohort.
+//
+// The shed's own profile is set to a THIRD value, so a query that fell back to shed_profiles for a
+// pen row would be caught rather than passing by coincidence.
+func TestShiftingDestinationCatalogCarriesEachPensOwnConfiguredCohort(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-CASTRO', 'Castro', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destCastroParentCPT); err != nil {
+		t.Fatalf("seed parent Castro shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, sort_order, status)
+VALUES ($1::uuid, 'K2', 'Milk drinking', 'kid', 1, 'active'),
+       ($1::uuid, 'Mother', 'Mother', 'adult', 2, 'active'),
+       ($1::uuid, 'Buck', 'Buck', 'adult', 3, 'active')
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed stage vocabulary: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, animal_stage_id)
+SELECT $1::uuid, $2::uuid, pen.label, pen.normalized, 'active', 'manual', a.animal_stage_id
+FROM (VALUES ('1', '1', 'K2'), ('2', '2', 'Mother')) AS pen(label, normalized, stage)
+JOIN animal_stage_lookup a ON a.tenant_id = $1::uuid AND a.stage_code = pen.stage`,
+		countsTenant, destCastroParentCPT); err != nil {
+		t.Fatalf("seed pens with cohorts: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, row_version)
+SELECT $2::uuid, $1::uuid, a.animal_stage_id, 1
+FROM animal_stage_lookup a WHERE a.tenant_id = $1::uuid AND a.stage_code = 'Buck'
+ON CONFLICT (location_id) DO UPDATE SET animal_stage_id = EXCLUDED.animal_stage_id`,
+		countsTenant, destCastroParentCPT); err != nil {
+		t.Fatalf("seed shed profile: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+
+	byDisplay := map[string]string{}
+	for _, park := range catalog.Parks {
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destCastroParentCPT {
+				byDisplay[shed.Display] = shed.ConfiguredStage
+			}
+		}
+	}
+	if len(byDisplay) != 2 {
+		t.Fatalf("want one entry per pen, got %d: %+v", len(byDisplay), byDisplay)
+	}
+	for display, want := range map[string]string{"Castro - 1": "K2", "Castro - 2": "Mother"} {
+		if got := byDisplay[display]; got != want {
+			t.Fatalf("%s configured cohort = %q, want %q -- a pen must report its OWN tag, not its shed's", display, got, want)
+		}
+	}
+	for display, got := range byDisplay {
+		if got == "Buck" {
+			t.Fatalf("%s fell back to the SHED profile; a pen row must never inherit it", display)
+		}
+	}
+}

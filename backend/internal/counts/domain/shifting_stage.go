@@ -85,3 +85,51 @@ func ResolveShiftingDestinationStage(shedStages, writableStages []string) string
 	// Resident cohort that the relocation cannot write.
 	return ""
 }
+
+// ResolveShiftingDestinationPenStage decides the management_stage a raised shifting will apply when
+// the destination is an operational LOCATION -- which it always is.
+//
+// Maintainer decision 2026-08-14, superseding the resident-derived rule below for every movement:
+// animals never move into a bare shed, they move into one of its pens ("Godel 1 - Part 2"), so the
+// cohort a movement adopts is THAT PEN'S TAG. The previous rule answered a question about the wrong
+// place -- it aggregated the whole shed's residents, so a move into Part 2 of a shed whose eight
+// pens hold four different cohorts resolved to "mixed" and kept the animal's current stage, even
+// though Part 2 itself is unambiguously one cohort.
+//
+// configuredStage is the tag AUTHORED for the destination location: the pen's own
+// (shed_partitions.animal_stage_id, migration 000161), or the shed's profile for a shed with no
+// pens. It is preferred over residents on purpose -- it is what somebody decided the pen is for,
+// it is stable while animals move in and out, and it is exactly what the Sheds directory shows.
+//
+// residentStages remains the FALLBACK for a location nobody has configured yet, so this is strictly
+// additive: every movement that resolved to a stage before still resolves to one now.
+//
+// The keep-current fallbacks are unchanged and still apply to the pen's own tag: FLUSHING is a
+// nutrition cohort owned by its own workflow, and a tag the relocation cannot write (ICU-Kid,
+// Quarantine kids) must not be stamped at raise time only to fail at the SECOND GATE after the
+// operator has already shot the video and the park head has already approved.
+func ResolveShiftingDestinationPenStage(configuredStage string, residentStages, writableStages []string) string {
+	if resolved := resolveConfiguredStage(configuredStage, writableStages); resolved != "" {
+		return resolved
+	}
+	// Nothing authored for this location: fall back to what its residents carry, with every
+	// fallback the resident rule already had.
+	return ResolveShiftingDestinationStage(residentStages, writableStages)
+}
+
+// resolveConfiguredStage validates an authored tag against the writable vocabulary, returning "" for
+// the same three reasons the resident rule returns "": blank, flushing, or unwritable.
+func resolveConfiguredStage(configuredStage string, writableStages []string) string {
+	configuredStage = strings.TrimSpace(configuredStage)
+	if configuredStage == "" || strings.EqualFold(configuredStage, FlushingStageName) {
+		return ""
+	}
+	for _, writable := range writableStages {
+		if strings.EqualFold(strings.TrimSpace(writable), configuredStage) {
+			// Canonical casing from the vocabulary, so the snapshot matches what the relocation
+			// will look up at the second gate.
+			return strings.TrimSpace(writable)
+		}
+	}
+	return ""
+}

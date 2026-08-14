@@ -40,6 +40,9 @@ type Service interface {
 	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
 	ListTransportTasks(ctx context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error)
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
+	// ListPenSessionCaptures reports which of a pen-session's proof slots are ALREADY recorded, by
+	// any operator, with the server proof id of each. Read-only; it gates nothing.
+	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) ([]ports.CapturedProofSlot, error)
 }
 
 type Handler struct {
@@ -54,6 +57,9 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
+	// Which of a pen-session's proof slots are already recorded, by ANY operator. Read-only; it is
+	// what lets three people split one pen-session's three proofs.
+	mux.HandleFunc("GET /feed-direction/distribution/captures", h.GetDistributionCaptures)
 	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
 	// (the old instant path).
 	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
@@ -674,10 +680,14 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, ports.ErrDistributionAlreadyRecorded),
 		errors.Is(err, ports.ErrPackingAlreadyRecorded):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
-	case errors.Is(err, ports.ErrDistributionProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
-	case errors.Is(err, ports.ErrWaterProofRequired):
+	// Every mandatory distribution capture answers the same way, listed together so a fourth proof
+	// cannot be added to the service and silently fall through to the 500 default -- which is what
+	// happened to the feed-weight photo, telling an operator who had not taken it yet that the
+	// server was broken. The message names which capture is missing; the code stays one value so a
+	// client can branch on "you still owe a capture" without parsing prose.
+	case errors.Is(err, ports.ErrFeedWeightProofRequired),
+		errors.Is(err, ports.ErrDistributionProofRequired),
+		errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):

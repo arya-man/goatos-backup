@@ -126,6 +126,10 @@ func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSu
 	return domain.HerdRegisterSummary{}, nil
 }
 
+func (f *fakeRepo) ShedDirectory(_ context.Context, _ string) (domain.ShedDirectory, error) {
+	return domain.ShedDirectory{}, nil
+}
+
 func (f *fakeRepo) GetCountsBreakdown(_ context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
 	f.breakdownQuery = req
 	return f.breakdown, f.breakdownErr

@@ -43,6 +43,7 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
@@ -636,6 +637,16 @@ interface AppApiService {
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
     ): FeedPackingWorklistPageDto
+
+    @GET("feed-direction/distribution/captures")
+    suspend fun getFeedDistributionCaptures(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String,
+        @Query("partition_label") partitionLabel: String?,
+        @Query("session_no") sessionNo: Int,
+        @Query("target_date") targetDate: String,
+        @Query("workflow") workflow: String,
+    ): FeedDistributionCapturesDto
 
     @POST("feed-direction/complete")
     suspend fun completeFeedDirectionSession(
@@ -1326,6 +1337,16 @@ class RetrofitAppApi(
         offset: Int?,
     ): FeedPackingWorklistPageDto =
         service.getFeedPackingWorklist(parkId, targetDate, session, workflow, status, limit, offset)
+
+    override suspend fun getFeedDistributionCaptures(
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): FeedDistributionCapturesDto =
+        service.getFeedDistributionCaptures(parkId, shedId, partitionLabel, sessionNo, targetDate, workflow)
 
     override suspend fun completeFeedDirectionSession(
         idempotencyKey: String,
