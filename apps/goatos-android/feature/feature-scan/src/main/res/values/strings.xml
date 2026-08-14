@@ -24,6 +24,7 @@
     <string name="scan_proof_uploading">Proof uploading…</string>
     <string name="scan_proof_retry_action">Retry</string>
     <string name="scan_proof_replace_action">Replace</string>
+    <string name="scan_proof_capture_busy">Finish the current animal\'s video first.</string>
     <string name="scan_proof_replace_armed">Scan this same tag to replace proof</string>
     <string name="scan_proof_retry">Upload failed · tap to retry</string>
     <plurals name="scan_proof_action_needed">

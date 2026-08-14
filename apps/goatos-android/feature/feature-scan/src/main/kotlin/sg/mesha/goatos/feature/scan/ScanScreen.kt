@@ -259,6 +259,10 @@ data class ScanUiState(
     val isLoadingMore: Boolean = false,
     val proofActionNeeded: List<RosterRow> = emptyList(),
     val duplicateNotice: String? = null,
+    // True only when [duplicateNotice] holds the "camera busy — finish current video first"
+    // rejection (see ScanViewModel.requestGoatProof's visible-block doc): lets the renderer show
+    // the LOCALIZED string resource for this specific notice instead of the raw ViewModel copy.
+    val proofCaptureBusy: Boolean = false,
     val readerConnection: ScanReaderConnection? = null,
     val shedId: String? = null,
     val taskId: String? = null,
@@ -387,7 +391,10 @@ fun ScanScreen(
                     item { NotDueBanner(state.error) }
                 } else {
                     state.duplicateNotice?.takeIf { it.isNotBlank() }?.let { message ->
-                        item { OperatorNoticeBanner(message) }
+                        item {
+                            val busyMessage = stringResource(R.string.scan_proof_capture_busy)
+                            OperatorNoticeBanner(if (state.proofCaptureBusy) busyMessage else message)
+                        }
                     }
                     state.lastProofCaptureError?.takeIf { it.isNotBlank() }?.let { message ->
                         item { OperatorNoticeBanner(message) }

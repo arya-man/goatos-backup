@@ -357,13 +357,17 @@ class ScanViewModelTest {
      * CONFIRMED SHED DEFECT (maintainer, real shed use): "When I'm on camera recording and I use
      * the RFID reader to scan, it suddenly stops recording and comes out." The old behaviour
      * cancelled whatever camera session was still open the moment a DIFFERENT goat's tag was
-     * read, destroying an unrecoverable in-progress recording. This is the invariant that
-     * replaces it: a scan for a different goat while a capture is in flight must NEVER stop or
-     * cancel that capture. The new goat is queued instead and its camera opens automatically once
-     * the in-flight capture's job completes.
+     * read, destroying an unrecoverable in-progress recording.
+     *
+     * "Visible block" fix (blocker 5): a scan for a different goat while a capture is in flight
+     * must NEVER stop or cancel that capture -- but it is also never silently queued for
+     * auto-open anymore (queuing surprised operators with a camera opening for an animal they
+     * were not currently pointing at). Instead it is REJECTED outright with a visible, localized
+     * notice, A's capture is completely unaffected, and B is simply re-scannable like any other
+     * animal once A's capture finishes.
      */
     @Test
-    fun `scanning a second goat while the first goat's proof video is still recording must NOT stop or cancel the first camera -- it queues the second goat instead`() = runTest(dispatcher) {
+    fun `scanning goat B while goat A's proof video is still recording must NOT stop or cancel A's camera -- B is rejected, and is scannable again once A finishes`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val proofRepo = FakeProofCaptureRepository()
@@ -405,47 +409,54 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         // THE INVARIANT: goat A's still-recording camera session is untouched -- no second camera
-        // opens, nothing is stopped or cancelled. Goat B is queued, and the operator is told so
-        // instead of the queued scan silently vanishing.
+        // opens, nothing is stopped or cancelled. Goat B's scan is REJECTED outright with a
+        // visible notice, not queued, and not silently dropped.
         assertEquals("a scan mid-recording must never open a second camera or disturb the first", 1, proofSource.captureCount)
         assertEquals(0, proofRepo.captureCalls.size)
-        assertEquals("TAG-200 queued — camera opens once TAG-100's video is saved.", scanVm.state.value.duplicateNotice)
-        assertTrue("queued goat must not enter the visible feed before its own video exists", scanVm.state.value.feed.isEmpty())
-        assertTrue("queued goat must not write Room scan rows before its own video exists", scanCaptures.rowsForTask("task-1").isEmpty())
+        assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
+        assertTrue("the busy rejection must be flagged for localized rendering", scanVm.state.value.proofCaptureBusy)
+        assertTrue("rejected goat must not enter the visible feed", scanVm.state.value.feed.isEmpty())
+        assertTrue("rejected goat must not write Room scan rows", scanCaptures.rowsForTask("task-1").isEmpty())
         assertTrue(
-            "a deferred scan must be recorded in analytics, not silently swallowed",
-            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED),
+            "a rejected scan must be recorded in analytics, not silently swallowed",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED),
         )
 
         // Goat A's recording finishes normally and saves under A's own subject id -- the in-flight
-        // capture was never touched by B's scan.
-        proofSource.queue(CapturedVideo(localUri = "file://goat-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        // capture was never touched by B's rejected scan.
         goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
-        assertEquals(2, proofRepo.captureCalls.size)
+        assertEquals(1, proofRepo.captureCalls.size)
         assertEquals("goat-1", proofRepo.captureCalls[0].subjectId)
         assertTrue(proofRepo.captureCalls[0].caption.orEmpty().contains("Vaccination"))
         assertTrue(proofRepo.captureCalls[0].caption.orEmpty().contains("ET"))
         assertEquals("TAG-100", proofRepo.captureCalls[0].rfidTag)
         assertEquals("file://goat-a.mp4", proofRepo.captureCalls[0].localUri)
 
-        // The queued goat B's camera opens automatically the instant A's camera frees up -- the
-        // operator never has to remember to rescan B.
-        assertEquals("goat B's camera must open automatically once A's capture completed", 2, proofSource.captureCount)
+        // No camera auto-opens for the rejected goat B -- there is nothing queued.
+        assertEquals("no camera auto-opens for a rejected scan", 1, proofSource.captureCount)
+        // The busy notice clears once A's capture resolves.
+        assertNull(scanVm.state.value.duplicateNotice)
 
-        assertEquals("queued goat commits once its own camera returns", listOf("TAG-100", "TAG-200"), scanCaptures.tagsForTask("task-1"))
-        val queuedFeed = scanVm.state.value.feed.first { it.primaryTag == "TAG-200" }
-        assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.UPLOADING, queuedFeed.proofUploadStatus)
+        // B is scannable normally now: a fresh scan opens its own camera as if nothing happened.
+        proofSource.queue(CapturedVideo(localUri = "file://goat-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+        assertEquals("goat B's re-scan after A finished opens its own camera normally", 2, proofSource.captureCount)
+        assertEquals(2, proofRepo.captureCalls.size)
+        assertEquals("goat-2", proofRepo.captureCalls[1].subjectId)
+        assertEquals("TAG-200", proofRepo.captureCalls[1].rfidTag)
+        assertEquals("file://goat-b.mp4", proofRepo.captureCalls[1].localUri)
+        assertEquals(listOf("TAG-100", "TAG-200"), scanCaptures.tagsForTask("task-1"))
     }
 
     /**
      * Production shares ONE buffered result channel across every capture request
      * (`VideoCaptureLauncher.kt` / `ProofCaptureRelay`), so this exercises the real plumbing
      * rather than [FakeProofCaptureSource]'s per-call isolation. Because a scan for a different
-     * goat no longer cancels the in-flight capture, goat B's camera never opens while A's is still
-     * recording, so there is no way for A's eventually-finalized clip to be misdelivered to B's
-     * request -- the wrong-goat-attribution hazard the relay was built for is now structurally
-     * unreachable via this path (queuing serialises captures one goat at a time).
+     * goat is rejected rather than opening a second camera, there is no way for A's
+     * eventually-finalized clip to be misdelivered to a request that never opened -- the
+     * wrong-goat-attribution hazard the relay was built for is structurally unreachable here.
      */
     @Test
     fun `a scan for a different goat never stops the in-flight recording, and its own finalized clip still lands under its own subject id`() = runTest(dispatcher) {
@@ -481,10 +492,11 @@ class ScanViewModelTest {
         assertEquals("goat A's camera opened", 1, proofSource.captureCount)
 
         // The operator turns to goat B and scans it. THE INVARIANT: this must not stop A's camera --
-        // no second request is opened; B is queued instead.
+        // no second request is opened; B's scan is rejected.
         reader.emit("TAG-200")
         advanceUntilIdle()
         assertEquals("goat B's scan must not open a second camera while A is still recording", 1, proofSource.captureCount)
+        assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
 
         // A's recording finalizes for request #1 -- the only request that exists -- and lands under
         // A's own subject id.
@@ -500,9 +512,12 @@ class ScanViewModelTest {
         assertEquals("TAG-100", proofRepo.captureCalls.single().rfidTag)
         assertEquals("file://goat-a.mp4", proofRepo.captureCalls.single().localUri)
 
-        // B's camera now opens automatically (queued goat), and its own recording lands under B's
-        // own subject id.
-        assertEquals("goat B's camera opens once A's capture is done", 2, proofSource.captureCount)
+        // No second camera auto-opens -- B was rejected, not queued. A fresh scan of B now opens
+        // its own request normally and lands under its own subject id.
+        assertEquals("no camera auto-opens for a rejected scan", 1, proofSource.captureCount)
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+        assertEquals(2, proofSource.captureCount)
         proofSource.deliverRecorderResult(
             requestOrdinal = 2,
             video = CapturedVideo(localUri = "file://goat-b.mp4", startedAtMs = 3, endedAtMs = 4),
@@ -517,14 +532,12 @@ class ScanViewModelTest {
     }
 
     /**
-     * Only the LAST queued goat survives: if a third goat is scanned before the queued second one
-     * ever got its turn, the second is overtaken and its camera will never open. That is a genuine
-     * drop (the operator scanned it but it will never be acted on) and must be visible and
-     * recorded, never silent -- this is the one case where a scan really is dropped, as distinct
-     * from merely deferred.
+     * A third goat scanned while a second is ALSO rejected changes nothing: neither B nor C is
+     * remembered, both are rejected with the same visible notice, and A's capture is unaffected.
+     * There is no "queue depth" concept anymore -- every rejection is independent.
      */
     @Test
-    fun `only the last queued goat survives a further scan, and the overtaken one is surfaced as a visible, analytics-tracked drop`() = runTest(dispatcher) {
+    fun `every scan while a capture is in flight is rejected independently -- nothing is queued or remembered`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val proofSource = FakeProofCaptureSource()
         val reader = FakeRfidReaderPort()
@@ -557,23 +570,23 @@ class ScanViewModelTest {
         advanceUntilIdle()
         assertEquals(1, proofSource.captureCount)
 
-        reader.emit("TAG-200") // goat B queued behind A
+        reader.emit("TAG-200") // rejected while A is recording
         advanceUntilIdle()
-        reader.emit("TAG-300") // goat C overtakes goat B in the queue -- B is dropped
+        reader.emit("TAG-300") // also rejected -- independent of B's earlier rejection
         advanceUntilIdle()
 
-        assertEquals("neither queued scan may open a camera while A is still recording", 1, proofSource.captureCount)
+        assertEquals("neither rejected scan may open a camera while A is still recording", 1, proofSource.captureCount)
         assertTrue(
-            "goat B being overtaken by goat C must be recorded as a drop",
+            "each rejected scan must be recorded as a visible, analytics-tracked event",
             analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED),
         )
-        assertEquals("TAG-200 still needs its video — dropped for TAG-300.", scanVm.state.value.duplicateNotice)
+        assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
 
-        // A's recording finishes; the camera that opens next must be goat C's (the surviving
-        // queued goat), never goat B's (the overtaken one).
+        // A's recording finishes; no camera auto-opens for either B or C -- both were rejected,
+        // neither is remembered.
         goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
-        assertEquals(2, proofSource.captureCount)
+        assertEquals("no auto-open for any previously-rejected goat", 1, proofSource.captureCount)
         assertEquals(1, proofRepo.captureCalls.size)
         assertEquals("goat-1", proofRepo.captureCalls[0].subjectId)
     }
@@ -617,6 +630,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
         assertEquals("re-scanning the goat already being recorded must not open a second camera", 1, proofSource.captureCount)
         assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
+        assertTrue(scanVm.state.value.proofCaptureBusy)
 
         // The recording finishes normally. The busy condition has resolved — the notice must clear
         // on its own, not linger until some unrelated future scan event clears it.
@@ -627,6 +641,7 @@ class ScanViewModelTest {
             "the busy notice must clear once the capture it referred to finishes, without needing another scan",
             scanVm.state.value.duplicateNotice,
         )
+        assertFalse(scanVm.state.value.proofCaptureBusy)
         assertEquals(1, proofRepo.captureCalls.size)
         assertEquals("goat-1", proofRepo.captureCalls.single().subjectId)
     }
