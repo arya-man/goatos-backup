@@ -164,7 +164,11 @@ class FeedPackingViewModel @Inject constructor(
     private fun refresh() {
         _isRefreshing.value = false
         _isOffline.value = false
-        _filters.value = _filters.value.copy()
+        // A NEW value, not an equal one: MutableStateFlow conflates on equality and these
+        // selections are data classes, so a bare copy() emitted nothing and flatMapLatest
+        // stayed on the same page -- a refresh that silently did not refetch. Same defect
+        // fixed in ShiftingPendingViewModel on 2026-08-13.
+        _filters.value = _filters.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
     }
 
     private fun selectPark(parkId: String) {
@@ -299,6 +303,8 @@ class FeedPackingViewModel @Inject constructor(
         // The feed day. Reactive (not a fixed val) so the date bar can step it to a past day and
         // re-query, same as every other filter here.
         val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
+        /** Bumped by refresh so an unchanged selection is still a NEW value. */
+        val refreshNonce: Int = 0,
     ) {
         fun toQuery(): FeedPackingQuery = FeedPackingQuery(
             parkId = parkId,

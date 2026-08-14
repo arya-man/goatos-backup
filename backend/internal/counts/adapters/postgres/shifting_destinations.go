@@ -63,7 +63,15 @@ SELECT
     shed.name,
     partitions.partition_label,
     COALESCE(animal_count.count, 0),
-    COALESCE(stage_agg.stages, ARRAY[]::text[])
+    COALESCE(stage_agg.stages, ARRAY[]::text[]),
+    -- The cohort AUTHORED for this exact operational location: the pen's own tag when this row is
+    -- a pen, the shed's profile when the shed has none. This is what a movement adopts; the
+    -- resident-derived stages above remain only as the fallback for a location nobody has
+    -- configured yet.
+    COALESCE(
+      CASE WHEN partitions.shed_id IS NOT NULL THEN pen_stage.stage_code ELSE shed_stage.stage_code END,
+      ''
+    )
 FROM locations park
 LEFT JOIN locations shed
        ON shed.tenant_id = park.tenant_id
@@ -95,6 +103,17 @@ LEFT JOIN LATERAL (
         END
       )
 ) animal_count ON shed.location_id IS NOT NULL
+LEFT JOIN shed_profiles destination_profile
+       ON destination_profile.tenant_id = park.tenant_id
+      AND destination_profile.location_id = shed.location_id
+LEFT JOIN animal_stage_lookup shed_stage
+       ON shed_stage.tenant_id = destination_profile.tenant_id
+      AND shed_stage.animal_stage_id = destination_profile.animal_stage_id
+      AND shed_stage.status = 'active'
+LEFT JOIN animal_stage_lookup pen_stage
+       ON pen_stage.tenant_id = partitions.tenant_id
+      AND pen_stage.animal_stage_id = partitions.animal_stage_id
+      AND pen_stage.status = 'active'
 LEFT JOIN LATERAL (
     SELECT array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage)) AS stages
     FROM goats g
@@ -136,7 +155,8 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 		var shedID, shedName, partitionLabel *string
 		var animalCount int
 		var shedStages []string
-		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages); err != nil {
+		var configuredStage string
+		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages, &configuredStage); err != nil {
 			return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog scan: %w", err)
 		}
 		idx, ok := parkIndex[parkID]
@@ -171,6 +191,7 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 			ShedID:           *shedID,
 			Name:             *shedName,
 			ManagementStages: shedStages,
+			ConfiguredStage:  strings.TrimSpace(configuredStage),
 			PartitionLabel:   partitionLabel,
 			Display:          loc.Display(),
 		})

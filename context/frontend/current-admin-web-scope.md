@@ -374,10 +374,11 @@ UX. Exact backend filters may live in URL params and active chips for entity
 history links. These dependencies must use current GoatOS contracts, canonical
 Postgres truth, generated clients, and the mock. They must not revive old
 dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
-import-review, or old Operations. The Counts sidebar shows exactly two leaves in
-this slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
-(`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
-ADG`, or `Count reconciliation` leaves for mock fidelity.
+import-review, or old Operations. The Counts sidebar shows exactly three leaves in
+this slice — `Herd Register` (`/counts/herd`), `Counts Breakdown`
+(`/counts/breakdown`) and `Sheds` (`/counts/sheds`). Do not show disabled
+`Tagging & identity`, `Weights & ADG`, or `Count reconciliation` leaves for mock
+fidelity.
 
 `Milk` is its own sidebar group (maintainer decision 2026-08-11), holding
 `Milk Preparation` (`/counts/milk-preparation`). It was moved out of the Counts
@@ -402,6 +403,57 @@ the 5k-50k envelope — not a projection table. Its stage dimension is raw
 quality stays visible. The allowlist that enforces this lives in
 `apps/admin-web/scripts/check-ia-guard.mjs` (`SUPPORTED_COUNTS_HREFS`); widening
 it again is a scope decision that must be recorded here first.
+
+`Sheds` (`/counts/sheds`) was added by explicit maintainer decision (2026-08-14),
+widening the Counts slice from two leaves to three. It is the CONFIGURATION
+directory of operational locations, and it is deliberately NOT a census: Herd
+Register lists animals, Counts Breakdown counts animals by location, and this
+lists the LOCATIONS THEMSELVES — every pen and shed with the cohort it is
+configured for and the head count it is meant to hold. A pen holding zero animals
+still appears.
+
+Four properties are load-bearing and must survive any later change:
+
+1. **Grain is the OPERATIONAL LOCATION** — a pen where the shed has pens
+   (`Godel 1 - Part 3`), the bare shed where it has none (`Q1`) — matching the
+   farm's own Sheds DB sheet. Pens come from the `shed_partitions` CATALOG, so an
+   EMPTY pen is listed; legacy partition-alias `locations` rows are excluded
+   through the shared `oploc.PartitionAliasExclusionSQL`, so a pen appears once
+   rather than twice.
+2. **Rows pair across parks by LABEL, and that pairing happens in Go.** The farm
+   runs the same names in both parks and reads them side by side, so
+   `counts/domain.PivotShedDirectory` keys rows by the composed
+   operational-location display over rows the SQL already keyed by
+   `(park_id, shed_id, pen)`. The query never groups by name, and every cell keeps
+   its own park's `shed_id` — which is what makes the operational-location rule's
+   park-merge defect impossible here rather than merely avoided. Pens sort
+   NUMERICALLY, so `Part 2` precedes `Part 10`; string order reads as missing pens.
+3. **The park columns are compiled from live park rows, never declared.**
+   `compileShedDirectoryColumns` (adminui) appends a `tag:<park_id>` /
+   `capacity:<park_id>` pair per park to the page contract, labelled from the
+   park's own row. A third park opening produces its pair with no code change, and
+   no park code is ever a literal in contract code or in a component.
+4. **Capacity is the PEN's own; tag is the SHED's; null is not zero.** Migration
+   `000160` adds `shed_partitions.capacity`, and a shed with no pens keeps its
+   capacity on `shed_profiles.capacity` — the read prefers the pen's value and
+   falls back to the shed's ONLY for an unpartitioned shed, never repeating a
+   shed's total across its ten pens. The cohort tag has no pen-grain source in the
+   database (`shed_profiles` is keyed by the shed), so a pen reports its shed's
+   configured cohort and the page's note says so. A location with no recorded
+   capacity renders "Not recorded", never 0; a park with no location of that label
+   renders "—". Those are three different facts and must stay visually distinct.
+
+It reads `GET /counts/sheds`, which returns a display PAGE of the pivoted rows
+while `total_rows` stays the whole catalog. It takes no filters and is not
+park-scoped: showing the parks side by side is the whole point of the screen.
+Capacity is loaded by `backend/cmd/seed-shed-capacity` (wired into
+`seed-closeout.sh`) from the committed
+`fixtures/shed-capacity-2026-08-14/shed-capacity.json` capture of the farm's Sheds
+DB sheet. That fixture records the sheet rows summed into each location AND the
+rows no location could accept — today CBE `Godel 1 - Part 9`/`Part 10` (the sheet
+lists ten pens where the catalog has eight) and CPT `Ho Chi Minh` (no such shed) —
+which the seed PRINTS on every run. Those are open data questions for the
+maintainer, not defects to paper over by inventing pens.
 
 `Milk Preparation` was reopened by explicit maintainer decision (2026-07-29). It reuses the
 Feed Packing worklist anatomy and remains a current-day planning read: canonical live
@@ -475,6 +527,7 @@ These are the only current implemented admin-web product routes:
 /procurement/source-entry/loads/{load_id}
 /counts/herd               Herd Register for vaccination trigger closure
 /counts/breakdown          Counts Breakdown census
+/counts/sheds              Sheds — operational-location configuration directory
 /counts/milk-preparation   Current milk preparation worklist
 /operations/audit          Admin / Data Ops Audit Log (business surface)
 /config

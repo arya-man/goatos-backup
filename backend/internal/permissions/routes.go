@@ -21,6 +21,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getGoatTimeline", Method: "GET", Pattern: "/goats/{goat_id}/timeline", Permissions: []string{GoatRead}},
 	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{CountsRead}},
 	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{CountsRead}},
+	{OperationID: "getShedDirectory", Method: "GET", Pattern: "/counts/sheds", Permissions: []string{CountsRead}},
 	{OperationID: "getMilkPreparation", Method: "GET", Pattern: "/counts/milk-preparation", Permissions: []string{CountsRead}},
 	{OperationID: "getAppCountsMilkPreparation", Method: "GET", Pattern: "/app/counts/milk-preparation", Permissions: []string{CountsWrite}},
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
@@ -411,6 +412,10 @@ var protectedRoutes = []Route{
 	// Idempotency-Key because no route here has a side effect to replay.
 	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
+	// Which of a pen-session's proof slots are already recorded, by any operator. A READ on the
+	// feed-direction surface, so it takes the direction read permission -- not the completion write
+	// twin: seeing that a slot is done is not authority to complete anything.
+	{OperationID: "getFeedDistributionCaptures", Method: "GET", Pattern: "/feed-direction/distribution/captures", Permissions: []string{FeedDirectionRead}},
 	// The pre-gate instant completion (POST /feed-direction/complete) is intentionally absent: its
 	// route is unregistered and its store unwired, because completing at operator submit bypasses the
 	// verifier gate. Do not re-add it here.

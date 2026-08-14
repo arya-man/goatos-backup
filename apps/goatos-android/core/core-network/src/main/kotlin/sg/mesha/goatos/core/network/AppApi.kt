@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
@@ -1027,6 +1028,25 @@ interface AppApi {
         offset: Int? = null,
     ): FeedPackingWorklistPageDto
 
+    /**
+     * GET /feed-direction/distribution/captures — which of ONE pen-session's proof slots are ALREADY
+     * recorded, by ANY operator, each with its SERVER proof id.
+     *
+     * Three operators may split a pen-session's three proofs. This is how a phone learns a slot it
+     * did not shoot is done, and how whoever submits names proofs they do not hold locally.
+     *
+     * [partitionLabel] is part of the IDENTITY: omitting it on a partitioned shed answers for the
+     * shed as a whole and would claim another pen's work.
+     */
+    suspend fun getFeedDistributionCaptures(
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): FeedDistributionCapturesDto
+
     /** POST /app/counts/shifting-events — an operator-reported movement between sheds. Drained
      *  through the offline-sync outbox with a stable [idempotencyKey]: the backend derives the
      *  movement's logical key from that key, so an exact retry collapses onto the SAME row
@@ -1722,6 +1742,16 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto = FeedPackingWorklistPageDto(targetDate = targetDate)
+
+    // Nothing recorded by anyone else: the fake keeps the single-phone behaviour tests assert.
+    override suspend fun getFeedDistributionCaptures(
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): FeedDistributionCapturesDto = FeedDistributionCapturesDto()
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,

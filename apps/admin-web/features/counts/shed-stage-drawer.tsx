@@ -30,7 +30,24 @@ export type PenOption = {
 
 // StageOption is the tenant's active stage vocabulary. Business-managed rows in Postgres, never a
 // constant list here -- adding a cohort tag must not need a frontend release.
-export type StageOption = { code: string; label: string };
+//
+// `band` is what an animal INHERITS when its pen is retagged ("kid"/"adult", or "" for a tag the
+// farm has not classified), and `assignable` is false for a clinical tag the assigning writes
+// reject. Both come from the backend; neither is derived from the code string here, because that
+// would put a second copy of the clinical set in the frontend.
+export type StageOption = {
+  code: string;
+  // label IS the stage code ("F2-Male", "Non-Pregnant", "Buck"). That is the tag the farm uses, the
+  // value stored on the animal and on the pen, and the string every Counts screen renders -- so it
+  // is what a picker must offer. Showing the descriptive name instead ("Fattening male") made an
+  // operator pick one word and watch a different one appear in the cell.
+  label: string;
+  // description is the lookup's human name, shown as secondary context only when it says something
+  // the code does not. Blank when the two are the same word (Buck, Mother, Pregnant).
+  description: string;
+  band: string;
+  assignable: boolean;
+};
 
 type Phase =
   | { kind: "editing" }

@@ -21,6 +21,10 @@ import {
 } from "@/lib/api/server";
 
 const BREAKDOWN_PATH = "/counts/breakdown";
+// The Sheds directory shows the same pen's CONFIGURED tag, which this write also moves, so it goes
+// stale on the same commit. Revalidating only the breakdown left the directory showing the old tag
+// until the next hard navigation.
+const SHEDS_PATH = "/counts/sheds";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function trimmedString(value: unknown, key: string, minLength: number, maxLength: number): string {
@@ -52,11 +56,16 @@ function validateReclassifyShedStageRequest(body: unknown): ReclassifyShedStageR
   const partitionLabel = optionalTrimmedString(candidate.partition_label, "partition_label", 1, 80);
   const managementStage = trimmedString(candidate.management_stage, "management_stage", 1, 80);
   const reason = optionalTrimmedString(candidate.reason, "reason", 3, 500);
+  // Boolean-only, and absent means false: a caller must ASK to write a cohort onto a location
+  // holding no animals, so the drawer's "retag these animals" intent keeps failing closed on an
+  // empty pen exactly as it did before this flag existed.
+  const configureEmpty = candidate.configure_empty === true;
   return {
     shed_id: shedId,
     ...(partitionLabel ? { partition_label: partitionLabel } : {}),
     management_stage: managementStage,
     ...(reason ? { reason } : {}),
+    ...(configureEmpty ? { configure_empty: true } : {}),
   };
 }
 
@@ -77,8 +86,10 @@ export async function commitShedStageAction(
   const key = typeof idempotencyKey === "string" && idempotencyKey.trim() ? idempotencyKey.trim() : randomUUID();
   const result = await commitReclassifyShedStage(validateReclassifyShedStageRequest(body), key);
   if (result.ok) {
-    // The breakdown's stage columns and kid/adult split are now stale by construction.
+    // The breakdown's stage columns and kid/adult split, and the directory's tag column, are now
+    // stale by construction.
     revalidatePath(BREAKDOWN_PATH);
+    revalidatePath(SHEDS_PATH);
   }
   return result;
 }
