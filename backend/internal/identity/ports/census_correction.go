@@ -87,27 +87,30 @@ var (
 // CensusSlicePreview answers "what would this change" before anything is written. TotalLive is the
 // whole slice, computed over the same predicate the commit uses.
 type CensusSlicePreview struct {
-	ShedID                     string
-	ShedName                   string
-	PartitionLabel             string
-	OperationalLocationDisplay string
-	Field                      string
-	CurrentValue               string
-	Value                      string
-	TotalLive                  int
+	ShedID                     string `json:"shed_id"`
+	ShedName                   string `json:"shed_name"`
+	PartitionLabel             string `json:"partition_label"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	Field                      string `json:"field"`
+	CurrentValue               string `json:"current_value"`
+	Value                      string `json:"value"`
+	TotalLive                  int    `json:"total_live"`
 }
 
 // CensusSliceCorrectionResult is what actually happened. Corrected is the number of animals whose
 // row changed; it equals TotalLive unless another writer moved animals out of the slice between
 // the preview and the commit.
+// The json tags are load-bearing rather than decoration: this struct IS the audit row's
+// after_state, and it is read back verbatim on an idempotent replay. Without them the audit wrote
+// Go field names (`ShedName`, `Corrected`) into a column every other row spells in snake_case.
 type CensusSliceCorrectionResult struct {
-	ShedID                     string
-	ShedName                   string
-	PartitionLabel             string
-	OperationalLocationDisplay string
-	Field                      string
-	CurrentValue               string
-	Value                      string
-	TotalLive                  int
-	Corrected                  int
+	ShedID                     string `json:"shed_id"`
+	ShedName                   string `json:"shed_name"`
+	PartitionLabel             string `json:"partition_label"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	Field                      string `json:"field"`
+	CurrentValue               string `json:"current_value"`
+	Value                      string `json:"value"`
+	TotalLive                  int    `json:"total_live"`
+	Corrected                  int    `json:"corrected"`
 }

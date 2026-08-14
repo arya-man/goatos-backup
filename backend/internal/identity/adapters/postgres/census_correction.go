@@ -9,9 +9,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
+
+// censusCorrectionSource is the audit action name for this write, the twin of the reclassification's
+// own source constant.
+const censusCorrectionSource = "counts_census_slice_correction"
 
 // censusSliceScopeSQL is the predicate every part of this write shares -- preview, count, and the
 // UPDATE itself -- so the number an operator confirms is the number of rows that change.
@@ -266,9 +271,9 @@ func (r *Repository) replayCensusSliceCorrection(ctx context.Context, tx pgx.Tx,
 	var payload []byte
 	err = tx.QueryRow(ctx, `
 SELECT after_state FROM audit_log
-WHERE tenant_id = $1::uuid AND action = 'identity_census_slice_correction'
+WHERE tenant_id = $1::uuid AND action = $3
   AND metadata->>'idempotency_key' = $2
-ORDER BY created_at DESC LIMIT 1`, cmd.TenantID, cmd.ClientIdempotencyKey).Scan(&payload)
+ORDER BY created_at DESC LIMIT 1`, cmd.TenantID, cmd.StoredIdempotencyKey, censusCorrectionSource).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ports.ErrIdempotencyPending
 	}
@@ -301,12 +306,11 @@ func (r *Repository) recordCensusSliceAudit(ctx context.Context, tx pgx.Tx, cmd 
 	}
 	afterState, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Errorf("identity: correct census slice: encode audit: %w", err)
+		return fmt.Errorf("identity: correct census slice: encode audit state: %w", err)
 	}
 	metadata, err := json.Marshal(map[string]any{
-		"idempotency_key":  cmd.ClientIdempotencyKey,
-		"trace_id":         cmd.TraceID,
 		"reason":           cmd.Reason,
+		"idempotency_key":  cmd.StoredIdempotencyKey,
 		"field":            cmd.Field,
 		"from":             result.CurrentValue,
 		"to":               result.Value,
@@ -318,10 +322,22 @@ func (r *Repository) recordCensusSliceAudit(ctx context.Context, tx pgx.Tx, cmd 
 		return fmt.Errorf("identity: correct census slice: encode audit metadata: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, `
-INSERT INTO audit_log (tenant_id, actor_id, action, entity_type, entity_id, after_state, metadata, occurred_at)
-VALUES ($1, $2, 'identity_census_slice_correction', 'shed', $3, $4, $5, $6)`,
-		tenantUUID, actorUUID, shedUUID, afterState, metadata, cmd.OccurredAt); err != nil {
+	// The SAME typed helper the reclassification uses. The first version of this hand-wrote an
+	// INSERT against invented column names (`entity_type`, `occurred_at`) and 500'd on every
+	// commit: audit_log's real columns are resource_type/resource_id/scope_*, and a generated
+	// helper cannot get them wrong.
+	if err := r.queries.WithTx(tx).InsertAuditLog(ctx, identitydb.InsertAuditLogParams{
+		TenantID:     tenantUUID,
+		ActorID:      actorUUID,
+		Action:       censusCorrectionSource,
+		ResourceType: "shed",
+		ResourceID:   shedUUID,
+		ScopeType:    textParam("shed"),
+		ScopeID:      shedUUID,
+		AfterState:   afterState,
+		Metadata:     metadata,
+		TraceID:      textParam(cmd.TraceID),
+	}); err != nil {
 		return fmt.Errorf("identity: correct census slice: audit: %w", err)
 	}
 	return nil
