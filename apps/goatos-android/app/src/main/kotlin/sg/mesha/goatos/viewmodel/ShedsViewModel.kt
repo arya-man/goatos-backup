@@ -888,11 +888,13 @@ internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolea
         all { row -> row.hasSubmittedRecord() }
 
 private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
-    sopStatus.isSubmissionTerminalStatus() ||
-        verificationStatus.equals("pending", ignoreCase = true) ||
-        verificationStatus.equals("accepted", ignoreCase = true) ||
-        verificationStatus.equals("verified", ignoreCase = true) ||
-        workState.equals("verification_pending", ignoreCase = true)
+    openCount == 0 && (
+        sopStatus.isSubmissionTerminalStatus() ||
+            verificationStatus.equals("pending", ignoreCase = true) ||
+            verificationStatus.equals("accepted", ignoreCase = true) ||
+            verificationStatus.equals("verified", ignoreCase = true) ||
+            workState.equals("verification_pending", ignoreCase = true)
+    )
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

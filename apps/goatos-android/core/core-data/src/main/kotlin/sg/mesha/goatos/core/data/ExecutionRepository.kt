@@ -34,7 +34,7 @@ private val SERVER_DONE_ROSTER_STATUSES = setOf("done", "completed")
  * evidence exists. A sent-back animal WAS scanned -- that is why it has a capture and a
  * scannedAt -- but the verifier refused its proof, so it is work again.
  */
-private val SERVER_OUTSTANDING_ROSTER_STATUSES = setOf("rejected", "due", "pending")
+private val SERVER_OUTSTANDING_ROSTER_STATUSES = setOf("rejected", "due", "pending", "in_progress")
 
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
