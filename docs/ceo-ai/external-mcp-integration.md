@@ -150,6 +150,23 @@ that typed tool. The generic `ask_goatos` fallback must not be treated as
 authoritative for that class because broad assistant fallback can mix overall
 dashboard totals with today's drive-day schedule.
 
+Current external typed tool catalog:
+
+| CEO question class | External MCP tool | Canonical source | Grain guard |
+| --- | --- | --- | --- |
+| Today's vaccination schedule/progress | `get_vaccination_today` | `GET /vaccination/live-tracker` | Administration grain: scheduled administrations, operator assignment, proof/scans, closed/remaining. Do not mix all-history due totals. |
+| Cross-module exceptions/action queue | `get_action_center` | `GET /action-center/obligations` | Process-integrity obligation grain. Do not mix with operator schedule totals or verifier verdicts. |
+| Proof/evidence backlog | `get_verification_backlog` | `GET /verification/queue` | Verification item grain. Pending verification is not completed work. |
+| Feed needed/blocked today | `get_feed_today` | `GET /feed-direction/preview` | Issued feed sheet grain. Blocked/null quantity is a config gap, not zero feed. |
+| Procurement source-entry pipeline | `get_procurement_pipeline` | `GET /procurement/source-entry/loads` | Load grain. Keep expected, received, accepted, rejected, and holding distinct. |
+| Herd/census counts | `get_counts_summary` | `GET /counts/breakdown` | Aggregate census grain. Keep lifecycle status explicit. |
+| Health work/cases | `get_health_work_items` | `GET /app/health/work-items` | Treatment-session grain. Open sick work is not a death event unless health state says so. |
+| Weighing campaign progress | `get_weighing_progress` | `GET /weighing/campaigns` | Campaign/shed progress grain. Pending verification weight is not verified weight. |
+
+When a user asks a question in one of these classes, Claude, Codex, or ChatGPT
+should call the typed tool directly. `ask_goatos` remains a read-only fallback
+for questions not yet covered by a typed external tool.
+
 If a future change adds a new leadership-relevant API, OpenAPI path, table,
 view, reporting read, KPI, mobile workflow, admin-web route, or domain event, it
 must also update the leadership assistant coverage layer in the same change.
@@ -159,6 +176,8 @@ That means one of:
 - add or update a `ceo_ai.*` reporting view,
 - add or update a curated MCP Toolbox tool,
 - add a validated read-only SQL fallback/query class, or
+- add an external MCP typed tool when an external client should answer the class
+  without free-text fallback, or
 - add an explicit exclusion row in `docs/ceo-ai/coverage-matrix.md` explaining
   why leadership should not see it.
 
