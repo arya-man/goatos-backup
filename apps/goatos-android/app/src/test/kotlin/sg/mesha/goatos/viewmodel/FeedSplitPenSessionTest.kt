@@ -56,4 +56,6 @@ class FakeSplitFeedRepository(
 
     override fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?> = flowOf(null)
     override fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?> = flowOf(null)
+    override suspend fun fetchDirectionSessionStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null
+    override suspend fun fetchPackingRowStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null
 }

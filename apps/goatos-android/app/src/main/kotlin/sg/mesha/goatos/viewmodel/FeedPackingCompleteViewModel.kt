@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -145,11 +146,45 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun observeLiveLifecycleStatus() {
         viewModelScope.launch {
             feedRepository.observePackingRowStatus(shedId, partitionLabel, workflow, sessionNo)
-                .collect { liveStatus ->
-                    if (liveStatus == null) return@collect
-                    _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
-                }
+                .collect { liveStatus -> applyLiveStatus(liveStatus) }
         }
+        startServerStatusPolling()
+    }
+
+    /** Shared by the Room-backed observer above and the SERVER poll below. `null` (no answer yet /
+     *  poll failed) is ignored: this must never flip editable -> locked on a guess, and never flips
+     *  locked -> editable at all. */
+    private fun applyLiveStatus(liveStatus: String?) {
+        if (liveStatus == null) return
+        _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+    }
+
+    /**
+     * Periodic SERVER read of this shed-session's lifecycle status while the screen stays open, so a
+     * TEAMMATE'S submit on another phone flips this screen read-only without back/reopen —
+     * [observePackingRowStatus] above only changes when THIS phone's own worklist sync writes a fresh
+     * Room row. Reuses the existing `GET /feed-packing/worklist` read via
+     * [FeedRepository.fetchPackingRowStatus] (no new backend endpoint). See
+     * [FeedDistributionCompleteViewModel.startServerStatusPolling]'s kdoc for why this is bounded at
+     * [MAX_SERVER_STATUS_POLLS] rather than a bare `while (isActive)`.
+     */
+    private fun startServerStatusPolling() {
+        viewModelScope.launch {
+            repeat(MAX_SERVER_STATUS_POLLS) {
+                delay(SERVER_STATUS_POLL_INTERVAL_MS)
+                pollServerStatusOnce()
+            }
+        }
+    }
+
+    /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was — see
+     *  [applyLiveStatus]'s null-is-unknown contract. */
+    private suspend fun pollServerStatusOnce() {
+        if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
+        val status = runCatching {
+            feedRepository.fetchPackingRowStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
+        }.getOrNull()
+        applyLiveStatus(status)
     }
 
     fun onEvent(event: FeedPackingCompleteEvent) {
@@ -415,6 +450,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun syncNow() {
         viewModelScope.launch {
             syncRepository.triggerDrain()
+            // Re-check the session's lifecycle status directly from the server, so a manual Sync
+            // tap gets the same "did a teammate already submit this" answer the periodic poll
+            // provides, without waiting for the next tick.
+            pollServerStatusOnce()
         }
     }
 
@@ -461,6 +500,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
          *  out every pen of the shed (STG 2026-08-08). */
         const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
+
+        /** How often [startServerStatusPolling] re-checks this session's lifecycle status directly
+         *  from the server while the screen stays open. */
+        private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
+
+        /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
+        private const val MAX_SERVER_STATUS_POLLS = 2_880
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"

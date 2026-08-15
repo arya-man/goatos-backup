@@ -9,6 +9,7 @@ import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -292,6 +293,10 @@ private fun analyticsReason(error: Throwable): String =
  */
 @HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val proofCaptureRepository:ProofCaptureRepository,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,private val feedTransportRepository:FeedTransportStatusSource,saved:SavedStateHandle):ViewModel(){
     private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val parkLabel=saved.get<String>(ARG_PARK_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private var proofRowId:String?=null
+    // The server poll (fetchTaskStatus) needs a business date and transport tasks are always
+    // TODAY's only (see alreadySubmitted's isToday=true below) -- mirrors FeedTransportViewModel's
+    // own `today`.
+    private val today=LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
     // The task's backend-owned status AT THE MOMENT the row was tapped — a FIRST-PAINT hint only.
     // [observeLiveLifecycleStatus] supersedes it with the Room-backed live value the moment Room has
     // one, so a status change while this screen stays open flips it to read-only live rather than on
@@ -302,7 +307,27 @@ private fun analyticsReason(error: Throwable): String =
     init{analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED,mapOf(AnalyticsEvents.Params.SHED_ID to shedId));viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))};draft.proofs[STEP_VIDEO]?.let(::observeProofItem);draft.submitOutboxItemId?.let(::observeOutboxItem)};observeSyncStatus();observeDurableProof();observeLiveLifecycleStatus()}
     /** A `null` emission (no cached row for this task yet) is ignored so the screen keeps
      *  [lifecycleStatusHint] rather than forcing itself editable. */
-    private fun observeLiveLifecycleStatus(){viewModelScope.launch{feedTransportRepository.observeTaskStatus(taskId).collect{liveStatus->if(liveStatus==null)return@collect;_state.update{it.copy(alreadySubmitted=!feedSessionCanCapture(liveStatus,isToday=true))}}}}
+    private fun observeLiveLifecycleStatus(){viewModelScope.launch{feedTransportRepository.observeTaskStatus(taskId).collect{liveStatus->applyLiveStatus(liveStatus)}};startServerStatusPolling()}
+
+    /** Shared by the Room-backed observer above and the SERVER poll below. `null` (no answer yet /
+     *  poll failed) is ignored: this must never flip editable -> locked on a guess, and never flips
+     *  locked -> editable at all. */
+    private fun applyLiveStatus(liveStatus:String?){if(liveStatus==null)return;_state.update{it.copy(alreadySubmitted=!feedSessionCanCapture(liveStatus,isToday=true))}}
+
+    /**
+     * Periodic SERVER read of this transport task's status while the screen stays open, so a
+     * TEAMMATE'S submit on another phone flips this screen read-only without back/reopen --
+     * [observeTaskStatus] above only changes when THIS phone's own list refresh writes a fresh Room
+     * row. Reuses the existing `GET /feed-transport/tasks` read via
+     * [FeedTransportStatusSource.fetchTaskStatus] (no new backend endpoint). See
+     * [FeedDistributionCompleteViewModel.startServerStatusPolling]'s kdoc for why this is bounded at
+     * [MAX_SERVER_STATUS_POLLS] rather than a bare `while (isActive)`.
+     */
+    private fun startServerStatusPolling(){viewModelScope.launch{repeat(MAX_SERVER_STATUS_POLLS){delay(SERVER_STATUS_POLL_INTERVAL_MS);pollServerStatusOnce()}}}
+
+    /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was -- see
+     *  [applyLiveStatus]'s null-is-unknown contract. */
+    private suspend fun pollServerStatusOnce(){if(shedId.isBlank()||taskId.isBlank())return;val status=runCatching{feedTransportRepository.fetchTaskStatus(today,shedId,taskId)}.getOrNull();applyLiveStatus(status)}
 
     /**
      * Follow the queued submit to its REAL outcome.
@@ -342,7 +367,7 @@ private fun analyticsReason(error: Throwable): String =
     private var statusJob:Job?=null
     private var syncStatusJob:Job?=null
     private fun observeSyncStatus(){syncStatusJob?.cancel();syncStatusJob=viewModelScope.launch{sync.observeStatus().map{it.inFlightCount>0}.distinctUntilChanged().collect{syncing->_state.update{it.copy(isSyncing=syncing)}}}}
-    private fun syncNow(){viewModelScope.launch{sync.triggerDrain()}}
+    private fun syncNow(){viewModelScope.launch{sync.triggerDrain();pollServerStatusOnce()}}
     // Established idiom (SubmitViewModel.submitInFlight): a plain latch checked-and-set BEFORE the
     // enqueue coroutine launches, so a second tap landing in the async gap between the tap and the
     // state update reflecting it (`result`/`canSubmit`) cannot slip past submitEnabled and enqueue
@@ -355,7 +380,13 @@ private fun analyticsReason(error: Throwable): String =
         val submitIdempotencyKey="feed-transport-submit:$taskId:$proof"
         if(draft.submitIdempotencyKey!=submitIdempotencyKey){drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,null);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)}
         when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMITTED);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->{submitInFlight=false;r.cause?.let{crashReporter.recordException(it,"feed transport complete enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("submit_enqueue_failed")));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
-    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";const val ARG_PARK_LABEL="park_label";const val ARG_LIFECYCLE_STATUS="lifecycle_status";private const val STEP_VIDEO="video";private const val FIELD_FEED_TRANSPORT_VIDEO="feed_transport_video"}
+    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";const val ARG_PARK_LABEL="park_label";const val ARG_LIFECYCLE_STATUS="lifecycle_status";private const val STEP_VIDEO="video";private const val FIELD_FEED_TRANSPORT_VIDEO="feed_transport_video"
+        /** How often [startServerStatusPolling] re-checks this task's status directly from the
+         *  server while the screen stays open. */
+        private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
+        /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
+        private const val MAX_SERVER_STATUS_POLLS = 2_880
+    }
 }
 
 private fun sg.mesha.goatos.feature.counts.CountsWriteStatus.toTransportStatus(): FeedTransportSubmitStatus = when (this) {

@@ -106,6 +106,14 @@ data class FeedPackingQuery(
  */
 private const val PACKING_CACHE_SHAPE = "session-v3"
 
+/** Page size for [DefaultFeedRepository.fetchDirectionSessionStatus]'s narrow poll — one shed/session
+ *  filtered server-side, so a small page is always enough. */
+private const val STATUS_POLL_DIRECTION_LIMIT = 20
+
+/** Page size for [DefaultFeedRepository.fetchPackingRowStatus]'s poll. Packing has no shedId filter
+ *  server-side, so this must be generous enough to cover a park's whole shed count for one session. */
+private const val STATUS_POLL_PACKING_LIMIT = 200
+
 /**
  * Feed vertical reads: the generated Feed Direction sheet and the Feed Packing worklist.
  *
@@ -153,6 +161,40 @@ interface FeedRepository {
      * gating as [observePackingRowStatus].
      */
     fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?>
+
+    /**
+     * ONE-SHOT SERVER read of a feed-direction shed-session's lifecycle status, bypassing Room
+     * entirely. [observeDirectionSessionStatus] only changes when THIS phone's own sync writes a
+     * fresh cached row for the session — a teammate submitting the SAME session on another phone
+     * never touches this phone's Room cache while [sg.mesha.goatos.viewmodel.
+     * FeedDistributionCompleteViewModel]'s completion screen sits open, so that observer alone
+     * cannot see it. This is the periodic top-up that closes that gap. Reuses the existing
+     * `GET /feed-direction/preview` endpoint (no new backend route), narrowed to one shed/session so
+     * the read stays cheap.
+     *
+     * Returns `null` on ANY failure (offline/timeout/5xx) OR when no matching row comes back —
+     * callers MUST treat `null` as "unknown, keep current state", never as "not yet submitted".
+     */
+    suspend fun fetchDirectionSessionStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String?
+
+    /** Same contract as [fetchDirectionSessionStatus], for the feed-PACKING worklist — used by
+     *  [sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel]'s periodic server poll. Reuses the
+     *  existing `GET /feed-packing/worklist` endpoint. */
+    suspend fun fetchPackingRowStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String?
 
     /**
      * Which of ONE pen-session's proof slots are already recorded, by ANY operator.
@@ -295,6 +337,47 @@ class DefaultFeedRepository(
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
     }
+
+    override suspend fun fetchDirectionSessionStatus( // offline-first-guard:ignore: same liveness-beats-staleness rationale as penSessionCaptures below — this exists specifically to see a teammate's write Room has not cached yet.
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String? = runCatching {
+        api.getFeedDirectionPreview(
+            parkId = parkId,
+            targetDate = targetDate,
+            shedId = shedId,
+            session = sessionNo,
+            workflow = workflow.takeIf { it.isNotBlank() },
+            limit = STATUS_POLL_DIRECTION_LIMIT,
+            offset = 0,
+        ).items.firstOrNull { it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    override suspend fun fetchPackingRowStatus( // offline-first-guard:ignore: same rationale — periodic server poll for a teammate's write.
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String? = runCatching {
+        // getFeedPackingWorklist has no shedId filter (it pages the whole park/session/workflow
+        // scope by shed), so this narrows client-side. STATUS_POLL_PACKING_LIMIT is generous enough
+        // to cover a normal park's shed count for one session; if a match still is not on the page,
+        // this returns null (unknown) rather than guessing — never a false "not submitted".
+        api.getFeedPackingWorklist(
+            parkId = parkId,
+            targetDate = targetDate,
+            session = sessionNo,
+            workflow = workflow.takeIf { it.isNotBlank() },
+            limit = STATUS_POLL_PACKING_LIMIT,
+            offset = 0,
+        ).items.firstOrNull { it.shedId == shedId && it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
         query: FeedPenSessionCaptureQuery,
