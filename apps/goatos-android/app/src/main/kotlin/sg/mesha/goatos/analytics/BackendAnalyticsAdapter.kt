@@ -60,6 +60,7 @@ class BackendAnalyticsAdapter(
             flavor = BuildConfig.FLAVOR,
             appVersionName = BuildConfig.VERSION_NAME,
             appVersionCode = BuildConfig.VERSION_CODE,
+            clientEventId = clientEventId,
         )
         val isCritical = event in CRITICAL_EVENT_ALLOWLIST
         appScope.launch {
@@ -112,6 +113,8 @@ class BackendAnalyticsAdapter(
                 flavor = queued.flavor,
                 appVersionName = queued.appVersionName,
                 appVersionCode = queued.appVersionCode,
+                // Same id as the original attempt — the whole point: the server dedupes the resend.
+                clientEventId = queued.clientEventId,
             )
             runCatching { apiProvider.get().recordAnalyticsEvent(dto) }.isSuccess
         }

@@ -271,6 +271,10 @@ data class AppAnalyticsEventRequestDto(
     @SerialName("flavor") val flavor: String,
     @SerialName("app_version_name") val appVersionName: String,
     @SerialName("app_version_code") val appVersionCode: Int,
+    /** Client-minted operation id — the backend's idempotency key (UNIQUE per tenant); a resend
+     *  after a lost response must not double-count. Top-level, not a property, so the server can
+     *  dedupe without parsing the properties map. */
+    @SerialName("client_event_id") val clientEventId: String? = null,
 )
 
 @Serializable
