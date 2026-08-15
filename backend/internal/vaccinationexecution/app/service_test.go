@@ -833,10 +833,10 @@ func TestVaccinationCardLockInvariant_FinalSubmit(t *testing.T) {
 func TestVaccinationCardLockInvariant_AllProofedNotFinalized(t *testing.T) {
 	p := domain.ExecutionProjection{
 		ObligationCount:    10,
-		CompletedCount:     0,   // No direct completion path
-		DoneCount:          10,  // All done via proof
-		CompletionRecorded: 10,  // All proofed, awaiting finalization
-		CompletionAccepted: 0,   // None finalized yet
+		CompletedCount:     0,  // No direct completion path
+		DoneCount:          10, // All done via proof
+		CompletionRecorded: 10, // All proofed, awaiting finalization
+		CompletionAccepted: 0,  // None finalized yet
 		CompletionRejected: 0,
 		OperatorName:       strPtr("Amit"),
 	}
@@ -861,8 +861,8 @@ func TestVaccinationCardLockInvariant_FinalizedAllAccepted(t *testing.T) {
 		ObligationCount:    10,
 		CompletedCount:     0,
 		DoneCount:          10,
-		CompletionRecorded: 0,   // All verified
-		CompletionAccepted: 10,  // All accepted
+		CompletionRecorded: 0,  // All verified
+		CompletionAccepted: 10, // All accepted
 		CompletionRejected: 0,
 		OperatorName:       strPtr("Amit"),
 	}

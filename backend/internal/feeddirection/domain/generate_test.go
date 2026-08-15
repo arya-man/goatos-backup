@@ -1720,9 +1720,10 @@ func TestPackingLinesKeepPartitionsAndSessionsApart(t *testing.T) {
 			if line.TotalKg != tc.perSession {
 				t.Errorf("Castro %s session %d total = %q, want %q", tc.pen, sessionNo, line.TotalKg, tc.perSession)
 			}
-			if line.OperationalLocationDisplay != "Castro - "+tc.pen {
+			// Bare numeric partitions join with a space, not a dash (oploc.go, 2026-08-14).
+			if line.OperationalLocationDisplay != "Castro "+tc.pen {
 				t.Errorf("Castro %s display = %q, want %q -- shed and pen must always render together",
-					tc.pen, line.OperationalLocationDisplay, "Castro - "+tc.pen)
+					tc.pen, line.OperationalLocationDisplay, "Castro "+tc.pen)
 			}
 		}
 	}

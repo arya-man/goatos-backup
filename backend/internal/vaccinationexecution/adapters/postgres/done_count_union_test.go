@@ -213,10 +213,10 @@ func TestDoneCountUnionDisjointPaths(t *testing.T) {
 
 			// Use ListVaccinationExecutionPage which returns ExecutionProjection
 			q := domain.ExecutionQuery{
-				TenantID:   testTenant,
-				AsOf:       time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
-				DueBefore:  time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-				Limit:      1000,
+				TenantID:  testTenant,
+				AsOf:      time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
+				DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+				Limit:     1000,
 			}
 
 			page, err := repo.ListVaccinationExecutionPage(ctx, q)
@@ -351,10 +351,10 @@ func TestOneVideoCoversNObligationsForSameGoat(t *testing.T) {
 
 	// Query and verify
 	q := domain.ExecutionQuery{
-		TenantID:   testTenant,
-		AsOf:       time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
-		DueBefore:  time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		Limit:      1000,
+		TenantID:  testTenant,
+		AsOf:      time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     1000,
 	}
 
 	page, err := repo.ListVaccinationExecutionPage(ctx, q)

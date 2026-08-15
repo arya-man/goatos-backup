@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -71,12 +70,13 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 	answers := map[string]any{
 		"route": "subcutaneous",
 	}
+	shedIDVar := shedID
 	proofReferences := []domain.ProofReference{
 		{
 			ProofID:     proofID,
 			ProofType:   "video",
 			SubjectType: "shed",
-			SubjectID:   &shedID,
+			SubjectID:   &shedIDVar,
 			UploadState: "completed",
 		},
 	}
@@ -93,7 +93,7 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 				Answers:        answers,
 				ProofRefs:      proofReferences,
 			},
-			TaskState:              "needs_review",
+			TaskState:                "needs_review",
 			SubmissionFanoutRequired: true,
 		})
 		if err != nil {
@@ -149,7 +149,7 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 				Answers:        answers,
 				ProofRefs:      proofReferences,
 			},
-			TaskState:              "needs_review",
+			TaskState:                "needs_review",
 			SubmissionFanoutRequired: true,
 		})
 		if err != nil {
@@ -190,7 +190,7 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 				Answers:        conflictingAnswers,
 				ProofRefs:      proofReferences,
 			},
-			TaskState:              "needs_review",
+			TaskState:                "needs_review",
 			SubmissionFanoutRequired: true,
 		})
 		if err == nil {
