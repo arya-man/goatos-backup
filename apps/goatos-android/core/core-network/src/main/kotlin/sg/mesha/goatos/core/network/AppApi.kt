@@ -55,6 +55,7 @@ import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofArtifactDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.ProofDownloadUrlResponseDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -697,6 +698,11 @@ interface AppApi {
         fieldKey: String?,
         limit: Int? = 20,
     ): UploadedProofListResponseDto
+
+    /** GET /app/proofs/{proof_id}/download — fetches the signed download URL for a proof
+     *  so its media can be previewed. The URL is short-lived, so clients fetch on-demand
+     *  rather than caching. */
+    suspend fun getProofDownloadUrl(proofId: String): String
 
     /**
      * The binary-PUT + completion pass that follows a successful [registerProof]
@@ -1531,6 +1537,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         fieldKey: String?,
         limit: Int?,
     ): UploadedProofListResponseDto = UploadedProofListResponseDto()
+
+    override suspend fun getProofDownloadUrl(proofId: String): String =
+        "https://fake.local/proofs/$proofId/download"
 
     // Test/dev scaffolding — does not touch the filesystem or network; a proof is simply marked
     // completed under the id `registerProof` handed back, so previews/unit tests that don't care
