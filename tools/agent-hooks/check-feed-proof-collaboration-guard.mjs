@@ -34,6 +34,32 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const failures = [];
 
+// --self-test: prove the detectors fire on seeded violations before trusting a green run.
+if (process.argv.includes('--self-test')) {
+  const badGetter = `val waterVideoCaptureEnabled: Boolean
+        get() = !isCapturingWaterVideo && videoCaptured && !isFinalSubmitted`;
+  const gm = badGetter.match(/val waterVideoCaptureEnabled: Boolean\s*\n\s*get\(\) = ([^\n]*)/);
+  if (!gm || !/\bvideoCaptured\b/.test(gm[1])) {
+    console.error('self-test FAILED: sequential-slot-gating detector missed seeded violation');
+    process.exit(1);
+  }
+  const badGate3 = `// Gate 3: Backstop validation
+        val validationResult = proofArtifactValidator.validateVideoFile(localUri)
+        dao.insert(entity)`;
+  const g3 = badGate3.match(/Gate 3[\s\S]{0,1500}?dao\.insert/);
+  if (!g3 || /startsWith\("image\/"\)/.test(g3[0])) {
+    console.error('self-test FAILED: mime-blind-backstop detector missed seeded violation');
+    process.exit(1);
+  }
+  if (!/proofArtifactValidator\.validateProcessedArtifact\(\s*processed\.outputUri\s*\)/
+    .test('proofArtifactValidator.validateProcessedArtifact(processed.outputUri)')) {
+    console.error('self-test FAILED: processed-validation-mime-blind detector missed seeded violation');
+    process.exit(1);
+  }
+  console.log('feed-proof-collaboration-guard self-test OK');
+  process.exit(0);
+}
+
 const read = (rel) => {
   const p = join(ROOT, rel);
   return existsSync(p) ? readFileSync(p, 'utf8') : null;

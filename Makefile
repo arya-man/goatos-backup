@@ -303,6 +303,7 @@ weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
 
 feed-proof-collaboration-guard:
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
 	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs
 
 weighing-close-gate-guard:
