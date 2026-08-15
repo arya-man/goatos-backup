@@ -507,13 +507,14 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 // client can never mistake it for a frozen, issued document.
 func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQuery) (domain.PreviewPage, error) {
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   normalized.TenantID,
-		parkID:     normalized.ParkID,
-		targetDate: normalized.TargetDate,
-		shedID:     normalized.ShedID,
-		sessionNo:  normalized.SessionNo,
-		limit:      normalized.Limit,
-		offset:     normalized.Offset,
+		tenantID:       normalized.TenantID,
+		parkID:         normalized.ParkID,
+		targetDate:     normalized.TargetDate,
+		shedID:         normalized.ShedID,
+		partitionLabel: normalized.PartitionLabel,
+		sessionNo:      normalized.SessionNo,
+		limit:          normalized.Limit,
+		offset:         normalized.Offset,
 	})
 	if err != nil {
 		return domain.PreviewPage{}, err
@@ -683,12 +684,14 @@ func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID strin
 // packingDraft LIVE-COMPUTES the worklist without touching any issue. See previewDraft.
 func (s *Service) packingDraft(ctx context.Context, normalized domain.PackingQuery) (domain.PackingPage, error) {
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   normalized.TenantID,
-		parkID:     normalized.ParkID,
-		targetDate: normalized.TargetDate,
-		sessionNo:  normalized.SessionNo,
-		limit:      normalized.Limit,
-		offset:     normalized.Offset,
+		tenantID:       normalized.TenantID,
+		parkID:         normalized.ParkID,
+		targetDate:     normalized.TargetDate,
+		shedID:         normalized.ShedID,
+		partitionLabel: normalized.PartitionLabel,
+		sessionNo:      normalized.SessionNo,
+		limit:          normalized.Limit,
+		offset:         normalized.Offset,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -716,9 +719,14 @@ type generateRequest struct {
 	parkID     string
 	targetDate time.Time
 	shedID     string
-	sessionNo  int32
-	limit      int32
-	offset     int32
+	// partitionLabel optionally narrows generation to a single operational partition within shedID.
+	// Only meaningful when shedID is also set, mirroring domain.PreviewQuery.PartitionLabel /
+	// domain.PackingQuery.PartitionLabel. Matched via domain.PartitionMatchKey so a trimmed exact
+	// match also catches the "whole shed" sentinel.
+	partitionLabel string
+	sessionNo      int32
+	limit          int32
+	offset         int32
 }
 
 // generateResult carries one generation run: the whole filtered scope, and the page sliced out of
@@ -819,6 +827,19 @@ func (s *Service) generate(ctx context.Context, req generateRequest) (generateRe
 			})
 		}
 	}
+	// Narrow to the requested partition BEFORE generation, so both scopeRows and pageRows below are
+	// already scoped -- the same guarantee shedID gets from ListShedScope above, and the guarantee
+	// live-status polling relies on to land its target row on page one.
+	if req.partitionLabel != "" {
+		wantPartition := domain.PartitionMatchKey(req.partitionLabel)
+		narrowed := make([]domain.ShedInput, 0, len(sheds))
+		for _, in := range sheds {
+			if domain.PartitionMatchKey(in.PartitionLabel) == wantPartition {
+				narrowed = append(narrowed, in)
+			}
+		}
+		sheds = narrowed
+	}
 
 	scopeRows := domain.GenerateDirection(domain.GenerateInput{
 		Config:    config,
@@ -884,6 +905,7 @@ func (s *Service) normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQu
 	q.TenantID = strings.TrimSpace(q.TenantID)
 	q.ParkID = strings.TrimSpace(q.ParkID)
 	q.ShedID = strings.TrimSpace(q.ShedID)
+	q.PartitionLabel = strings.TrimSpace(q.PartitionLabel)
 	if q.TenantID == "" || q.ParkID == "" {
 		return domain.PreviewQuery{}, ports.ErrParkRequired
 	}
@@ -934,6 +956,8 @@ func normalizeWorkflowFilter(workflow string) (string, error) {
 func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
 	q.TenantID = strings.TrimSpace(q.TenantID)
 	q.ParkID = strings.TrimSpace(q.ParkID)
+	q.ShedID = strings.TrimSpace(q.ShedID)
+	q.PartitionLabel = strings.TrimSpace(q.PartitionLabel)
 	if q.TenantID == "" || q.ParkID == "" {
 		return domain.PackingQuery{}, ports.ErrParkRequired
 	}

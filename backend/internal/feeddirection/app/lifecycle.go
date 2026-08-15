@@ -296,9 +296,9 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
-	// Apply the shed and session narrowing to the stored rows, exactly as the live path filtered its
-	// generated rows.
-	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.SessionNo)
+	// Apply the shed, partition, and session narrowing to the stored rows, exactly as the live path
+	// filtered its generated rows.
+	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.PartitionLabel, q.SessionNo)
 	// Stamp LifecycleStatus/Completed and apply the status filter over the WHOLE scope BEFORE paging, so
 	// the page and the summary describe the same status set and pagination stays correct.
 	statusMap, err := s.directionStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
@@ -364,19 +364,19 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
-	// Narrow the frozen scope to the requested SESSION before paging and summarizing, so the page and
-	// its summary describe the same set of bags. Zero means every session.
+	// Narrow the frozen scope to the requested SHED, PARTITION, and SESSION before paging and
+	// summarizing, so the page and its summary describe the same set of bags. Zero session means every
+	// session; empty shed/partition means every shed/partition. Live-status polling relies on the
+	// shed+partition narrowing to guarantee its target row lands on page one, mirroring the direction
+	// preview (see PackingQuery.ShedID / PackingQuery.PartitionLabel).
 	//
-	// The shed argument is deliberately empty: the packing worklist has no shed filter, only the
-	// direction preview does.
-	//
-	// This line was DROPPED between 2026-08-10 and 2026-08-11 (the pen-day grain removed the session
-	// from the query entirely) and restoring the query parameter without restoring this filter is a
-	// contract that lies: `session=1` answered 200 with BOTH of every pen's bags, and because the
-	// session is part of the client's cache key those two bags were then cached AS session 1. The
-	// generated/draft paths never showed it, because there the session narrows generation itself --
-	// only this frozen path, the one a packer actually reads, ignored it.
-	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
+	// The SESSION half of this line was DROPPED between 2026-08-10 and 2026-08-11 (the pen-day grain
+	// removed the session from the query entirely) and restoring the query parameter without restoring
+	// this filter is a contract that lies: `session=1` answered 200 with BOTH of every pen's bags, and
+	// because the session is part of the client's cache key those two bags were then cached AS session
+	// 1. The generated/draft paths never showed it, because there the session narrows generation itself
+	// -- only this frozen path, the one a packer actually reads, ignored it.
+	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.PartitionLabel, q.SessionNo)
 
 	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging, so the page and
 	// its summary describe the same status set and pagination stays correct.
@@ -462,12 +462,13 @@ func (s *Service) servePreviewGenerated(ctx context.Context, q domain.PreviewQue
 	// only bounds generate's own page; scopeRows is always the full scope, and we re-page it below
 	// AFTER the workflow filter so a shed's grains never straddle a page boundary.
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   q.TenantID,
-		parkID:     q.ParkID,
-		targetDate: q.TargetDate,
-		shedID:     q.ShedID,
-		sessionNo:  q.SessionNo,
-		limit:      MaxShedPageLimit,
+		tenantID:       q.TenantID,
+		parkID:         q.ParkID,
+		targetDate:     q.TargetDate,
+		shedID:         q.ShedID,
+		partitionLabel: q.PartitionLabel,
+		sessionNo:      q.SessionNo,
+		limit:          MaxShedPageLimit,
 	})
 	if err != nil {
 		return domain.PreviewPage{}, err
@@ -522,11 +523,13 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		}, nil
 	}
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   q.TenantID,
-		parkID:     q.ParkID,
-		targetDate: q.TargetDate,
-		sessionNo:  q.SessionNo,
-		limit:      MaxShedPageLimit,
+		tenantID:       q.TenantID,
+		parkID:         q.ParkID,
+		targetDate:     q.TargetDate,
+		shedID:         q.ShedID,
+		partitionLabel: q.PartitionLabel,
+		sessionNo:      q.SessionNo,
+		limit:          MaxShedPageLimit,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -756,13 +759,17 @@ func rowsForWorkflow(rows []domain.DirectionRow, workflow string) []domain.Direc
 	return out
 }
 
-func filterPreviewRows(rows []domain.DirectionRow, shedID string, sessionNo int32) []domain.DirectionRow {
-	if shedID == "" && sessionNo == 0 {
+func filterPreviewRows(rows []domain.DirectionRow, shedID, partitionLabel string, sessionNo int32) []domain.DirectionRow {
+	if shedID == "" && partitionLabel == "" && sessionNo == 0 {
 		return rows
 	}
+	wantPartition := domain.PartitionMatchKey(partitionLabel)
 	out := make([]domain.DirectionRow, 0, len(rows))
 	for _, r := range rows {
 		if shedID != "" && r.ShedID != shedID {
+			continue
+		}
+		if partitionLabel != "" && domain.PartitionMatchKey(r.PartitionLabel) != wantPartition {
 			continue
 		}
 		if sessionNo != 0 && r.SessionNo != sessionNo {
