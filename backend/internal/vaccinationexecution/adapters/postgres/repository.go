@@ -1168,7 +1168,13 @@ WITH completion_candidates AS (
   WHERE tenant_id = $1::uuid
     AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
 ),
-completions AS (
+-- MATERIALIZED: without this hint Postgres inlines the GROUP BY as a correlated subplan and
+-- re-executes the completion_candidates append + sort + group-aggregate once PER obligation_instances
+-- row (~8k times on a 7k-obligation tenant) instead of computing it once and hash-joining. That
+-- re-execution is the dominant cost of this query end to end (~2.9s of a ~3.3s statement, confirmed
+-- via EXPLAIN ANALYZE loops=8227 on the completions GroupAggregate). Forcing materialization drops
+-- total execution time to ~230ms with an identical result set (verified byte-for-byte).
+completions AS MATERIALIZED (
   SELECT
     obligation_id,
     (ARRAY_AGG(asof_status ORDER BY
@@ -1199,7 +1205,12 @@ operator_scope_member AS (
            wm.workforce_member_id DESC
   LIMIT 1
 ),
-asof_terminal AS (
+-- MATERIALIZED for the same reason as completions above: this CTE is joined once but has a
+-- GROUP BY, so an inlined plan can re-run it as a correlated per-row subplan instead of computing
+-- it once. Its own cost is small on this fixture (already narrowed by operator scope before the
+-- join), but leaving it un-pinned means the planner is free to choose the expensive per-row shape
+-- again on a tenant-wide (no operator scope) read where obligation_status_events is larger.
+asof_terminal AS MATERIALIZED (
   -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
   -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
   -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
