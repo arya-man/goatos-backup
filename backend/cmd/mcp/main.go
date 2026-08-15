@@ -689,6 +689,15 @@ func tools() []map[string]any {
 			},
 		},
 		{
+			"name":        "get_health_today",
+			"description": "Get adult and kids health work items for one day in a single call. Use this for broad CEO health questions so adult and kids sessions are not accidentally reported as a partial answer.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": commonReadProperties("date", "status", "disease_key", "park_id", "shed_id", "session", "limit"),
+			},
+		},
+		{
 			"name":        "list_goatos_capabilities",
 			"description": "List what the Goat OS MCP connector can answer and how access is controlled.",
 			"annotations": readOnlyToolAnnotations(),
@@ -729,8 +738,10 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 		return s.askGoatOS(ctx, r, params.Arguments)
 	case "get_vaccination_today":
 		return s.getVaccinationToday(ctx, r, params.Arguments)
+	case "get_health_today":
+		return s.getHealthToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_work_items, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_today, get_health_work_items, get_workforce_coverage, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
@@ -958,6 +969,24 @@ func apiReadTools() []apiReadTool {
 			},
 		},
 		{
+			Name:        "get_workforce_coverage",
+			Description: "Get canonical workforce/roster coverage rows. Use this for which sheds, parks, modules, positions, or backup-manager seats are uncovered or weakly covered. Do not answer workforce coverage from Action Center obligations.",
+			Path:        "/admin/roster/coverage",
+			Source:      "GET /admin/roster/coverage",
+			Properties:  commonReadProperties("scope_type", "scope_id", "limit"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addStringMax(q, "scope_type", a.ScopeType, 80); err != nil {
+					return nil, err
+				}
+				if err := addStringMax(q, "scope_id", a.ScopeID, 120); err != nil {
+					return nil, err
+				}
+				addLimit(q, a.Limit, 500)
+				return q, nil
+			},
+		},
+		{
 			Name:        "get_weighing_progress",
 			Description: "Get leadership-visible weighing campaigns. Use this for weighing progress and campaign state. Pending verification weight is not verified weight.",
 			Path:        "/weighing/campaigns",
@@ -1114,12 +1143,57 @@ type apiReadArgs struct {
 	DueBefore        string `json:"due_before"`
 	Workflow         string `json:"workflow"`
 	CampaignID       string `json:"campaign_id"`
+	ScopeType        string `json:"scope_type"`
+	ScopeID          string `json:"scope_id"`
 	Cursor           string `json:"cursor"`
 	Missed           any    `json:"missed"`
 	Draft            any    `json:"draft"`
 	Session          any    `json:"session"`
 	Limit            int    `json:"limit"`
 	Offset           int    `json:"offset"`
+}
+
+func (s *server) getHealthToday(ctx context.Context, r *http.Request, raw json.RawMessage) (map[string]any, int, string) {
+	var args apiReadArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, -32602, "invalid_health_today_arguments"
+		}
+	}
+	authz, email, code, msg := s.verifiedAuthorization(r)
+	if msg != "" {
+		return nil, code, msg
+	}
+	if s.cfg.UpstreamBaseURL == "" {
+		return nil, -32603, "upstream_base_url_not_configured"
+	}
+	results := map[string]any{}
+	queries := map[string]any{}
+	healthDef, ok := apiReadToolByName("get_health_work_items")
+	if !ok {
+		return nil, -32603, "health_work_items_not_configured"
+	}
+	for _, ageBand := range []string{"adult", "kid"} {
+		next := args
+		next.AgeBand = ageBand
+		q, err := healthDef.BuildQuery(next)
+		if err != nil {
+			return nil, -32602, err.Error()
+		}
+		var payload any
+		if err := s.getUpstreamJSON(ctx, r, authz, email, healthDef.Path, q, &payload); err != nil {
+			s.log.Warn("goatos_mcp_health_today_failed", slog.String("age_band", ageBand), slog.Any("error", err))
+			return nil, -32603, "health_today_unreachable"
+		}
+		results[ageBand] = payload
+		queries[ageBand] = queryObject(q)
+	}
+	return structuredTextToolResult(summarizeHealthToday(results), map[string]any{
+		"tool":    "get_health_today",
+		"source":  "GET /app/health/work-items age_band=adult + kid",
+		"queries": queries,
+		"data":    results,
+	}), 0, ""
 }
 
 func (s *server) getAPIReadTool(ctx context.Context, r *http.Request, raw json.RawMessage, def apiReadTool) (map[string]any, int, string) {
@@ -1626,9 +1700,29 @@ func summarizeAPIRead(def apiReadTool, payload any) string {
 		b.WriteString("\nJudge note: pending verification weight is not verified weight.\n")
 	case "get_health_work_items":
 		b.WriteString("\nJudge note: open health/treatment work is not a death or mortality event unless the health workflow explicitly reports approved death state.\n")
+	case "get_workforce_coverage":
+		b.WriteString("\nJudge note: workforce coverage rows are roster/backup ownership facts; do not substitute Action Center obligations for coverage ownership.\n")
 	case "get_counts_summary":
 		b.WriteString("\nJudge note: counts are aggregate census facts; lifecycle status must stay explicit when comparing active, exited, or dead animals.\n")
 	}
+	return b.String()
+}
+
+func summarizeHealthToday(payload map[string]any) string {
+	var b strings.Builder
+	b.WriteString("Get adult and kids health work items for one day in a single call. Use this for broad CEO health questions so adult and kids sessions are not accidentally reported as a partial answer.\n")
+	b.WriteString("\nSource: GET /app/health/work-items age_band=adult + kid\n")
+	for _, ageBand := range []string{"adult", "kid"} {
+		counts := payloadCounts(payload[ageBand])
+		if len(counts) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "%s collection sizes:\n", ageBand)
+		for _, item := range counts {
+			fmt.Fprintf(&b, "- %s: %d\n", item.name, item.count)
+		}
+	}
+	b.WriteString("\nJudge note: this combines adult and kids health work. Open health/treatment work is not a death or mortality event unless the health workflow explicitly reports approved death state.\n")
 	return b.String()
 }
 

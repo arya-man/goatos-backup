@@ -5990,6 +5990,52 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/roster/coverage:
+    get:
+      tags:
+        - Operator Roster
+      operationId: adminRosterCoverage
+      summary: List workforce coverage rows for leadership roster coverage questions.
+      parameters:
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+        - name: scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Workforce coverage rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoverageListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/vaccination/obligations/{obligation_id}/reschedule:
     post:
       tags:
@@ -22356,6 +22402,68 @@ components:
       properties:
         coverage:
           $ref: "#/components/schemas/MyCoverage"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    Coverage:
+      type: object
+      additionalProperties: false
+      required:
+        - position_id
+        - covered_position_code
+        - start_date
+        - end_date
+        - source
+        - status
+      properties:
+        position_id:
+          type: string
+          format: uuid
+        covered_position_code:
+          type: string
+        covered_position_title:
+          type:
+            - string
+            - "null"
+        covering_member_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        covering_member_name:
+          type:
+            - string
+            - "null"
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        source:
+          type: string
+          enum:
+            - leave
+            - week_off
+            - escalation
+        escalation_state:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+    CoverageListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Coverage"
         trace_id:
           type: string
           minLength: 1

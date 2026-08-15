@@ -2260,6 +2260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workforce coverage rows for leadership roster coverage questions. */
+        get: operations["adminRosterCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/vaccination/obligations/{obligation_id}/reschedule": {
         parameters: {
             query?: never;
@@ -8490,6 +8507,27 @@ export interface components {
             coverage: components["schemas"]["MyCoverage"];
             trace_id: string;
         };
+        Coverage: {
+            /** Format: uuid */
+            position_id: string;
+            covered_position_code: string;
+            covered_position_title?: string | null;
+            /** Format: uuid */
+            covering_member_id?: string | null;
+            covering_member_name?: string | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            /** @enum {string} */
+            source: "leave" | "week_off" | "escalation";
+            escalation_state?: string | null;
+            status: string;
+        };
+        CoverageListResponse: {
+            items: components["schemas"]["Coverage"][];
+            trace_id: string;
+        };
         RescheduleObligationRequest: {
             /**
              * Format: date-time
@@ -14368,6 +14406,35 @@ export interface operations {
                     "application/json": components["schemas"]["MyCoverageResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminRosterCoverage: {
+        parameters: {
+            query?: {
+                scope_type?: string;
+                scope_id?: string;
+                active?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workforce coverage rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverageListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
