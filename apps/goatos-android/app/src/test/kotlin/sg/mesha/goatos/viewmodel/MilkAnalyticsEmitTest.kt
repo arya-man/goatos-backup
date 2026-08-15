@@ -6,7 +6,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
-import kotlin.test.assertEquals
+import org.junit.Assert.assertEquals
 
 /**
  * Verifies that milk-related ViewModels emit the required proof-flow analytics events:
