@@ -821,6 +821,7 @@
       "script": "tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
       "makeTarget": "feed-proof-collaboration-guard",
       "realCheck": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test",
       "owningDoc": "docs/product/feed-proof-collaboration.md",
       "requiredInCI": true,
       "ciStep": "feed-proof-collaboration-guard",
