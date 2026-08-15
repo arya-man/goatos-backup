@@ -7616,6 +7616,8 @@ export interface components {
         GrowthDirectorFeedVsGrowthShed: {
             /** Format: uuid */
             location_id: string;
+            /** @description The PEN within location_id, blank for an undivided shed. Half of this row's identity, not decoration: the row grain is one pen, so a partitioned shed returns up to ten rows under ONE location_id and location_id alone identifies none of them. */
+            partition_label: string;
             shed_display_name: string;
             /** Format: double */
             feed_g_per_head_per_day: number | null;
@@ -8102,6 +8104,8 @@ export interface components {
             display_name: string;
             partition_label?: string;
             operational_location_display: string;
+            /** @description The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name -- the same convention the shed-weights rows use, so both series of the gain chart name a park identically. Required rather than optional: 39 shed names exist in BOTH parks, so a row without it names two different sheds at once. */
+            park_name: string;
             /** @description Animal count. */
             n: number;
             median_weight_kg: number;
