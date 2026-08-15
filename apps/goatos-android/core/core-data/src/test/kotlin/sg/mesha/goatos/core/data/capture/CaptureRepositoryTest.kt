@@ -2133,6 +2133,107 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `captureReplacingLatest removes all two pre-existing active rows and keeps only the new one`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-2"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // Manually seed two pre-existing active rows by calling capture() with allowReplacementOverCap=true
+            // (simulating a corrupted state where two rows ended up for the same slot)
+            val oldCapture1 = proofs.capture(
+                taskId = taskId,
+                fieldKey = fieldKey,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///old-1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+                allowReplacementOverCap = true,
+            )
+            assertTrue("First seed capture succeeds", oldCapture1 is AppResult.Ok)
+            val oldId1 = (oldCapture1 as AppResult.Ok).value.id
+
+            val oldCapture2 = proofs.capture(
+                taskId = taskId,
+                fieldKey = fieldKey,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///old-2.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+                allowReplacementOverCap = true,
+            )
+            assertTrue("Second seed capture succeeds", oldCapture2 is AppResult.Ok)
+            val oldId2 = (oldCapture2 as AppResult.Ok).value.id
+
+            // Verify two rows exist
+            val beforeReplace = proofs.observeProofs(taskId).first()
+            assertEquals("Two proofs seeded before replace", 2, beforeReplace.size)
+
+            // Now replace: captureReplacingLatest must remove BOTH old rows
+            val newCapture = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///new-3.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Replace capture succeeds", newCapture is AppResult.Ok)
+            val newId = (newCapture as AppResult.Ok).value.id
+
+            // Verify exactly one row remains: the new one
+            val afterReplace = proofs.observeProofs(taskId).first()
+            assertEquals("Exactly one proof remains after replace (both old removed)", 1, afterReplace.size)
+            assertEquals("Remaining proof is the new one", newId, afterReplace[0].id)
+            assertEquals("New proof path is the new capture", "file:///new-3.mp4", afterReplace[0].localUri)
+            assertTrue("New ID is different from both old IDs", newId != oldId1 && newId != oldId2)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `captureReplacingLatest keeps old untouched when capture fails`() = runTest {
         val db = newDb()
         try {

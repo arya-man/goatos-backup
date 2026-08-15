@@ -242,6 +242,24 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
     override suspend fun clearForTask(taskId: String) = Unit
 
     override suspend fun activeCount(slot: sg.mesha.goatos.core.data.capture.EvidenceSlot): Int = 0
+
+    override suspend fun captureReplacingLatest(
+        slot: sg.mesha.goatos.core.data.capture.EvidenceSlot,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> = error("unused")
 }
 
 private class WhileSubNoopSyncRepository : SyncRepository {
