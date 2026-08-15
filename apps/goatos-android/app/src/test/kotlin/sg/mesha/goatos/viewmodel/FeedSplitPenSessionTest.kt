@@ -42,6 +42,9 @@ class FakeSplitFeedRepository(
         return slots
     }
 
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? =
+        if (proofId.isNotBlank()) "https://stg.example.com/proofs/$proofId/download?token=xyz" else null
+
     override fun observeDirectionTotals(query: FeedDirectionQuery): Flow<Resource<FeedDirectionPreviewPageDto>> =
         flowOf(Resource(FeedDirectionPreviewPageDto(targetDate = "2026-08-14")))
 

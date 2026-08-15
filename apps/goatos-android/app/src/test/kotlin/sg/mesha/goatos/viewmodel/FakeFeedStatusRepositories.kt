@@ -142,6 +142,7 @@ internal class FakeFeedRepository : FeedRepository {
         return defaultServerPackingStatus
     }
 
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? = null
     override fun observeDirectionTotals(query: FeedDirectionQuery): Flow<Resource<FeedDirectionPreviewPageDto>> = error("unused")
     override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
     override fun observePackingTotals(query: FeedPackingQuery): Flow<Resource<FeedPackingWorklistPageDto>> = error("unused")
