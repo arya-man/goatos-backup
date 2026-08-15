@@ -14,14 +14,16 @@ import (
 
 // capturedSlotDTO is ONE already-recorded proof slot of a pen-session.
 //
-// It deliberately carries NO media url and NO uploader name. The operator's need is "this slot is
-// already done, and here is the reference I can submit with"; the media itself stays a verifier
-// surface, so this route adds no new way to view another operator's footage.
+// It carries NO media url. The operator's need is "this slot is already done, and here is the
+// reference I can submit with"; the media itself stays a verifier surface, so this route adds no new
+// way to view another operator's footage. The uploader's display name is included so the UI can show
+// "Captured by <name>" for teammate proofs.
 type capturedSlotDTO struct {
-	FieldKey   string `json:"field_key"`
-	ProofRef   string `json:"proof_ref"`
-	CapturedAt string `json:"captured_at"`
-	MimeType   string `json:"mime_type,omitempty"`
+	FieldKey       string `json:"field_key"`
+	ProofRef       string `json:"proof_ref"`
+	CapturedAt     string `json:"captured_at"`
+	MimeType       string `json:"mime_type,omitempty"`
+	CapturedByName string `json:"captured_by_name,omitempty"`
 }
 
 type distributionCapturesResponse struct {
@@ -83,10 +85,11 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 	items := make([]capturedSlotDTO, 0, len(slots))
 	for _, slot := range slots {
 		items = append(items, capturedSlotDTO{
-			FieldKey:   slot.FieldKey,
-			ProofRef:   slot.ProofID,
-			CapturedAt: slot.CapturedAt.UTC().Format(time.RFC3339),
-			MimeType:   slot.MimeType,
+			FieldKey:       slot.FieldKey,
+			ProofRef:       slot.ProofID,
+			CapturedAt:     slot.CapturedAt.UTC().Format(time.RFC3339),
+			MimeType:       slot.MimeType,
+			CapturedByName: slot.CapturedByName,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{Items: items})
