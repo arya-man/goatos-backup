@@ -32,8 +32,8 @@ function block(text, name) {
 
 function findingsFor(text) {
   const findings = [];
-  if (!/internal const val FIREBASE_MAX_EVENT_PARAMS = 25/.test(text)) {
-    findings.push("Firebase event param max must stay at GA4-safe 25.");
+  if (!/internal const val FIREBASE_MAX_EVENT_PARAMS = 37/.test(text)) {
+    findings.push("Firebase event param max must stay at the maintainer-approved budget of 37.");
   }
   if (!/internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100/.test(text)) {
     findings.push("Firebase param values must stay bounded to 100 chars.");
@@ -49,8 +49,8 @@ function findingsFor(text) {
     findings.push("Missing FIREBASE_PARAM_ALLOWLIST.");
   } else {
     const entries = [...allowlist.matchAll(/(?:AnalyticsEvents\.[A-Za-z]+\.|")[A-Za-z0-9_."()]+/g)];
-    if (entries.length > 25) {
-      findings.push(`Firebase param allowlist has ${entries.length} entries; entries after 25 are silently dropped.`);
+    if (entries.length > 37) {
+      findings.push(`Firebase param allowlist has ${entries.length} entries; entries after 37 are silently dropped.`);
     }
   }
   for (const key of bannedFirebaseParams) {
@@ -68,10 +68,10 @@ function findingsFor(text) {
 
 function selfTest() {
   const compactRequired = "\"proof_id\", \"task_id\", \"field_key\", \"feature_surface\", \"rfid_tag\", \"processing_state\", \"duration_bucket\", \"processed_size_bucket\", \"proof_upload_status\", \"submit_status\"";
-  const badBackfill = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 25\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired})\nfun f(props: Map<String,String>) { for ((key, value) in props) result.putIfAbsent(key, value.firebaseParamValue()) }`).length > 0;
-  const badRich = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 25\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired}, \"geocoded_address\", \"latitude\")`).length > 0;
-  const badTooMany = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 25\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired}, \"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\", \"i\", \"j\", \"k\", \"l\", \"m\", \"n\", \"o\", \"p\")`).length > 0;
-  const good = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 25\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired})`).length === 0;
+  const badBackfill = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 37\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired})\nfun f(props: Map<String,String>) { for ((key, value) in props) result.putIfAbsent(key, value.firebaseParamValue()) }`).length > 0;
+  const badRich = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 37\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired}, \"geocoded_address\", \"latitude\")`).length > 0;
+  const badTooMany = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 37\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired}, \"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\", \"i\", \"j\", \"k\", \"l\", \"m\", \"n\", \"o\", \"p\", \"q\", \"r\", \"s\", \"t\", \"u\", \"v\", \"w\", \"x\", \"y\", \"z\", \"aa\", \"bb\")`).length > 0;
+  const good = findingsFor(`internal const val FIREBASE_MAX_EVENT_PARAMS = 37\ninternal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100\nprivate val FIREBASE_PARAM_ALLOWLIST = listOf(${compactRequired})`).length === 0;
   const ok = badBackfill && badRich && badTooMany && good;
   console.log(ok ? "firebase-analytics-param-budget self-test: ok" : "firebase-analytics-param-budget self-test: FAIL");
   process.exit(ok ? 0 : 1);

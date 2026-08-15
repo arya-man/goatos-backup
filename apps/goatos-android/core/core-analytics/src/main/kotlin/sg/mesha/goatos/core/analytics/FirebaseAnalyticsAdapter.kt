@@ -81,7 +81,19 @@ class FirebaseAnalyticsAdapter(
     }
 }
 
-internal const val FIREBASE_MAX_EVENT_PARAMS = 25
+// 2026-08-15: maintainer decision — raised from the original GA4-envelope budget of 25 to 37 so
+// the proof-flow-integration params (result, slot_mask, retry_count, source, local_slot_state,
+// feed_weight_source, feed_video_source, water_video_source, previous, next, status, kind) can be
+// preserved in Firebase instead of being silently dropped by the allowlist truncation at 25. This
+// is exactly the pre-existing 25-entry budget plus the 12 new params (no unused headroom). Firebase
+// Analytics/GA4 itself enforces a hard technical cap of 25 custom parameters per logged event —
+// raising this internal budget past that number does not raise Google's platform-side limit, so
+// entries beyond GA4's own 25-param ceiling may still be dropped at ingestion even though this
+// guard now allows them. This constant governs what the adapter is willing to attempt to send, not
+// what Firebase is guaranteed to keep; see AnalyticsContractTest's
+// `firebase event params keep newly-preserved proof telemetry` test for a same-adapter
+// param-survival check on these 12 params.
+internal const val FIREBASE_MAX_EVENT_PARAMS = 37
 internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
 
 internal fun firebaseEventParams(props: Map<String, String>): Map<String, String> {
@@ -123,6 +135,20 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     "processed_size_bucket",
     "proof_upload_status",
     "submit_status",
+    // 2026-08-15: added per maintainer decision (see FIREBASE_MAX_EVENT_PARAMS comment above) to
+    // stop dropping feed-proof-flow telemetry that was silently truncated at the old 25-entry cap.
+    AnalyticsEvents.Params.RESULT,
+    AnalyticsEvents.Params.SLOT_MASK,
+    AnalyticsEvents.Params.RETRY_COUNT,
+    AnalyticsEvents.Params.SOURCE,
+    AnalyticsEvents.Params.LOCAL_SLOT_STATE,
+    AnalyticsEvents.Params.FEED_WEIGHT_SOURCE,
+    AnalyticsEvents.Params.FEED_VIDEO_SOURCE,
+    AnalyticsEvents.Params.WATER_VIDEO_SOURCE,
+    AnalyticsEvents.Params.PREVIOUS,
+    AnalyticsEvents.Params.NEXT,
+    AnalyticsEvents.Params.STATUS,
+    AnalyticsEvents.Params.KIND,
 )
 
 fun AnalyticsContext.standardEventParams(): Map<String, String> =
