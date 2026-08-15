@@ -257,11 +257,11 @@ export function GrowthDirectorSection({
                         : `${nf(shed.adg_g_per_day)} g`}
                     </td>
                     <td>
-                      {shed.is_experiment
-                        ? gd(pageContract, "feed_growth.experiment")
-                        : shed.kg_feed_per_kg_gain === null
-                          ? noData
-                          : nf(shed.kg_feed_per_kg_gain)}
+                      {shed.kg_feed_per_kg_gain === null
+                        ? shed.is_experiment
+                          ? gd(pageContract, "feed_growth.experiment")
+                          : noData
+                        : nf(shed.kg_feed_per_kg_gain)}
                     </td>
                   </tr>
                 ))}

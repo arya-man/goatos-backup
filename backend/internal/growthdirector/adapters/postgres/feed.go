@@ -50,7 +50,8 @@ feed_rows AS (
 // across sessions of the same day, so it collapses to MAX per (shed, feed_day,
 // shed_tag_key, breed_key) before summing. Experiment / head_count_informational
 // rows are excluded from all per-head math — their authored kg is already a shed
-// total — and are surfaced via is_experiment instead.
+// total. They still get a trial efficiency when the shed has positive measured
+// gain: trial total feed kg / total kg gained across paired identities.
 func (r *Repository) feedVsGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string) (domain.FeedVsGrowth, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -63,6 +64,8 @@ shed_feed AS (
          -- the sum; an authored 0.000 is a real instruction and stays in.
          sum(quantity_kg) FILTER (WHERE quantity_kg IS NOT NULL
                                     AND workflow <> 'experiment' AND NOT head_count_informational) AS fed_kg_per_head_basis,
+         sum(quantity_kg) FILTER (WHERE quantity_kg IS NOT NULL
+                                    AND (workflow = 'experiment' OR head_count_informational)) AS trial_fed_kg,
          count(*) FILTER (WHERE workflow = 'experiment' OR head_count_informational) AS experiment_cells
   FROM feed_rows
   GROUP BY shed_id
@@ -108,6 +111,7 @@ shed_growth AS (
 )
 SELECT f.shed_id::text, f.shed_label, f.park_name,
        f.fed_kg_per_head_basis::float8,
+       f.trial_fed_kg::float8,
        f.experiment_cells,
        h.head_days::bigint,
        g.pair_identities,
@@ -125,16 +129,16 @@ ORDER BY f.shed_label, f.shed_id`
 	defer rows.Close()
 	for rows.Next() {
 		var shedID, shedLabel, parkName string
-		var fedKg *float64
+		var fedKg, trialFedKg *float64
 		var experimentCells int
 		var headDays, pairIdentities, growthSpanDays *int64
 		var medianADG, wholeShedDeltaKg *float64
-		if err := rows.Scan(&shedID, &shedLabel, &parkName, &fedKg, &experimentCells, &headDays, &pairIdentities, &medianADG, &wholeShedDeltaKg, &growthSpanDays); err != nil {
+		if err := rows.Scan(&shedID, &shedLabel, &parkName, &fedKg, &trialFedKg, &experimentCells, &headDays, &pairIdentities, &medianADG, &wholeShedDeltaKg, &growthSpanDays); err != nil {
 			return out, err
 		}
 		// Park-prefix the label: both parks field identically-named feed sheds.
 		out.Sheds = append(out.Sheds, buildFeedVsGrowthShed(
-			shedID, operationalLabel(parkName, shedLabel, ""), fedKg, experimentCells, headDays, pairIdentities, medianADG, wholeShedDeltaKg, growthSpanDays,
+			shedID, operationalLabel(parkName, shedLabel, ""), fedKg, trialFedKg, experimentCells, headDays, pairIdentities, medianADG, wholeShedDeltaKg, growthSpanDays,
 		))
 	}
 	return out, rows.Err()
@@ -145,7 +149,7 @@ ORDER BY f.shed_label, f.shed_id`
 // fields on the same row.
 func buildFeedVsGrowthShed(
 	shedID, shedLabel string,
-	fedKg *float64, experimentCells int,
+	fedKg, trialFedKg *float64, experimentCells int,
 	headDays, pairIdentities *int64,
 	medianADG, wholeShedDeltaKg *float64, growthSpanDays *int64,
 ) domain.FeedVsGrowthShed {
@@ -191,6 +195,14 @@ func buildFeedVsGrowthShed(
 	if feedKgPerHeadDay != nil && adg != nil && *adg > 0 {
 		ratio := *feedKgPerHeadDay / (*adg / 1000)
 		row.KgFeedPerKgGain = &ratio
+	}
+	if row.KgFeedPerKgGain == nil && row.IsExperiment && trialFedKg != nil &&
+		wholeShedDeltaKg != nil && pairIdentities != nil && *pairIdentities > 0 {
+		totalGainKg := *wholeShedDeltaKg * float64(*pairIdentities)
+		if totalGainKg > 0 {
+			ratio := *trialFedKg / totalGainKg
+			row.KgFeedPerKgGain = &ratio
+		}
 	}
 	return row
 }
