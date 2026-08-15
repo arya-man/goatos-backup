@@ -20168,6 +20168,7 @@ components:
         informational-headcount kg is never divided by heads.
       required:
         - location_id
+        - partition_label
         - shed_display_name
         - feed_g_per_head_per_day
         - adg_g_per_day
@@ -20179,6 +20180,12 @@ components:
         location_id:
           type: string
           format: uuid
+        partition_label:
+          type: string
+          description: >-
+            The PEN within location_id, blank for an undivided shed. Half of this row's identity,
+            not decoration: the row grain is one pen, so a partitioned shed returns up to ten rows
+            under ONE location_id and location_id alone identifies none of them.
         shed_display_name:
           type: string
         feed_g_per_head_per_day:
@@ -21387,6 +21394,7 @@ components:
         - location_id
         - display_name
         - operational_location_display
+        - park_name
         - n
         - median_weight_kg
         - median_adg_g_per_day
@@ -21401,6 +21409,13 @@ components:
           type: string
         operational_location_display:
           type: string
+        park_name:
+          type: string
+          description: >-
+            The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name --
+            the same convention the shed-weights rows use, so both series of the gain chart name
+            a park identically. Required rather than optional: 39 shed names exist in BOTH parks,
+            so a row without it names two different sheds at once.
         n:
           type: integer
           description: Animal count.

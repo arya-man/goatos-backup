@@ -2453,6 +2453,81 @@ select:disabled { opacity: .45; }
 .wtable table.tbl td:first-child{padding-left:16px}
 .wtable table.tbl th:last-child,
 .wtable table.tbl td:last-child{padding-right:16px}
+/* THE TABLE OWNS ITS HORIZONTAL SCROLL. `.tablewrap` had no rule at all on this page — it was a
+   class name the markup used and the stylesheet never defined — so every table here was
+   `overflow-x:visible` inside a card that clips, and the columns past the card's right edge were
+   simply GONE: not scrollable, not reachable by keyboard, no scrollbar to say anything was missing.
+   The Slow-growth watchlist is the worst case because it sits in the two-up `.g2` row: its table is
+   1023px wide in a 558px cell at 1440, so 465px vanished — the median gain, the week-on-week delta
+   and the status chip, which are the only three columns the card exists to show. Weight by shed and
+   Feed given vs growth lost ~150px each at 1024.
+   Deliberately the same shape as the two sibling wrappers that were done right (`.cfgtablewrap`
+   above, `.lt-tablewrap` below), including `scrollbar-gutter:stable` so the last column does not
+   twitch as the scrollbar appears. Scoped to this page rather than made global: `.tablewrap` is a
+   bare name and a global overflow rule would silently change any future page that reuses it. */
+.weights-page .tablewrap{
+  min-width:0;
+  max-width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-gutter:stable;
+}
+
+/* ---- Fair fight: the cohort standings board -------------------------------------------------
+   Full width since the Slow-growth watchlist was removed from its right half. Cohorts sit in an
+   auto-fitting grid rather than one long column: a farm with a dozen breed x sex cohorts would
+   otherwise scroll for a screen and a half, and two boards side by side is what makes them
+   comparable at a glance. 320px is the point below which a shed name starts truncating. */
+/* `align-items:start` so a 2-shed cohort is a 2-shed-tall card. Grid stretches items to the row
+   by default, which gave a five-row board a half-card of empty space under it whenever its
+   neighbour held seven — the spread line floated away from the standings it summarises. */
+.ffboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:12px;align-items:start}
+/* Each cohort is its own bounded surface so two adjacent boards cannot be misread as one list. */
+.ffmatch{border:1px solid var(--line);border-radius:var(--r2);padding:12px 12px 10px;background:var(--panel-2);min-width:0}
+.ffhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.ffcohort{font-size:13px}
+.ffstand{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+/* TWO LINES PER ROW, and the split is what makes this readable rather than clever. A shed's
+   identity is "park · shed · pen" — 30-plus characters — so putting it in a column beside a bar
+   truncated it to "Channapatna ·", naming the park and hiding the shed. Line one is therefore
+   name + number (the two facts you read down the board); line two is the bar + its n and the
+   standing chip. The rank spans both, so it reads as one entry.
+   `minmax(0,1fr)` on the name column is load-bearing: without it a long name widens the grid
+   past the card instead of truncating — the same overflow defect the tables above just had. */
+.ffrow{
+  display:grid;
+  grid-template-columns:22px minmax(0,1fr) auto;
+  grid-template-rows:auto auto;
+  align-items:center;
+  column-gap:8px;
+  row-gap:3px;
+  padding:4px 0;
+}
+.ffrank{grid-row:1 / span 2;align-self:center;font-variant-numeric:tabular-nums;font-size:12px;color:var(--faint);text-align:right}
+.ffshed{grid-column:2;grid-row:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ffval{grid-column:3;grid-row:1;font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right;white-space:nowrap;font-weight:600}
+.ffval.neg{color:var(--danger)}
+.fftrack{grid-column:2;grid-row:2;position:relative;height:8px;border-radius:999px;background:var(--line2);overflow:hidden}
+.fftrack > i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+.fftrack > i.neg{background:var(--danger)}
+/* n and the chip share ONE cell on the bar line. Giving the chip its own column would steal the
+   width of "Behind" from every name on every row, including the middle rows that never show one. */
+.ffmeta{grid-column:3;grid-row:2;display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
+.ffn{font-size:11px}
+/* The leader is marked by weight and a brand tint, never by colour alone — the chip carries the
+   word. A shed at the top of a cohort everyone is losing weight in is still the leader, so this
+   deliberately says nothing about whether the number is good. */
+.ffrow.ffwin .ffshed{font-weight:650}
+.ffrow.ffwin .ffrank{color:var(--brand);font-weight:700}
+.ffspread{margin:10px 0 0;padding-top:8px;border-top:1px dashed var(--line)}
+@media(max-width:600px){
+  /* On a phone the name WRAPS instead of truncating. A shed is "park · shed · pen" and the tail
+     is the pen — the half that says which door to walk to — so an ellipsis here removes exactly
+     the part an operator came for. Two lines of name cost less than a name that cannot be read.
+     Measured at 480px: 28 of 34 names truncated before this. */
+  .ffshed{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
+  .ffrow{column-gap:6px}
+}
 
 /* ============================================================================
    /vaccination/live-tracker — ported verbatim from

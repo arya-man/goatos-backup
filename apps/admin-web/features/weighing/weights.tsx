@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Scale, TrendingDown, Warehouse } from "lucide-react";
 
 import { WeightBars } from "./weight-bars";
+import { SegmentedLinks } from "./segmented-links";
 import { GrowthDirectorSection } from "./growth-director";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -110,18 +111,14 @@ function MetricToggle({
   pageContract: AdminUiPageContract;
 }) {
   return (
-    <span className="metricseg">
-      {(["adg", "weight"] as const).map((option) => (
-        <a
-          key={option}
-          className={option === current ? "on" : ""}
-          href={hrefWith(params, { [param]: option })}
-          aria-current={option === current ? "true" : undefined}
-        >
-          {copy(pageContract, option === "adg" ? "metric.gain" : "metric.weight")}
-        </a>
-      ))}
-    </span>
+    <SegmentedLinks
+      current={current}
+      options={(["adg", "weight"] as const).map((option) => ({
+        value: option,
+        label: copy(pageContract, option === "adg" ? "metric.gain" : "metric.weight"),
+        href: hrefWith(params, { [param]: option }),
+      }))}
+    />
   );
 }
 
@@ -349,7 +346,14 @@ export async function WeighingWeightsPage({
         // a duplicate-key crash, not a cosmetic warning. Matches the sibling series below and
         // the shed-weights chart above, both of which already key on the pair.
         key: `${shed.location_id}|${shed.partition_label ?? ""}`,
-        label: shed.display_name,
+        // Park-qualified for the same reason the shed-average series below already is, and it
+        // was the one series on this chart missing it: 39 shed names exist in BOTH parks, so
+        // "Mandela 1 - Part 5" alone names two different pens and the chart silently compared
+        // one park's pen against the other's. `operational_location_display` is the canonical
+        // shed+pen string; `display_name` is the weighing bucket's free-text planning label,
+        // which has held "M1P5" and "C1" for sheds whose real names are "Mandela 1 - Part 5"
+        // and "Castro 1".
+        label: `${shed.park_name} ${shed.operational_location_display || shed.display_name}`,
         value: Math.round(shed.median_adg_g_per_day),
       })),
     ...visibleRows
@@ -647,7 +651,12 @@ export async function WeighingWeightsPage({
           </div>
         ) : (
           <>
-            <div className="tablewrap">
+            <div
+              className="tablewrap"
+              tabIndex={0}
+              role="group"
+              aria-label={copy(pageContract, "section.sheds.aria")}
+            >
               <table className="tbl">
                 <thead>
                   <tr>
@@ -716,7 +725,12 @@ export async function WeighingWeightsPage({
           </div>
         ) : (
           <>
-            <div className="tablewrap">
+            <div
+              className="tablewrap"
+              tabIndex={0}
+              role="group"
+              aria-label={copy(pageContract, "section.losing.aria")}
+            >
               <table className="tbl">
                 <thead>
                   <tr>
@@ -760,7 +774,12 @@ export async function WeighingWeightsPage({
           </>
         )}
       </section>
-      <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
+      <GrowthDirectorSection
+        result={growthDirector}
+        pageContract={pageContract}
+        searchParams={params}
+        pagePath={PAGE_PATH}
+      />
     </div>
   );
 }
