@@ -1197,3 +1197,20 @@ val MIGRATION_45_46: Migration = object : Migration(45, 46) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `supersedesRowId` TEXT DEFAULT NULL")
     }
 }
+
+/**
+ * v46 -> v47: persist uploadGroupKey and clientTaskKey on ProofCaptureEntity for correct
+ * ordering/grouping recovery (Codex blocker 3, CRITICAL). Live capture passes uploadGroupKey for
+ * proof ordering/grouping (feed flows, milk flows, packing flows). On process death, startup
+ * recovery must re-enqueue WITHOUT losing the original group key → proof ordering can break.
+ * These columns let recovery re-enqueue with the EXACT key used at capture time.
+ * clientTaskKey is the application-level session/context id; uploadGroupKey is the order key.
+ * Legacy null falls back to current derivation (legacy: taskId for clientTaskKey,
+ * proofUploadGroupKey for uploadGroupKey).
+ */
+val MIGRATION_46_47: Migration = object : Migration(46, 47) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadGroupKey` TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `clientTaskKey` TEXT DEFAULT NULL")
+    }
+}

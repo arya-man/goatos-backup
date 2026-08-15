@@ -212,7 +212,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     /** MANDATORY packing video — a LIVE in-app camera clip. It enqueues a PROOF_UPLOAD on the shed-session group so it
      *  drains before the completion. */
     private fun capturePackingVideo(replacing: Boolean = false) {
-        if (_state.value.isCapturingVideo || shedId.isBlank()) return
+        if (_state.value.isCapturingVideo || _state.value.alreadySubmitted || shedId.isBlank()) return
         // A re-record starts from a FILLED slot, so videoCaptured only blocks a fresh record.
         if (!replacing && _state.value.videoCaptured) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }

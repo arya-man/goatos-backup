@@ -237,7 +237,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 46
+        const val CURRENT_VERSION = 47
     }
 }
 

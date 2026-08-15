@@ -507,6 +507,17 @@ data class ProofCaptureEntity(
      *  passes retire the row named here, exactly as if the in-memory ticket had fired. Null for
      *  every capture that is not part of a replace. */
     val supersedesRowId: String? = null,
+    /** Original proof upload group key for ordering/grouping (feed proof ordering, milk group
+     *  ordering, packing group ordering). Persisted so startup recovery re-enqueues with the EXACT
+     *  group key used at capture time, preserving proof ordering across process death. Legacy null
+     *  falls back to current derivation (proofUploadGroupKey). This is the SSOT for recovery;
+     *  enqueueRegistrationNow must use this verbatim when present. */
+    val uploadGroupKey: String? = null,
+    /** Original client_task_key for tracking and grouping in the backend. Persisted so recovery
+     *  re-registers with the original key instead of deriving it fresh. In most cases this equals
+     *  taskId, but for workflows that override grouping (feed flows, milk flows, packing), this
+     *  holds the application-level session/context id. Legacy null falls back to taskId. */
+    val clientTaskKey: String? = null,
 )
 
 enum class ProofProcessingState {
