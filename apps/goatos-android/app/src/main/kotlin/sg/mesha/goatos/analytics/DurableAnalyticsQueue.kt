@@ -89,7 +89,8 @@ class DurableAnalyticsQueue(
             if (entries.isEmpty()) return@withContext
             var sentCount = 0
             for (entry in entries) {
-                val sent = runCatching { send(entry) }.getOrDefault(false) // exception:exempt send failure IS the signal — drain stops and the entry stays queued for the next attempt
+                // exception:exempt send failure IS the signal — drain stops and the entry stays queued for the next attempt
+                val sent = runCatching { send(entry) }.getOrDefault(false)
                 if (!sent) break
                 sentCount++
             }
@@ -103,7 +104,8 @@ class DurableAnalyticsQueue(
     /** Current persisted entry count -- test/diagnostic hook, not on any hot path. */
     suspend fun size(): Int {
         val file = queueFile ?: return 0
-        return mutex.withLock { withContext(ioDispatcher) { runCatching { readAllLocked(file) }.getOrDefault(emptyList()).size } } // exception:exempt diagnostic size probe; readAllLocked logs corrupt files itself
+        // exception:exempt diagnostic size probe; readAllLocked logs corrupt files itself
+        return mutex.withLock { withContext(ioDispatcher) { runCatching { readAllLocked(file) }.getOrDefault(emptyList()).size } }
     }
 
     private fun readAllLocked(file: File): List<QueuedAnalyticsEvent> {
