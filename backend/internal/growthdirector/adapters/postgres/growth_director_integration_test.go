@@ -417,6 +417,34 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 	}
 }
 
+func TestBuildFeedVsGrowthShedDerivesTrialRatioFromTotalFeedAndGain(t *testing.T) {
+	trialFedKg := 50.0
+	pairIdentities := int64(4)
+	wholeShedDeltaKg := 2.5
+	row := buildFeedVsGrowthShed(
+		gdShedG,
+		"Coimbatore · Gandhi",
+		nil,
+		&trialFedKg,
+		1,
+		nil,
+		&pairIdentities,
+		nil,
+		&wholeShedDeltaKg,
+		nil,
+	)
+
+	if !row.IsExperiment {
+		t.Fatal("trial rows must remain flagged as experiment/trial")
+	}
+	if row.FeedGPerHeadPerDay != nil {
+		t.Fatalf("trial total kg must not enter normal per-head feed math, got %+v", row.FeedGPerHeadPerDay)
+	}
+	if row.KgFeedPerKgGain == nil || math.Abs(*row.KgFeedPerKgGain-5) > 0.001 {
+		t.Fatalf("trial ratio: want 50 kg / (4 pairs * 2.5 kg gain) = 5, got %+v", row.KgFeedPerKgGain)
+	}
+}
+
 // OPERATIONAL LOCATION GRAIN. Two partitions of the SAME physical shed must
 // stay as two distinct fair-fight/slow-growth rows with distinct
 // operational_keys, never merged by location_id alone. And two parks fielding
