@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-goatos-stg}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
+GITHUB_PAT_SECRET="${GITHUB_PAT_SECRET:-goatos-github-pat}"
 DEPLOY_METADATA_FILE="${GOATOS_STG_DEPLOY_METADATA_FILE:-/workspace/goatos-stg-deploy.env}"
 
 repo_root="$(git rev-parse --show-toplevel)"
@@ -25,6 +26,12 @@ slack_webhook_url() {
   gcloud secrets versions access latest \
     --project="$PROJECT_ID" \
     --secret="$SLACK_WEBHOOK_SECRET" 2>/dev/null || true
+}
+
+github_pat() {
+  gcloud secrets versions access latest \
+    --project="$PROJECT_ID" \
+    --secret="$GITHUB_PAT_SECRET" 2>/dev/null || true
 }
 
 notify_slack_bookkeeping_warning() {
@@ -56,16 +63,80 @@ payload = {
         ],
     }]
 }
+payload["blocks"] = [
+    {"type": "divider"},
+    {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+        },
+    },
+    {
+        "type": "actions",
+        "block_id": "deploy_options",
+        "elements": [{
+            "type": "checkboxes",
+            "action_id": "deploy_options",
+            "options": [{
+                "text": {"type": "plain_text", "text": "Also distribute Android mobile"},
+                "description": {
+                    "type": "plain_text",
+                    "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+                },
+                "value": "mobile_distribution",
+            }],
+        }],
+    },
+    {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Deploy main to STG"},
+                "style": "primary",
+                "action_id": "deploy_goatos_stg_main",
+                "value": "main",
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Distribute Android only"},
+                "action_id": "deploy_goatos_mobile_only",
+                "value": "mobile",
+            },
+        ],
+    },
+]
 print(json.dumps(payload))
 PY
 }
 
-if ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
-  tools/release/create-release-tag.sh; then
+tag_checkout="/workspace/goatos-release-tag-${commit_sha}"
+rm -rf "$tag_checkout"
+git worktree add --detach "$tag_checkout" "$(git rev-parse HEAD)"
+trap 'git worktree remove --force "$tag_checkout" >/dev/null 2>&1 || true' EXIT
+
+pat="$(github_pat)"
+if [[ -z "$pat" ]]; then
+  echo "release-tag-bookkeeping: GitHub PAT secret $GITHUB_PAT_SECRET is empty or inaccessible" >&2
+else
+  git -C "$tag_checkout" config user.name "Goat OS Deploy Bot"
+  git -C "$tag_checkout" config user.email "deploy@vgoats.com"
+  git -C "$tag_checkout" remote set-url origin "https://github.com/vgoats/goatos.git"
+  auth="$(printf 'x-access-token:%s' "$pat" | base64 | tr -d '\n')"
+  git -C "$tag_checkout" config http.https://github.com/vgoats/goatos.git.extraheader "AUTHORIZATION: basic ${auth}"
+fi
+
+if [[ -n "$pat" ]] && ENV=stg SHA="$(git -C "$tag_checkout" rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
+  "$tag_checkout/tools/release/create-release-tag.sh"; then
   echo "release-tag-bookkeeping: release tag recorded for $commit_sha"
   exit 0
 fi
 
+echo "release-tag-bookkeeping: dirty status in deploy workspace, if any:"
+git status --porcelain --untracked-files=all || true
+echo "release-tag-bookkeeping: dirty status in clean tag checkout, if any:"
+git -C "$tag_checkout" status --porcelain --untracked-files=all || true
 echo "release-tag-bookkeeping: release tag failed after verified STG rollout; STG remains deployed."
 notify_slack_bookkeeping_warning "STG deploy succeeded, but release-tag bookkeeping failed. STG remains deployed; deploy status is green."
 exit 0

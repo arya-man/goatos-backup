@@ -52,6 +52,51 @@ payload = {
         ],
     }]
 }
+if status in {"SUCCEEDED", "FAILED"}:
+    payload["blocks"] = [
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": "deploy_options",
+            "elements": [{
+                "type": "checkboxes",
+                "action_id": "deploy_options",
+                "options": [{
+                    "text": {"type": "plain_text", "text": "Also distribute Android mobile"},
+                    "description": {
+                        "type": "plain_text",
+                        "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+                    },
+                    "value": "mobile_distribution",
+                }],
+            }],
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Deploy main to STG"},
+                    "style": "primary",
+                    "action_id": "deploy_goatos_stg_main",
+                    "value": "main",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Distribute Android only"},
+                    "action_id": "deploy_goatos_mobile_only",
+                    "value": "mobile",
+                },
+            ],
+        },
+    ]
 print(json.dumps(payload))
 PY
 }
@@ -89,7 +134,6 @@ on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
     notify_slack "FAILED" "Cloud Build failed before STG rollout completed."
-    post_deploy_panel
   fi
 }
 
@@ -97,7 +141,6 @@ trap on_exit EXIT
 
 if already_deployed; then
   notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
-  post_deploy_panel
   trap - EXIT
   echo "ALREADY_DEPLOYED ${commit_sha} on goatos-stg"
   exit 0
@@ -115,7 +158,6 @@ notify_slack "STARTED" "Building images and creating Cloud Deploy release for ST
 tools/deploy/stg-clouddeploy-release.sh
 
 notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified."
-post_deploy_panel
 trap - EXIT
 
 echo "DEPLOYED ${commit_sha} to goatos-stg"
