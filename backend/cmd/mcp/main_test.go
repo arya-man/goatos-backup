@@ -39,10 +39,13 @@ func TestToolsList(t *testing.T) {
 	for _, tool := range got.Result.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"ask_goatos", "list_goatos_capabilities", "goatos_mcp_health"} {
+	for _, want := range []string{"ask_goatos", "get_vaccination_today", "list_goatos_capabilities", "goatos_mcp_health"} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %+v", want, names)
 		}
+	}
+	if !strings.Contains(rec.Body.String(), `"readOnlyHint":true`) || !strings.Contains(rec.Body.String(), `"destructiveHint":false`) {
+		t.Fatalf("tools should advertise read-only annotations: %s", rec.Body.String())
 	}
 }
 
@@ -152,6 +155,118 @@ func TestAskRejectsEmailOutsideAllowlistBeforeUpstream(t *testing.T) {
 		t.Fatal("upstream should not be called for disallowed email")
 	}
 	if !strings.Contains(rec.Body.String(), "actor_email_not_allowed") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestVaccinationTodayCallsLiveTrackerAndReturnsStructuredContent(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/vaccination/live-tracker" {
+			t.Fatalf("path=%s want /vaccination/live-tracker", r.URL.Path)
+		}
+		if r.URL.Query().Get("business_date") != "2026-08-14" || r.URL.Query().Get("status") != "pending" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		if r.Header.Get("Authorization") != "Bearer user-token" {
+			t.Fatalf("Authorization not proxied: %q", r.Header.Get("Authorization"))
+		}
+		if r.Header.Get("X-Mesha-Actor-Email") != "aryaman@mesha.sg" {
+			t.Fatalf("verified actor email not proxied: %q", r.Header.Get("X-Mesha-Actor-Email"))
+		}
+		if r.Header.Get("X-GoatOS-Tenant-ID") != "00000000-0000-4000-8000-000000000001" {
+			t.Fatalf("tenant not proxied: %q", r.Header.Get("X-GoatOS-Tenant-ID"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"business_date": "2026-08-14",
+			"generated_at":  "2026-08-14T17:45:00Z",
+			"is_live_day":   true,
+			"kpis": map[string]any{
+				"scheduled_administrations": 10,
+				"closed_administrations":    0,
+				"proof_videos_received":     0,
+				"scan_captures":             0,
+				"remaining":                 10,
+			},
+			"operators": []map[string]any{{
+				"operator_name":             "Darshan Talwar",
+				"park_name":                 "Channapatna",
+				"current_shed_label":        "Yashoda",
+				"current_partition_label":   "Part 2",
+				"current_vaccine_label":     "ET+TT",
+				"scheduled_administrations": 4,
+				"closed_administrations":    0,
+				"proof_videos":              0,
+				"scan_captures":             0,
+				"remaining":                 4,
+				"state":                     "not_started",
+			}},
+			"sheds": []map[string]any{{
+				"park_name":                 "Channapatna",
+				"shed_label":                "Yashoda - Part 2",
+				"vaccine_label":             "ET+TT",
+				"operator_name":             "Darshan Talwar",
+				"scheduled_administrations": 4,
+				"closed_administrations":    0,
+				"proof_videos_received":     0,
+				"remaining":                 4,
+				"state":                     "not_started",
+			}},
+			"unassigned_administrations": 0,
+		})
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		UpstreamTimeout: time.Second,
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"vax","method":"tools/call","params":{"name":"get_vaccination_today","arguments":{"business_date":"2026-08-14","status":"pending"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Vaccination drive-day progress for 2026-08-14", "Darshan Talwar", `"structuredContent"`, `"scheduled_administrations":10`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in body=%s", want, body)
+		}
+	}
+}
+
+func TestVaccinationTodayRejectsInvalidArgsBeforeUpstream(t *testing.T) {
+	called := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"vax","method":"tools/call","params":{"name":"get_vaccination_today","arguments":{"business_date":"14-08-2026"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if called {
+		t.Fatal("upstream should not be called for invalid arguments")
+	}
+	if !strings.Contains(rec.Body.String(), "business_date_must_be_yyyy_mm_dd") {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
