@@ -233,6 +233,25 @@ interface ScanRosterRowDao {
     )
     suspend fun countByStatusForGoats(scopeKey: String, goatIds: List<String>): List<StatusCount>
 
+    /** Debug-fixture support (see sg.mesha.goatos.rfid.DebugSampleTagAliaser, app/src/debug only):
+     *  the still-open rows for a scope, deterministic order. Read-only; unused in release. */
+    @Query(
+        "SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND " +
+            "LOWER(TRIM(status)) IN ('pending', 'due', 'in_progress') ORDER BY normalizedPrimaryTag ASC, goatId ASC"
+    )
+    suspend fun openRowsForScope(scopeKey: String): List<ScanRosterRowEntity>
+
+    /** Debug-fixture support: every locally-cached scope for this shed+task (i.e. every partition
+     *  already fetched into Room for this shed), used to locate a neighboring partition's roster
+     *  without a network round trip. Read-only; unused in release. */
+    @Query("SELECT DISTINCT scopeKey FROM scan_roster_row WHERE shedId = :shedId AND taskId = :taskId ORDER BY scopeKey ASC")
+    suspend fun scopeKeysForShedTask(shedId: String, taskId: String): List<String>
+
+    /** Debug-fixture support: every locally-cached scope for this task in a DIFFERENT shed —
+     *  the cross-shed fallback when no sibling partition has open animals. Read-only; unused in release. */
+    @Query("SELECT DISTINCT scopeKey FROM scan_roster_row WHERE shedId != :shedId AND taskId = :taskId ORDER BY scopeKey ASC")
+    suspend fun scopeKeysForOtherSheds(shedId: String, taskId: String): List<String>
+
     @Query("DELETE FROM scan_roster_row WHERE scopeKey = :scopeKey")
     suspend fun deleteForScope(scopeKey: String)
 

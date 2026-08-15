@@ -56,6 +56,8 @@ import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 import sg.mesha.goatos.rfid.RfidInputTransform
 import sg.mesha.goatos.rfid.PassthroughRfidInputTransform
+import sg.mesha.goatos.rfid.ScannedTagResolver
+import sg.mesha.goatos.rfid.PassthroughScannedTagResolver
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.common.AppResult
@@ -95,6 +97,7 @@ class ScanViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
     private val rfidInputTransform: RfidInputTransform = PassthroughRfidInputTransform,
+    private val scannedTagResolver: ScannedTagResolver = PassthroughScannedTagResolver,
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
@@ -608,9 +611,13 @@ class ScanViewModel @Inject constructor(
         if (!canAcceptScanInput()) return
         val id = shedId ?: return
         val tag = rfidInputTransform.vaccination(rawTag, id)
-        val target = normalize(tag)
-        if (target.isEmpty()) return
+        val normalizedTag = normalize(tag)
+        if (normalizedTag.isEmpty()) return
         viewModelScope.launch {
+            // Debug-only fixture hook (no-op in release, see sg.mesha.goatos.rfid.ScannedTagResolver):
+            // remaps a sample-card tag to a real seeded animal's tag BEFORE any roster/validation
+            // logic below runs.
+            val target = scannedTagResolver.resolve(rawTag, normalizedTag, id, taskId, partitionLabel)
             // R50-007: Find by tag in full shed roster via bounded indexed Room query
             val dbRow = repo.findScanRosterByTag(id, taskId, target, partitionLabel) ?: run {
                 _proofReplacementGoatId.value = null
