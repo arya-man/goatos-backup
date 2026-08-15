@@ -12,6 +12,10 @@ import java.io.File
  * All validation runs off the main thread via the caller's dispatcher context.
  * Inject as a dependency for testability; NO MediaMetadataRetriever instantiation
  * in UI code.
+ *
+ * ITEM 6 distinction:
+ * - Original camera files: probe-threw-but-plausible-size → accept (OEM quirks justified)
+ * - Processed artifacts (we control encoder): probe-threw OR metadata-invalid → reject decisively
  */
 interface ProofArtifactValidator {
     data class ValidationResult(
@@ -24,6 +28,15 @@ interface ProofArtifactValidator {
      * Returns [ValidationResult.isValid] = true only if ALL checks pass.
      */
     fun validateVideoFile(localUri: String): ValidationResult
+
+    /**
+     * Validate a PROCESSED/compressed artifact: stricter than original validation.
+     * For processed files we control the encoder on, metadata-probe failure is DEFINITIVE
+     * rejection, never plausible-accept (unlike original camera files with OEM quirks).
+     * Returns [ValidationResult.isValid] = true only if probe succeeds AND metadata is valid.
+     */
+    fun validateProcessedArtifact(localUri: String): ValidationResult =
+        validateVideoFile(localUri)  // Default: same as original (overridable per implementation)
 }
 
 /**
@@ -34,6 +47,9 @@ interface ProofArtifactValidator {
  * - probe-succeeded-with-invalid-metadata (duration<=0, unreadable dims) → reject, never plausible-accept
  * - probe-threw-transient-failure + file>=threshold → accept (deliver to server for validation)
  * - definitely-invalid (missing, zero-byte) → delete + re-record
+ *
+ * ITEM 6: For PROCESSED artifacts (encoder-controlled), metadata-probe failure is DEFINITIVE
+ * rejection (no plausible-accept), while ORIGINAL camera files use the threshold.
  */
 class FileSystemProofArtifactValidator : ProofArtifactValidator {
     // Threshold: if file is at least this many bytes AND probe threw (not succeeded-with-bad-data),
@@ -41,6 +57,21 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
     private val minAcceptableSizeBytes = 1024L  // 1 KB minimum
 
     override fun validateVideoFile(localUri: String): ProofArtifactValidator.ValidationResult {
+        return validateVideoFileImpl(localUri, allowPlausibleAccept = true)
+    }
+
+    /**
+     * ITEM 6: Validate PROCESSED artifact with stricter rules.
+     * Probe-threw (transient failure) → reject decisively (no plausible-accept for processed files).
+     */
+    override fun validateProcessedArtifact(localUri: String): ProofArtifactValidator.ValidationResult {
+        return validateVideoFileImpl(localUri, allowPlausibleAccept = false)
+    }
+
+    private fun validateVideoFileImpl(
+        localUri: String,
+        allowPlausibleAccept: Boolean,
+    ): ProofArtifactValidator.ValidationResult {
         return runCatching {
             val file = File(java.net.URI(localUri))
 
@@ -97,11 +128,20 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 }
             }
         }.getOrElse { error ->
-            // B5: Probe threw (transient failure). Accept only if file has plausible size.
+            // B5: Probe threw (transient failure).
+            // ITEM 6: For processed files (allowPlausibleAccept=false), this is DEFINITIVE rejection.
+            // For original files (allowPlausibleAccept=true), accept only if file has plausible size.
+            if (!allowPlausibleAccept) {
+                // Processed artifact: metadata-probe failure is definitive rejection
+                return ProofArtifactValidator.ValidationResult(
+                    isValid = false,
+                    reason = "Could not validate processed recording: ${error.message}",
+                )
+            }
             // exception:exempt malformed/non-file URI just falls through to the size-check branch below, which already handles a null file safely
             val file = runCatching { File(java.net.URI(localUri)) }.getOrNull()
             return if (file != null && file.exists() && file.length() >= minAcceptableSizeBytes) {
-                // File looks plausible despite probe exception → deliver, flag in logs, let server validate
+                // Original file looks plausible despite probe exception → deliver, flag in logs, let server validate
                 ProofArtifactValidator.ValidationResult(isValid = true)
             } else {
                 ProofArtifactValidator.ValidationResult(
