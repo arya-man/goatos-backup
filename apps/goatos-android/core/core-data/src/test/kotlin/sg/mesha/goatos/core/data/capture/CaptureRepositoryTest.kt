@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.database.capture.ProofProcessingState
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
@@ -121,6 +122,47 @@ class CaptureRepositoryTest {
                     "scan:task-1:goat_scan:tag001:obligation:ppr:ov3",
                 ),
                 sync.scanCalls.map { it.idempotencyKey },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `enqueuePendingScans recovery replays the row's own obligationRowVersion not ov0`() = runTest {
+        // P1 fix: app/process re-entry after a crash left durable evidence without a matching
+        // outbox row must rebuild the SAME idempotency key the original enqueue would have built —
+        // not the ov0 default — or a reopened/rejected obligation's recovery silently dedupes
+        // against the OLD cycle's key.
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            // Seed a durable scan row directly at the DB layer (simulating: row was written to
+            // Room before the process died, so no matching outbox item exists yet) with a
+            // non-zero obligationRowVersion, as a reopened obligation's row would carry.
+            db.scannedGoatDao().upsertScan(
+                ScannedGoatEntity(
+                    id = "seed-row-1",
+                    taskId = "task-recovery",
+                    partitionKey = "whole",
+                    fieldKey = "goat_scan",
+                    tag = "tag009",
+                    goatId = "goat-9",
+                    obligationId = "ppr",
+                    capturedAtMs = 1_000L,
+                    obligationRowVersion = 9,
+                ),
+            )
+
+            repo.enqueuePendingScans("task-recovery", "goat_scan")
+
+            assertEquals(1, sync.scanCalls.size)
+            assertEquals(
+                "recovery must key off the row's persisted row_version, not the ov0 default",
+                "scan:task-recovery:goat_scan:tag009:obligation:ppr:ov9",
+                sync.scanCalls.single().idempotencyKey,
             )
         } finally {
             db.close()
@@ -1044,7 +1086,11 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `processor failure fallback saves and uploads original once across recovery reenqueues`() = runTest {
+    fun `processor failure leaves proof awaiting operator retry and never auto-uploads the raw original`() = runTest {
+        // P1 fix: processing failure used to fall through to uploadOriginal=true and auto-enqueue
+        // the raw original as completed proof -- an overlay-free capture could then silently
+        // satisfy a compliance proof gate. The new default (no proof_policy opt-in exists) is:
+        // NO enqueue, NO gallery save, state exposes an actionable retry, original stays on disk.
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -1076,33 +1122,46 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
 
-            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
-            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
-            assertEquals("true", sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content)
-            assertEquals("file://original-proof.mp4", db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
+            // NO original upload op enqueued for this required-overlay flow.
+            assertEquals("Corrupt processing must not enqueue any upload", emptyList<String>(), sync.enqueueCalls)
+            assertEquals("Corrupt processing must not save to Gallery either", emptyList<String>(), gallery.paths)
 
-            db.proofCaptureDao().setOutboxItemId(captured.id, null)
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(
+                "State exposes an actionable retry, not a queued original upload",
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                row?.processingState,
+            )
+            assertEquals("uploadOriginal must stay false — nothing is queued", false, row?.uploadOriginal)
+            assertEquals("Original file path preserved (safety kept)", "file://original-proof.mp4", row?.localUri)
+            assertEquals("syncStatus stays PENDING — never FAILED for a processing failure", CaptureSyncStatus.PENDING.name, row?.syncStatus)
+
+            // Startup/process-death recovery must not resurrect the auto-upload either — it is
+            // idempotent through the same AWAITING_RETRY short-circuit, not a second enqueue.
             repo.reconcileRecoverableUploadsNow()
-
-            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
-            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("Recovery must not enqueue the raw original", emptyList<String>(), sync.enqueueCalls)
         } finally {
             db.close()
         }
     }
 
     @Test
-    fun `processor success that reuses original path falls back to original instead of pretending processed`() = runTest {
+    fun `retryUpload re-invokes the processor and succeeds once it recovers`() = runTest {
+        // P1 fix: the only path back from PROCESSING_FAILED_AWAITING_RETRY is an explicit operator
+        // action. retryUpload() resets processingAttempted so prepareFinalArtifact re-runs the
+        // media processor; once it succeeds, registration/upload proceeds normally with the
+        // PROCESSED (overlay-burned) artifact -- never the raw original.
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
             val gallery = RecordingGalleryProofSaver()
-            val processor = RecordingProofMediaProcessor(
-                ProofMediaProcessingResult(
-                    outputUri = "file://original-proof.mp4",
+            val processor = SometimesFailingProofMediaProcessor(
+                failFirst = 1,
+                successResult = ProofMediaProcessingResult(
+                    outputUri = "file://processed-proof.mp4",
                     outputMimeType = "video/mp4",
                     originalBytes = 12_000_000L,
-                    processedBytes = 12_000_000L,
+                    processedBytes = 4_000_000L,
                 ),
             )
             val repo = DefaultProofCaptureRepository(
@@ -1117,14 +1176,14 @@ class CaptureRepositoryTest {
 
             val captured = (
                 repo.capture(
-                    taskId = "task-gallery-invalid-processed",
+                    taskId = "task-retry-processing",
                     fieldKey = "feed_distribution_video",
                     subject = ProofSubject.SHED,
                     localUri = "file://original-proof.mp4",
                     mimeType = "video/mp4",
-                    caption = "Feed direction proof",
+                    caption = null,
                     scopeType = "task",
-                    scopeId = "task-gallery-invalid-processed",
+                    scopeId = "task-retry-processing",
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
@@ -1132,13 +1191,27 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
 
+            // First attempt failed: awaiting retry, nothing enqueued.
+            assertEquals(
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                db.proofCaptureDao().findById(captured.id)?.processingState,
+            )
+            assertEquals(0, sync.enqueueCalls.size)
+
+            // Operator retries; the processor now succeeds.
+            val retryResult = repo.retryUpload("task-retry-processing", captured.id)
+            assertTrue("Retry succeeds", retryResult is AppResult.Ok)
+
             val row = db.proofCaptureDao().findById(captured.id)
-            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
-            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
-            assertEquals("true", sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content)
-            assertEquals("file://original-proof.mp4", row?.localUri)
-            assertEquals(true, row?.uploadOriginal)
-            assertEquals(null, row?.processedUri)
+            assertEquals("Processed artifact wins, not the raw original", ProofProcessingState.PROCESSED.name, row?.processingState)
+            assertEquals("uploadOriginal must be false for the processed artifact", false, row?.uploadOriginal)
+            assertEquals("file://processed-proof.mp4", row?.localUri)
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals(
+                "false",
+                sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content,
+            )
         } finally {
             db.close()
         }
@@ -2123,9 +2196,17 @@ class CaptureRepositoryTest {
             assertTrue("Second capture succeeds", second is AppResult.Ok)
             val secondId = (second as AppResult.Ok).value.id
 
-            // Verify exactly one row remains: the new one
+            // P1 fix: the old row is NOT retired just because the new capture succeeded locally —
+            // it stays active/visible until the new upload reaches SYNCED with a server proof id.
+            val beforeSync = proofs.observeProofs(taskId).first()
+            assertEquals("Old row survives until the new upload is confirmed SYNCED", 2, beforeSync.size)
+            assertTrue("Old row still present pre-sync", beforeSync.any { it.id == firstId })
+
+            sync.completeUpload(db, secondId, "server-proof-second")
+
+            // Verify exactly one row remains: the new one, now that it reached SYNCED
             val remaining = proofs.observeProofs(taskId).first()
-            assertEquals("Exactly one proof remains after replace", 1, remaining.size)
+            assertEquals("Exactly one proof remains once the replacement is confirmed SYNCED", 1, remaining.size)
             assertEquals("Remaining proof is the new one", secondId, remaining[0].id)
             assertEquals("New proof path is second", "file:///second.mp4", remaining[0].localUri)
         } finally {
@@ -2223,7 +2304,13 @@ class CaptureRepositoryTest {
             assertTrue("Replace capture succeeds", newCapture is AppResult.Ok)
             val newId = (newCapture as AppResult.Ok).value.id
 
-            // Verify exactly one row remains: the new one
+            // P1 fix: both old rows survive until the new upload is confirmed SYNCED.
+            val beforeSync = proofs.observeProofs(taskId).first()
+            assertEquals("All three rows present pre-sync (both old + new)", 3, beforeSync.size)
+
+            sync.completeUpload(db, newId, "server-proof-new-3")
+
+            // Verify exactly one row remains: the new one, once SYNCED
             val afterReplace = proofs.observeProofs(taskId).first()
             assertEquals("Exactly one proof remains after replace (both old removed)", 1, afterReplace.size)
             assertEquals("Remaining proof is the new one", newId, afterReplace[0].id)
@@ -2394,7 +2481,15 @@ class CaptureRepositoryTest {
             assertTrue("Third replace succeeds", third is AppResult.Ok)
             val thirdId = (third as AppResult.Ok).value.id
 
-            // After three concurrent replaces, exactly one active row should remain: the third
+            // P1 fix: three local/queued replaces in a row do not retire anything by themselves —
+            // all three stay active until whichever one actually reaches SYNCED.
+            val beforeSync = proofs.observeProofs(taskId).first()
+            assertEquals("All three replaces stay active pre-sync", 3, beforeSync.size)
+
+            sync.completeUpload(db, thirdId, "server-proof-third")
+
+            // Once the third is confirmed SYNCED, it retires every other same-subject occupant —
+            // exactly one active row should remain: the third.
             val remaining = proofs.observeProofs(taskId).first()
             assertEquals("Exactly one proof after concurrent replaces", 1, remaining.size)
             assertEquals("The most recent proof is active", thirdId, remaining[0].id)
@@ -2494,7 +2589,14 @@ class CaptureRepositoryTest {
             assertTrue("Second capture for goat A succeeds", aSecond is AppResult.Ok)
             val aSecondId = (aSecond as AppResult.Ok).value.id
 
-            // After replace: ITEM 7 — only A's old row removed, B's row untouched
+            // P1 fix: A's old row is not retired just because the new A capture succeeded locally.
+            allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Three rows pre-sync: old A, new A, old B", 3, allRows.size)
+            assertTrue("Old A row still present pre-sync", allRows.any { it.id == aFirstId })
+
+            sync.completeUpload(db, aSecondId, "server-proof-a-second")
+
+            // Once the new A capture is confirmed SYNCED: ITEM 7 — only A's old row is removed, B's row untouched
             allRows = proofs.observeProofs(taskId).first()
             assertEquals("Two proofs remain: new A + old B", 2, allRows.size)
             val rowIds = allRows.map { it.id }.toSet()
@@ -2601,9 +2703,19 @@ class CaptureRepositoryTest {
                 awaitUploadEnqueue = true,
             )
             assertTrue("Concurrent replace for Y succeeds", bReplace is AppResult.Ok)
+            val xReplaceId = (aReplace as AppResult.Ok).value.id
+            val yReplaceId = (bReplace as AppResult.Ok).value.id
 
-            // ITEM 7: Both replaces succeeded without one blocking the other. Final state: two active rows.
-            val allRows = proofs.observeProofs(taskId).first()
+            // P1 fix: neither replace retires its predecessor until its own upload is SYNCED.
+            var allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Four rows pre-sync: old X, old Y, new X, new Y", 4, allRows.size)
+
+            sync.completeUpload(db, xReplaceId, "server-proof-x-replace")
+            sync.completeUpload(db, yReplaceId, "server-proof-y-replace")
+
+            // ITEM 7: Both replaces succeeded without one blocking the other. Final state, once both
+            // are confirmed SYNCED: two active rows.
+            allRows = proofs.observeProofs(taskId).first()
             assertEquals("Two active proofs after concurrent replaces", 2, allRows.size)
             val rowsBySubject = allRows.associateBy { it.subjectId }
             assertEquals("X proof path is replace", "file:///x-replace.mp4", rowsBySubject["goat-x"]?.localUri)
@@ -2866,6 +2978,21 @@ class CaptureRepositoryTest {
     }
 }
 
+/** Test helper: drives the outbox item behind [proofId] straight to SUCCEEDED with
+ *  [serverProofId], mirroring [SyncEngine]'s real IN_FLIGHT -> SUCCEEDED transition — used by the
+ *  captureReplacingLatest deferred-retirement tests (P1 fix), which must observe the NEW row
+ *  actually reach SYNCED before the OLD occupant(s) are retired. */
+private suspend fun FakeSyncRepository.completeUpload(db: GoatDatabase, proofId: String, serverProofId: String) {
+    val outboxItemId = requireNotNull(db.proofCaptureDao().findById(proofId)?.outboxItemId) {
+        "proof $proofId has no outboxItemId yet"
+    }
+    emit(
+        outboxItemId,
+        SyncItemStatus.SUCCEEDED,
+        resultJson = syncJson.encodeToString(ProofUploadResponseDto(proof = ProofReferenceDto(proofId = serverProofId))),
+    )
+}
+
 private fun proofEntity(
     id: String,
     taskId: String,
@@ -2906,6 +3033,22 @@ private class RecordingProofMediaProcessor(
 private class ThrowingProofMediaProcessor : ProofMediaProcessor {
     override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
         error("processor failed")
+}
+
+/** Fails the first [failFirst] invocations, then returns [successResult] — models a processor
+ *  that recovers (device storage freed, transient decoder issue resolved) so a test can drive
+ *  the retryUpload() "retry processing" path (P1 fix) end to end. */
+private class SometimesFailingProofMediaProcessor(
+    private val failFirst: Int,
+    private val successResult: ProofMediaProcessingResult,
+) : ProofMediaProcessor {
+    private var invocations = 0
+
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
+        invocations += 1
+        if (invocations <= failFirst) error("processor failed (attempt $invocations)")
+        return successResult
+    }
 }
 
 private class RecordingGalleryProofSaver : GalleryProofSaver {

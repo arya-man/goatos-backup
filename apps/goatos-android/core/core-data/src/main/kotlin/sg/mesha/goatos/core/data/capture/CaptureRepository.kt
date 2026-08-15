@@ -226,6 +226,13 @@ class DefaultScanCaptureRepository(
                 tag = row.tag,
                 goatId = row.goatId,
                 obligationId = row.obligationId,
+                // P1 fix: recovery must replay the row's OWN obligationRowVersion, not the
+                // enqueueScanCapture default of 0. Otherwise a reopened/rejected obligation's
+                // durable row (row_version > 0) rebuilds its idempotency key with ov0 — the OLD
+                // cycle's key — and a genuinely new post-reopen capture silently dedupes against
+                // (or gets shadowed by) the prior cycle instead of reaching the server as fresh
+                // evidence. See scanCaptureIdempotencyKey's kdoc.
+                obligationRowVersion = row.obligationRowVersion,
                 capturedAtMs = row.capturedAtMs,
                 partitionKey = row.partitionKey,
             )
@@ -321,8 +328,11 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
  * dedupes) and only changes when the DOMAIN reopens the obligation (a verifier rejection), which
  * is exactly when a fresh capture must reach the server rather than being silently absorbed as a
  * replay of the prior cycle's already-synced capture. Defaults to 0 for a caller that has not
- * threaded a row_version yet (pre-existing callers, [enqueuePendingScans] recovery), matching
- * every fresh row's baseline cycle so first-time enqueues are unaffected.
+ * threaded a row_version yet, matching every fresh row's baseline cycle so first-time enqueues
+ * are unaffected. [enqueuePendingScans] recovery threads the row's OWN persisted
+ * [ScannedGoatEntity.obligationRowVersion] (P1 fix) rather than relying on this default — a
+ * durable row from a reopened/rejected obligation cycle must rebuild the SAME (non-zero) key its
+ * original enqueue would have built, not silently fall back to the stale ov0 key.
  */
 private fun scanCaptureIdempotencyKey(
     taskId: String,
@@ -831,6 +841,33 @@ class DefaultProofCaptureRepository(
     override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
         val entity = dao.findById(id) ?: return@withContext AppResult.Err("Proof video not found.")
         if (entity.taskId != taskId) return@withContext AppResult.Err("Proof video does not belong to this task.")
+        // P1 fix: a row stuck AWAITING_RETRY never got a syncStatus=FAILED (registration/upload
+        // never ran), so the FAILED-only guard below would silently no-op it forever. This is the
+        // operator's explicit "retry processing" action: reset processingAttempted so
+        // prepareFinalArtifact re-invokes the media processor (a fresh attempt, not the crash-mid-
+        // PROCESSING_MEDIA recovery branch), then drive registration through the normal path.
+        if (entity.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name) {
+            dao.updateProcessingState(
+                id = entity.id,
+                processingState = ProofProcessingState.CAPTURED_ORIGINAL.name,
+                attempt = entity.stateAttempt,
+                processingAttempted = false,
+                uploadOriginal = false,
+                lastErrorStage = null,
+                lastErrorClass = null,
+                lastErrorRetryable = null,
+                lastErrorMessageHash = null,
+                updatedAtMs = clock(),
+            )
+            val recovered = dao.findById(entity.id) ?: entity.copy(
+                processingState = ProofProcessingState.CAPTURED_ORIGINAL.name,
+                processingAttempted = false,
+                uploadOriginal = false,
+            )
+            val (scopeType, scopeId) = recoveryScope(recovered)
+            enqueueRegistrationNow(recovered, scopeType, scopeId)
+            return@withContext AppResult.Ok(Unit)
+        }
         if (entity.syncStatus != EntitySyncStatus.FAILED.name) return@withContext AppResult.Ok(Unit)
         val outboxItemId = entity.outboxItemId
         if (outboxItemId.isNullOrBlank()) {
@@ -933,23 +970,68 @@ class DefaultProofCaptureRepository(
             if (result is AppResult.Ok) {
                 val newId = result.value.id
                 val newSubjectId = result.value.subjectId
-                // ITEM 7: After successful capture, re-read ALL active rows for the slot and remove
-                // only non-new occupants of the SAME subject. Two concurrent replaces for subject A
-                // both read the same set of previous A rows, both capture A successfully, but the
-                // second remove() must still eliminate the first's new A row so exactly one A row
-                // remains. Subject B rows stay untouched.
-                val allActive = observeProofs(taskId, partitionLabel).first()
-                    .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
-                allActive.forEach { row ->
-                    // Remove every non-new active row that belongs to the SAME subject.
-                    // Id-based (not capturedAtMs) so two captures landing in the same clock
-                    // millisecond still converge to exactly one row per subject.
-                    if (row.id != newId && row.subjectId == newSubjectId) {
-                        remove(taskId, row.id)
-                    }
-                }
+                // P1 fix (disappearing-proof loop moved into this helper): do NOT retire the old
+                // occupant(s) synchronously here. The old row may already be server-SYNCED valid
+                // evidence; if the NEW upload later dead-letters or its processed artifact turns
+                // out bad, an immediate remove() would have destroyed the only proof the slot had.
+                // Old rows stay ACTIVE/visible until the NEW row reaches SYNCED with a
+                // serverProofId; a terminal FAILED new row leaves old rows untouched.
+                retireSupersededOccupantsOnceSynced(taskId, partitionLabel, slot.fieldKey, newId, newSubjectId)
             }
             result
+        }
+    }
+
+    /** Watches the just-captured [newId] row to ITS terminal outcome, then — ONLY if it reaches
+     *  [CaptureSyncStatus.SYNCED] with a server proof id — removes every other active row of
+     *  [newSubjectId] held by [fieldKey] (ITEM 7 same-subject scoping, unchanged). If [newId]
+     *  instead reaches a terminal [CaptureSyncStatus.FAILED] (dead-lettered upload / bad
+     *  processed artifact), this is a no-op: whatever occupied the slot before this replace was
+     *  never touched and remains the slot's valid, visible evidence — see
+     *  [captureReplacingLatest]'s kdoc for the contract this restores.
+     *
+     *  Runs detached from the caller (and its per-slot [slotReplaceLocks] Mutex) on [appScope] so
+     *  a slow/offline upload never blocks the operator's next capture; the per-slot Mutex still
+     *  serializes concurrent NEW captures (ITEM 7), not this after-the-fact retirement. */
+    private fun retireSupersededOccupantsOnceSynced(
+        taskId: String,
+        partitionLabel: String?,
+        fieldKey: String,
+        newId: String,
+        newSubjectId: String?,
+    ) {
+        appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
+            try {
+                observeProofs(taskId, partitionLabel)
+                    .map { rows -> rows.firstOrNull { it.id == newId } }
+                    .filterNotNull()
+                    .distinctUntilChanged { old, new ->
+                        old.syncStatus == new.syncStatus && old.serverProofId == new.serverProofId
+                    }
+                    .transformWhile { row ->
+                        emit(row)
+                        row.syncStatus != CaptureSyncStatus.SYNCED && row.syncStatus != CaptureSyncStatus.FAILED
+                    }
+                    .collect { row ->
+                        if (row.syncStatus == CaptureSyncStatus.SYNCED && !row.serverProofId.isNullOrBlank()) {
+                            // Re-read ALL active rows for the slot (not just a stored `previous`),
+                            // same reasoning as the original ITEM 7 fix: concurrent replaces must
+                            // still converge to exactly one active row per subject.
+                            val allActive = observeProofs(taskId, partitionLabel).first()
+                                .filter { it.fieldKey == fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
+                            allActive.forEach { r ->
+                                if (r.id != newId && r.subjectId == newSubjectId) {
+                                    remove(taskId, r.id)
+                                }
+                            }
+                        }
+                        // else: terminal FAILED — leave every prior occupant of this subject alone.
+                    }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SQLException) {
+                if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
+            }
         }
     }
 
@@ -1022,6 +1104,14 @@ class DefaultProofCaptureRepository(
         uploadGroupKey: String? = null,
     ) {
         val uploadEntity = prepareFinalArtifact(entity)
+        // P1 fix: a processing failure that left the row AWAITING_RETRY must never proceed to
+        // registration/upload — that would ship the raw original as completed proof for a
+        // required-overlay flow. The row's DB state already reflects "awaiting operator action"
+        // (see prepareFinalArtifact's failure catch blocks); nothing more to do here until an
+        // explicit retry (retryUpload) resets processingAttempted and re-invokes the processor.
+        if (uploadEntity.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name) {
+            return
+        }
         val request = ProofUploadRequestDto(
             proofType = proofTypeForMime(uploadEntity.mimeType),
             mimeType = uploadEntity.mimeType,
@@ -1150,15 +1240,18 @@ class DefaultProofCaptureRepository(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
-                    // Fall through to uploadOriginal path same as first-attempt failure
+                    // P1 fix: processing failed again on retry. Original stays on disk (safety
+                    // preserved) but is NOT queued for upload — required-overlay flows must never
+                    // let an overlay-free capture satisfy a compliance proof gate. See
+                    // PROCESSING_FAILED_AWAITING_RETRY's kdoc.
                     val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
                     dao.updateProcessingArtifact(
                         id = entity.id,
                         localUri = entity.originalUri ?: entity.localUri,
                         mimeType = entity.mimeType,
-                        processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                        processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
                         processingAttempted = true,
-                        uploadOriginal = true,
+                        uploadOriginal = false,
                         processedUri = null,
                         originalBytes = localFileBytes(entity.originalUri ?: entity.localUri),
                         processedBytes = null,
@@ -1169,8 +1262,8 @@ class DefaultProofCaptureRepository(
                         updatedAtMs = clock(),
                     )
                     dao.findById(entity.id) ?: entity.copy(
-                        processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
-                        uploadOriginal = true,
+                        processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                        uploadOriginal = false,
                     )
                 }
             }
@@ -1255,14 +1348,20 @@ class DefaultProofCaptureRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
+            // P1 fix: a required-overlay flow (every flow — there is no proof_policy opt-in for
+            // originals today) must never let a processing failure silently ship an overlay-free
+            // original as completed proof. The original stays on disk (safety preserved, same as
+            // before) but the row is left AWAITING_RETRY and is NOT enqueued for upload —
+            // enqueueRegistrationNow short-circuits on this state. An operator must explicitly
+            // retry (re-record, or retryUpload() once the processor recovers).
             val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
             dao.updateProcessingArtifact(
                 id = entity.id,
                 localUri = entity.originalUri ?: entity.localUri,
                 mimeType = entity.mimeType,
-                processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
                 processingAttempted = true,
-                uploadOriginal = true,
+                uploadOriginal = false,
                 processedUri = null,
                 originalBytes = localFileBytes(entity.originalUri ?: entity.localUri),
                 processedBytes = null,
@@ -1274,33 +1373,33 @@ class DefaultProofCaptureRepository(
             )
             dao.updateProcessingState(
                 id = entity.id,
-                processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
                 attempt = attempt,
                 processingAttempted = true,
-                uploadOriginal = true,
+                uploadOriginal = false,
                 lastErrorStage = "processing",
                 lastErrorClass = errorClass,
-                lastErrorRetryable = false,
+                lastErrorRetryable = true,
                 lastErrorMessageHash = error.message?.hashCode()?.toString(),
                 updatedAtMs = clock(),
             )
             recordProofEvent(
                 entity,
-                "processing_failed_original_upload_queued",
-                ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                "processing_failed_awaiting_retry",
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
                 attempt,
                 durationMs = clock() - startedAtMs,
                 bytesIn = localFileBytes(entity.originalUri ?: entity.localUri),
                 errorClass = errorClass,
-                retryable = false,
+                retryable = true,
             )
-            telemetry.track(proofProcessingFailedEvent, proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = true) + ("error_class" to errorClass))
+            telemetry.track(proofProcessingFailedEvent, proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false) + ("error_class" to errorClass))
             dao.findById(entity.id) ?: entity.copy(
                 localUri = entity.originalUri ?: entity.localUri,
-                processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
                 processingAttempted = true,
                 stateAttempt = attempt,
-                uploadOriginal = true,
+                uploadOriginal = false,
             )
         }
     }
@@ -1340,6 +1439,9 @@ class DefaultProofCaptureRepository(
             when (current.processingState) {
                 ProofProcessingState.PROCESSED.name,
                 ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                // P1 fix: this is now a terminal (operator-actionable) state, not a transient stop
+                // on the way to an auto-queued original upload — stop polling and return it as-is.
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
                 ProofProcessingState.REGISTERING_UPLOAD.name,
                 ProofProcessingState.UPLOADING.name,
                 ProofProcessingState.UPLOAD_CONFIRMED.name -> return current
