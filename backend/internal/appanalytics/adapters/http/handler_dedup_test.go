@@ -1,11 +1,11 @@
 package appanalyticshttp
 
 import (
-	"os"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
