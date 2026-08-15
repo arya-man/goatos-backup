@@ -51,15 +51,18 @@ jobs:
     needs: preflight
     runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
     timeout-minutes: 75
-    env:
-      GOATOS_RUN_POSTGRES_TESTS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Run scoped local CI
         run: |
-          mode="${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}"
+          mode="${{ inputs.mode || 'auto' }}"
+          postgres="${{ inputs.run_postgres_tests || false }}"
+          export GOATOS_RUN_POSTGRES_TESTS=0
+          if [ "$postgres" = "true" ]; then
+            export GOATOS_RUN_POSTGRES_TESTS=1
+          fi
           if [ "$mode" = "auto" ]; then
             make ci-local
           else
