@@ -940,6 +940,7 @@ interface AppApi {
         parkId: String,
         targetDate: String,
         shedId: String? = null,
+        partitionLabel: String? = null,
         session: Int? = null,
         workflow: String? = null,
         // Optional verification-lifecycle filter: pending | pending_verification | completed.
@@ -1025,6 +1026,8 @@ interface AppApi {
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String? = null,
+        partitionLabel: String? = null,
         // Optional session filter (session_no; null = every session). Mirrors the preview.
         session: Int? = null,
         workflow: String? = null,
@@ -1735,6 +1738,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         parkId: String,
         targetDate: String,
         shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
@@ -1745,6 +1749,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
