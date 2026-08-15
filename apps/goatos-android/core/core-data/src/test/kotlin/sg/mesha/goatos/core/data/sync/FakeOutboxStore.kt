@@ -65,6 +65,12 @@ class FakeOutboxStore : OutboxStore {
             }
         }
 
+    override fun observeActiveByOpType(opType: String): kotlinx.coroutines.flow.Flow<List<OutboxEntity>> {
+        val base = observeActive()
+        return kotlinx.coroutines.flow.flow {
+            base.collect { rows -> emit(rows.filter { row -> row.opType == opType }) }
+        }
+    }
     override fun observeActiveCounts(): Flow<ActiveOutboxCounts> =
         rows.asStateFlow().map { all ->
             val active = all.filter {
