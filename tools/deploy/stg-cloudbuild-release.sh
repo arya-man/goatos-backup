@@ -142,14 +142,16 @@ already_deployed() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Cloud Build failed before STG rollout completed." 1
+    post_deploy_panel
+    notify_slack "FAILED" "Cloud Build failed before STG rollout completed."
   fi
 }
 
 trap on_exit EXIT
 
 if already_deployed; then
-  notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.' 1
+  post_deploy_panel
+  notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
   trap - EXIT
   echo "ALREADY_DEPLOYED ${commit_sha} on goatos-stg"
   exit 0

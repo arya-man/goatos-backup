@@ -71,52 +71,20 @@ payload = {
         ],
     }]
 }
-payload["blocks"] = [
-    {"type": "divider"},
-    {
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
-        },
-    },
-    {
-        "type": "actions",
-        "block_id": "deploy_options",
-        "elements": [{
-            "type": "checkboxes",
-            "action_id": "deploy_options",
-            "options": [{
-                "text": {"type": "plain_text", "text": "Also distribute Android mobile"},
-                "description": {
-                    "type": "plain_text",
-                    "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
-                },
-                "value": "mobile_distribution",
-            }],
-        }],
-    },
-    {
-        "type": "actions",
-        "elements": [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Deploy main to STG"},
-                "style": "primary",
-                "action_id": "deploy_goatos_stg_main",
-                "value": "main",
-            },
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Distribute Android only"},
-                "action_id": "deploy_goatos_mobile_only",
-                "value": "mobile",
-            },
-        ],
-    },
-]
 print(json.dumps(payload))
 PY
+}
+
+post_deploy_panel() {
+  local webhook
+  webhook="$(slack_webhook_url)"
+  [[ -n "$webhook" ]] || return 0
+  [[ -f tools/deploy/slack-stg-deploy-bot/deploy-card.json ]] || return 0
+
+  curl -fsS -X POST \
+    -H 'Content-Type: application/json' \
+    --data-binary @tools/deploy/slack-stg-deploy-bot/deploy-card.json \
+    "$webhook" >/dev/null || true
 }
 
 tag_checkout="${TAG_WORKSPACE}/goatos-release-tag-${commit_sha}"
@@ -153,6 +121,7 @@ if [[ -z "${notify_reason:-}" && -n "$pat" ]] && (
     ./tools/release/create-release-tag.sh
 ); then
   echo "release-tag-bookkeeping: release tag recorded for $commit_sha"
+  post_deploy_panel
   notify_slack_final \
     "#2EB67D" \
     "Goat OS STG deploy succeeded" \
@@ -165,6 +134,7 @@ git status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: dirty status in clean tag checkout, if any:"
 git -C "$tag_checkout" status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: ${notify_reason:-release tag failed after verified STG rollout; STG remains deployed.}"
+post_deploy_panel
 notify_slack_final \
   "#ECB22E" \
   "Goat OS STG deploy succeeded with release-tag warning" \
