@@ -17,6 +17,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -2398,6 +2399,215 @@ class CaptureRepositoryTest {
             assertEquals("Exactly one proof after concurrent replaces", 1, remaining.size)
             assertEquals("The most recent proof is active", thirdId, remaining[0].id)
             assertEquals("Newest proof path is third", "file:///third.mp4", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // ITEM 7: Cross-subject grain isolation in captureReplacingLatest
+    // ============================================================================
+    // ITEM 7: Two active rows same task+field different subjectIds → captureReplacingLatest
+    // for subject A removes only A's old row, B untouched.
+    @Test
+    fun `captureReplacingLatest removes only same-subject old rows, leaves sibling subjects untouched`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val taskId = "vacc-task:per-goat"
+            val fieldKey = "vaccination_goat_proof"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // Capture for goat A
+            val aFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-a",
+                localUri = "file:///a-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-a",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for goat A succeeds", aFirst is AppResult.Ok)
+            val aFirstId = (aFirst as AppResult.Ok).value.id
+
+            // Capture for goat B (same task, same field, different subject)
+            val bFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-b",
+                localUri = "file:///b-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-b",
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for goat B succeeds", bFirst is AppResult.Ok)
+            val bFirstId = (bFirst as AppResult.Ok).value.id
+
+            // Verify both rows exist
+            var allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Two proofs after capturing both subjects", 2, allRows.size)
+
+            // Now replace: captureReplacingLatest for subject A
+            val aSecond = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-a",
+                localUri = "file:///a-second.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-a",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second capture for goat A succeeds", aSecond is AppResult.Ok)
+            val aSecondId = (aSecond as AppResult.Ok).value.id
+
+            // After replace: ITEM 7 — only A's old row removed, B's row untouched
+            allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Two proofs remain: new A + old B", 2, allRows.size)
+            val rowIds = allRows.map { it.id }.toSet()
+            assertTrue("New A row exists", rowIds.contains(aSecondId))
+            assertTrue("Old B row still exists (not removed)", rowIds.contains(bFirstId))
+            assertFalse("Old A row removed", rowIds.contains(aFirstId))
+        } finally {
+            db.close()
+        }
+    }
+
+    // ITEM 7: Concurrent A/B replaces don't serialize on each other (different mutex keys).
+    @Test
+    fun `concurrent captureReplacingLatest on different subjects does not serialize mutex`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val taskId = "vacc-task:per-goat:concurrent"
+            val fieldKey = "vaccination_goat_proof"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture for A
+            val aFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-x",
+                localUri = "file:///x-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-x",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for X succeeds", aFirst is AppResult.Ok)
+
+            // First capture for B
+            val bFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-y",
+                localUri = "file:///y-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-y",
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for Y succeeds", bFirst is AppResult.Ok)
+
+            // Concurrent replace A/B on different subjects: must both succeed, not serialize
+            val aReplace = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-x",
+                localUri = "file:///x-replace.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-x",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Concurrent replace for X succeeds", aReplace is AppResult.Ok)
+
+            val bReplace = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-y",
+                localUri = "file:///y-replace.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-y",
+                capturedStartMs = 7_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Concurrent replace for Y succeeds", bReplace is AppResult.Ok)
+
+            // ITEM 7: Both replaces succeeded without one blocking the other. Final state: two active rows.
+            val allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Two active proofs after concurrent replaces", 2, allRows.size)
+            val rowsBySubject = allRows.associateBy { it.subjectId }
+            assertEquals("X proof path is replace", "file:///x-replace.mp4", rowsBySubject["goat-x"]?.localUri)
+            assertEquals("Y proof path is replace", "file:///y-replace.mp4", rowsBySubject["goat-y"]?.localUri)
         } finally {
             db.close()
         }

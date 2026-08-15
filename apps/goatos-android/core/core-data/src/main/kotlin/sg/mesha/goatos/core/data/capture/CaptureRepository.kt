@@ -884,9 +884,12 @@ class DefaultProofCaptureRepository(
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> {
-        // Use Mutex per slot to serialize concurrent replaces, ensuring they converge to one active row.
-        // Key must be stable across calls for the same slot.
-        val slotKey = "${slot.identity.taskId}|${slot.fieldKey}"
+        // ITEM 7: Use Mutex per slot+subject grain to serialize concurrent replaces, ensuring
+        // they converge to one active row per subject. Key must include subject grain
+        // (subjectId when the policy is per-subject) to prevent cross-subject collisions.
+        // Matching activeCountForSubject scoping: subjectId null/shed → shed-level, else per-subject.
+        val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
+        val slotKey = "${slot.identity.taskId}|${slot.fieldKey}|${effectiveSubjectId ?: "shed"}"
         val mutex = slotReplaceLocks.getOrPut(slotKey) { Mutex() }
 
         return mutex.withLock {
@@ -915,14 +918,19 @@ class DefaultProofCaptureRepository(
             )
             if (result is AppResult.Ok) {
                 val newId = result.value.id
-                // After successful capture, re-read ALL active rows for the slot and remove all non-newest ones.
-                // Keep only the row with the highest capturedAtMs (the one we just captured).
+                val newSubjectId = result.value.subjectId
+                // ITEM 7: After successful capture, re-read ALL active rows for the slot and remove
+                // only non-new occupants of the SAME subject. Two concurrent replaces for subject A
+                // both read the same set of previous A rows, both capture A successfully, but the
+                // second remove() must still eliminate the first's new A row so exactly one A row
+                // remains. Subject B rows stay untouched.
                 val allActive = observeProofs(taskId, partitionLabel).first()
                     .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
                 allActive.forEach { row ->
-                    // Remove every non-new active row. Id-based (not capturedAtMs) so two captures
-                    // landing in the same clock millisecond still converge to exactly one row.
-                    if (row.id != newId) {
+                    // Remove every non-new active row that belongs to the SAME subject.
+                    // Id-based (not capturedAtMs) so two captures landing in the same clock
+                    // millisecond still converge to exactly one row per subject.
+                    if (row.id != newId && row.subjectId == newSubjectId) {
                         remove(taskId, row.id)
                     }
                 }
@@ -1283,6 +1291,12 @@ class DefaultProofCaptureRepository(
         }
     }
 
+    /**
+     * ITEM 6: Validate PROCESSED artifact with full metadata probe (duration/dimensions).
+     * For processed files we control the encoder on, metadata-probe failure is DEFINITIVE
+     * rejection, not plausible-accept (unlike original camera files with OEM quirks).
+     * Throws if validation fails (causing prepareFinalArtifact to catch + fall back to original).
+     */
     private fun validateProcessedArtifact(
         entity: ProofCaptureEntity,
         processed: ProofMediaProcessingResult,
@@ -1292,6 +1306,14 @@ class DefaultProofCaptureRepository(
         require(processed.outputUri != originalUri) { "processed artifact reused original source" }
         processed.processedBytes?.let { bytes ->
             require(bytes > 0L) { "processed artifact is empty" }
+        }
+        // ITEM 6: Run full metadata validation (duration/dimensions) on PROCESSED output.
+        // Strict mode: no plausible-accept for processed files.
+        val validation = proofArtifactValidator.validateProcessedArtifact(processed.outputUri)
+        if (!validation.isValid) {
+            throw IllegalStateException(
+                "Processed artifact validation failed: ${validation.reason ?: "unknown error"}"
+            )
         }
     }
 

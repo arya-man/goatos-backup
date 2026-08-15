@@ -86,6 +86,33 @@ class ProofArtifactValidatorTest {
         assertTrue("Should accept when probe succeeded with valid metadata", result.isValid)
     }
 
+    // ITEM 6: Stricter validation for PROCESSED artifacts (no plausible-accept)
+
+    @Test
+    fun validateProcessedArtifact_rejectWhenProbeThrowsEvenWithPlausibleSize() {
+        // ITEM 6: Processed file with probe failure and plausible size → reject decisively (no plausible-accept)
+        val testValidator = ProcessedProbeThrowsValidator()
+        val result = testValidator.validateProcessedArtifact("any-uri")
+        assertFalse("Should reject processed artifact when probe throws (no plausible-accept)", result.isValid)
+        assertTrue("Should have reason", result.reason?.isNotBlank() == true)
+    }
+
+    @Test
+    fun validateProcessedArtifact_acceptWhenProbeSucceededWithValidMetadata() {
+        // ITEM 6: Processed file with successful probe and valid metadata → accept
+        val testValidator = ProcessedProbeSuccessValidator()
+        val result = testValidator.validateProcessedArtifact("any-uri")
+        assertTrue("Should accept processed artifact when probe succeeded with valid metadata", result.isValid)
+    }
+
+    @Test
+    fun validateProcessedArtifact_rejectWhenProbeSucceededButMetadataInvalid() {
+        // ITEM 6: Processed file with successful probe but invalid metadata → reject
+        val testValidator = ProcessedProbeSuccessInvalidMetadataValidator()
+        val result = testValidator.validateProcessedArtifact("any-uri")
+        assertFalse("Should reject processed artifact when metadata is invalid", result.isValid)
+    }
+
     // Test implementations for different probe scenarios
     private class ProbeSuccessWithInvalidDurationValidator : ProofArtifactValidator {
         override fun validateVideoFile(localUri: String) =
@@ -119,5 +146,40 @@ class ProofArtifactValidatorTest {
     private class ProbeSuccessWithValidMetadataValidator : ProofArtifactValidator {
         override fun validateVideoFile(localUri: String) =
             ProofArtifactValidator.ValidationResult(isValid = true)
+    }
+
+    // ITEM 6: Test validators for processed artifact strict validation
+
+    private class ProcessedProbeThrowsValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(isValid = true)  // Original allows plausible-accept
+
+        override fun validateProcessedArtifact(localUri: String) =
+            ProofArtifactValidator.ValidationResult(
+                isValid = false,
+                reason = "Could not validate processed recording: probe threw",
+            )
+    }
+
+    private class ProcessedProbeSuccessValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(isValid = true)
+
+        override fun validateProcessedArtifact(localUri: String) =
+            ProofArtifactValidator.ValidationResult(isValid = true)
+    }
+
+    private class ProcessedProbeSuccessInvalidMetadataValidator : ProofArtifactValidator {
+        override fun validateVideoFile(localUri: String) =
+            ProofArtifactValidator.ValidationResult(
+                isValid = false,
+                reason = "Recording has no valid duration.",
+            )
+
+        override fun validateProcessedArtifact(localUri: String) =
+            ProofArtifactValidator.ValidationResult(
+                isValid = false,
+                reason = "Recording has no valid duration.",
+            )
     }
 }
