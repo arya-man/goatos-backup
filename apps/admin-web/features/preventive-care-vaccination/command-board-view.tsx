@@ -15,6 +15,7 @@ import {
   parseDriveSelectionValue,
   scheduledDriveCampaigns,
   scheduledDriveRows,
+  sortDriveCampaignsNewestFirst,
   type CommandBoardDriveOption,
 } from "./command-board-future-drives";
 
@@ -565,7 +566,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     [futureDrives, statuses],
   );
   const driveCampaigns = useMemo(
-    () => [...executedCampaigns, ...futureCampaigns],
+    () => sortDriveCampaignsNewestFirst([...executedCampaigns, ...futureCampaigns]),
     [executedCampaigns, futureCampaigns],
   );
 
