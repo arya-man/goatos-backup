@@ -90,6 +90,47 @@ func TestSchedulePathForGoat(t *testing.T) {
 	}
 }
 
+// A kid housed in a clinical pen is still a kid, and must resume on the KID course.
+//
+// Since 000167 a shifting stamps the pen's own tag, so a kid moved into ICU now carries
+// 'ICU-Kid' in management_stage. That uppercases to "ICU-KID", which does not start with "K" --
+// so before this it failed the kid test and routed to the adult procurement course. That is a
+// DOSING error, not a pause: the animal would be scheduled adult doses on adult spacing.
+//
+// The no-DOB cases are the ones that bite. The path picker tries DOB first, so an animal with a
+// reliable birthday is protected by age alone; much of this herd is not, and for those the stage
+// tag IS the answer. Being off the schedule while sick is the separate clinical defer set, which
+// works off health_status and DEFERS rather than cancels -- this decides only which course the
+// animal comes back to.
+func TestClinicalKidPenTagStillRoutesTheKidCourse(t *testing.T) {
+	proc := genProcurementPolicy{KidsNormalScheduleUntilWeeks: 16}
+	asOf := time.Date(2026, time.August, 15, 0, 0, 0, 0, time.UTC)
+
+	for _, stage := range []string{"ICU-Kid", "ICU- kid", "Quarantine kids"} {
+		// No DOB: the stage tag is the only signal, which is the realistic case for this herd.
+		noDOB := domain.EligibleGoat{OriginType: "birth", Stage: stage}
+		if got := schedulePathForGoat(noDOB, proc, asOf, nil); got != schedulePathKid {
+			t.Fatalf("clinically-housed kid stage %q with no DOB = %q, want kid", stage, got)
+		}
+
+		// Within the kid start window, with a DOB, it must not regress either.
+		dob := asOf.AddDate(0, 0, -70) // 10 weeks
+		withDOB := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: stage}
+		if got := schedulePathForGoat(withDOB, proc, asOf, nil); got != schedulePathKid {
+			t.Fatalf("clinically-housed kid stage %q at 10w = %q, want kid", stage, got)
+		}
+	}
+
+	// The widened test must not drag ADULT cohorts onto the kid course. "Milking" is the near miss
+	// that motivates checking: it contains "KI" and stops there.
+	for _, stage := range []string{"Milking", "Mother", "Non-Pregnant", "Pregnant", "Buck", "ICU-Non-Pregnant", "Warmup", "M0"} {
+		adult := domain.EligibleGoat{OriginType: "procured", Stage: stage}
+		if got := schedulePathForGoat(adult, proc, asOf, nil); got != schedulePathAdultProcurement {
+			t.Fatalf("adult stage %q = %q, want adult_procurement", stage, got)
+		}
+	}
+}
+
 func TestRecoveryRescheduleDue(t *testing.T) {
 	policy := genRecoveryPolicy{}
 	asOf := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
