@@ -8,7 +8,6 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
-import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
@@ -21,6 +20,7 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
@@ -38,6 +38,13 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         private set
     var enqueuePendingScansCalls: Int = 0
         private set
+
+    /** Test hook: flip every stored capture to SYNCED — the precondition for any server-side
+     *  reconciliation (a PENDING capture is offline evidence the server has not seen). */
+    fun markAllSynced() {
+        rows.replaceAll { it.copy(syncStatus = CaptureSyncStatus.SYNCED) }
+        flow.value = rows.toList()
+    }
 
     override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
         flow.map { list ->
@@ -77,6 +84,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
                 obligationId = obligationId,
                 capturedAtMs = capturedAtMs ?: rows.size.toLong(),
                 partitionKey = partitionKey,
+                obligationRowVersion = obligationRowVersion,
             )
             flow.value = rows.toList()
         }

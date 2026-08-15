@@ -1180,10 +1180,10 @@ private class FakeScannedGoatDao : ScannedGoatDao {
             it.obligationId == obligationId
     }
 
-    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
+    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String, obligationRowVersion: Int) {
         rows.replaceAll { row ->
             if (row.id == id) {
-                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus)
+                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus, obligationRowVersion = obligationRowVersion)
             } else {
                 row
             }
