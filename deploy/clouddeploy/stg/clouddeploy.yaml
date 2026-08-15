@@ -27,15 +27,15 @@ apiVersion: deploy.cloud.google.com/v1
 kind: CustomTargetType
 metadata:
   name: goatos-stg-cloud-run
-description: Scripted Cloud Run staging rollout for API, admin-web, migrate job, and backend workers.
+description: Scripted Cloud Run staging rollout for API, MCP, admin-web, migrate job, and backend workers.
 tasks:
   render:
     type: container
-    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:85c1ccad8514b5a4a638e2c1a85a32ec7daf5d2b6a7475327452348262fa4a13
+    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:47238d951e12ced4eff95cd4f74bf488eeaf90fefde5fc399ab6f7f1927295c3
     command: ["/usr/local/bin/goatos-stg-clouddeploy-task"]
     args: ["render"]
   deploy:
     type: container
-    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:85c1ccad8514b5a4a638e2c1a85a32ec7daf5d2b6a7475327452348262fa4a13
+    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:47238d951e12ced4eff95cd4f74bf488eeaf90fefde5fc399ab6f7f1927295c3
     command: ["/usr/local/bin/goatos-stg-clouddeploy-task"]
     args: ["deploy"]
