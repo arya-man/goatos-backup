@@ -5,10 +5,18 @@ PROJECT_ID="${PROJECT_ID:-goatos-stg}"
 REGION="${REGION:-asia-south1}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 
-repo_root="$(git rev-parse --show-toplevel)"
+if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
 cd "$repo_root"
 
-commit_sha="$(git rev-parse --short=12 HEAD)"
+if [[ -n "${COMMIT_SHA:-}" ]]; then
+  commit_sha="$(printf '%s' "$COMMIT_SHA" | cut -c1-12)"
+else
+  commit_sha="$(git rev-parse --short=12 HEAD)"
+fi
 release_id="${RELEASE_ID:-r-${commit_sha}-$(date -u +%H%M%S)}"
 build_id="${BUILD_ID:-local}"
 triggered_by="${TRIGGERED_BY:-unknown Slack user}"
