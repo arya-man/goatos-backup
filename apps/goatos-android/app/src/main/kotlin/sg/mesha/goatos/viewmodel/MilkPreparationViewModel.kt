@@ -377,19 +377,75 @@ class MilkPreparationViewModel @Inject constructor(
     }
 
     /**
-     * Replaces one step's clip: the discarded take's queued upload is deleted (it must not reach the
-     * verifier as a second video), then the normal capture path runs again.
+     * Replaces one step's clip: Manohar ordering ensures the new proof captures and stores
+     * BEFORE the old one is deleted, so a cancelled or failed re-capture keeps the existing
+     * good proof (the old "proof disappeared" defect).
      */
     private fun reCaptureStep(stepCode: String) {
         val current = state.value
         if (!current.isEditable) return
+        val oldProofOutboxId = captureDraft.proofs[stepCode]
         viewModelScope.launch {
-            captureDraft.proofs[stepCode]?.let { sync.deleteOutboxItem(it) }
-            drafts.clearProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode)
-            captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             proofKeys[stepCode]?.invalidate()
             draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = false) else row }) }
-            captureStep(stepCode)
+            val caption = proofOverlayContextLine(
+                feature = "Milk preparation",
+                parkLabel = current.parkLabel.ifBlank { parkId },
+                extraLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+            )
+            val video = capture.captureVideo(
+                ProofCaptureContext(
+                    title = caption,
+                    primaryTag = current.parkLabel.ifBlank { parkId },
+                    workLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+                    prompt = ProofCapturePrompt.MILK_PREPARATION,
+                    headerTitle = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+                ),
+            )
+            if (video == null) {
+                draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = false) else row }) }
+                return@launch
+            }
+            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
+            when (val result = proofCaptureRepository.capture(
+                taskId = groupKey(),
+                fieldKey = "milk_preparation_$stepCode",
+                subject = ProofSubject.PARK,
+                subjectId = parkId,
+                localUri = video.localUri,
+                mimeType = video.mimeType,
+                caption = caption,
+                scopeType = "park",
+                scopeId = parkId,
+                capturedStartMs = video.startedAtMs,
+                capturedEndMs = video.endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = milkParkProofPolicy(video.captureSource),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = groupKey(),
+            )) {
+                is AppResult.Ok -> {
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        setCapturing(stepCode, false)
+                        draft.update { it.copy(message = "Proof upload could not be queued") }
+                        return@launch
+                    }
+                    // NEW PROOF is durable before we remove the old one, so a process death here
+                    // cannot lose the clip (Manohar ordering).
+                    drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, proofOutboxId)
+                    captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
+                    // ONLY NOW, after the new proof is stored, delete the old one so it never
+                    // reaches the verifier as a duplicate.
+                    oldProofOutboxId?.let { sync.deleteOutboxItem(it) }
+                }
+                is AppResult.Err -> {
+                    setCapturing(stepCode, false)
+                    draft.update { it.copy(message = result.message) }
+                    // On error, keep the old proof: don't remove it.
+                }
+            }
         }
     }
 

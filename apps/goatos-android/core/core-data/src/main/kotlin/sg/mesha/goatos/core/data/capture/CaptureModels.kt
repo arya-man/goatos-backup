@@ -114,6 +114,8 @@ data class ProofIdentity(
  *   `SavedStateHandle` for process-death survival — [ProofIdentity] has no equivalent
  *   per-step/per-`SavedStateHandle` concept, so unifying the two would mean redesigning
  *   [ProofIdentity] itself, not just swapping call sites.
+ *   **Recapture ordering is now safe** (Manohar ordering: capture new proof durably before
+ *   deleting old), but keys remain non-canonical.
  * - [WorkflowDetailViewModel] derives its field key from a backend-declared, per-workflow
  *   `actionId` (`workflowProofFieldKey(actionId)`) whose vocabulary is open-ended and
  *   server-defined per workflow definition — [ProofIdentity.subjectKey] assumes a bounded,
