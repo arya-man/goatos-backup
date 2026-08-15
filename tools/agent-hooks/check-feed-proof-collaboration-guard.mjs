@@ -158,6 +158,30 @@ for (const [rel, marker] of requiredTests) {
   else if (!marker.test(src)) failures.push(`regression-tests-deleted: pinned test body missing in ${rel} (${marker})`);
 }
 
+
+// --- Mode 6: non-canonical flow RATCHET — the list may only shrink -----------------------
+// docs/product/feed-proof-collaboration.md + the offline-sync architecture decision: milk and
+// workflow_detail are the LAST flows outside ProofIdentity/EvidenceSlot. New entries = a new
+// screen opting out of the shared model = the loop coming back. Ratchet: exactly these three,
+// fewer is fine, more or different fails.
+{
+  const cm = read('apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureModels.kt');
+  if (cm == null) failures.push('missing-file: CaptureModels.kt');
+  else {
+    const block = cm.match(/NON_CANONICAL_PROOF_KEY_FLOWS: Set<String> = setOf\(([\s\S]*?)\)/);
+    if (!block) failures.push('non-canonical-ratchet: NON_CANONICAL_PROOF_KEY_FLOWS declaration not found');
+    else {
+      const entries = [...block[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+      const allowed = new Set(['milk_preparation', 'milk_feeding', 'workflow_detail']);
+      for (const e of entries) {
+        if (!allowed.has(e)) {
+          failures.push(`non-canonical-ratchet: new non-canonical proof flow "${e}" — migrate it to ProofIdentity/EvidenceSlot instead of opting out`);
+        }
+      }
+    }
+  }
+}
+
 // --- Report ------------------------------------------------------------------------------
 if (failures.length > 0) {
   console.error('feed-proof-collaboration-guard FAILED:');

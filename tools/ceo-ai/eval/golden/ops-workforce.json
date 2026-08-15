@@ -1,12 +1,36 @@
 [
   {
+    "id": "counts-summary",
+    "class": "counts_breakdown",
+    "question": "How many active animals do we have by park and shed?",
+    "notes": "Aggregate census only. Keep lifecycle status explicit; active/exited/dead are different answer scopes.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "cube", "sql"],
+      "external_mcp_tools_any_of": ["get_counts_summary", "GET /counts/breakdown"]
+    }
+  },
+  {
+    "id": "health-work-items",
+    "class": "health_work_items",
+    "question": "What health work items are due today by disease and shed?",
+    "notes": "Treatment-session grain. Sick/open work is not death/mortality unless health state explicitly says approved death.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_health_work_items", "GET /app/health/work-items"]
+    }
+  },
+  {
     "id": "workforce-coverage",
     "class": "workforce_coverage",
     "question": "Which sheds have no backup manager coverage?",
     "notes": "Report role/position/active status, never staff PII. Backup covers absent manager's tasks.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"]
+      "tiers_any_of": ["api", "sql"],
+      "external_mcp_tools_any_of": ["get_action_center", "GET /action-center/obligations"]
     }
   },
   {
@@ -16,7 +40,8 @@
     "notes": "Cross-domain proof-verification backlog. Status is a read-time bucket; asserted as an aggregate + routing tier.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"]
+      "tiers_any_of": ["api", "sql"],
+      "external_mcp_tools_any_of": ["get_verification_backlog", "GET /verification/queue"]
     }
   },
   {
@@ -26,7 +51,8 @@
     "notes": "Cross-module command lens by severity + owner + due_at.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"]
+      "tiers_any_of": ["api", "sql"],
+      "external_mcp_tools_any_of": ["get_action_center", "GET /action-center/obligations"]
     }
   },
   {
@@ -99,6 +125,61 @@
       "aggregate_first": true,
       "ist": true,
       "tiers_any_of": ["toolbox", "sql"]
+    }
+  },
+  {
+    "id": "weighing-progress",
+    "class": "weighing_progress",
+    "question": "What is the current weighing campaign progress?",
+    "notes": "Campaign/capture surface only. Pending verification weight is not verified weight.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_weighing_progress", "GET /weighing/campaigns"]
+    }
+  },
+  {
+    "id": "weighing-process-state",
+    "class": "weighing_process_state",
+    "question": "Which weighing work is overdue or waiting for proof review?",
+    "notes": "Process-state rows are control-tower gaps, not verified weight totals.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_weighing_process_state", "GET /weighing/process-state"]
+    }
+  },
+  {
+    "id": "weighing-growth-adg",
+    "class": "weighing_growth_adg",
+    "question": "Are weights improving this month?",
+    "notes": "Growth/ADG trend answer; do not use campaign progress counts as growth.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_weighing_growth_adg", "GET /weighing/leadership/growth"]
+    }
+  },
+  {
+    "id": "weighing-shed-weights",
+    "class": "weighing_shed_weights",
+    "question": "Which sheds are lagging on latest weights?",
+    "notes": "Shed weight KPI surface; do not answer from verification queue alone.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_weighing_shed_weights", "GET /weighing/shed-weights"]
+    }
+  },
+  {
+    "id": "weighing-weight-demographics",
+    "class": "weighing_weight_demographics",
+    "question": "How do weights compare by breed, sex, and stage?",
+    "notes": "Demographic weight mix/group comparison; no herd/vaccination coupling.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_weighing_weight_demographics", "GET /weighing/weight-demographics"]
     }
   }
 ]

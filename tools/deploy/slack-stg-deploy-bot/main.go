@@ -161,7 +161,8 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buildID, err := cfg.runTrigger(r.Context(), deploySTG, mobileDistribution)
+	triggeredBy := slackUserLabel(payload.User.ID, payload.User.Username, payload.User.Name)
+	buildID, err := cfg.runTrigger(r.Context(), deploySTG, mobileDistribution, payload.User.ID, triggeredBy)
 	if err != nil {
 		log.Printf("run trigger failed: %v", err)
 		writeSlackJSON(w, map[string]any{
@@ -177,7 +178,7 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		"response_type":    "in_channel",
 		"replace_original": true,
 		"text":             fmt.Sprintf("%s from `main` started by <@%s>.\nCloud Build: %s", actionLabel, payload.User.ID, buildURL),
-		"blocks":           deployStartedBlocks(payload.User.ID, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
+		"blocks":           deployStartedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
 }
 
@@ -201,7 +202,7 @@ func deployAlreadyRunningBlocks(build cloudBuildListBuild, buildURL, deployURL s
 	}
 }
 
-func deployStartedBlocks(userID, actionLabel string, deploySTG, mobileDistribution bool, buildURL, deployURL string) []map[string]any {
+func deployStartedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool, buildURL, deployURL string) []map[string]any {
 	links := fmt.Sprintf("<%s|Cloud Build logs>", buildURL)
 	if deploySTG {
 		links += fmt.Sprintf(" | <%s|Cloud Deploy rollout>", deployURL)
@@ -211,13 +212,13 @@ func deployStartedBlocks(userID, actionLabel string, deploySTG, mobileDistributi
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s in progress* by <@%s>\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, userID, deploySTG, mobileDistribution, links),
+				"text": fmt.Sprintf("*%s in progress* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, links),
 			},
 		},
 	}
 }
 
-func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool) (string, error) {
+func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool, slackUserID, triggeredBy string) (string, error) {
 	token, err := metadataToken(ctx)
 	if err != nil {
 		return "", err
@@ -229,6 +230,8 @@ func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution 
 			"substitutions": map[string]string{
 				"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
 				"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
+				"_SLACK_USER_ID": slackUserID,
+				"_TRIGGERED_BY":  triggeredBy,
 			},
 		},
 	}
@@ -315,6 +318,19 @@ func buildMode(build cloudBuildListBuild) string {
 	default:
 		return "unknown"
 	}
+}
+
+func slackUserLabel(userID, username, name string) string {
+	if userID != "" {
+		return "<@" + userID + ">"
+	}
+	if username != "" {
+		return "@" + username
+	}
+	if name != "" {
+		return name
+	}
+	return "unknown Slack user"
 }
 
 func (cfg config) cloudBuildURL(buildID string) string {

@@ -1,5 +1,22 @@
 [
   {
+    "id": "vacc-live-today-progress",
+    "class": "vaccination_live_tracker",
+    "question": "What vaccination work is scheduled today and what is the progress?",
+    "notes": "Must answer from the drive-day/live-tracker grain: scheduled administrations, assigned operators, shed/partition/vaccine progress, proof videos, scan captures, closed administrations, remaining work, and unassigned scheduled administrations. External MCP should route this to get_vaccination_today / GET /vaccination/live-tracker, not generic ask_goatos fallback. Do not mix all-history dashboard totals or vaccination_shed_status totals into today's drive-day answer.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": [
+        "api"
+      ],
+      "external_mcp_tools_any_of": [
+        "get_vaccination_today",
+        "GET /vaccination/live-tracker"
+      ]
+    }
+  },
+  {
     "id": "vacc-due-today",
     "class": "vaccination_due_today",
     "question": "What vaccination work is due today?",

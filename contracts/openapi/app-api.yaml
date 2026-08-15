@@ -4428,6 +4428,84 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/source-entry/loads:
+    get:
+      tags:
+        - Procurement
+      operationId: listProcurementSourceEntryLoads
+      summary: List procurement source-entry loads.
+      description: >-
+        One bounded page of source-entry loads for leadership and operator follow-up.
+        This is the read side for supplier warmup, source health, pre-dispatch,
+        in-transit, arrival review, accepted intake, rejected, deferred, and blocked
+        load states. `expected_count` is the planned animals on each load; do not
+        treat a single page as a company total when `next_cursor` is present.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+          description: Optional load status filter.
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque keyset cursor from a previous response.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        "200":
+          description: One page of source-entry loads.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, trace_id]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [load_id, tenant_id, source_party_id, expected_count, status, created_at, updated_at, row_version]
+                      properties:
+                        load_id: { type: string }
+                        tenant_id: { type: string }
+                        source_party_id: { type: string }
+                        source_party_name: { type: string }
+                        source_location_id: { type: string, nullable: true }
+                        source_location_code: { type: string, nullable: true }
+                        source_location_name: { type: string, nullable: true }
+                        expected_count: { type: integer }
+                        purchase_date: { type: string, format: date-time, nullable: true }
+                        planned_dispatch_at: { type: string, format: date-time, nullable: true }
+                        status: { type: string }
+                        notes: { type: string }
+                        context: { type: object, additionalProperties: true }
+                        created_at: { type: string, format: date-time }
+                        updated_at: { type: string, format: date-time }
+                        row_version: { type: integer }
+                  next_cursor:
+                    type: string
+                    nullable: true
+                  trace_id:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/vendors:
     get:
       tags:
