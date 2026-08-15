@@ -110,9 +110,13 @@ private const val PACKING_CACHE_SHAPE = "session-v3"
  *  filtered server-side, so a small page is always enough. */
 private const val STATUS_POLL_DIRECTION_LIMIT = 20
 
-/** Page size for [DefaultFeedRepository.fetchPackingRowStatus]'s poll. Packing has no shedId filter
- *  server-side, so this must be generous enough to cover a park's whole shed count for one session. */
-private const val STATUS_POLL_PACKING_LIMIT = 200
+/** Page size for [DefaultFeedRepository.fetchPackingRowStatus]'s poll. When shed and partition are
+ *  narrowed server-side, a small page is always enough. */
+private const val STATUS_POLL_PACKING_LIMIT = 20
+
+/** Maximum pages to fetch during status polling when paginating (should almost never be reached after
+ *  adding exact server-side narrowing by shed/partition_label). */
+private const val MAX_STATUS_POLL_PAGES = 10
 
 /**
  * Feed vertical reads: the generated Feed Direction sheet and the Feed Packing worklist.
@@ -352,15 +356,33 @@ class DefaultFeedRepository(
         sessionNo: Int,
         targetDate: String,
     ): String? = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
-        api.getFeedDirectionPreview(
-            parkId = parkId,
-            targetDate = targetDate,
-            shedId = shedId,
-            session = sessionNo,
-            workflow = workflow.takeIf { it.isNotBlank() },
-            limit = STATUS_POLL_DIRECTION_LIMIT,
-            offset = 0,
-        ).items.firstOrNull { it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus
+        // Narrow server-side to one shed-session-partition grain with exact parameters: guaranteed
+        // to land the target row on page one regardless of park size. If a match still is not on page one
+        // after narrowing (should never happen), paginate up to MAX_STATUS_POLL_PAGES before giving up.
+        var offset = 0
+        repeat(MAX_STATUS_POLL_PAGES) {
+            val response = api.getFeedDirectionPreview(
+                parkId = parkId,
+                targetDate = targetDate,
+                shedId = shedId,
+                partitionLabel = partitionLabel.takeIf { it.isNotBlank() },
+                session = sessionNo,
+                workflow = workflow.takeIf { it.isNotBlank() },
+                limit = STATUS_POLL_DIRECTION_LIMIT,
+                offset = offset,
+            )
+            // Look for exact match on this page
+            response.items.firstOrNull { it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus?.let {
+                return@runCatching it
+            }
+            // If no more pages, give up
+            if (!response.hasMore) {
+                return@runCatching null
+            }
+            // Advance to next page: backend pages by SHEDS, not rows
+            offset += response.items.map { it.shedId }.distinct().size
+        }
+        null
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
     override suspend fun fetchPackingRowStatus( // offline-first-guard:ignore: same rationale — periodic server poll for a teammate's write.
@@ -372,18 +394,33 @@ class DefaultFeedRepository(
         targetDate: String,
     ): String? = runCatching {
         // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
-        // getFeedPackingWorklist has no shedId filter (it pages the whole park/session/workflow
-        // scope by shed), so this narrows client-side. STATUS_POLL_PACKING_LIMIT is generous enough
-        // to cover a normal park's shed count for one session; if a match still is not on the page,
-        // this returns null (unknown) rather than guessing — never a false "not submitted".
-        api.getFeedPackingWorklist(
-            parkId = parkId,
-            targetDate = targetDate,
-            session = sessionNo,
-            workflow = workflow.takeIf { it.isNotBlank() },
-            limit = STATUS_POLL_PACKING_LIMIT,
-            offset = 0,
-        ).items.firstOrNull { it.shedId == shedId && it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus
+        // Narrow server-side to one shed-session-partition grain with exact parameters: guaranteed
+        // to land the target row on page one regardless of park size. If a match still is not on page one
+        // after narrowing (should never happen), paginate up to MAX_STATUS_POLL_PAGES before giving up.
+        var offset = 0
+        repeat(MAX_STATUS_POLL_PAGES) {
+            val response = api.getFeedPackingWorklist(
+                parkId = parkId,
+                targetDate = targetDate,
+                shedId = shedId,
+                partitionLabel = partitionLabel.takeIf { it.isNotBlank() },
+                session = sessionNo,
+                workflow = workflow.takeIf { it.isNotBlank() },
+                limit = STATUS_POLL_PACKING_LIMIT,
+                offset = offset,
+            )
+            // Look for exact match on this page
+            response.items.firstOrNull { it.shedId == shedId && it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus?.let {
+                return@runCatching it
+            }
+            // If no more pages, give up
+            if (!response.hasMore) {
+                return@runCatching null
+            }
+            // Advance to next page: backend pages by SHEDS, not rows
+            offset += response.items.map { it.shedId }.distinct().size
+        }
+        null
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
     override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
@@ -405,7 +442,7 @@ class DefaultFeedRepository(
             null
         }
 
-    override suspend fun fetchProofDownloadUrl(proofId: String): String? {
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? { // offline-first-guard:ignore: signed URL is single-use and time-limited by the server; caching it in Room would serve an expired/invalid link instead of failing honestly
         if (proofId.isBlank()) return null
         return try {
             api.getProofDownloadUrl(proofId)
