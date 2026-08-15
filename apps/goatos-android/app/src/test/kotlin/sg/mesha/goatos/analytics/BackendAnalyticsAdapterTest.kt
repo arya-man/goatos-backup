@@ -139,4 +139,40 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE))
     }
+
+    /** External review 2026-08-16: FEED_DISTRIBUTION_SUBMIT_SOURCES is the ONLY event carrying
+     *  all three split-operator slot sources (Firebase drops two under the 25-param cap) — it
+     *  must be durable, and the resend must reuse the SAME client_event_id + all three fields. */
+    @Test
+    fun `submit sources event is durable and resends with same id and all three source fields`() = runTest {
+        val api = FakeAppApi(shouldFail = true)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
+        val backend = adapter(api, this, queue)
+
+        backend.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES,
+            mapOf(
+                "feed_weight_source" to "local",
+                "feed_video_source" to "teammate",
+                "water_video_source" to "teammate",
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals("failed send of submit-sources must queue", 1, queue.size())
+        val originalId = api.received.single().clientEventId
+        assertTrue("live send carries top-level client_event_id", !originalId.isNullOrBlank())
+        api.received.clear()
+
+        api.shouldFail = false
+        backend.track(AnalyticsEvents.APP_OPEN)
+        advanceUntilIdle()
+
+        assertEquals(0, queue.size())
+        val resent = api.received.single { it.eventName == AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES }
+        assertEquals("resend must reuse the ORIGINAL client_event_id", originalId, resent.clientEventId)
+        assertEquals("local", resent.properties["feed_weight_source"])
+        assertEquals("teammate", resent.properties["feed_video_source"])
+        assertEquals("teammate", resent.properties["water_video_source"])
+    }
+
 }

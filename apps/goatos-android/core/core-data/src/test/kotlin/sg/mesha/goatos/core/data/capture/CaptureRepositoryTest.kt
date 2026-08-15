@@ -1318,6 +1318,59 @@ class CaptureRepositoryTest {
         }
     }
 
+    /** External review 2026-08-16: a replacement must retire ALL prior active occupants of its
+     *  slot across process death, not just the single persisted supersedesRowId — a prior
+     *  half-finished replacement legitimately leaves TWO old active rows. */
+    @Test
+    fun `recovery retires every older same-slot row once the replacement syncs`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            // TWO stale active occupants of the same slot+subject (an earlier replacement died
+            // mid-retirement), plus the NEW replacement row carrying the supersession marker for
+            // only ONE of them — exactly the state after a process death.
+            db.proofCaptureDao().insert(
+                proofEntity(id = "old-1", taskId = "task-ms", fieldKey = "administration_video", idempotencyKey = "k-old-1"),
+            )
+            db.proofCaptureDao().insert(
+                proofEntity(id = "old-2", taskId = "task-ms", fieldKey = "administration_video", idempotencyKey = "k-old-2"),
+            )
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "new-row", taskId = "task-ms", fieldKey = "administration_video",
+                    idempotencyKey = "k-new", outboxItemId = "outbox-new",
+                ).copy(
+                    supersedesRowId = "old-1",
+                    capturedAtMs = 9_000L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                    serverProofId = "server-proof-new",
+                ),
+            )
+            sync.seed("outbox-new", SyncItemStatus.SUCCEEDED)
+
+            // Fresh repository instance = empty in-memory retirement tickets (post-death).
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            repo.reconcileRecoverableUploadsNow()
+            repo.observeProofs("task-ms", null).first()
+
+            val remaining = db.proofCaptureDao().listForTask("task-ms")
+            assertEquals(
+                "exactly the synced replacement must remain: got ${'$'}{remaining.map { it.id }}",
+                listOf("new-row"),
+                remaining.map { it.id },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
     /** Judge finding #5 (2026-08-16): recovery must re-enqueue with the PERSISTED
      *  uploadGroupKey/clientTaskKey verbatim — values deliberately different from anything the
      *  fallback derivation would produce, so a fallback regression fails loudly. */

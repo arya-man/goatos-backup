@@ -714,9 +714,26 @@ class DefaultProofCaptureRepository(
      *  row is gone, [ProofCaptureDao.findById] returns null and this is a no-op on every later
      *  pass. */
     private suspend fun retireSupersededRowIfAny(row: ProofCaptureEntity): Set<String> {
-        val supersededId = row.supersedesRowId?.takeIf { it.isNotBlank() } ?: return emptySet()
-        val superseded = dao.findById(supersededId) ?: return emptySet()
-        return if (remove(superseded.taskId, superseded.id) is AppResult.Ok) setOf(superseded.id) else emptySet()
+        // The marker means "this row REPLACED its slot", not "it replaced exactly that one row":
+        // the live path can find MULTIPLE old active occupants (a prior replacement that itself
+        // died mid-retirement leaves two), and persisting a single id let the extras survive a
+        // process death (external review 2026-08-16). Retire EVERY other active same-slot,
+        // same-subject row older than the replacement — the named id is just the trigger.
+        row.supersedesRowId?.takeIf { it.isNotBlank() } ?: return emptySet()
+        val retired = mutableSetOf<String>() // mobile-guard:ignore: function-local accumulator, returned and GC-ed per call
+        dao.listForTask(row.taskId)
+            .filter {
+                it.id != row.id &&
+                    it.partitionKey == row.partitionKey &&
+                    it.fieldKey == row.fieldKey &&
+                    it.subjectId == row.subjectId &&
+                    it.capturedAtMs <= row.capturedAtMs &&
+                    it.syncStatus != EntitySyncStatus.FAILED.name
+            }
+            .forEach { superseded ->
+                if (remove(superseded.taskId, superseded.id) is AppResult.Ok) retired += superseded.id
+            }
+        return retired
     }
 
     override suspend fun capture(
