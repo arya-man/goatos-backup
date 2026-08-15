@@ -100,7 +100,9 @@ DO NOTHING`,
 		httpmiddleware.RequestIDFromContext(r.Context()),
 		httpmiddleware.TraceIDFromContext(r.Context()),
 		string(client),
-		body.ClientEventID,
+		// NULL, never "": the partial unique index treats "" as a real value, so a blank id
+		// would dedupe EVERY id-less event for a tenant against the first one (silent loss).
+		nullableClientEventID(body.ClientEventID),
 	)
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "app_analytics_event_insert_failed", slog.String("event_name", body.EventName), slog.String("error", err.Error()))
@@ -116,4 +118,13 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int,
 		"message":      message,
 		"field_errors": []any{},
 	}, cause)
+}
+
+// nullableClientEventID maps an absent/blank client_event_id to SQL NULL so the partial
+// unique index (WHERE client_event_id IS NOT NULL) never treats "" as a dedupe key.
+func nullableClientEventID(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }
