@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.buildMilkPreparationEvidenceSlot
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofFlow
@@ -433,9 +434,8 @@ class MilkPreparationViewModel @Inject constructor(
             }
             draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
             val slot = evidenceSlot(stepCode)
-            when (val result = proofCaptureRepository.capture(
-                taskId = slot.identity.taskId,
-                fieldKey = slot.fieldKey,
+            when (val result = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
                 subject = ProofSubject.PARK,
                 subjectId = parkId,
                 localUri = video.localUri,
@@ -502,9 +502,8 @@ class MilkPreparationViewModel @Inject constructor(
                 return@launch
             }
             val slot = evidenceSlot(stepCode)
-            when (val result = proofCaptureRepository.capture(
-                taskId = slot.identity.taskId,
-                fieldKey = slot.fieldKey,
+            when (val result = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
                 subject = ProofSubject.PARK,
                 subjectId = parkId,
                 localUri = video.localUri,
@@ -578,7 +577,7 @@ class MilkPreparationViewModel @Inject constructor(
         }
     }
 
-    private fun groupKey() = "milk-preparation:$parkId:$preparationDate"
+    internal fun groupKey() = "milk-preparation:$parkId:$preparationDate"
 
     /** The work item the durable draft belongs to: this park's preparation for this business day. */
     private val entityId get() = "$parkId:$preparationDate"
@@ -586,15 +585,8 @@ class MilkPreparationViewModel @Inject constructor(
     /** Canonical slot grain for a milk-preparation step capture. identity.taskId/fieldKey resolve
      *  to the SAME strings [groupKey] / the raw `"milk_preparation_$stepCode"` literal already
      *  produced, so routing captures through this slot changes no on-disk value. */
-    private fun evidenceSlot(stepCode: String): EvidenceSlot = EvidenceSlot(
-        identity = ProofIdentity(
-            flow = ProofFlow.MILK_PREPARATION,
-            taskId = groupKey(),
-            partitionKey = "whole",
-            subjectKey = parkId,
-        ),
-        fieldKey = "milk_preparation_$stepCode",
-    )
+    internal fun evidenceSlot(stepCode: String): EvidenceSlot =
+        buildMilkPreparationEvidenceSlot(parkId, preparationDate, stepCode)
     private fun setCapturing(step: String, value: Boolean) = draft.update { current ->
         current.copy(steps = current.steps.map { row -> if (row.code == step) row.copy(capturing = value) else row })
     }

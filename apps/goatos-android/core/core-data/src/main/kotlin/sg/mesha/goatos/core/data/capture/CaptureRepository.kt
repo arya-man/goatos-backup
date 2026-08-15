@@ -2020,3 +2020,55 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     lastErrorStage = lastErrorStage,
     lastErrorClass = lastErrorClass,
 )
+
+// --- Testable Slot Builders (Blocker 9: Proof Flow Canonicalization) -----
+
+/** Canonical slot builder for milk-preparation step captures.
+ *  Testable function so both ViewModels and tests can assert byte-for-byte compatibility. */
+fun buildMilkPreparationEvidenceSlot(
+    parkId: String,
+    preparationDate: String,
+    stepCode: String,
+): EvidenceSlot = EvidenceSlot(
+    identity = ProofIdentity(
+        flow = ProofFlow.MILK_PREPARATION,
+        taskId = "milk-preparation:$parkId:$preparationDate",
+        partitionKey = "whole",
+        subjectKey = parkId,
+    ),
+    fieldKey = "milk_preparation_$stepCode",
+)
+
+/** Canonical slot builder for milk-feeding proof captures.
+ *  Testable function so both ViewModels and tests can assert byte-for-byte compatibility. */
+fun buildMilkFeedingEvidenceSlot(
+    parkId: String,
+    feedingDate: String,
+    sessionNo: Int,
+    taskId: String,
+    code: String,
+): EvidenceSlot = EvidenceSlot(
+    identity = ProofIdentity(
+        flow = ProofFlow.MILK_FEEDING,
+        taskId = "milk-feeding:$parkId:$feedingDate:$sessionNo",
+        partitionKey = "whole",
+        subjectKey = taskId,
+    ),
+    fieldKey = "milk_feeding_$code",
+)
+
+/** Canonical slot builder for workflow action-video captures.
+ *  Testable function so both ViewModels and tests can assert byte-for-byte compatibility. */
+fun buildWorkflowEvidenceSlot(
+    workflowId: String,
+    goatId: String,
+    actionId: String,
+): EvidenceSlot = EvidenceSlot(
+    identity = ProofIdentity(
+        flow = ProofFlow.WORKFLOW_DETAIL,
+        taskId = workflowId,
+        partitionKey = "whole",
+        subjectKey = goatId,
+    ),
+    fieldKey = "workflow_${actionId}_video",
+)

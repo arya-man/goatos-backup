@@ -15,11 +15,11 @@
   `WEIGHING_PROOF_CAPTURE_FAILURE`. Failed sends queue durably; drains fire on connectivity
   return, app start, and any later send; resends reuse the ORIGINAL `client_event_id`
   (first-class DTO field, backend UNIQUE (tenant_id, client_event_id) + ON CONFLICT DO NOTHING).
-- **Architecture status: RATCHETED WITH KNOWN EXCEPTIONS**, not complete. Non-canonical
-  proof-key flows are exactly `milk_preparation`, `milk_feeding`, `workflow_detail`
-  (CaptureModels.NON_CANONICAL_PROOF_KEY_FLOWS); the CI guard
-  (`check-feed-proof-collaboration-guard.mjs` non-canonical ratchet) FAILS the build if this
-  list grows or changes. Their migration is the standing architecture task.
+- **Architecture status: CANONICAL** — all proof-flow captures now route through
+  [ProofIdentity](../../apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureRepository.kt#L1)/[EvidenceSlot](../../apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureRepository.kt#L1)
+  machinery with Manohar ordering (NEW → STORE → DELETE-OLD). Previous non-canonical flows
+  (`milk_preparation`, `milk_feeding`, `workflow_detail`) were migrated to call
+  `captureReplacingLatest(slot=..., ...)` in 2026-08-16 (Blocker 9).
 
 
 This matrix documents proof-flow analytics coverage across all features, identifying event emissions and known gaps. Columns represent event lifecycle stages; rows represent workflows. Cell values are event names or "GAP" where tracking is absent.
