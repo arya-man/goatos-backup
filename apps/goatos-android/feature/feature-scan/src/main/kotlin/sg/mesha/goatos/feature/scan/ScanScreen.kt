@@ -263,6 +263,7 @@ data class ScanUiState(
     // rejection (see ScanViewModel.requestGoatProof's visible-block doc): lets the renderer show
     // the LOCALIZED string resource for this specific notice instead of the raw ViewModel copy.
     val proofCaptureBusy: Boolean = false,
+    val submitBlockingReason: String? = null,     // reason Finalize is blocked, shown when button tapped while disabled
     val readerConnection: ScanReaderConnection? = null,
     val shedId: String? = null,
     val taskId: String? = null,
@@ -503,6 +504,7 @@ fun ScanScreen(
                 label = state.submitLabel.ifBlank { stringResource(R.string.scan_submit_default) },
                 enabled = state.scanEnabled && state.canSubmit,
                 note = state.footNote,
+                blockingReason = state.submitBlockingReason.takeIf { state.canSubmit.not() },
                 onSubmit = { onEvent(ScanEvent.Submit) },
             )
         }
@@ -1447,7 +1449,7 @@ private fun StatusGlyph(status: ScanStatus, notDue: Boolean = false, tone: ScanF
 
 // --------------------------------------------------------------------------- footer
 @Composable
-private fun ScanFooter(label: String, enabled: Boolean, note: String, onSubmit: () -> Unit) {
+private fun ScanFooter(label: String, enabled: Boolean, note: String, blockingReason: String?, onSubmit: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1467,9 +1469,11 @@ private fun ScanFooter(label: String, enabled: Boolean, note: String, onSubmit: 
         ) {
             Text(label, fontWeight = FontWeight.Bold)
         }
-        if (note.isNotBlank()) {
+        // Show blocking reason when button is disabled, or regular note when enabled
+        val displayNote = blockingReason?.takeIf { it.isNotBlank() } ?: note.takeIf { it.isNotBlank() }
+        if (displayNote != null) {
             Spacer(Modifier.height(6.dp))
-            Text(note, color = ScanTokens.faint, fontSize = 11.sp, textAlign = TextAlign.Center)
+            Text(displayNote, color = ScanTokens.faint, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
     }
 }

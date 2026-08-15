@@ -1156,3 +1156,16 @@ val MIGRATION_42_43: Migration = object : Migration(42, 43) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_taskId` ON `feed_transport_scoped_items` (`taskId`)")
     }
 }
+
+/**
+ * v43 -> v44: persists obligation_instances.row_version on scanned_goat_capture so the reconciliation
+ * in ScanViewModel can distinguish "never submitted" (same row_version as capture time) from
+ * "submitted then reopened" (row_version incremented since capture). This is the server-issued
+ * cycle discriminator that correctly gates whether a SYNCED capture overrules a roster row's open
+ * status, fixing the bug where a simple roster refresh would falsely drop scan DONE ticks.
+ */
+val MIGRATION_43_44: Migration = object : Migration(43, 44) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0")
+    }
+}

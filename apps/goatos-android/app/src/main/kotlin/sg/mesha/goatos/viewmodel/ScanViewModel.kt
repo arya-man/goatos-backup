@@ -338,16 +338,20 @@ class ScanViewModel @Inject constructor(
         // keep showing DONE through process death (see the process-recreation tests); dropping
         // those would break offline scanning to fix staleness. A SYNCED capture the server still
         // reports open has been overruled by the domain, and the server wins.
-        // FRESHNESS GATE. `syncStatus` flips to SYNCED the moment the capture reaches the server,
-        // but the roster cache only reloads on screen entry, pull-to-refresh or navigate-back --
-        // the two are not coordinated. Without this gate, the window between "capture acked" and
-        // "roster refetched" reads as "server says still open", and a FRESHLY SCANNED, never
-        // rejected animal loses its tick in front of the operator with no recovery but a manual
-        // refresh. That is the same lie this fix exists to remove, just from the other side.
         //
-        // So a capture may only be overruled by a roster row FETCHED AFTER the scan was taken
-        // (`updatedAt > capturedAtMs`). A row older than the capture cannot have an opinion about
-        // it yet, so the local evidence stands.
+        // DISCRIMINATOR: row_version (obligation_instances.row_version echoed from the backend).
+        // This is NOT a timestamp and is NOT a freshness gate. It is the server-issued cycle
+        // discriminator that distinguishes "never submitted" (same row_version as capture time)
+        // from "submitted then reopened" (row_version strictly greater since capture). A roster
+        // refresh (which bumps updatedAt but NOT row_version) has zero effect. Only a
+        // MarkObligationCompleted (shed submit, bumps row_version) followed by ReopenObligation
+        // (verifier rejection, bumps row_version again) will increment it past the capture time:
+        // that case only, the server has genuinely seen and rejected this specific completion
+        // attempt, and server wins.
+        //
+        // For a legacy capture with no persisted row_version (obligationRowVersion = 0 default),
+        // fall back to the old updatedAt check as a conservative fallback: if updatedAt has moved,
+        // assume the roster was refreshed after a potential submit+reject cycle (cannot distinguish).
         val syncedCaptureAtMsByObligation = persistedScans.asSequence()
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
             .mapNotNull { scan -> scan.obligationId?.takeIf(String::isNotBlank)?.let { it to scan.capturedAtMs } }
@@ -356,12 +360,31 @@ class ScanViewModel @Inject constructor(
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
             .mapNotNull { scan -> scan.goatId?.takeIf(String::isNotBlank)?.let { it to scan.capturedAtMs } }
             .toMap()
+        val syncedCaptureRowVersionByObligation = persistedScans.asSequence()
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
+            .mapNotNull { scan -> scan.obligationId?.takeIf(String::isNotBlank)?.let { it to scan.obligationRowVersion } }
+            .toMap()
+        val syncedCaptureRowVersionByGoat = persistedScans.asSequence()
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
+            .mapNotNull { scan -> scan.goatId?.takeIf(String::isNotBlank)?.let { it to scan.obligationRowVersion } }
+            .toMap()
         val serverReopenedObligations = fullRows.asSequence()
             .filter { statusOf(it.status) != ScanStatus.DONE }
             .mapNotNull { row ->
                 val obligationId = row.obligationId.takeIf(String::isNotBlank) ?: return@mapNotNull null
                 val capturedAtMs = syncedCaptureAtMsByObligation[obligationId] ?: return@mapNotNull null
-                obligationId.takeIf { row.updatedAt > capturedAtMs }
+                val capturedRowVersion = syncedCaptureRowVersionByObligation[obligationId] ?: 0
+                // Use row_version as the primary discriminator: if the server's current row_version
+                // is strictly greater than what was captured, the obligation was submitted+reopened.
+                // For legacy captures with no row_version (0), fall back to updatedAt freshness.
+                val shouldDrop = if (capturedRowVersion == 0) {
+                    // Legacy: no row_version persisted, use updatedAt-only check
+                    row.updatedAt > capturedAtMs
+                } else {
+                    // New behavior: require row_version increment (submit+reject) not just updatedAt bump (refresh)
+                    row.obligationRowVersion > capturedRowVersion
+                }
+                obligationId.takeIf { shouldDrop }
             }
             .toMutableSet()
         val serverReopenedGoats = fullRows.asSequence()
@@ -369,7 +392,18 @@ class ScanViewModel @Inject constructor(
             .mapNotNull { row ->
                 val goatId = row.goatId.takeIf(String::isNotBlank) ?: return@mapNotNull null
                 val capturedAtMs = syncedCaptureAtMsByGoat[goatId] ?: return@mapNotNull null
-                goatId.takeIf { row.updatedAt > capturedAtMs }
+                val capturedRowVersion = syncedCaptureRowVersionByGoat[goatId] ?: 0
+                // Use row_version as the primary discriminator: if the server's current row_version
+                // is strictly greater than what was captured, the obligation was submitted+reopened.
+                // For legacy captures with no row_version (0), fall back to updatedAt freshness.
+                val shouldDrop = if (capturedRowVersion == 0) {
+                    // Legacy: no row_version persisted, use updatedAt-only check
+                    row.updatedAt > capturedAtMs
+                } else {
+                    // New behavior: require row_version increment (submit+reject) not just updatedAt bump (refresh)
+                    row.obligationRowVersion > capturedRowVersion
+                }
+                goatId.takeIf { shouldDrop }
             }
             .toSet()
         val persistedScannedGoats = persistedScans.asSequence()
@@ -464,6 +498,7 @@ class ScanViewModel @Inject constructor(
             proofCaptureBusy = proofCaptureBusy && duplicateNotice == PROOF_CAPTURE_BUSY_MESSAGE,
             proofReplacementGoatId = proofReplacementGoatId,
             lastProofCaptureError = lastProofCaptureError,
+            submitBlockingReason = shedSummary?.blockingReason?.takeIf { it.isNotBlank() },
         )
     }.stateIn(
         viewModelScope,

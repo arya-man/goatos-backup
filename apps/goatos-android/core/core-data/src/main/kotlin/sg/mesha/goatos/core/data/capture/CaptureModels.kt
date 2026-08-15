@@ -231,6 +231,10 @@ data class ScannedGoatRow(
     val syncStatus: CaptureSyncStatus = CaptureSyncStatus.PENDING,
     /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
     val partitionKey: String = "whole",
+    /** obligation_instances.row_version from the backend at the time the scan was captured —
+     *  the server-issued cycle discriminator that distinguishes "never submitted" from
+     *  "submitted then reopened". */
+    val obligationRowVersion: Int = 0,
 )
 
 enum class RfidScanAttemptOutcome(val wireValue: String) {
