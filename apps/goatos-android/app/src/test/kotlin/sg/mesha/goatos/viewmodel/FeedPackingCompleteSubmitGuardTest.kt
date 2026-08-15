@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -159,6 +160,45 @@ class FeedPackingCompleteSubmitGuardTest {
         advanceUntilIdle()
         assertEquals("retry after failure should succeed", 2, sync.markDoneEnqueueCalls)
     }
+
+    /** Judge finding #4 (2026-08-16): the read-only defense must live in the ViewModel, not only
+     *  the UI — a submitted session must ignore RecordPackingVideo even if a stale screen fires it. */
+    @Test
+    fun `record packing video is a no-op when already submitted`() = runTest(dispatcher) {
+        val source = FakeProofCaptureSource(
+            mutableListOf(sg.mesha.goatos.capture.CapturedVideo(localUri = "/proof/packing.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+        )
+        val viewModel = FeedPackingCompleteViewModel(
+            syncRepository = CountingFeedPackingCompleteSyncRepository(),
+            proofCaptureSource = source,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            drafts = InMemoryCaptureDraftRepository(),
+            feedRepository = FakeFeedRepository(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "shed_id" to "shed-1",
+                    "session_no" to "1",
+                    "workflow" to "feed",
+                    "target_date" to "2026-08-13",
+                    "shed_label" to "Shed 1",
+                    "session_label" to "Session 1",
+                    "park_label" to "Farm 1",
+                    "partition_label" to "A",
+                    // Already submitted: the row's lifecycle bucket says awaiting verification.
+                    "lifecycle_status" to "pending_verification",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        viewModel.onEvent(FeedPackingCompleteEvent.RecordPackingVideo)
+        advanceUntilIdle()
+
+        assertFalse("capture must not start on a submitted session", viewModel.state.value.isCapturingVideo)
+        assertEquals("camera source must never be invoked", 0, source.captureCount)
+    }
 }
 
 /** Counts [SyncRepository.enqueueFeedPackingComplete] calls; everything else is unused/no-op. */
@@ -238,4 +278,6 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
+
+
 }

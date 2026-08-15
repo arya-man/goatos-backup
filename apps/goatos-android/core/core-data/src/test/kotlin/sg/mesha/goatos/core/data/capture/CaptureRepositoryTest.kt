@@ -1318,6 +1318,43 @@ class CaptureRepositoryTest {
         }
     }
 
+    /** Judge finding #5 (2026-08-16): recovery must re-enqueue with the PERSISTED
+     *  uploadGroupKey/clientTaskKey verbatim — values deliberately different from anything the
+     *  fallback derivation would produce, so a fallback regression fails loudly. */
+    @Test
+    fun `startup recovery reuses the persisted upload group key and client task key`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-gk",
+                    taskId = "task-gk",
+                    fieldKey = "administration_video",
+                    idempotencyKey = "proof-upload:task-gk:proof-gk",
+                    uploadGroupKey = "group-original-not-derivable",
+                    clientTaskKey = "ctk-original-not-derivable",
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            repo.reconcileRecoverableUploadsNow()
+
+            val call = sync.enqueueCalls.single()
+            assertEquals("recovery must reuse the persisted group key", "group-original-not-derivable", call.groupKey)
+            val ctk = (call.request.metadata["client_task_key"] as? JsonPrimitive)?.content
+            assertEquals("recovery must reuse the persisted client task key", "ctk-original-not-derivable", ctk)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test
     fun `startup reattaches existing proof outbox item and follows it through synced`() = runTest {
         val db = newDb()
@@ -3186,6 +3223,8 @@ private fun proofEntity(
     idempotencyKey: String,
     outboxItemId: String? = null,
     captureSource: String = "in_app_camera",
+    uploadGroupKey: String? = null,
+    clientTaskKey: String? = null,
 ) = ProofCaptureEntity(
     id = id,
     taskId = taskId,
@@ -3203,6 +3242,8 @@ private fun proofEntity(
     idempotencyKey = idempotencyKey,
     outboxItemId = outboxItemId,
     captureSource = captureSource,
+    uploadGroupKey = uploadGroupKey,
+    clientTaskKey = clientTaskKey,
 )
 
 private class RecordingProofMediaProcessor(
@@ -3281,6 +3322,7 @@ private class FakeSyncRepository(
         val outboxItemId: String,
         val request: ProofUploadRequestDto,
         val localFilePath: String,
+        val groupKey: String = "",
     )
     data class ScanCall(val idempotencyKey: String, val partitionKey: String, val request: ScanCaptureRequestDto)
     data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
@@ -3376,7 +3418,7 @@ private class FakeSyncRepository(
         // Without this the fake handed out outbox-0 AND outbox-1 and the winner raced the assertions.
         enqueueCalls.firstOrNull { it.idempotencyKey == idempotencyKey }?.let { return AppResult.Ok(it.outboxItemId) }
         val id = "outbox-${nextId++}"
-        enqueueCalls += EnqueueCall(idempotencyKey, id, request, localFilePath)
+        enqueueCalls += EnqueueCall(idempotencyKey, id, request, localFilePath, groupKey)
         status.value = status.value.copy(
             items = status.value.items + syncQueueItem(id, SyncItemStatus.QUEUED, groupKey = groupKey),
         )
