@@ -673,7 +673,7 @@ func tools() []map[string]any {
 		},
 		{
 			"name":        "get_vaccination_today",
-			"description": "Get the exact vaccination drive-day schedule and progress from the canonical Goat OS vaccination live tracker: operator assignments, shed progress, proofs, scans, closures, remaining work, unassigned work, attention, and verification backlog.",
+			"description": "Get the exact vaccination work scheduled today. Use this for natural CEO questions like 'what vaccination is scheduled today?' It reads the operator drive schedule first, then includes live proof/progress when available; do not use backlog/action-center rows for this scheduled-work answer.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -1371,15 +1371,33 @@ func (s *server) getVaccinationToday(ctx context.Context, r *http.Request, raw j
 	if s.cfg.UpstreamBaseURL == "" {
 		return nil, -32603, "upstream_base_url_not_configured"
 	}
-	var tracker vaccinationLiveTrackerResponse
-	if err := s.getUpstreamJSON(ctx, r, authz, email, "/vaccination/live-tracker", q, &tracker); err != nil {
-		s.log.Warn("goatos_mcp_vaccination_today_failed", slog.Any("error", err))
-		return nil, -32603, "vaccination_today_unreachable"
+	businessDate := args.businessDateOrToday()
+	driveQuery := args.driveAssignmentsQuery(businessDate)
+	var drive vaccinationDriveAssignmentResponse
+	if err := s.getUpstreamJSON(ctx, r, authz, email, "/vaccination/drive-assignments", driveQuery, &drive); err != nil {
+		s.log.Warn("goatos_mcp_vaccination_schedule_failed", slog.Any("error", err))
+		return nil, -32603, "vaccination_schedule_unreachable"
 	}
-	summary := summarizeVaccinationLiveTracker(tracker)
+	drive.Rows = filterDriveAssignmentsForDate(drive.Rows, businessDate)
+
+	var tracker vaccinationLiveTrackerResponse
+	trackerAvailable := true
+	if err := s.getUpstreamJSON(ctx, r, authz, email, "/vaccination/live-tracker", q, &tracker); err != nil {
+		trackerAvailable = false
+		s.log.Warn("goatos_mcp_vaccination_live_tracker_failed", slog.Any("error", err))
+	}
+	summary := summarizeVaccinationToday(businessDate, drive, tracker, trackerAvailable)
 	return structuredTextToolResult(summary, map[string]any{
-		"source": "GET /vaccination/live-tracker",
-		"data":   tracker,
+		"source": "GET /vaccination/drive-assignments + GET /vaccination/live-tracker",
+		"data": map[string]any{
+			"schedule":                 drive,
+			"live_tracker":             tracker,
+			"live_tracker_available":   trackerAvailable,
+			"schedule_rows_for_date":   len(drive.Rows),
+			"requested_business_date":  businessDate,
+			"schedule_source_endpoint": "GET /vaccination/drive-assignments",
+			"progress_source_endpoint": "GET /vaccination/live-tracker",
+		},
 	}), 0, ""
 }
 
@@ -1427,6 +1445,26 @@ type vaccinationTodayArgs struct {
 	OperatorID     string `json:"operator_id"`
 	VaccineCode    string `json:"vaccine_code"`
 	Status         string `json:"status"`
+}
+
+func (a vaccinationTodayArgs) businessDateOrToday() string {
+	if date := strings.TrimSpace(a.BusinessDate); date != "" {
+		return date
+	}
+	return time.Now().In(time.FixedZone("IST", 5*60*60+30*60)).Format("2006-01-02")
+}
+
+func (a vaccinationTodayArgs) driveAssignmentsQuery(businessDate string) url.Values {
+	q := url.Values{}
+	if t, err := time.Parse("2006-01-02", businessDate); err == nil {
+		q.Set("year", strconv.Itoa(t.Year()))
+		q.Set("month", strconv.Itoa(int(t.Month())))
+	}
+	if parkID := strings.TrimSpace(a.ParkID); parkID != "" {
+		q.Set("park_id", parkID)
+	}
+	q.Set("limit", "500")
+	return q
 }
 
 func (a vaccinationTodayArgs) query() (url.Values, error) {
@@ -1483,6 +1521,26 @@ func (a vaccinationTodayArgs) query() (url.Values, error) {
 		}
 	}
 	return q, nil
+}
+
+type vaccinationDriveAssignmentResponse struct {
+	Source string                          `json:"source"`
+	Rows   []vaccinationDriveAssignmentRow `json:"rows"`
+}
+
+type vaccinationDriveAssignmentRow struct {
+	PlannedDate     string   `json:"plannedDate"`
+	OperatorName    string   `json:"operatorName"`
+	ParkName        string   `json:"parkName"`
+	PhysicalShed    string   `json:"physicalShed"`
+	PartitionLabel  string   `json:"partitionLabel"`
+	Animals         int      `json:"animals"`
+	DueAnimals      int      `json:"dueAnimals"`
+	DoneAnimals     int      `json:"doneAnimals"`
+	DeferredAnimals int      `json:"deferredAnimals"`
+	OverdueAnimals  int      `json:"overdueAnimals"`
+	VaccineNames    []string `json:"vaccineNames"`
+	TotalDoses      int      `json:"totalDoses"`
 }
 
 func isUUID(raw string) bool {
@@ -1922,6 +1980,90 @@ func summarizeVaccinationLiveTracker(v vaccinationLiveTrackerResponse) string {
 	}
 	b.WriteString("\nSource: GET /vaccination/live-tracker")
 	return b.String()
+}
+
+func filterDriveAssignmentsForDate(rows []vaccinationDriveAssignmentRow, businessDate string) []vaccinationDriveAssignmentRow {
+	out := make([]vaccinationDriveAssignmentRow, 0, len(rows))
+	for _, row := range rows {
+		if row.PlannedDate == businessDate {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func summarizeVaccinationToday(businessDate string, drive vaccinationDriveAssignmentResponse, tracker vaccinationLiveTrackerResponse, trackerAvailable bool) string {
+	var totalScheduled, totalDone, totalDue, totalOverdue, totalDeferred, totalDoses int
+	for _, row := range drive.Rows {
+		totalScheduled += row.Animals
+		totalDone += row.DoneAnimals
+		totalDue += row.DueAnimals
+		totalOverdue += row.OverdueAnimals
+		totalDeferred += row.DeferredAnimals
+		totalDoses += row.TotalDoses
+	}
+	remaining := totalScheduled - totalDone - totalDeferred
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Vaccination scheduled today (%s):\n", businessDate)
+	fmt.Fprintf(&b, "- Animals scheduled: %d\n", totalScheduled)
+	fmt.Fprintf(&b, "- Done: %d\n", totalDone)
+	fmt.Fprintf(&b, "- Remaining: %d\n", remaining)
+	fmt.Fprintf(&b, "- Due now: %d\n", totalDue)
+	fmt.Fprintf(&b, "- Overdue in today's schedule: %d\n", totalOverdue)
+	if totalDeferred > 0 {
+		fmt.Fprintf(&b, "- Deferred: %d\n", totalDeferred)
+	}
+	if totalDoses > 0 {
+		fmt.Fprintf(&b, "- Total doses planned: %d\n", totalDoses)
+	}
+	if len(drive.Rows) == 0 {
+		b.WriteString("\nNo operator drive schedule rows are planned for this date.\n")
+	} else {
+		b.WriteString("\nOperator schedule:\n")
+		for _, row := range drive.Rows {
+			fmt.Fprintf(&b, "- %s / %s", row.ParkName, row.PhysicalShed)
+			if row.PartitionLabel != "" {
+				fmt.Fprintf(&b, " / %s", row.PartitionLabel)
+			}
+			fmt.Fprintf(&b, ": operator %s; %d animals scheduled, %d done, %d remaining",
+				emptyAs(row.OperatorName, "Unassigned"), row.Animals, row.DoneAnimals, maxInt(0, row.Animals-row.DoneAnimals-row.DeferredAnimals))
+			if row.DueAnimals > 0 {
+				fmt.Fprintf(&b, ", %d due", row.DueAnimals)
+			}
+			if row.OverdueAnimals > 0 {
+				fmt.Fprintf(&b, ", %d overdue", row.OverdueAnimals)
+			}
+			if len(row.VaccineNames) > 0 {
+				fmt.Fprintf(&b, "; vaccines: %s", strings.Join(row.VaccineNames, ", "))
+			}
+			b.WriteByte('\n')
+		}
+	}
+
+	if trackerAvailable {
+		k := tracker.KPIs
+		b.WriteString("\nLive proof/progress tracker:\n")
+		fmt.Fprintf(&b, "- Tracker scheduled administrations: %d\n", k.ScheduledAdministrations)
+		fmt.Fprintf(&b, "- Closed administrations: %d\n", k.ClosedAdministrations)
+		fmt.Fprintf(&b, "- Proof videos: %d\n", k.ProofVideosReceived)
+		fmt.Fprintf(&b, "- Scan captures: %d\n", k.ScanCaptures)
+		fmt.Fprintf(&b, "- Tracker remaining administrations: %d\n", k.Remaining)
+	} else {
+		b.WriteString("\nLive proof/progress tracker was unavailable; schedule rows above are still from the operator drive schedule.\n")
+	}
+	b.WriteString("\nSource: GET /vaccination/drive-assignments + GET /vaccination/live-tracker")
+	return b.String()
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func emptyAs(value, fallback string) string {
