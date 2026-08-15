@@ -230,7 +230,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
      *  [applyLiveStatus]'s null-is-unknown contract. */
     private suspend fun pollServerStatusOnce(source: String) {
         if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
-        val status = runCatching {
+        val status = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); see pollServerStatusOnce kdoc — null-is-unknown is the contract, not an error to record
             feedRepository.fetchDirectionSessionStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
         }.getOrNull()
         applyLiveStatus(status, source)

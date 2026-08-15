@@ -327,6 +327,7 @@ private fun analyticsReason(error: Throwable): String =
 
     /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was -- see
      *  [applyLiveStatus]'s null-is-unknown contract. */
+    // exception:exempt expected poll failure (offline/timeout/5xx); see kdoc above — null-is-unknown is the contract, not an error to record
     private suspend fun pollServerStatusOnce(){if(shedId.isBlank()||taskId.isBlank())return;val status=runCatching{feedTransportRepository.fetchTaskStatus(today,shedId,taskId)}.getOrNull();applyLiveStatus(status)}
 
     /**

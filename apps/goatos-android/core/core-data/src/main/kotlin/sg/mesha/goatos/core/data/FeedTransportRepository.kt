@@ -97,7 +97,7 @@ class FeedTransportRepository(
         businessDate: String,
         shedId: String,
         taskId: String,
-    ): String? = runCatching {
+    ): String? = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
         api.getFeedTransportTasks(
             businessDate = businessDate,
             shedId = shedId.takeIf { it.isNotBlank() },
