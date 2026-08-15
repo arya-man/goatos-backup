@@ -1,8 +1,7 @@
 // Command mcp exposes the Goat OS leadership assistant as a small, sessionless
-// Streamable-HTTP-style MCP facade. It deliberately does not implement business
-// reads itself: tool calls proxy to the Mesha backend /ceo-ai/ask endpoint so
-// existing auth, ceo_internal gating, tenant scope, planning, audit, Cube,
-// Toolbox, SQL guard, and read-API coverage remain the single authority.
+// Streamable-HTTP-style MCP facade. It deliberately keeps business reads behind
+// existing Goat OS backend APIs so auth, ceo_internal gating, tenant scope,
+// audit, Cube, Toolbox, SQL guard, and read-API coverage remain the authority.
 package main
 
 import (
@@ -72,6 +71,7 @@ type config struct {
 	MCPPath         string
 	PublicURL       string
 	TenantID        string
+	UpstreamBaseURL string
 	UpstreamAskURL  string
 	UpstreamTimeout time.Duration
 	AllowedEmails   authallow.EmailSet
@@ -106,12 +106,24 @@ func configFromEnv() (config, error) {
 		MCPPath:         envOr("MESHA_MCP_PATH", defaultMCPPath),
 		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("MESHA_MCP_PUBLIC_URL")), "/"),
 		TenantID:        strings.TrimSpace(os.Getenv("MESHA_MCP_TENANT_ID")),
+		UpstreamBaseURL: upstreamBaseURL(base, ask),
 		UpstreamAskURL:  ask,
 		UpstreamTimeout: timeout,
 		AllowedEmails:   allowed,
 		TokenVerifier:   verifier,
 		FirebaseAPIKey:  firebaseAPIKeyFromEnv(),
 	}, nil
+}
+
+func upstreamBaseURL(base, ask string) string {
+	if base != "" {
+		return base
+	}
+	trimmedAsk := strings.TrimRight(ask, "/")
+	if !strings.HasSuffix(trimmedAsk, defaultAPIAskPath) {
+		return ""
+	}
+	return strings.TrimSuffix(trimmedAsk, defaultAPIAskPath)
 }
 
 func firebaseAPIKeyFromEnv() string {
@@ -601,7 +613,8 @@ func tools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "ask_goatos",
-			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this for Mesha/Goat OS operations, animals, vaccination, feed, procurement, workforce, verification, audit, inventory, SOP, and exception questions.",
+			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits; for exact vaccination schedule/progress questions, use get_vaccination_today.",
+			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -612,15 +625,43 @@ func tools() []map[string]any {
 			},
 		},
 		{
+			"name":        "get_vaccination_today",
+			"description": "Get the exact vaccination drive-day schedule and progress from the canonical Goat OS vaccination live tracker: operator assignments, shed progress, proofs, scans, closures, remaining work, unassigned work, attention, and verification backlog.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"business_date":   map[string]any{"type": "string", "description": "Optional Goat OS business date in YYYY-MM-DD. Defaults to today."},
+					"park_id":         map[string]any{"type": "string", "description": "Optional park UUID; backend RBAC still clamps scope."},
+					"shed_id":         map[string]any{"type": "string", "description": "Optional shed UUID."},
+					"partition_label": map[string]any{"type": "string", "description": "Optional partition label."},
+					"operator_id":     map[string]any{"type": "string", "description": "Optional operator workforce member UUID."},
+					"vaccine_code":    map[string]any{"type": "string", "description": "Optional vaccine family code such as goat_pox, et_tt, ppr, blue_tongue, sheep_pox."},
+					"status":          map[string]any{"type": "string", "enum": []string{"active", "done", "pending", "review"}, "description": "Optional live tracker status filter."},
+				},
+			},
+		},
+		{
 			"name":        "list_goatos_capabilities",
 			"description": "List what the Goat OS MCP connector can answer and how access is controlled.",
+			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
 			"name":        "goatos_mcp_health",
 			"description": "Check whether the Goat OS MCP connector is configured and reachable.",
+			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
+	}
+}
+
+func readOnlyToolAnnotations() map[string]any {
+	return map[string]any{
+		"title":           "Read-only Goat OS data",
+		"readOnlyHint":    true,
+		"destructiveHint": false,
+		"openWorldHint":   false,
 	}
 }
 
@@ -635,8 +676,10 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 	switch params.Name {
 	case "ask_goatos":
 		return s.askGoatOS(ctx, r, params.Arguments)
+	case "get_vaccination_today":
+		return s.getVaccinationToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes the existing Mesha leadership assistant as read-only tools. It can answer CEO-level operational questions across covered Goat OS read APIs, Cube metrics, curated MCP Toolbox views, and validated SQL fallback. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools such as get_vaccination_today for exact operational answers; use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
@@ -656,30 +699,41 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 	if question == "" {
 		return nil, -32602, "question_required"
 	}
-	authz := strings.TrimSpace(r.Header.Get("Authorization"))
+	authz, email, code, msg := s.verifiedAuthorization(r)
+	if msg != "" {
+		return nil, code, msg
+	}
+	return s.proxyAskGoatOS(ctx, r, authz, email, question, strings.TrimSpace(args.ConversationID))
+}
+
+func (s *server) verifiedAuthorization(r *http.Request) (authz, email string, code int, msg string) {
+	authz = strings.TrimSpace(r.Header.Get("Authorization"))
 	if authz == "" {
-		return nil, -32001, "missing_authorization_bearer"
+		return "", "", -32001, "missing_authorization_bearer"
 	}
 	token, ok := strings.CutPrefix(authz, "Bearer ")
 	if !ok || strings.TrimSpace(token) == "" {
-		return nil, -32001, "invalid_authorization_bearer"
+		return "", "", -32001, "invalid_authorization_bearer"
 	}
 	if s.cfg.TokenVerifier == nil {
-		return nil, -32603, "token_verifier_not_configured"
+		return "", "", -32603, "token_verifier_not_configured"
 	}
 	claims, err := s.cfg.TokenVerifier.Verify(strings.TrimSpace(token))
 	if err != nil {
 		s.log.Warn("goatos_mcp_bearer_verify_failed", slog.Any("error", err))
-		return nil, -32001, "invalid_authorization_bearer"
+		return "", "", -32001, "invalid_authorization_bearer"
 	}
-	email := normalizedEmail(claims.Email)
+	email = normalizedEmail(claims.Email)
 	if len(s.cfg.AllowedEmails) > 0 && !s.cfg.AllowedEmails.Allows(email, claims.EmailVerified) {
-		return nil, -32001, "actor_email_not_allowed"
+		return "", "", -32001, "actor_email_not_allowed"
 	}
+	return authz, email, 0, ""
+}
 
+func (s *server) proxyAskGoatOS(ctx context.Context, r *http.Request, authz, email, question, conversationID string) (map[string]any, int, string) {
 	payload := map[string]any{
 		"question":        question,
-		"conversation_id": strings.TrimSpace(args.ConversationID),
+		"conversation_id": conversationID,
 		"stream":          false,
 	}
 	body, _ := json.Marshal(payload)
@@ -739,6 +793,275 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 	return textToolResult(text), 0, ""
 }
 
+func (s *server) getVaccinationToday(ctx context.Context, r *http.Request, raw json.RawMessage) (map[string]any, int, string) {
+	var args vaccinationTodayArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, -32602, "invalid_vaccination_today_arguments"
+		}
+	}
+	q, err := args.query()
+	if err != nil {
+		return nil, -32602, err.Error()
+	}
+	authz, email, code, msg := s.verifiedAuthorization(r)
+	if msg != "" {
+		return nil, code, msg
+	}
+	if s.cfg.UpstreamBaseURL == "" {
+		return nil, -32603, "upstream_base_url_not_configured"
+	}
+	var tracker vaccinationLiveTrackerResponse
+	if err := s.getUpstreamJSON(ctx, r, authz, email, "/vaccination/live-tracker", q, &tracker); err != nil {
+		s.log.Warn("goatos_mcp_vaccination_today_failed", slog.Any("error", err))
+		return nil, -32603, "vaccination_today_unreachable"
+	}
+	summary := summarizeVaccinationLiveTracker(tracker)
+	return structuredTextToolResult(summary, map[string]any{
+		"source": "GET /vaccination/live-tracker",
+		"data":   tracker,
+	}), 0, ""
+}
+
+func (s *server) getUpstreamJSON(ctx context.Context, r *http.Request, authz, email, path string, query url.Values, out any) error {
+	endpoint := s.cfg.UpstreamBaseURL + path
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", authz)
+	if email != "" {
+		req.Header.Set("X-Mesha-Actor-Email", email)
+	}
+	if tenant := strings.TrimSpace(r.Header.Get("X-GoatOS-Tenant-ID")); tenant != "" {
+		req.Header.Set("X-GoatOS-Tenant-ID", tenant)
+	} else if tenant := strings.TrimSpace(s.cfg.TenantID); tenant != "" {
+		req.Header.Set("X-GoatOS-Tenant-ID", tenant)
+	}
+	if trace := strings.TrimSpace(r.Header.Get("X-Request-ID")); trace != "" {
+		req.Header.Set("X-Request-ID", trace)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("upstream status %d: %s", resp.StatusCode, string(body))
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+type vaccinationTodayArgs struct {
+	BusinessDate   string `json:"business_date"`
+	ParkID         string `json:"park_id"`
+	ShedID         string `json:"shed_id"`
+	PartitionLabel string `json:"partition_label"`
+	OperatorID     string `json:"operator_id"`
+	VaccineCode    string `json:"vaccine_code"`
+	Status         string `json:"status"`
+}
+
+func (a vaccinationTodayArgs) query() (url.Values, error) {
+	q := url.Values{}
+	addDateParam := func(name, raw string) error {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return nil
+		}
+		if _, err := time.Parse("2006-01-02", raw); err != nil {
+			return fmt.Errorf("%s_must_be_yyyy_mm_dd", name)
+		}
+		q.Set(name, raw)
+		return nil
+	}
+	if err := addDateParam("business_date", a.BusinessDate); err != nil {
+		return nil, err
+	}
+	for _, item := range []struct {
+		name string
+		raw  string
+	}{
+		{"park_id", a.ParkID},
+		{"shed_id", a.ShedID},
+		{"operator_id", a.OperatorID},
+	} {
+		raw := strings.TrimSpace(item.raw)
+		if raw == "" {
+			continue
+		}
+		if !isUUID(raw) {
+			return nil, fmt.Errorf("invalid_%s", item.name)
+		}
+		q.Set(item.name, raw)
+	}
+	if label := strings.TrimSpace(a.PartitionLabel); label != "" {
+		if len(label) > 64 {
+			return nil, errors.New("invalid_partition_label")
+		}
+		q.Set("partition_label", label)
+	}
+	if vaccine := strings.TrimSpace(a.VaccineCode); vaccine != "" {
+		if len(vaccine) > 64 {
+			return nil, errors.New("invalid_vaccine_code")
+		}
+		q.Set("vaccine_code", vaccine)
+	}
+	if status := strings.TrimSpace(a.Status); status != "" {
+		switch status {
+		case "active", "done", "pending", "review":
+			q.Set("status", status)
+		default:
+			return nil, errors.New("invalid_status")
+		}
+	}
+	return q, nil
+}
+
+func isUUID(raw string) bool {
+	if len(raw) != 36 {
+		return false
+	}
+	for i, r := range raw {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+type vaccinationLiveTrackerResponse struct {
+	BusinessDate              string                         `json:"business_date"`
+	GeneratedAt               time.Time                      `json:"generated_at"`
+	IsLiveDay                 bool                           `json:"is_live_day"`
+	KPIs                      vaccinationLiveTrackerKPIs     `json:"kpis"`
+	Operators                 []vaccinationLiveTrackerWorker `json:"operators"`
+	Sheds                     []vaccinationLiveTrackerShed   `json:"sheds"`
+	OperatorsTotal            int                            `json:"operators_total"`
+	OperatorsTruncated        bool                           `json:"operators_truncated"`
+	ShedsTotal                int                            `json:"sheds_total"`
+	ShedsTruncated            bool                           `json:"sheds_truncated"`
+	CellsTruncated            bool                           `json:"cells_truncated"`
+	UnassignedAdministrations int                            `json:"unassigned_administrations"`
+	AttentionTotal            int                            `json:"attention_total"`
+	AttentionTruncated        bool                           `json:"attention_truncated"`
+	Verification              map[string]any                 `json:"verification"`
+}
+
+type vaccinationLiveTrackerKPIs struct {
+	ScheduledAdministrations int `json:"scheduled_administrations"`
+	ProofVideosReceived      int `json:"proof_videos_received"`
+	ClosedAdministrations    int `json:"closed_administrations"`
+	AwaitingClose            int `json:"awaiting_close"`
+	ScanCaptures             int `json:"scan_captures"`
+	Remaining                int `json:"remaining"`
+	ComboAnimals             int `json:"combo_animals"`
+	AttentionCount           int `json:"attention_count"`
+	ActiveParks              int `json:"active_parks"`
+}
+
+type vaccinationLiveTrackerWorker struct {
+	OperatorName          string `json:"operator_name"`
+	ParkName              string `json:"park_name"`
+	CurrentShedLabel      string `json:"current_shed_label"`
+	CurrentPartitionLabel string `json:"current_partition_label"`
+	CurrentVaccineLabel   string `json:"current_vaccine_label"`
+	ScheduledAdmins       int    `json:"scheduled_administrations"`
+	ProofVideos           int    `json:"proof_videos"`
+	ScanCaptures          int    `json:"scan_captures"`
+	ClosedAdmins          int    `json:"closed_administrations"`
+	Remaining             int    `json:"remaining"`
+	State                 string `json:"state"`
+}
+
+type vaccinationLiveTrackerShed struct {
+	ParkName            string `json:"park_name"`
+	ShedLabel           string `json:"shed_label"`
+	VaccineLabel        string `json:"vaccine_label"`
+	OperatorName        string `json:"operator_name"`
+	ScheduledAdmins     int    `json:"scheduled_administrations"`
+	ClosedAdmins        int    `json:"closed_administrations"`
+	ProofVideosReceived int    `json:"proof_videos_received"`
+	Remaining           int    `json:"remaining"`
+	State               string `json:"state"`
+}
+
+func summarizeVaccinationLiveTracker(v vaccinationLiveTrackerResponse) string {
+	k := v.KPIs
+	var b strings.Builder
+	fmt.Fprintf(&b, "Vaccination drive-day progress for %s:\n", v.BusinessDate)
+	fmt.Fprintf(&b, "- Scheduled administrations: %d\n", k.ScheduledAdministrations)
+	fmt.Fprintf(&b, "- Closed/completed administrations: %d\n", k.ClosedAdministrations)
+	fmt.Fprintf(&b, "- Proof videos received: %d\n", k.ProofVideosReceived)
+	fmt.Fprintf(&b, "- Scan captures: %d\n", k.ScanCaptures)
+	fmt.Fprintf(&b, "- Remaining administrations: %d\n", k.Remaining)
+	if v.UnassignedAdministrations > 0 {
+		fmt.Fprintf(&b, "- Unassigned scheduled administrations: %d\n", v.UnassignedAdministrations)
+	}
+	if len(v.Operators) > 0 {
+		b.WriteString("\nOperator schedule:\n")
+		for _, op := range v.Operators {
+			fmt.Fprintf(&b, "- %s: %d scheduled, %d completed, %d proofs, %d scans, %d remaining at %s / %s",
+				emptyAs(op.OperatorName, "Unassigned"), op.ScheduledAdmins, op.ClosedAdmins, op.ProofVideos, op.ScanCaptures, op.Remaining, op.ParkName, op.CurrentShedLabel)
+			if op.CurrentPartitionLabel != "" {
+				fmt.Fprintf(&b, " / %s", op.CurrentPartitionLabel)
+			}
+			if op.CurrentVaccineLabel != "" {
+				fmt.Fprintf(&b, " (%s)", op.CurrentVaccineLabel)
+			}
+			if op.State != "" {
+				fmt.Fprintf(&b, " [%s]", op.State)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	if len(v.Sheds) > 0 {
+		b.WriteString("\nShed progress:\n")
+		for _, shed := range v.Sheds {
+			fmt.Fprintf(&b, "- %s / %s", shed.ParkName, shed.ShedLabel)
+			if shed.VaccineLabel != "" {
+				fmt.Fprintf(&b, " (%s)", shed.VaccineLabel)
+			}
+			fmt.Fprintf(&b, ": %d scheduled, %d completed, %d proofs, %d remaining",
+				shed.ScheduledAdmins, shed.ClosedAdmins, shed.ProofVideosReceived, shed.Remaining)
+			if shed.OperatorName != "" {
+				fmt.Fprintf(&b, "; operator %s", shed.OperatorName)
+			}
+			if shed.State != "" {
+				fmt.Fprintf(&b, " [%s]", shed.State)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	if v.CellsTruncated || v.OperatorsTruncated || v.ShedsTruncated || v.AttentionTruncated {
+		fmt.Fprintf(&b, "\nWarning: response was truncated; cells=%v operators=%v sheds=%v attention=%v.\n",
+			v.CellsTruncated, v.OperatorsTruncated, v.ShedsTruncated, v.AttentionTruncated)
+	}
+	b.WriteString("\nSource: GET /vaccination/live-tracker")
+	return b.String()
+}
+
+func emptyAs(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
 func normalizedEmail(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
 }
@@ -747,6 +1070,12 @@ func textToolResult(text string) map[string]any {
 	return map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 	}
+}
+
+func structuredTextToolResult(text string, structured map[string]any) map[string]any {
+	result := textToolResult(text)
+	result["structuredContent"] = structured
+	return result
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -134,11 +134,21 @@ intentional. The safe automatic path is:
 
 ```text
 new Mesha question
-  -> external MCP ask_goatos
-  -> Goat OS /ceo-ai/ask
-  -> existing covered read APIs, Cube metrics, MCP Toolbox tools, ceo_ai views,
-     or validated read-only SQL fallback
+  -> external MCP typed tool when one exists, otherwise ask_goatos fallback
+  -> existing covered Goat OS read APIs, Cube metrics, MCP Toolbox tools,
+     ceo_ai views, or validated read-only SQL fallback
 ```
+
+Typed tools take priority over free-text fallback. For example,
+`get_vaccination_today` calls the canonical Goat OS
+`GET /vaccination/live-tracker` API and returns exact drive-day facts:
+scheduled administrations, assigned operators, shed/partition/vaccine progress,
+proof videos, scan captures, closed administrations, remaining work, unassigned
+scheduled administrations, attention, and verification state. A question like
+"What vaccination work is scheduled today and what is the progress?" must use
+that typed tool. The generic `ask_goatos` fallback must not be treated as
+authoritative for that class because broad assistant fallback can mix overall
+dashboard totals with today's drive-day schedule.
 
 If a future change adds a new leadership-relevant API, OpenAPI path, table,
 view, reporting read, KPI, mobile workflow, admin-web route, or domain event, it
@@ -204,11 +214,12 @@ goes in the config:
 After restart, ask a normal question such as:
 
 ```text
-Which sheds are overdue for vaccination today?
+What vaccination work is scheduled today and what is the progress?
 ```
 
 Do not ask Claude to call `mesha_vaccination_due_summary` or any other internal
-tool name. Tool selection is part of the MCP/client/runtime contract.
+tool name. Tool selection is part of the MCP/client/runtime contract. The client
+should discover and call `get_vaccination_today` for the question above.
 
 ## Codex Configuration
 
