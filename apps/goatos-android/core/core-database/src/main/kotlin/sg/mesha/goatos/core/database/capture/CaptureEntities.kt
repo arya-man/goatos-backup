@@ -509,6 +509,13 @@ enum class ProofProcessingState {
     UPLOAD_CONFIRMED,
     ATTACHED_TO_SUBMISSION,
     PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED,
+    /** P1 fix: processed-artifact validation/processing failed and the flow requires the
+     *  overlay-burned processed artifact (the default for every flow — no proof_policy opt-in
+     *  currently exists to skip it). Terminal until an operator explicitly retries: the ORIGINAL
+     *  file stays on disk but is never auto-enqueued for upload, so an overlay-free capture can
+     *  never silently satisfy a compliance proof gate. See
+     *  [sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository.prepareFinalArtifact]. */
+    PROCESSING_FAILED_AWAITING_RETRY,
     REGISTER_FAILED_RETRYING,
     UPLOAD_FAILED_RETRYING,
     UPLOAD_ORIGINAL_FAILED_RETRYING,
