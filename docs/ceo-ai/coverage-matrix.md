@@ -45,7 +45,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | Read API (path) | Coverage path | Notes |
 |---|---|---|
 | GET /herd-register/summary | api + Cube:active_animals | Primary census; aggregate-first |
-| GET /counts/breakdown | api + view:animal_current_scope | Grouped census drilldown |
+| GET /counts/breakdown | api + view:animal_current_scope + external MCP:get_counts_summary | Grouped census drilldown. External MCP clients must use the typed `get_counts_summary` tool for herd/census count questions and keep lifecycle status explicit instead of mixing active, exited, or death states. |
 | GET /app/counts/shifting-events/pending-execution | api + view:counts_movement_daily | Raised/authorized/evidence-rework Actions; census moves only after Park Head approval + operator completion. High-priority feed requirement/fingerprint is operator execution detail, not a leadership KPI; leadership movement state remains covered at event/day grain. |
 | func:ShiftingActionsDueFrom, func:ShiftingActionsDue | EXCLUDED | Internal operator Actions visibility helpers for pending shifting execution. They only decide whether a movement should open in the operator queue from its priority and effective date; they add no leadership read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or KPI. Leadership movement state stays covered by `GET /app/counts/shifting-events/pending-execution` and `view:counts_movement_daily`. |
 | GET /app/counts/approvals | api + view:counts_movement_daily | Pending census approvals. The backend-owned display copy on each row (`raised_by_name`, `summary_line`) is composed by `WithApprovalNames` / `ResolveApprovalNames` / `PersonName` / `ApprovalSummaryLine` / `ApprovalSummaryLocationIDs`, which are EXCLUDED as leadership surfaces: they resolve ids to names for the approver's queue copy and derive no new fact. Every underlying fact they render — movement, park/shed, raiser, request type — is already covered at event/day grain by counts_movement_daily, so the assistant reads the fact, never the rendered sentence. |
@@ -95,7 +95,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | func:GetOversightAnalytics (verification oversight endpoint aggregate) | api + view:verification_queue_status | Oversight Analytics tenant-scoped KPIs: videos waiting, oldest pending age, verdict throughput per active day, per-module median review latency, reject rate over 30 days, pending backlog by module, per-verifier 14-day activity (verdicts/approved/rejected/busiest day), and per-verifier watch integrity (items tracked, watched-to-end, verdict-without-play). Verifier-level activity resolves names from `workforce_members` for display. All aggregates pre-collapse at their grain (module, verifier) before returning, with no per-item or per-actor fan-out. |
 | func:OversightAnalytics (domain struct) | EXCLUDED | Container struct for oversight analytics return; not a read surface itself but carries the aggregated results. |
 | func:WatchStates (review-event watch aggregate) | EXCLUDED | Internal verifier-queue helper that batches watch-state lookups for a page of items. It returns aggregated watch percentage per item (max position / max duration across all events, all actors for that item); it adds no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Leadership visibility stays on the existing `GET /vaccination/verification-queue` and `/weighing/campaigns` oversight surfaces. |
-| GET /weighing/campaigns | api | Leadership source planning/monitoring read for manually authored kids weighing campaigns; aggregate/capture surface only. Shared task reads own app-visible owner/clock/contact state after cutover. |
+| GET /weighing/campaigns | api + external MCP:get_weighing_progress | Leadership source planning/monitoring read for manually authored kids weighing campaigns; aggregate/capture surface only. Shared task reads own app-visible owner/clock/contact state after cutover. External MCP clients must use the typed `get_weighing_progress` tool for weighing progress questions and keep pending verification weight separate from verified/closed weight. |
 | GET /app/weighing/campaigns | EXCLUDED | Operator execution list; leadership uses `/weighing/campaigns`. |
 | Weighing shed-level operator assignments (`weighing_campaign_sheds.operator_user_id`) | api | Assistant coverage stays on `GET /weighing/campaigns`: leadership sees the campaign, selected shed buckets, per-shed owner/status, and progress rollups there. Operator-scoped mobile filtering and write authorization are execution behavior, not a separate CEO AI tool, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. |
 | Weighing partition operational identity (`weighing_campaign_sheds.location_id`, `partition_label`, indexes from migration 000141; byte-stable after STG application, with follow-up repairs in 000142/000145) | api | Assistant coverage stays on `GET /weighing/campaigns`: the migration canonicalizes legacy partition aliases into physical shed + partition labels and replaces shed-only uniqueness with partition-aware bucket indexes. It creates no new leadership KPI, read API, Cube metric, MCP/Toolbox tool, or `ceo_ai` view; leadership campaign/shed progress already reads the same campaign bucket rows through the existing weighing API coverage. |
@@ -142,8 +142,8 @@ proof.
 | GET /calendar/vaccination/events | api | Calendar timeline (dots) |
 | Calendar vaccination date markers | api | Leadership assistant read API coverage: month/week marker dots use the same assignment-effective schedule date as the calendar event list and vaccination operator schedule, so leadership answers and client overview counts do not report stale batch/obligation dates after a drive move. |
 | GET /calendar/vaccination/events/{event_id}(+/history,/targets) | EXCLUDED | Single-event / target detail; admin-web Calendar drive target rosters must still open the shared Goat Passport local drawer with per-goat vaccination history |
-| GET /action-center/obligations | api + view:action_center_current | Cross-domain queue; API tier executor wired (action_center_obligations tool) |
-| GET /feed-direction/preview | api + view:feed_direction_current | Feed needed today; blocked≠0 |
+| GET /action-center/obligations | api + view:action_center_current + external MCP:get_action_center | Cross-domain queue; API tier executor wired (action_center_obligations tool). External MCP clients must use the typed `get_action_center` tool for "what needs action / blocked / overdue / at-risk" questions so Action Center process-integrity rows are not mixed with operator schedule totals or proof-verdict state. Golden eval question: `action-center` (`tools/ceo-ai/eval/golden/ops-workforce.json`). |
+| GET /feed-direction/preview | api + view:feed_direction_current + external MCP:get_feed_today | Feed needed today; blocked≠0. External MCP clients must use the typed `get_feed_today` tool for issued feed-sheet questions and must keep blocked/null quantities as missing configuration rather than zero feed. Golden eval questions: `feed-today`, `feed-blocked` (`tools/ceo-ai/eval/golden/feed-shifting-procurement.json`). |
 | GET /feed-direction/generation-preview | api + view:feed_direction_current | Planned generation + gaps |
 | GET /feed-direction/counts-projection/exceptions | api + view:ops_exception_queue | Blocked feed cells |
 | GET /feed-packing/worklist | api | Packing worklist |
@@ -159,7 +159,7 @@ proof.
 | GET /feed-config/experiment (func:ListExperimentConfig) | EXCLUDED | Experiment config; niche. The read now treats `park_id` as OPTIONAL on this one endpoint and adds authoring-grid filters, but an experiment cell carries its own park, so an absent park means "every authored experiment in the tenant" instead of silently rendering one park's pens as the whole company. That widens what the AUTHORING screen can show; it adds no leadership fact. The authored quantities were already excluded config, and the feeding they direct stays covered by `/feed-direction/preview`, `/feed-packing/worklist`, and the feed aggregate rows below. No new Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or KPI. |
 | GET /feed-config/pens (func:ListPens) | EXCLUDED | The experiment enroller's candidate picker: a park's active operational locations — each shed, and each pen of a subdivided shed — flagged with whether that pen already carries experiment config. A CONFIG-authoring input at the same grain as `/feed-config/shed-tags` and `/feed-config/shed-factors`, which are excluded above for the same reason. It reports no animal, no quantity, and no execution state; the location catalog it lists is already leadership-visible through the census and feed reads, and per-partition feed answers stay excluded exactly as the partition-primitives row records. Park-scoped by requirement, so it is also not a tenant-wide location dump. No new Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or KPI. |
 | POST /feed-config/experiment/batch (func:UpsertExperimentConfigBatch, func:NormalizeFeedItemKey) | EXCLUDED | Feed Config authoring WRITE, the atomic twin of the already-excluded single-cell `POST /feed-config/experiment`: it authors every feed item of ONE pen in one all-or-nothing write so a pen is never left half-enrolled. It is the same authored surface on the same `feed.config.write` permission, split onto its own route only for that guarantee, and it creates no new fact — the resulting quantities are read back through `GET /feed-config/experiment`, excluded above. `NormalizeFeedItemKey` is the Go twin of the Postgres `feed_config_norm` function (trim, casefold, collapse separators) and exists solely to reject two spellings of one feed item inside a single batch before they race onto the unique index; it derives nothing and reads no data. Leadership feed coverage is unchanged and stays on `/feed-direction/preview`, `/feed-packing/worklist`, and the feed aggregate rows below. No new Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or KPI. |
-| GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost | Open loads / pipeline; API tier executor wired (procurement_source_entry_loads tool) |
+| GET /procurement/source-entry/loads | api + view:procurement_pipeline / Cube:procurement_cost + external MCP:get_procurement_pipeline | Open loads / pipeline; API tier executor wired (procurement_source_entry_loads tool). External MCP clients must use the typed `get_procurement_pipeline` tool for open source-entry load questions and keep expected/received/accepted/rejected/holding states distinct. Golden eval question: `proc-open-loads` (`tools/ceo-ai/eval/golden/feed-shifting-procurement.json`). |
 | GET /procurement/source-entry/loads/{load_id} | api + view:source_entry_health_status | Load drilldown |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
 | GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail. Repo read `GetPositionByID` backs this single-seat drawer only; leadership capacity/coverage answers aggregate through `GET /admin/roster/positions` + `view:workforce_coverage_status`, never a named individual seat. |
@@ -190,7 +190,7 @@ proof.
 | sop_submissions.partition_label (migration 000147) | EXCLUDED | Runtime submit identity for partition-scoped SOP/vaccination evidence, not a new leadership read surface. It lets existing SOP submission reads disambiguate whole-shed vs partition work; clean-slate seed starts with no submissions, and leadership SOP execution coverage remains on `view:sop_execution_status` plus the existing admin task/submission fanout APIs. |
 | SOP submission fanout retry worker (func:NewSopSubmissionFanoutRetryStage, func:SopSubmissionFanoutRetryStage.Run, func:SopSubmissionFanoutRetryStage.Name) | api + view:ops_exception_queue | Operational repair surface for submitted proof fanouts that failed before vaccination completions / verification rows materialized. Leadership does not call the worker directly; failures remain visible through `GET /admin/tasks/submission-fanouts/failed` / ops exception coverage, and the kernel worker retries them durably. |
 | GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id} | EXCLUDED | Self-scoped operator worklist / form |
-| GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
+| GET /verification/queue | api + view:verification_queue_status + external MCP:get_verification_backlog | Verification backlog; API tier executor wired (verification_queue tool). External MCP clients must use the typed `get_verification_backlog` tool for proof backlog questions; pending verification is evidence waiting for review, not completed work. Golden eval question: `verification-queue` (`tools/ceo-ai/eval/golden/ops-workforce.json`). |
 | POST /verification/review-events | EXCLUDED | Write-only client telemetry ingest (verifier video-review analytics flush); not a leadership read |
 | GET /verification/items/{item_id}/review-facts | tool:mesha_verifier_review_integrity (per-item drilldown) | Per-item derived watch/timing facts. The tenant-wide aggregate is `ceo_ai.verifier_review_integrity` / `mesha_verifier_review_integrity` (G14, CLOSED, section D); this per-item endpoint is the drilldown a leadership follow-up ("show me item X") would still need a direct backend call for — not itself the aggregate answer path. |
 | Admin-web `/actions` | api + view:verification_queue_status | Cross-module evidence viewer over the already-covered verification queue. Action-type/status filters, details, and signed proof-video links add no new KPI or assistant tool. |
@@ -1105,7 +1105,7 @@ seam, never a request path.
 
 | health_protocol_versions, health_protocol_steps, health_config_write_log | EXCLUDED | Authored treatment rulebook + its write ledger. Config authoring, not a reporting surface; the leadership audit question is served by `/operations/audit`. |
 
-### OPEN GAP (pre-existing, NOT closed by this change)
+### Health clinical read coverage
 
 The Health module's CLINICAL surfaces have never had a coverage row: `health_cases`,
 `health_treatment_sessions`, `health_session_steps`,
@@ -1113,15 +1113,20 @@ The Health module's CLINICAL surfaces have never had a coverage row: `health_cas
 (migration `000098`, shipped before this matrix's Health section existed). Those
 are the leadership-relevant ones — how many animals are under treatment, for which
 diseases, in which parks, how long courses run, and how much medicine is being
-administered. They are genuinely uncovered today: there is no Cube metric, no
-`ceo_ai.*` view, and no Toolbox tool over any of them, and the tables are empty in
-every environment because the module has not been switched on.
+administered.
 
-This change deliberately does NOT close that gap — it adds the authoring surface
-only, and closing it would mean designing a clinical reporting view that nothing
-currently populates. Recorded here so the gap is visible rather than silently
-inherited: when the Health module is switched on, its case/session/administration
-grain needs a real coverage decision, not an exclusion.
+`GET /app/health/work-items` is now externally reachable through
+`external MCP:get_health_work_items` at treatment-session grain for CEO/CXO
+questions about open/due/in-progress/completed/held/canceled-death work items.
+The guardrail is strict: open sick/treatment work is not a mortality event unless
+the health workflow explicitly reports an approved death state.
+
+The richer clinical analytics gap remains for tables such as `health_cases`,
+`health_session_steps`, and `health_medicine_administrations`: there is still no
+Cube metric, `ceo_ai.*` aggregate view, or Toolbox tool over medicine/disease
+duration analytics. When the Health module is switched on beyond work-item
+operations, those tables need a real reporting coverage decision, not an
+exclusion.
 
 ## Verifier Actions subject labels: excluded internal lookup (2026-08-07)
 

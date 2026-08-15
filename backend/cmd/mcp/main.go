@@ -610,10 +610,10 @@ func initializeResult() map[string]any {
 }
 
 func tools() []map[string]any {
-	return []map[string]any{
+	out := []map[string]any{
 		{
 			"name":        "ask_goatos",
-			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits; for exact vaccination schedule/progress questions, use get_vaccination_today.",
+			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. Prefer typed tools for exact operations answers: vaccination, action center, verification, feed, procurement, and weighing.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -654,6 +654,10 @@ func tools() []map[string]any {
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 	}
+	for _, def := range apiReadTools() {
+		out = append(out, def.mcpTool())
+	}
+	return out
 }
 
 func readOnlyToolAnnotations() map[string]any {
@@ -679,12 +683,255 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 	case "get_vaccination_today":
 		return s.getVaccinationToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools such as get_vaccination_today for exact operational answers; use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_work_items, and get_weighing_progress. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
+		if def, ok := apiReadToolByName(params.Name); ok {
+			return s.getAPIReadTool(ctx, r, params.Arguments, def)
+		}
 		return nil, -32602, "unknown_tool"
 	}
+}
+
+type apiReadTool struct {
+	Name        string
+	Description string
+	Path        string
+	Source      string
+	Properties  map[string]any
+	BuildQuery  func(apiReadArgs) (url.Values, error)
+}
+
+func (t apiReadTool) mcpTool() map[string]any {
+	return map[string]any{
+		"name":        t.Name,
+		"description": t.Description,
+		"annotations": readOnlyToolAnnotations(),
+		"inputSchema": map[string]any{
+			"type":       "object",
+			"properties": t.Properties,
+		},
+	}
+}
+
+func apiReadTools() []apiReadTool {
+	return []apiReadTool{
+		{
+			Name:        "get_action_center",
+			Description: "Get canonical leadership Action Center process-integrity rows across vaccination and feed direction. Use this for blocked/overdue/at-risk work; it is not the same grain as scheduled administrations or verification verdicts.",
+			Path:        "/action-center/obligations",
+			Source:      "GET /action-center/obligations",
+			Properties:  commonReadProperties("category", "park_id", "shed_id", "work_state", "severity", "owner_id", "as_of", "due_after", "due_before", "cursor", "limit"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addEnum(q, "category", a.Category, "vaccination", "feed_direction"); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "shed_id", a.ShedID); err != nil {
+					return nil, err
+				}
+				if err := addEnum(q, "work_state", a.WorkState, "overdue", "due", "blocked", "rejected", "proof_pending", "verification_pending", "in_progress", "scheduled", "deferred", "completed", "missed", "ok"); err != nil {
+					return nil, err
+				}
+				if err := addStringMax(q, "severity", a.Severity, 80); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "owner_id", a.OwnerID); err != nil {
+					return nil, err
+				}
+				if err := addRFC3339(q, "as_of", a.AsOf); err != nil {
+					return nil, err
+				}
+				if err := addRFC3339(q, "due_after", a.DueAfter); err != nil {
+					return nil, err
+				}
+				if err := addRFC3339(q, "due_before", a.DueBefore); err != nil {
+					return nil, err
+				}
+				addOpaque(q, "cursor", a.Cursor)
+				addLimit(q, a.Limit, 500)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_verification_backlog",
+			Description: "Get the canonical verification evidence queue. Use this for pending/approved/rejected proofs and media review backlog. Do not treat pending verification as completed operational work.",
+			Path:        "/verification/queue",
+			Source:      "GET /verification/queue",
+			Properties:  commonReadProperties("category", "vertical", "module", "nav_module", "status", "business_date", "business_date_from", "business_date_to", "missed", "park_id", "shed_id", "cursor", "limit"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				for _, item := range []struct{ name, raw string }{{"category", a.Category}, {"vertical", a.Vertical}, {"module", a.Module}, {"nav_module", a.NavModule}} {
+					if err := addStringMax(q, item.name, item.raw, 120); err != nil {
+						return nil, err
+					}
+				}
+				if err := addEnum(q, "status", a.Status, "all", "pending", "approved", "rejected"); err != nil {
+					return nil, err
+				}
+				for _, item := range []struct{ name, raw string }{{"business_date", a.BusinessDate}, {"business_date_from", a.BusinessDateFrom}, {"business_date_to", a.BusinessDateTo}} {
+					if err := addDate(q, item.name, item.raw); err != nil {
+						return nil, err
+					}
+				}
+				if err := addBool(q, "missed", a.Missed); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addStringMax(q, "shed_id", a.ShedID, 120); err != nil {
+					return nil, err
+				}
+				addOpaque(q, "cursor", a.Cursor)
+				addLimit(q, a.Limit, 100)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_feed_today",
+			Description: "Get the frozen issued Feed Direction sheet for one park and feed day. Use this for today feed quantities, blocked feed cells, ration/config gaps, and session/shed feed work. Blocked/null feed must not be treated as zero.",
+			Path:        "/feed-direction/preview",
+			Source:      "GET /feed-direction/preview",
+			Properties:  commonReadProperties("park_id", "target_date", "shed_id", "session", "workflow", "draft", "limit", "offset"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addRequiredUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addRequiredDate(q, "target_date", firstNonEmpty(a.TargetDate, a.BusinessDate)); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "shed_id", a.ShedID); err != nil {
+					return nil, err
+				}
+				if err := addSessionNumber(q, "session", a.Session, 99); err != nil {
+					return nil, err
+				}
+				if err := addEnum(q, "workflow", a.Workflow, "normal", "experiment"); err != nil {
+					return nil, err
+				}
+				if err := addBool(q, "draft", a.Draft); err != nil {
+					return nil, err
+				}
+				addLimit(q, a.Limit, 200)
+				addOffset(q, a.Offset)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_procurement_pipeline",
+			Description: "Get leadership-visible procurement source-entry loads. Use this for supplier warmup, transit/source-entry pipeline, expected/accepted/rejected load follow-up. Do not turn a single load into company totals.",
+			Path:        "/procurement/source-entry/loads",
+			Source:      "GET /procurement/source-entry/loads",
+			Properties:  commonReadProperties("status", "cursor", "limit"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addStringMax(q, "status", a.Status, 80); err != nil {
+					return nil, err
+				}
+				addOpaque(q, "cursor", a.Cursor)
+				addLimit(q, a.Limit, 500)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_counts_summary",
+			Description: "Get canonical herd/census counts grouped by park, shed, stage, breed, and sex. Use this for active animal counts, census splits, mortality/movement follow-up starts, and count breakdowns. Keep lifecycle status explicit.",
+			Path:        "/counts/breakdown",
+			Source:      "GET /counts/breakdown",
+			Properties:  commonReadProperties("park_id", "shed_id", "partition_label", "management_stage", "breed", "sex", "lifecycle_status", "limit", "offset"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "shed_id", a.ShedID); err != nil {
+					return nil, err
+				}
+				for _, item := range []struct{ name, raw string }{
+					{"partition_label", a.PartitionLabel},
+					{"management_stage", a.ManagementStage},
+					{"breed", a.Breed},
+					{"sex", a.Sex},
+					{"lifecycle_status", a.LifecycleStatus},
+				} {
+					if err := addStringMax(q, item.name, item.raw, 120); err != nil {
+						return nil, err
+					}
+				}
+				addLimit(q, a.Limit, 100)
+				addOffset(q, a.Offset)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_health_work_items",
+			Description: "Get one day's Adult or Kids Health treatment sessions. Use this for open health cases, due treatment sessions, disease/protocol work, and held/canceled-death state. Sick/open work is not mortality unless the health workflow says death was approved.",
+			Path:        "/app/health/work-items",
+			Source:      "GET /app/health/work-items",
+			Properties:  commonReadProperties("age_band", "date", "status", "disease_key", "park_id", "shed_id", "session", "cursor", "limit"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addEnum(q, "age_band", a.AgeBand, "adult", "kid"); err != nil {
+					return nil, err
+				}
+				if strings.TrimSpace(a.AgeBand) == "" {
+					return nil, errors.New("age_band_required")
+				}
+				if err := addDate(q, "date", a.Date); err != nil {
+					return nil, err
+				}
+				if err := addEnum(q, "status", a.Status, "scheduled", "due", "in_progress", "completed", "rework", "held", "canceled_death"); err != nil {
+					return nil, err
+				}
+				if err := addStringMax(q, "disease_key", a.DiseaseKey, 120); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "shed_id", a.ShedID); err != nil {
+					return nil, err
+				}
+				if err := addSessionLabel(q, "session", a.Session, "morning", "afternoon", "evening", "unscheduled"); err != nil {
+					return nil, err
+				}
+				addOpaque(q, "cursor", a.Cursor)
+				addLimit(q, a.Limit, 20)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_weighing_progress",
+			Description: "Get leadership-visible weighing campaigns. Use this for weighing progress and campaign state. Pending verification weight is not verified weight.",
+			Path:        "/weighing/campaigns",
+			Source:      "GET /weighing/campaigns",
+			Properties:  commonReadProperties("park_id", "cursor", "limit"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				addOpaque(q, "cursor", a.Cursor)
+				addLimit(q, a.Limit, 5000)
+				return q, nil
+			},
+		},
+	}
+}
+
+func apiReadToolByName(name string) (apiReadTool, bool) {
+	for _, def := range apiReadTools() {
+		if def.Name == name {
+			return def, true
+		}
+	}
+	return apiReadTool{}, false
 }
 
 func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMessage) (map[string]any, int, string) {
@@ -704,6 +951,72 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 		return nil, code, msg
 	}
 	return s.proxyAskGoatOS(ctx, r, authz, email, question, strings.TrimSpace(args.ConversationID))
+}
+
+type apiReadArgs struct {
+	BusinessDate     string `json:"business_date"`
+	BusinessDateFrom string `json:"business_date_from"`
+	BusinessDateTo   string `json:"business_date_to"`
+	TargetDate       string `json:"target_date"`
+	ParkID           string `json:"park_id"`
+	ShedID           string `json:"shed_id"`
+	Category         string `json:"category"`
+	Vertical         string `json:"vertical"`
+	Module           string `json:"module"`
+	NavModule        string `json:"nav_module"`
+	Status           string `json:"status"`
+	WorkState        string `json:"work_state"`
+	Severity         string `json:"severity"`
+	OwnerID          string `json:"owner_id"`
+	PartitionLabel   string `json:"partition_label"`
+	ManagementStage  string `json:"management_stage"`
+	Breed            string `json:"breed"`
+	Sex              string `json:"sex"`
+	LifecycleStatus  string `json:"lifecycle_status"`
+	AgeBand          string `json:"age_band"`
+	Date             string `json:"date"`
+	DiseaseKey       string `json:"disease_key"`
+	AsOf             string `json:"as_of"`
+	DueAfter         string `json:"due_after"`
+	DueBefore        string `json:"due_before"`
+	Workflow         string `json:"workflow"`
+	Cursor           string `json:"cursor"`
+	Missed           any    `json:"missed"`
+	Draft            any    `json:"draft"`
+	Session          any    `json:"session"`
+	Limit            int    `json:"limit"`
+	Offset           int    `json:"offset"`
+}
+
+func (s *server) getAPIReadTool(ctx context.Context, r *http.Request, raw json.RawMessage, def apiReadTool) (map[string]any, int, string) {
+	var args apiReadArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, -32602, "invalid_" + def.Name + "_arguments"
+		}
+	}
+	q, err := def.BuildQuery(args)
+	if err != nil {
+		return nil, -32602, err.Error()
+	}
+	authz, email, code, msg := s.verifiedAuthorization(r)
+	if msg != "" {
+		return nil, code, msg
+	}
+	if s.cfg.UpstreamBaseURL == "" {
+		return nil, -32603, "upstream_base_url_not_configured"
+	}
+	var payload any
+	if err := s.getUpstreamJSON(ctx, r, authz, email, def.Path, q, &payload); err != nil {
+		s.log.Warn("goatos_mcp_api_read_failed", slog.String("tool", def.Name), slog.String("source", def.Source), slog.Any("error", err))
+		return nil, -32603, def.Name + "_unreachable"
+	}
+	return structuredTextToolResult(summarizeAPIRead(def, payload), map[string]any{
+		"tool":   def.Name,
+		"source": def.Source,
+		"query":  queryObject(q),
+		"data":   payload,
+	}), 0, ""
 }
 
 func (s *server) verifiedAuthorization(r *http.Request) (authz, email string, code int, msg string) {
@@ -942,6 +1255,292 @@ func isUUID(raw string) bool {
 		}
 	}
 	return true
+}
+
+func commonReadProperties(names ...string) map[string]any {
+	props := map[string]any{}
+	for _, name := range names {
+		switch name {
+		case "business_date", "business_date_from", "business_date_to", "target_date":
+			props[name] = map[string]any{"type": "string", "description": "Asia/Kolkata business date in YYYY-MM-DD."}
+		case "as_of", "due_after", "due_before":
+			props[name] = map[string]any{"type": "string", "description": "RFC3339 timestamp."}
+		case "park_id", "shed_id", "owner_id":
+			props[name] = map[string]any{"type": "string", "description": "UUID or backend-supported opaque key where documented."}
+		case "limit", "offset", "session":
+			props[name] = map[string]any{"type": "integer"}
+		case "missed", "draft":
+			props[name] = map[string]any{"type": "boolean"}
+		default:
+			props[name] = map[string]any{"type": "string"}
+		}
+	}
+	return props
+}
+
+func addDate(q url.Values, name, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if _, err := time.Parse("2006-01-02", raw); err != nil {
+		return fmt.Errorf("%s_must_be_yyyy_mm_dd", name)
+	}
+	q.Set(name, raw)
+	return nil
+}
+
+func addRequiredDate(q url.Values, name, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("%s_required", name)
+	}
+	return addDate(q, name, raw)
+}
+
+func addRFC3339(q url.Values, name, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if _, err := time.Parse(time.RFC3339, raw); err != nil {
+		return fmt.Errorf("%s_must_be_rfc3339", name)
+	}
+	q.Set(name, raw)
+	return nil
+}
+
+func addUUID(q url.Values, name, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if !isUUID(raw) {
+		return fmt.Errorf("invalid_%s", name)
+	}
+	q.Set(name, raw)
+	return nil
+}
+
+func addRequiredUUID(q url.Values, name, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("%s_required", name)
+	}
+	return addUUID(q, name, raw)
+}
+
+func addEnum(q url.Values, name, raw string, allowed ...string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	for _, value := range allowed {
+		if raw == value {
+			q.Set(name, raw)
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid_%s", name)
+}
+
+func addStringMax(q url.Values, name, raw string, maxLen int) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if len(raw) > maxLen {
+		return fmt.Errorf("invalid_%s", name)
+	}
+	q.Set(name, raw)
+	return nil
+}
+
+func addBool(q url.Values, name string, raw any) error {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case bool:
+		q.Set(name, strconv.FormatBool(v))
+		return nil
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return nil
+		}
+		if v != "true" && v != "false" {
+			return fmt.Errorf("invalid_%s", name)
+		}
+		q.Set(name, v)
+		return nil
+	default:
+		return fmt.Errorf("invalid_%s", name)
+	}
+}
+
+func addSmallInt(q url.Values, name string, value, max int) error {
+	if value == 0 {
+		return nil
+	}
+	if value < 0 || value > max {
+		return fmt.Errorf("invalid_%s", name)
+	}
+	q.Set(name, strconv.Itoa(value))
+	return nil
+}
+
+func addSessionNumber(q url.Values, name string, raw any, max int) error {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case float64:
+		if v != float64(int(v)) {
+			return fmt.Errorf("invalid_%s", name)
+		}
+		return addSmallInt(q, name, int(v), max)
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid_%s", name)
+		}
+		return addSmallInt(q, name, n, max)
+	default:
+		return fmt.Errorf("invalid_%s", name)
+	}
+}
+
+func addSessionLabel(q url.Values, name string, raw any, allowed ...string) error {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case string:
+		return addEnum(q, name, v, allowed...)
+	default:
+		return fmt.Errorf("invalid_%s", name)
+	}
+}
+
+func addLimit(q url.Values, value, max int) {
+	if value <= 0 {
+		return
+	}
+	if value > max {
+		value = max
+	}
+	q.Set("limit", strconv.Itoa(value))
+}
+
+func addOffset(q url.Values, value int) {
+	if value > 0 {
+		q.Set("offset", strconv.Itoa(value))
+	}
+}
+
+func addOpaque(q url.Values, name, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		q.Set(name, value)
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func queryObject(q url.Values) map[string]any {
+	out := map[string]any{}
+	for key, values := range q {
+		if len(values) == 1 {
+			out[key] = values[0]
+		} else if len(values) > 1 {
+			out[key] = values
+		}
+	}
+	return out
+}
+
+func summarizeAPIRead(def apiReadTool, payload any) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", def.Description)
+	fmt.Fprintf(&b, "\nSource: %s\n", def.Source)
+	keys := topLevelKeys(payload)
+	if len(keys) > 0 {
+		fmt.Fprintf(&b, "Returned keys: %s\n", strings.Join(keys, ", "))
+	}
+	counts := payloadCounts(payload)
+	if len(counts) > 0 {
+		b.WriteString("Observed collection sizes:\n")
+		for _, item := range counts {
+			fmt.Fprintf(&b, "- %s: %d\n", item.name, item.count)
+		}
+	}
+	switch def.Name {
+	case "get_verification_backlog":
+		b.WriteString("\nJudge note: pending verification is evidence waiting for review; it is not completed work.\n")
+	case "get_feed_today":
+		b.WriteString("\nJudge note: blocked/null feed quantities are configuration gaps, not zero feed.\n")
+	case "get_action_center":
+		b.WriteString("\nJudge note: Action Center rows are process-integrity obligations; do not mix them with operator schedule totals.\n")
+	case "get_weighing_progress":
+		b.WriteString("\nJudge note: pending verification weight is not verified weight.\n")
+	case "get_health_work_items":
+		b.WriteString("\nJudge note: open health/treatment work is not a death or mortality event unless the health workflow explicitly reports approved death state.\n")
+	case "get_counts_summary":
+		b.WriteString("\nJudge note: counts are aggregate census facts; lifecycle status must stay explicit when comparing active, exited, or dead animals.\n")
+	}
+	return b.String()
+}
+
+func topLevelKeys(payload any) []string {
+	obj, ok := payload.(map[string]any)
+	if !ok {
+		return nil
+	}
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		keys = append(keys, key)
+	}
+	sortStrings(keys)
+	if len(keys) > 12 {
+		return keys[:12]
+	}
+	return keys
+}
+
+type namedCount struct {
+	name  string
+	count int
+}
+
+func payloadCounts(payload any) []namedCount {
+	obj, ok := payload.(map[string]any)
+	if !ok {
+		if rows, ok := payload.([]any); ok {
+			return []namedCount{{name: "rows", count: len(rows)}}
+		}
+		return nil
+	}
+	var out []namedCount
+	for _, key := range []string{"items", "rows", "loads", "campaigns", "operators", "sheds", "queue", "data"} {
+		if rows, ok := obj[key].([]any); ok {
+			out = append(out, namedCount{name: key, count: len(rows)})
+		}
+	}
+	return out
+}
+
+func sortStrings(values []string) {
+	for i := 1; i < len(values); i++ {
+		for j := i; j > 0 && values[j] < values[j-1]; j-- {
+			values[j], values[j-1] = values[j-1], values[j]
+		}
+	}
 }
 
 type vaccinationLiveTrackerResponse struct {

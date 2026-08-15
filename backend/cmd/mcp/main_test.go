@@ -39,13 +39,184 @@ func TestToolsList(t *testing.T) {
 	for _, tool := range got.Result.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"ask_goatos", "get_vaccination_today", "list_goatos_capabilities", "goatos_mcp_health"} {
+	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_work_items", "get_weighing_progress", "list_goatos_capabilities", "goatos_mcp_health"} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %+v", want, names)
 		}
 	}
 	if !strings.Contains(rec.Body.String(), `"readOnlyHint":true`) || !strings.Contains(rec.Body.String(), `"destructiveHint":false`) {
 		t.Fatalf("tools should advertise read-only annotations: %s", rec.Body.String())
+	}
+}
+
+func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
+	tests := []struct {
+		name      string
+		tool      string
+		args      string
+		wantPath  string
+		wantQuery map[string]string
+		response  map[string]any
+	}{
+		{
+			name:     "action center",
+			tool:     "get_action_center",
+			args:     `{"category":"vaccination","work_state":"blocked","limit":25}`,
+			wantPath: "/action-center/obligations",
+			wantQuery: map[string]string{
+				"category":   "vaccination",
+				"work_state": "blocked",
+				"limit":      "25",
+			},
+			response: map[string]any{"items": []map[string]any{{"title": "proof missing"}}},
+		},
+		{
+			name:     "verification backlog",
+			tool:     "get_verification_backlog",
+			args:     `{"category":"vaccination_proof","status":"pending","business_date":"2026-08-15","limit":20}`,
+			wantPath: "/verification/queue",
+			wantQuery: map[string]string{
+				"category":      "vaccination_proof",
+				"status":        "pending",
+				"business_date": "2026-08-15",
+				"limit":         "20",
+			},
+			response: map[string]any{"items": []map[string]any{{"subject": "video"}}},
+		},
+		{
+			name:     "feed today",
+			tool:     "get_feed_today",
+			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","target_date":"2026-08-15","workflow":"normal","limit":10}`,
+			wantPath: "/feed-direction/preview",
+			wantQuery: map[string]string{
+				"park_id":     "10000000-0000-4000-8000-000000000001",
+				"target_date": "2026-08-15",
+				"workflow":    "normal",
+				"limit":       "10",
+			},
+			response: map[string]any{"items": []map[string]any{{"shed": "Gandhi", "status": "resolved"}}},
+		},
+		{
+			name:     "procurement pipeline",
+			tool:     "get_procurement_pipeline",
+			args:     `{"status":"warmup","limit":5}`,
+			wantPath: "/procurement/source-entry/loads",
+			wantQuery: map[string]string{
+				"status": "warmup",
+				"limit":  "5",
+			},
+			response: map[string]any{"loads": []map[string]any{{"load_id": "load-1"}}},
+		},
+		{
+			name:     "weighing progress",
+			tool:     "get_weighing_progress",
+			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","limit":3}`,
+			wantPath: "/weighing/campaigns",
+			wantQuery: map[string]string{
+				"park_id": "10000000-0000-4000-8000-000000000001",
+				"limit":   "3",
+			},
+			response: map[string]any{"campaigns": []map[string]any{{"name": "week 1"}}},
+		},
+		{
+			name:     "counts summary",
+			tool:     "get_counts_summary",
+			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","lifecycle_status":"alive","limit":10}`,
+			wantPath: "/counts/breakdown",
+			wantQuery: map[string]string{
+				"park_id":          "10000000-0000-4000-8000-000000000001",
+				"lifecycle_status": "alive",
+				"limit":            "10",
+			},
+			response: map[string]any{"items": []map[string]any{{"park": "Channapatna", "total_count": 12}}, "total_count": 12},
+		},
+		{
+			name:     "health work items",
+			tool:     "get_health_work_items",
+			args:     `{"age_band":"adult","date":"2026-08-15","status":"due","limit":20}`,
+			wantPath: "/app/health/work-items",
+			wantQuery: map[string]string{
+				"age_band": "adult",
+				"date":     "2026-08-15",
+				"status":   "due",
+				"limit":    "20",
+			},
+			response: map[string]any{"items": []map[string]any{{"disease_key": "fever", "status": "due"}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tt.wantPath {
+					t.Fatalf("path=%s want %s", r.URL.Path, tt.wantPath)
+				}
+				for key, want := range tt.wantQuery {
+					if got := r.URL.Query().Get(key); got != want {
+						t.Fatalf("query %s=%q want %q; raw=%s", key, got, want, r.URL.RawQuery)
+					}
+				}
+				if r.Header.Get("Authorization") != "Bearer user-token" {
+					t.Fatalf("Authorization not proxied: %q", r.Header.Get("Authorization"))
+				}
+				if r.Header.Get("X-Mesha-Actor-Email") != "aryaman@mesha.sg" {
+					t.Fatalf("verified actor email not proxied: %q", r.Header.Get("X-Mesha-Actor-Email"))
+				}
+				_ = json.NewEncoder(w).Encode(tt.response)
+			}))
+			defer upstream.Close()
+
+			s := newServer(config{
+				UpstreamBaseURL: upstream.URL,
+				UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+				MCPPath:         "/mcp",
+				AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+				TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+			}, upstream.Client(), nil)
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"api","method":"tools/call","params":{"name":"`+tt.tool+`","arguments":`+tt.args+`}}`))
+			req.Header.Set("Authorization", "Bearer user-token")
+			rec := httptest.NewRecorder()
+
+			s.handleMCP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, tt.wantPath) || !strings.Contains(body, `"structuredContent"`) {
+				t.Fatalf("body missing source/structured content: %s", body)
+			}
+		})
+	}
+}
+
+func TestAPIReadToolsRejectInvalidArgsBeforeUpstream(t *testing.T) {
+	called := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"api","method":"tools/call","params":{"name":"get_feed_today","arguments":{"target_date":"15-08-2026"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if called {
+		t.Fatal("upstream should not be called for invalid arguments")
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "park_id_required") {
+		t.Fatalf("body=%s", body)
 	}
 }
 

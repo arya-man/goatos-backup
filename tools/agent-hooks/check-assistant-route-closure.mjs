@@ -35,6 +35,17 @@ function goBin() {
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PLANNER = path.join(repo, "backend/internal/ceoai/adapters/keywordplanner/planner.go");
 const DOCS_DIR = path.join(repo, "docs/ceo-ai");
+const MCP_MAIN = path.join(repo, "backend/cmd/mcp/main.go");
+const EXTERNAL_MCP_REQUIRED_TOOLS = [
+  "get_vaccination_today",
+  "get_action_center",
+  "get_verification_backlog",
+  "get_feed_today",
+  "get_procurement_pipeline",
+  "get_counts_summary",
+  "get_health_work_items",
+  "get_weighing_progress",
+];
 const STALE = [
   { re: /ProjectedCountFor/, why: "counts reader no longer uses ProjectedCountFor (deleted); docs are stale" },
   { re: /empty[- ]facts fallback/i, why: "empty-facts fallback replaced by ToolResult.Err + runtime retry; docs are stale" },
@@ -59,6 +70,27 @@ function checkDocs() {
     const text = readFileSync(path.join(DOCS_DIR, f), "utf8");
     for (const s of STALE) {
       if (s.re.test(text)) problems.push(`docs/ceo-ai/${f}: ${s.why}`);
+    }
+  }
+  return problems;
+}
+
+function checkExternalMCPTools() {
+  const text = readFileSync(MCP_MAIN, "utf8");
+  const problems = [];
+  for (const tool of EXTERNAL_MCP_REQUIRED_TOOLS) {
+    if (!text.includes(`Name:        "${tool}"`) && !text.includes(`"name":        "${tool}"`)) {
+      problems.push(`backend/cmd/mcp/main.go: missing external MCP typed tool ${tool}`);
+    }
+  }
+  const coverage = readFileSync(path.join(repo, "docs/ceo-ai/coverage-matrix.md"), "utf8");
+  const integration = readFileSync(path.join(repo, "docs/ceo-ai/external-mcp-integration.md"), "utf8");
+  for (const tool of EXTERNAL_MCP_REQUIRED_TOOLS) {
+    if (!coverage.includes(`external MCP:${tool}`) && tool !== "get_vaccination_today") {
+      problems.push(`docs/ceo-ai/coverage-matrix.md: missing external MCP coverage marker for ${tool}`);
+    }
+    if (!integration.includes(`\`${tool}\``)) {
+      problems.push(`docs/ceo-ai/external-mcp-integration.md: missing tool catalog entry for ${tool}`);
     }
   }
   return problems;
@@ -101,9 +133,11 @@ function main() {
     process.exit(1);
   }
   const docs = checkDocs();
-  if (docs.length) {
+  const externalMCP = checkExternalMCPTools();
+  const problems = [...docs, ...externalMCP];
+  if (problems.length) {
     console.error("assistant-route-closure guard failed: stale assistant docs:");
-    for (const p of docs) console.error(`  - ${p}`);
+    for (const p of problems) console.error(`  - ${p}`);
     process.exit(1);
   }
   console.log("assistant-route-closure guard passed");

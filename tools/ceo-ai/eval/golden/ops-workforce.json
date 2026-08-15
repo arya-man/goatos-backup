@@ -1,12 +1,36 @@
 [
   {
+    "id": "counts-summary",
+    "class": "counts_breakdown",
+    "question": "How many active animals do we have by park and shed?",
+    "notes": "Aggregate census only. Keep lifecycle status explicit; active/exited/dead are different answer scopes.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "cube", "sql"],
+      "external_mcp_tools_any_of": ["get_counts_summary", "GET /counts/breakdown"]
+    }
+  },
+  {
+    "id": "health-work-items",
+    "class": "health_work_items",
+    "question": "What health work items are due today by disease and shed?",
+    "notes": "Treatment-session grain. Sick/open work is not death/mortality unless health state explicitly says approved death.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_health_work_items", "GET /app/health/work-items"]
+    }
+  },
+  {
     "id": "workforce-coverage",
     "class": "workforce_coverage",
     "question": "Which sheds have no backup manager coverage?",
     "notes": "Report role/position/active status, never staff PII. Backup covers absent manager's tasks.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"]
+      "tiers_any_of": ["api", "sql"],
+      "external_mcp_tools_any_of": ["get_verification_backlog", "GET /verification/queue"]
     }
   },
   {
@@ -16,7 +40,8 @@
     "notes": "Cross-domain proof-verification backlog. Status is a read-time bucket; asserted as an aggregate + routing tier.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"]
+      "tiers_any_of": ["api", "sql"],
+      "external_mcp_tools_any_of": ["get_action_center", "GET /action-center/obligations"]
     }
   },
   {
