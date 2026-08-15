@@ -1306,6 +1306,12 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     }
 
     override fun observeActive() = inner.observeActive()
+    override fun observeActiveByOpType(opType: String): kotlinx.coroutines.flow.Flow<List<OutboxEntity>> {
+        val base = observeActive()
+        return kotlinx.coroutines.flow.flow {
+            base.collect { rows -> emit(rows.filter { row -> row.opType == opType }) }
+        }
+    }
     override fun observeActiveCounts() = inner.observeActiveCounts()
     override fun observeActiveWindow(limit: Int) = inner.observeActiveWindow(limit)
     override fun observeById(id: String) = inner.observeById(id)

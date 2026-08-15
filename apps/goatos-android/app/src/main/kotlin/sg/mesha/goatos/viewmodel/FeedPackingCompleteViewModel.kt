@@ -146,7 +146,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun observeLiveLifecycleStatus() {
         viewModelScope.launch {
             feedRepository.observePackingRowStatus(shedId, partitionLabel, workflow, sessionNo)
-                .collect { liveStatus -> applyLiveStatus(liveStatus) }
+                .collect { liveStatus -> applyLiveStatus(liveStatus, fromRoom = true) }
         }
         startServerStatusPolling()
     }
@@ -154,13 +154,16 @@ class FeedPackingCompleteViewModel @Inject constructor(
     /** Shared by the Room-backed observer above and the SERVER poll below. `null` (no answer yet /
      *  poll failed) is ignored: this must never flip editable -> locked on a guess, and never flips
      *  locked -> editable at all. */
-    private fun applyLiveStatus(liveStatus: String?) {
+    private fun applyLiveStatus(liveStatus: String?, fromRoom: Boolean) {
         if (liveStatus == null) return
         _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
-        // Persist the fetched status into Room so the live observer emits and the screen survives
-        // process death offline (blocker 1: poll result must write through Room).
-        viewModelScope.launch {
-            feedRepository.persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
+        // Persist SERVER-sourced status into Room so the screen survives process death offline.
+        // Room-sourced emissions are already in Room — writing them back fires a spurious
+        // table-wide invalidation on every emission.
+        if (!fromRoom) {
+            viewModelScope.launch {
+                feedRepository.persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
+            }
         }
     }
 
@@ -189,7 +192,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
         val status = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); see pollServerStatusOnce kdoc — null-is-unknown is the contract, not an error to record
             feedRepository.fetchPackingRowStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
         }.getOrNull()
-        applyLiveStatus(status)
+        applyLiveStatus(status, fromRoom = false)
     }
 
     fun onEvent(event: FeedPackingCompleteEvent) {

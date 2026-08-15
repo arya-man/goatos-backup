@@ -43,6 +43,9 @@ interface OutboxStore {
      *  instead of [observeActive] when displaying a subset for UI. */
     fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>>
 
+    /** Complete active set for ONE op type — reconciliation guards need the FULL per-feature set. */
+    fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>>
+
     /** Bounded active writes for one ordering group and selected operation types. */
     suspend fun findActiveForGroup(
         groupKey: String,
@@ -121,6 +124,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
     override fun observeActiveCounts(): Flow<ActiveOutboxCounts> = dao.observeActiveCounts()
+    override fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>> = dao.observeActiveByOpType(opType)
     override fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>> = dao.observeActiveWindow(limit)
     override suspend fun findActiveForGroup(
         groupKey: String,
@@ -193,16 +197,24 @@ private const val OUTBOX_STORE_TAG = "GoatOsOutboxStore"
  *  [activeRows] is QUEUED/IN_FLIGHT/non-conflict-FAILED (never SUCCEEDED).
  *  [recentTerminals] is a bounded window of SUCCEEDED and conflict-FAILED for UI context.
  *  [recentTerminals] MUST be pre-sorted by recency (descending updatedAt) from the DAO. */
-fun toSyncStatus(activeRows: List<OutboxEntity>, recentTerminals: List<OutboxEntity>, online: Boolean): SyncStatus {
+fun toSyncStatus(
+    activeRows: List<OutboxEntity>,
+    recentTerminals: List<OutboxEntity>,
+    online: Boolean,
+    /** TRUE totals from the SQL aggregate. The windowed [activeRows] list undercounts once the
+     *  active set exceeds the window (judge finding 2026-08-15); counts must come from here when
+     *  available. Null only in legacy tests — falls back to counting the list. */
+    activeCounts: ActiveOutboxCounts? = null,
+): SyncStatus {
     val activeItems = activeRows.map { it.toSyncQueueItem() }
     val recentItems = recentTerminals.map { it.toSyncQueueItem() }
     val allItems = activeItems + recentItems
 
     return SyncStatus(
         online = online,
-        pendingCount = activeItems.count { it.status == SyncItemStatus.QUEUED },
-        inFlightCount = activeItems.count { it.status == SyncItemStatus.IN_FLIGHT },
-        failedCount = activeItems.count { it.status == SyncItemStatus.FAILED },
+        pendingCount = activeCounts?.queued ?: activeItems.count { it.status == SyncItemStatus.QUEUED },
+        inFlightCount = activeCounts?.inFlight ?: activeItems.count { it.status == SyncItemStatus.IN_FLIGHT },
+        failedCount = activeCounts?.failed ?: activeItems.count { it.status == SyncItemStatus.FAILED },
         deadLetterCount = recentItems.count { it.isDeadLetter }, // Dead-letter is terminal, so only in recent
         lastSyncAt = recentItems.filter { it.status == SyncItemStatus.SUCCEEDED }.maxOfOrNull { it.updatedAt },
         items = allItems,

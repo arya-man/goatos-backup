@@ -109,6 +109,16 @@ interface OutboxDao {
     )
     fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>>
 
+    /** Every ACTIVE row of ONE op type. Bounded by nature (a single feature's pending writes),
+     *  unlike the cross-feature window: reconciliation guards (e.g. pending health-case opens)
+     *  need the COMPLETE set for their op type — a newest-N window silently drops the oldest
+     *  pending command once other features queue enough rows after it. */
+    @Query(
+        "SELECT * FROM outbox WHERE opType = :opType AND (status IN ('QUEUED', 'IN_FLIGHT') " +
+            "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts)) ORDER BY createdAt ASC",
+    )
+    fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>>
+
     /**
      * Bounded active rows for one ordering group and a small caller-owned op-type set. Used by
      * offline-first read-model reconciliation so a network refresh cannot erase a command that is
