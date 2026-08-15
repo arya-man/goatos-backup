@@ -207,18 +207,27 @@ class FeedDirectionViewModel @Inject constructor(
         // fixed in ShiftingPendingViewModel on 2026-08-13.
         _filters.value = _filters.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
         // ONE monitor per refresh; a new tap cancels the previous so overlapping taps can't race
-        // each other's spinner/offline writes. Success = the RemoteMediator advances lastSyncedAt
-        // past this tap's snapshot; a ~5s silence means the refetch failed (offline banner) while
-        // the cached rows stay on screen.
+        // each other's spinner/offline writes. Success is judged by an ACTUAL network probe --
+        // never by lastSyncedAt movement alone, because a fresh-enough cache legitimately serves
+        // without a network hit and a timestamp that stays put then reads as a FALSE offline
+        // (field report 2026-08-15: list flashed "syncing" then "offline" with the server up).
         refreshMonitorJob?.cancel()
         refreshMonitorJob = viewModelScope.launch {
-            val advanced = kotlinx.coroutines.withTimeoutOrNull(5_000L) {
-                observed
-                    .map { it.resource.lastSyncedAt ?: 0L }
-                    .first { it > priorSyncedAt }
+            val query = _filters.value.toQuery()
+            val reachable = kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                repo.probeDirectionSummary(query)
+            } ?: false
+            if (reachable) {
+                // Give the re-subscribed mediator/summary a beat to land its upsert before the
+                // spinner clears, so the "Updated just now" caption reflects the refetch.
+                kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+                    observed
+                        .map { it.resource.lastSyncedAt ?: 0L }
+                        .first { it > priorSyncedAt }
+                }
             }
             _isRefreshing.value = false
-            _isOffline.value = advanced == null
+            _isOffline.value = !reachable
         }
     }
 

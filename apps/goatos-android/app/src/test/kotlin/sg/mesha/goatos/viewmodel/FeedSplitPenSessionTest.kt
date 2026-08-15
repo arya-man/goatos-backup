@@ -42,6 +42,7 @@ class FakeSplitFeedRepository(
         return slots
     }
 
+    override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean = true
     override suspend fun fetchProofDownloadUrl(proofId: String): String? =
         if (proofId.isNotBlank()) "https://stg.example.com/proofs/$proofId/download?token=xyz" else null
 
