@@ -157,6 +157,11 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun applyLiveStatus(liveStatus: String?) {
         if (liveStatus == null) return
         _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+        // Persist the fetched status into Room so the live observer emits and the screen survives
+        // process death offline (blocker 1: poll result must write through Room).
+        viewModelScope.launch {
+            feedRepository.persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
+        }
     }
 
     /**

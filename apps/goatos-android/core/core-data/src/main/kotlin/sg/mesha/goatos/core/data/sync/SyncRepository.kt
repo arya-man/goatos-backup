@@ -560,16 +560,17 @@ class DefaultSyncRepository(
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
     private val _status = MutableStateFlow(SyncStatus.empty(online = onlineFlow.value))
+    private val activeWindowLimit: Int = 20 // Bounded window for memory safety in long offline periods
 
     init {
         appScope.launch {
-            // Observe active rows + fetch recent terminals on changes to update UI.
+            // Observe active rows (bounded window) + fetch recent terminals on changes to update UI.
             // Combines online status with outbox state to produce SyncStatus.
             var activeRows = emptyList<OutboxEntity>()
             var recentTerminals = emptyList<OutboxEntity>()
 
             appScope.launch {
-                store.observeActive().collect { rows ->
+                store.observeActiveWindow(activeWindowLimit).collect { rows ->
                     activeRows = rows
                     recentTerminals = store.observeRecentTerminals(recentTerminalLimit)
                     _status.value = toSyncStatus(activeRows, recentTerminals, onlineFlow.value)
@@ -608,7 +609,7 @@ class DefaultSyncRepository(
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
 
     override fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> =
-        store.observeActive()
+        store.observeActiveWindow(activeWindowLimit)
             .map { rows -> projectPendingHealthCaseOpens(rows, syncJson) }
             .distinctUntilChanged()
 

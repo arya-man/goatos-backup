@@ -352,6 +352,10 @@ private fun analyticsReason(error: Throwable): String =
                 .collect{item->
                     val write=item.toWriteResult("Submitted for verification","Submitted for verification")
                     if(!write.isCommitted&&_state.value.result?.status!=FeedTransportSubmitStatus.FAILED){crashReporter.log("feed transport submit failed item=$itemId");analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to item.writeFailureReason()))}
+                    // Reset submitInFlight latch on terminal failure so the user can retry.
+                    if(item.status==SyncItemStatus.FAILED){
+                        submitInFlight=false
+                    }
                     _state.update{it.copy(result=FeedTransportResultUi(write.status.toTransportStatus(),write.message.orEmpty()))}
                 }
         }

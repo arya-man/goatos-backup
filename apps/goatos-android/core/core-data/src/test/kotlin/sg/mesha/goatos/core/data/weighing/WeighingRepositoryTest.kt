@@ -1034,7 +1034,7 @@ class WeighingRepositoryTest {
         // The reconciler redelivers the very same ready proof for the very same row.
         repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
 
-        val queued = store.observeActive().first()
+        val queued = store.observeActiveWindow(1000).first()
         assertEquals(
             "one capture must queue exactly one write; queued keys=" + queued.map { it.idempotencyKey },
             1,
