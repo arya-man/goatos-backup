@@ -35,12 +35,10 @@ import javax.inject.Provider
  * out of scope for this fix. Non-critical events remain exactly as fire-and-forget as before.
  *
  * Every request carries a [CLIENT_EVENT_ID_PARAM] property -- a fresh, per-call
- * [UUID.randomUUID] -- so the backend CAN dedupe a rare double-send (a send that actually reached
- * the backend but whose local queue removal was then lost to a process death before the next
- * drain runs). `AppAnalyticsEventRequestDto` (`core/core-network`) has no dedicated dedupe field
- * today, so this is carried as a normal property rather than a first-class request field; true
- * exactly-once delivery is NOT guaranteed, only at-most-once-per-confirmed-local-removal, and
- * rare duplicates on the backend are an accepted, documented tradeoff of not extending the DTO.
+ * [UUID.randomUUID] -- carried BOTH as a property and as the first-class
+ * `AppAnalyticsEventRequestDto.clientEventId` request field. The backend enforces
+ * UNIQUE (tenant_id, client_event_id) with ON CONFLICT DO NOTHING, and queue-drain resends reuse
+ * the ORIGINAL id, so a retry after a lost response never double-counts.
  */
 class BackendAnalyticsAdapter(
     private val apiProvider: Provider<AppApi>,
@@ -138,6 +136,11 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.SYNC_WRITE_DEAD,
             AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED,
             AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ,
+            // The ONLY event carrying all three split-operator slot sources (weight/feed/water:
+            // local vs teammate). Firebase intentionally drops feed_video_source/water_video_source
+            // under the 25-param cap, so losing the backend copy loses the forensic record
+            // (external review 2026-08-16).
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES,
             AnalyticsEvents.WEIGHING_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE,
