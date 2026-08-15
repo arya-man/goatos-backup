@@ -19,7 +19,7 @@
       "aggregate_first": true,
       "ist": true,
       "tiers_any_of": ["api"],
-      "external_mcp_tools_any_of": ["get_health_work_items", "GET /app/health/work-items"]
+      "external_mcp_tools_any_of": ["get_health_today", "get_health_work_items", "GET /app/health/work-items"]
     }
   },
   {
@@ -30,7 +30,7 @@
     "expect": {
       "aggregate_first": true,
       "tiers_any_of": ["api", "sql"],
-      "external_mcp_tools_any_of": ["get_action_center", "GET /action-center/obligations"]
+      "external_mcp_tools_any_of": ["get_workforce_coverage", "GET /admin/roster/coverage"]
     }
   },
   {

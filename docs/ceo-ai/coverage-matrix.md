@@ -165,7 +165,7 @@ proof.
 | GET /procurement/source-entry/loads/{load_id} | api + view:source_entry_health_status | Load drilldown |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
 | GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail. Repo read `GetPositionByID` backs this single-seat drawer only; leadership capacity/coverage answers aggregate through `GET /admin/roster/positions` + `view:workforce_coverage_status`, never a named individual seat. |
-| GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix; API tier executor wired (admin_roster_coverage tool) |
+| GET /admin/roster/coverage | api + view:workforce_coverage_status + external MCP:get_workforce_coverage | Coverage matrix; API tier executor wired (admin_roster_coverage tool). External MCP clients must use the typed `get_workforce_coverage` tool for uncovered/weakly covered shed, role, and backup-manager questions; do not answer these from Action Center rows. Golden eval question: `workforce-coverage` (`tools/ceo-ai/eval/golden/ops-workforce.json`). |
 | GET /admin/roster/leave | api + view:workforce_coverage_status | Absence exposure |
 | GET /admin/roster/leave/{absence_id} | EXCLUDED | Single-record detail |
 | POST /admin/roster/leave/{absence_id}/resolve-coverage | EXCLUDED | Single-absence coverage mutation (`ResolveLeaveCoverage`), not a leadership read. It is a vaccination-planning-effective transition: it enqueues `vaccination.leave.changed` in the same transaction so the operator-config replan consumer releases/re-plans that park's future drives. Leadership sees the RESULT through `view:workforce_coverage_status` and the vaccination operator/date surfaces, never this write. |
@@ -1118,10 +1118,13 @@ diseases, in which parks, how long courses run, and how much medicine is being
 administered.
 
 `GET /app/health/work-items` is now externally reachable through
-`external MCP:get_health_work_items` at treatment-session grain for CEO/CXO
-questions about open/due/in-progress/completed/held/canceled-death work items.
-The guardrail is strict: open sick/treatment work is not a mortality event unless
-the health workflow explicitly reports an approved death state.
+`external MCP:get_health_today` and `external MCP:get_health_work_items` at
+treatment-session grain for CEO/CXO questions about
+open/due/in-progress/completed/held/canceled-death work items. Broad health
+questions must use `get_health_today`, which combines adult and kids work instead
+of returning a partial age-band answer. The guardrail is strict: open
+sick/treatment work is not a mortality event unless the health workflow
+explicitly reports an approved death state.
 
 The richer clinical analytics gap remains for tables such as `health_cases`,
 `health_session_steps`, and `health_medicine_administrations`: there is still no
