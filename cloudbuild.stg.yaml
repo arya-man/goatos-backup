@@ -92,25 +92,6 @@ steps:
         docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$${image}" .
         docker push "$${image}"
 
-  - id: update-cloud-deploy-target
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
-    entrypoint: bash
-    env:
-      - PROJECT_ID=goatos-stg
-      - REGION=asia-south1
-      - DEPLOY_STG=${_DEPLOY_STG}
-    args:
-      - -ceu
-      - |
-        if [[ "$${DEPLOY_STG}" != "true" ]]; then
-          echo "Cloud Deploy target update not requested."
-          exit 0
-        fi
-        gcloud deploy apply \
-          --project="$${PROJECT_ID}" \
-          --region="$${REGION}" \
-          --file=deploy/clouddeploy/stg/clouddeploy.yaml
-
   - id: stg-cloud-deploy-release
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
