@@ -76,8 +76,12 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
 
     override fun validateImageFile(localUri: String): ProofArtifactValidator.ValidationResult {
         return try {
-            val path = localUri.removePrefix("file://")
-            val file = java.io.File(path)
+            // Same URI parsing as the video path: processed URIs arrive as file:/single-slash
+            // (File.toURI) — a naive "file://" strip left the scheme in the path and made every
+            // processed photo read as missing.
+            val file = if (localUri.startsWith("file:")) java.io.File(java.net.URI(localUri))
+            else java.io.File(localUri)
+            val path = file.absolutePath
             if (!file.exists() || file.length() == 0L) {
                 return ProofArtifactValidator.ValidationResult(false, "Photo file is missing or empty.")
             }
