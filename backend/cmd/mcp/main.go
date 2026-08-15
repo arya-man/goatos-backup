@@ -1132,7 +1132,38 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 	if msg != "" {
 		return nil, code, msg
 	}
+	if vaccinationScheduleQuestion(question) {
+		toolArgs := vaccinationTodayArgs{BusinessDate: firstYYYYMMDD(question)}
+		payload, _ := json.Marshal(toolArgs)
+		return s.getVaccinationToday(ctx, r, payload)
+	}
 	return s.proxyAskGoatOS(ctx, r, authz, email, question, strings.TrimSpace(args.ConversationID))
+}
+
+func vaccinationScheduleQuestion(question string) bool {
+	q := strings.ToLower(question)
+	if !strings.Contains(q, "vaccin") {
+		return false
+	}
+	scheduleWord := strings.Contains(q, "scheduled") || strings.Contains(q, "schedule") || strings.Contains(q, "today") || strings.Contains(q, "due")
+	if !scheduleWord {
+		return false
+	}
+	return !strings.Contains(q, "missed") && !strings.Contains(q, "overdue") && !strings.Contains(q, "backlog")
+}
+
+func firstYYYYMMDD(text string) string {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return !(r == '-' || (r >= '0' && r <= '9'))
+	})
+	for _, field := range fields {
+		if len(field) == len("2006-01-02") {
+			if _, err := time.Parse("2006-01-02", field); err == nil {
+				return field
+			}
+		}
+	}
+	return ""
 }
 
 type apiReadArgs struct {
