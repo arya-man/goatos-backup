@@ -159,26 +159,17 @@ for (const [rel, marker] of requiredTests) {
 }
 
 
-// --- Mode 6: non-canonical flow RATCHET — the list may only shrink -----------------------
-// docs/product/feed-proof-collaboration.md + the offline-sync architecture decision: milk and
-// workflow_detail are the LAST flows outside ProofIdentity/EvidenceSlot. New entries = a new
-// screen opting out of the shared model = the loop coming back. Ratchet: exactly these three,
-// fewer is fine, more or different fails.
+// --- Mode 6: non-canonical flow RATCHET — the set is now EMPTY, permanently ---------------
+// docs/product/feed-proof-collaboration.md + the offline-sync architecture decision: milk
+// preparation, milk feeding, and workflow_detail were the LAST flows outside
+// ProofIdentity/EvidenceSlot; all three migrated (see CaptureModels.kt kdoc). The
+// NON_CANONICAL_PROOF_KEY_FLOWS constant is deleted entirely — its reappearance in any form
+// means a screen is opting back out of the shared model, so any match fails the guard.
 {
   const cm = read('apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureModels.kt');
   if (cm == null) failures.push('missing-file: CaptureModels.kt');
-  else {
-    const block = cm.match(/NON_CANONICAL_PROOF_KEY_FLOWS: Set<String> = setOf\(([\s\S]*?)\)/);
-    if (!block) failures.push('non-canonical-ratchet: NON_CANONICAL_PROOF_KEY_FLOWS declaration not found');
-    else {
-      const entries = [...block[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
-      const allowed = new Set(['milk_preparation', 'milk_feeding', 'workflow_detail']);
-      for (const e of entries) {
-        if (!allowed.has(e)) {
-          failures.push(`non-canonical-ratchet: new non-canonical proof flow "${e}" — migrate it to ProofIdentity/EvidenceSlot instead of opting out`);
-        }
-      }
-    }
+  else if (/NON_CANONICAL_PROOF_KEY_FLOWS/.test(cm)) {
+    failures.push('non-canonical-ratchet: NON_CANONICAL_PROOF_KEY_FLOWS reappeared — the set must stay deleted, migrate the flow instead of opting out');
   }
 }
 
