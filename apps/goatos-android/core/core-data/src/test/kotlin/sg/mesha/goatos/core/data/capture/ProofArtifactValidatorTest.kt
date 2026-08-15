@@ -182,4 +182,25 @@ class ProofArtifactValidatorTest {
                 reason = "Recording has no valid duration.",
             )
     }
+
+    // Field regression 2026-08-15: judging a processed JPEG by VIDEO metadata failed every
+    // compressed+overlaid photo into the raw-fallback path, shipping overlay-free originals.
+    @Test
+    fun `processed photo validates as an image not a video`() {
+        val validator = object : ProofArtifactValidator {
+            var imageCalls = 0
+            var videoCalls = 0
+            override fun validateVideoFile(localUri: String) =
+                ProofArtifactValidator.ValidationResult(false, "video probe").also { videoCalls++ }
+            override fun validateImageFile(localUri: String) =
+                ProofArtifactValidator.ValidationResult(true, null).also { imageCalls++ }
+        }
+        val result = validator.validateProcessedArtifact("file:///x.jpg", "image/jpeg")
+        org.junit.Assert.assertTrue(result.isValid)
+        org.junit.Assert.assertEquals(1, validator.imageCalls)
+        org.junit.Assert.assertEquals(0, validator.videoCalls)
+        val video = validator.validateProcessedArtifact("file:///x.mp4", "video/mp4")
+        org.junit.Assert.assertFalse(video.isValid)
+    }
+
 }

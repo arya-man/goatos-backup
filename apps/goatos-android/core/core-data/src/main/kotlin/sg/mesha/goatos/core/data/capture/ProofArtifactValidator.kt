@@ -37,6 +37,20 @@ interface ProofArtifactValidator {
      */
     fun validateProcessedArtifact(localUri: String): ValidationResult =
         validateVideoFile(localUri)  // Default: same as original (overridable per implementation)
+
+    /**
+     * Validation for a PROCESSED artifact whose kind is known from its mime type. A processed
+     * PHOTO must never be judged by video metadata (a duration probe on a JPEG always fails and
+     * silently pushed every compressed+overlaid photo onto the raw-fallback path — field bug
+     * 2026-08-15: overlay-free originals reached the server). Images validate by decodability;
+     * videos keep the strict processed probe.
+     */
+    fun validateProcessedArtifact(localUri: String, mimeType: String?): ValidationResult =
+        if (mimeType?.startsWith("image/") == true) validateImageFile(localUri)
+        else validateProcessedArtifact(localUri)
+
+    /** Image validation: the file must exist, be non-empty, and decode to positive bounds. */
+    fun validateImageFile(localUri: String): ValidationResult = ValidationResult(true, null)
 }
 
 /**
@@ -58,6 +72,25 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
 
     override fun validateVideoFile(localUri: String): ProofArtifactValidator.ValidationResult {
         return validateVideoFileImpl(localUri, allowPlausibleAccept = true)
+    }
+
+    override fun validateImageFile(localUri: String): ProofArtifactValidator.ValidationResult {
+        return try {
+            val path = localUri.removePrefix("file://")
+            val file = java.io.File(path)
+            if (!file.exists() || file.length() == 0L) {
+                return ProofArtifactValidator.ValidationResult(false, "Photo file is missing or empty.")
+            }
+            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(path, opts)
+            if (opts.outWidth <= 0 || opts.outHeight <= 0) {
+                ProofArtifactValidator.ValidationResult(false, "Photo could not be decoded.")
+            } else {
+                ProofArtifactValidator.ValidationResult(true, null)
+            }
+        } catch (_: Exception) {
+            ProofArtifactValidator.ValidationResult(false, "Photo could not be read.")
+        }
     }
 
     /**
