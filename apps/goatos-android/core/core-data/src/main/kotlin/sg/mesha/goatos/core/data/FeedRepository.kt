@@ -486,7 +486,7 @@ class DefaultFeedRepository(
             null
         }
 
-    override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean {
+    override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean { // offline-first-guard:ignore: pure reachability probe for the refresh spinner/offline flag — Boolean about the NETWORK, never screen data; the screen stays Room-backed
         return try {
             api.getFeedDirectionPreview(
                 parkId = query.parkId,

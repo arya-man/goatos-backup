@@ -889,14 +889,23 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
  */
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
     isNotEmpty() &&
-        all { row ->
-            val canContinue = row.operatorCanContinue
-            if (canContinue != null) {
-                !canContinue
-            } else {
-                row.openCount.coerceAtLeast(0) == 0 && row.sopStatus.isSubmissionTerminalStatus()
-            }
-        }
+        // Explicit verifier redo ALWAYS vetoes record-only, even against a stale backend
+        // operatorCanContinue: the verifier deliberately sent this back to the operator.
+        none { row -> row.needsRedo() } &&
+        all { row -> row.hasSubmittedRecord() }
+
+/** True when this row's work is submitted-and-locked from the operator's perspective. Prefers the
+ *  backend-owned operatorCanContinue (core invariant: only a FINAL SUBMIT locks; partial
+ *  review/proof state never locks while openCount > 0); falls back for pre-field API responses to
+ *  the explicit openCount + terminal-submission-status guard. */
+private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean {
+    val canContinue = operatorCanContinue
+    return if (canContinue != null) {
+        !canContinue
+    } else {
+        openCount.coerceAtLeast(0) == 0 && sopStatus.isSubmissionTerminalStatus()
+    }
+}
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

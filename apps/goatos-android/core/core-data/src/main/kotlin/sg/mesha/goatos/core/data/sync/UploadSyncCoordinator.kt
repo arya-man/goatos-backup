@@ -87,7 +87,7 @@ class UploadSyncCoordinator(
     // (see OutboxDao.observeActiveWindow) — this only narrows further by op type. Window bound
     // prevents unbounded memory growth in long offline field work with heavy capture.
     private suspend fun relevantActiveRows(): List<OutboxEntity> =
-        store.observeActiveWindow(limit = 500).first()
+        store.observeActiveWindow(limit = 500).first() // mobile-guard:ignore: internal sync working set, never rendered; windowed from fully-unbounded — drain needs breadth across features
             .filter { OutboxOpType.valueOf(it.opType) in RELEVANT_OP_TYPES }
 
     companion object {

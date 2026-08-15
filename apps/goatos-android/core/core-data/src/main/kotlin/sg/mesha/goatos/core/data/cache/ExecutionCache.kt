@@ -244,12 +244,12 @@ interface ScanRosterRowDao {
     /** Debug-fixture support: every locally-cached scope for this shed+task (i.e. every partition
      *  already fetched into Room for this shed), used to locate a neighboring partition's roster
      *  without a network round trip. Read-only; unused in release. */
-    @Query("SELECT DISTINCT scopeKey FROM scan_roster_row WHERE shedId = :shedId AND taskId = :taskId ORDER BY scopeKey ASC")
+    @Query("SELECT DISTINCT scopeKey FROM scan_roster_row WHERE shedId = :shedId AND taskId = :taskId ORDER BY scopeKey ASC LIMIT 50") // mobile-guard:ignore: DISTINCT scope keys, bounded by a shed's partition catalog (single digits in practice); debug-fixture only, unused in release
     suspend fun scopeKeysForShedTask(shedId: String, taskId: String): List<String>
 
     /** Debug-fixture support: every locally-cached scope for this task in a DIFFERENT shed —
      *  the cross-shed fallback when no sibling partition has open animals. Read-only; unused in release. */
-    @Query("SELECT DISTINCT scopeKey FROM scan_roster_row WHERE shedId != :shedId AND taskId = :taskId ORDER BY scopeKey ASC")
+    @Query("SELECT DISTINCT scopeKey FROM scan_roster_row WHERE shedId != :shedId AND taskId = :taskId ORDER BY scopeKey ASC LIMIT 50") // mobile-guard:ignore: DISTINCT scope keys across a task's sheds, bounded by the park's shed catalog; debug-fixture only, unused in release
     suspend fun scopeKeysForOtherSheds(shedId: String, taskId: String): List<String>
 
     @Query("DELETE FROM scan_roster_row WHERE scopeKey = :scopeKey")
