@@ -1309,7 +1309,7 @@ class DefaultProofCaptureRepository(
         }
         // ITEM 6: Run full metadata validation (duration/dimensions) on PROCESSED output.
         // Strict mode: no plausible-accept for processed files.
-        val validation = proofArtifactValidator.validateProcessedArtifact(processed.outputUri)
+        val validation = proofArtifactValidator.validateProcessedArtifact(processed.outputUri, processed.outputMimeType)
         if (!validation.isValid) {
             throw IllegalStateException(
                 "Processed artifact validation failed: ${validation.reason ?: "unknown error"}"
