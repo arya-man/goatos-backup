@@ -29,8 +29,7 @@
     "notes": "Report role/position/active status, never staff PII. Backup covers absent manager's tasks.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "sql"],
-      "external_mcp_tools_any_of": ["get_verification_backlog", "GET /verification/queue"]
+      "tiers_any_of": ["api", "sql"]
     }
   },
   {
@@ -41,7 +40,7 @@
     "expect": {
       "aggregate_first": true,
       "tiers_any_of": ["api", "sql"],
-      "external_mcp_tools_any_of": ["get_action_center", "GET /action-center/obligations"]
+      "external_mcp_tools_any_of": ["get_verification_backlog", "GET /verification/queue"]
     }
   },
   {

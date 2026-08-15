@@ -683,7 +683,7 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 	case "get_vaccination_today":
 		return s.getVaccinationToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_work_items, and get_weighing_progress. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_work_items, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
@@ -825,7 +825,7 @@ func apiReadTools() []apiReadTool {
 		},
 		{
 			Name:        "get_procurement_pipeline",
-			Description: "Get leadership-visible procurement source-entry loads. Use this for supplier warmup, transit/source-entry pipeline, expected/accepted/rejected load follow-up. Do not turn a single load into company totals.",
+			Description: "Get leadership-visible procurement source-entry loads. Use this for supplier warmup, transit/source-entry pipeline, expected/accepted/rejected load follow-up. Do not turn a single load into company totals. Procurement Action Center/Control Tower are intentionally not exposed until their top-level command routes are mounted.",
 			Path:        "/procurement/source-entry/loads",
 			Source:      "GET /procurement/source-entry/loads",
 			Properties:  commonReadProperties("status", "cursor", "limit"),
@@ -871,7 +871,7 @@ func apiReadTools() []apiReadTool {
 		},
 		{
 			Name:        "get_health_work_items",
-			Description: "Get one day's Adult or Kids Health treatment sessions. Use this for open health cases, due treatment sessions, disease/protocol work, and held/canceled-death state. Sick/open work is not mortality unless the health workflow says death was approved.",
+			Description: "Get one day's Adult or Kids Health treatment sessions. Use this for open health cases, due treatment sessions, disease/protocol work, and held/canceled-death state. For all-health CEO questions, call once with age_band=adult and once with age_band=kid, then combine summaries. Sick/open work is not mortality unless the health workflow says death was approved.",
 			Path:        "/app/health/work-items",
 			Source:      "GET /app/health/work-items",
 			Properties:  commonReadProperties("age_band", "date", "status", "disease_key", "park_id", "shed_id", "session", "cursor", "limit"),
@@ -919,6 +919,86 @@ func apiReadTools() []apiReadTool {
 				}
 				addOpaque(q, "cursor", a.Cursor)
 				addLimit(q, a.Limit, 5000)
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_weighing_growth_adg",
+			Description: "Get CEO-tier Average Daily Gain/growth across authorized parks or one park. Use this for 'are weights improving', growth trend, and park-level weight performance questions.",
+			Path:        "/weighing/leadership/growth",
+			Source:      "GET /weighing/leadership/growth",
+			Properties:  commonReadProperties("park_id", "from", "to"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "from", a.From); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_weighing_shed_weights",
+			Description: "Get CEO-tier shed weight rows and KPI rollup across authorized parks or one park. Use this for which sheds are lagging, latest shed weights, and weight coverage questions.",
+			Path:        "/weighing/shed-weights",
+			Source:      "GET /weighing/shed-weights",
+			Properties:  commonReadProperties("park_id", "from", "to"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "from", a.From); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_weighing_process_state",
+			Description: "Get weighing process state for calendar/control-tower gaps across a date range. Use this for overdue weighing, pending proof/review, and process health questions.",
+			Path:        "/weighing/process-state",
+			Source:      "GET /weighing/process-state",
+			Properties:  commonReadProperties("campaign_id", "from", "to"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addUUID(q, "campaign_id", a.CampaignID); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "from", a.From); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_weighing_weight_demographics",
+			Description: "Get CEO-tier breed/sex/stage weight demographics across authorized parks or one park. Use this for demographic weight mix and group comparison questions.",
+			Path:        "/weighing/weight-demographics",
+			Source:      "GET /weighing/weight-demographics",
+			Properties:  commonReadProperties("park_id", "from", "to"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "from", a.From); err != nil {
+					return nil, err
+				}
+				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
 				return q, nil
 			},
 		},
@@ -975,11 +1055,14 @@ type apiReadArgs struct {
 	LifecycleStatus  string `json:"lifecycle_status"`
 	AgeBand          string `json:"age_band"`
 	Date             string `json:"date"`
+	From             string `json:"from"`
+	To               string `json:"to"`
 	DiseaseKey       string `json:"disease_key"`
 	AsOf             string `json:"as_of"`
 	DueAfter         string `json:"due_after"`
 	DueBefore        string `json:"due_before"`
 	Workflow         string `json:"workflow"`
+	CampaignID       string `json:"campaign_id"`
 	Cursor           string `json:"cursor"`
 	Missed           any    `json:"missed"`
 	Draft            any    `json:"draft"`
@@ -1261,11 +1344,11 @@ func commonReadProperties(names ...string) map[string]any {
 	props := map[string]any{}
 	for _, name := range names {
 		switch name {
-		case "business_date", "business_date_from", "business_date_to", "target_date":
+		case "business_date", "business_date_from", "business_date_to", "target_date", "from", "to":
 			props[name] = map[string]any{"type": "string", "description": "Asia/Kolkata business date in YYYY-MM-DD."}
 		case "as_of", "due_after", "due_before":
 			props[name] = map[string]any{"type": "string", "description": "RFC3339 timestamp."}
-		case "park_id", "shed_id", "owner_id":
+		case "park_id", "shed_id", "owner_id", "campaign_id":
 			props[name] = map[string]any{"type": "string", "description": "UUID or backend-supported opaque key where documented."}
 		case "limit", "offset", "session":
 			props[name] = map[string]any{"type": "integer"}
