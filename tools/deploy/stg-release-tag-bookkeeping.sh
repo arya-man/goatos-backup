@@ -19,6 +19,7 @@ source "$DEPLOY_METADATA_FILE"
 commit_sha="${COMMIT_SHA:-$(git rev-parse --short=12 HEAD)}"
 release_id="${RELEASE_ID:-}"
 build_id="${BUILD_ID:-local}"
+triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -32,12 +33,12 @@ notify_slack_bookkeeping_warning() {
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$text" "$commit_sha" "$release_id" "$build_id" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
 
-text, sha, release, build_id = sys.argv[1:]
-build_url = f"https://console.cloud.google.com/cloud-build/builds/{build_id}?project=goatos-stg"
+text, sha, release, build_id, triggered_by = sys.argv[1:]
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
 deploy_url = "https://console.cloud.google.com/deploy/delivery-pipelines/asia-south1/goatos-stg/releases?project=goatos-stg"
 payload = {
     "attachments": [{
@@ -47,6 +48,7 @@ payload = {
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
             {"title": "Release", "value": release or "unknown", "short": True},
+            {"title": "Triggered by", "value": triggered_by, "short": False},
         ],
         "actions": [
             {"type": "button", "text": "Cloud Build logs", "url": build_url},

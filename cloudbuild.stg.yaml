@@ -7,6 +7,8 @@ substitutions:
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
   _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
+  _SLACK_USER_ID: ""
+  _TRIGGERED_BY: "unknown Slack user"
 
 steps:
   - id: configure-docker-auth
@@ -104,6 +106,7 @@ steps:
       - GOATOS_SKIP_IMAGE_BUILD=1
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - DEPLOY_STG=${_DEPLOY_STG}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
     args:
       - -ceu
       - |
@@ -124,6 +127,7 @@ steps:
       - BUILD_ID=$BUILD_ID
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
       - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos.stg
     args:
       - -ceu
@@ -143,6 +147,7 @@ steps:
       - PROJECT_ID=goatos-stg
       - BUILD_ID=$BUILD_ID
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
     args:
       - -ceu
       - |
