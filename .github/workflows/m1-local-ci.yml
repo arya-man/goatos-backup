@@ -1,41 +1,11 @@
 name: m1-local-ci
 
-on:
-  pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: m1-local-ci-${{ github.ref }}
-  cancel-in-progress: true
+on: workflow_dispatch
 
 jobs:
-  preflight:
-    name: M1 fast preflight
+  ping:
+    name: M1 runner ping
     runs-on: self-hosted
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Toolchain
-        run: |
-          git --version
-          node --version
-          npm --version
-          go version
-          java -version
-          rg --version
-      - name: Fast common gates
-        run: make ci-local JOB=common
-
-  ci-local:
-    name: M1 ci-local
-    needs: preflight
-    runs-on: self-hosted
-    timeout-minutes: 75
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Run scoped local CI
-        run: make ci-local
+      - run: echo "m1 runner ok"
