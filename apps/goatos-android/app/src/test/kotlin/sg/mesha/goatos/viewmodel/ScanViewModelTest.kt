@@ -2147,6 +2147,13 @@ private class CapturingSubmitSyncRepository : SyncRepository {
     override suspend fun triggerDrain() = Unit
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
+class ScanRowVersionReconciliationTest {
+    private val dispatcher = UnconfinedTestDispatcher()
+
+    @Before fun setUp() { Dispatchers.setMain(dispatcher) }
+    @After fun tearDown() { Dispatchers.resetMain() }
+
     @Test
     fun `roster refresh without submit preserves scanned tick via row_version discriminator`() = runTest(dispatcher) {
         // Test case 1: Scan with row_version=5, then refresh roster with same row_version but updated_at bumped.
@@ -2154,7 +2161,7 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         val scanCaptures = FakeScanCaptureRepository()
         val execRepo = FakeScanExecutionRepository(
             firstPage = ScanRosterResponseDto(rows = listOf(
-                scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 5, status = "open")
+                scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 5, status = "pending")
             )),
             rosterUpdatedAtMs = 1L,
         )
@@ -2187,7 +2194,7 @@ private class CapturingSubmitSyncRepository : SyncRepository {
 
         // Refresh: row_version stays 5 (no backend submit), updatedAt bumps
         execRepo.updateResponse(ScanRosterResponseDto(rows = listOf(
-            scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 5, status = "open")
+            scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 5, status = "pending")
         )), newRosterUpdatedAtMs = 2L)
         advanceUntilIdle()
 
@@ -2202,7 +2209,7 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         val scanCaptures = FakeScanCaptureRepository()
         val execRepo = FakeScanExecutionRepository(
             firstPage = ScanRosterResponseDto(rows = listOf(
-                scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 5, status = "open")
+                scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 5, status = "pending")
             )),
             rosterUpdatedAtMs = 1L,
         )
@@ -2233,9 +2240,13 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         advanceUntilIdle()
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
 
+        // The capture reached the server (finalize submitted) before the verifier acted.
+        scanCaptures.markAllSynced()
+        advanceUntilIdle()
+
         // Backend: submit (row_version -> 6) + verifier reject+reopen (row_version -> 7)
         execRepo.updateResponse(ScanRosterResponseDto(rows = listOf(
-            scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 7, status = "open")
+            scanRow("goat-1", "TAG-100", "obl-1", rowVersion = 7, status = "pending")
         )), newRosterUpdatedAtMs = 2L)
         advanceUntilIdle()
 
@@ -2290,6 +2301,8 @@ private class CapturingSubmitSyncRepository : SyncRepository {
  * scans, the animal flips to DONE, the proof camera never opens, and the row is stranded on
  * "Scan again to record proof", so the shed can never be submitted.
  */
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScanViewModelExecutionGateTest {
 
