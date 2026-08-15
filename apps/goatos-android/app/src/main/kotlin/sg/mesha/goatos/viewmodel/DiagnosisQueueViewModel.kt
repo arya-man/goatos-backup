@@ -102,6 +102,7 @@ internal fun relativeBusinessDate(
     businessDate: String,
     today: LocalDate = OffsetDateTime.now().atZoneSameInstant(FARM_ZONE).toLocalDate(),
 ): String {
+    // exception:exempt display formatter; an unparseable date is shown verbatim rather than hidden.
     val parsed = runCatching { LocalDate.parse(businessDate) }.getOrNull() ?: return businessDate
     return when (parsed) {
         today -> "Today"

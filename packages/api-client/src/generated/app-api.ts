@@ -9553,7 +9553,8 @@ export interface components {
             frothy_mouth?: boolean;
             /** @enum {string} */
             rumen_movement?: "felt" | "not_felt";
-            diarrhea?: boolean;
+            /** @description Presence, or a descriptive value such as bloody. Blood is a severity detail and NOT a different diagnosis: bloody diarrhea is still Diarrhea and must never be read as coccidiosis. */
+            diarrhea?: boolean | string;
             /** @description lt2 | 2-4 | gt4 */
             skin_tent?: string;
             /**
@@ -9595,6 +9596,32 @@ export interface components {
             eartag_flystrike?: boolean;
             eartag_wound?: boolean;
             ticks?: boolean;
+            /**
+             * @description Kids only. The finger test, and a TREATMENT GATE rather than a symptom: a kid that sucks may be given milk by mouth and one that cannot must never be.
+             * @enum {string}
+             */
+            suckle?: "present" | "absent";
+            /**
+             * @description Kids only. Deliberately non-specific: dull alone names no disease.
+             * @enum {string}
+             */
+            responsiveness?: "alert" | "dull" | "unresponsive";
+            /**
+             * @description Milk kids only. Rejected on weaning, where the navel has closed and the row is not on the form.
+             * @enum {string}
+             */
+            navel?: "normal" | "wet" | "swollen" | "painful";
+            /**
+             * @description Milk kids only. The 20 cm drop test, and the only way floppy kid is caught while the animal is still standing. Compulsory when standing; na when already down, because a recumbent kid must not be dropped. Rejected on weaning and fattening.
+             * @enum {string}
+             */
+            landing?: "spiderman" | "barely" | "falls" | "na";
+            /** @description Milk and weaning kids. normal | not_drinking | reduced. On the free-choice bar this is the drinking axis; on counted sessions refusals_today is. */
+            milk_intake?: string | string[];
+            /** @description Feeds refused today, carry-forward already applied by GoatOS. Milk kids 0-3 (three bar sessions), weaning 0-2 (two measured bottles). Compulsory on K1 and K3: a missing count read as zero would turn a kid that refused every feed into a kid that drank. */
+            refusals_today?: number;
+            /** @description Which feed this observation belongs to. Milk 1-3, weaning 1-2 (morning/evening). */
+            session?: number;
         };
         /** @description Follow-up state a single form cannot carry. It is what turns a second observation on the same animal into a reconcile rather than a fresh diagnosis. The animal's OPEN problems are resolved server-side from its active courses and are not accepted here. */
         HealthObservationContext: {
@@ -9637,10 +9664,13 @@ export interface components {
         /** @description The engine's output. A PROPOSAL: problems open nothing until the Director confirms. emergencies and field_actions are the exceptions and are actionable at once. */
         HealthDiagnosisProposal: {
             valid: boolean;
-            /** @description not_eating_with_feed | wounds_exclusive | female_straining | cmt_without_milk */
+            /** @description Why the form was not diagnosed at all. Adult and shared: not_eating_with_feed | wounds_exclusive | female_straining | cmt_without_milk. Kids: not_drinking_with_milk | landing_required | landing_when_down | refusals_today_required | session_required | landing_not_on_weaning | navel_not_on_weaning. Wiring: register_class_mismatch. */
             reject_reason?: string;
-            /** @enum {string} */
-            scope: "adult" | "out_of_scope";
+            /**
+             * @description The animal class this run was diagnosed as, and therefore which register produced it. One register serves each class and a run is diagnosed against exactly one of them.
+             * @enum {string}
+             */
+            scope: "adult" | "kid_milk" | "kid_weaning" | "kid_fattening";
             /** @description The rule table this run used, pinned so the proposal stays interpretable after an edit. */
             register_version: string;
             /** @description Do this now. Hands have already started; the Director is notified after. */

@@ -171,6 +171,25 @@ type Rule struct {
 type Register struct {
 	Version string `yaml:"register_version"`
 
+	// Status is the authoring state the SOP repo stamps on a register
+	// (`locked` once its catalog is stable). It is recorded, never acted on:
+	// which register serves a class is decided by the binding in embed.go, and
+	// a status field that could suppress a load would be a second, quieter
+	// switch over which animals get diagnosed.
+	Status string `yaml:"status"`
+
+	// AppliesClass is the register's own declaration of the animal classes it may
+	// serve. It exists because the loudest rule in the spec -- never load adult
+	// YAML for a milk kid -- is otherwise enforced only by the caller getting the
+	// map lookup right. Declaring it in the DATA lets the binding be checked
+	// rather than trusted: see registerFor, which refuses a register that does not
+	// claim the class it was fetched for.
+	//
+	// Empty means the register makes no claim. Only adult-1 is in that state (it
+	// predates the four-class split), so its binding is asserted in a test
+	// instead.
+	AppliesClass []string `yaml:"applies_class"`
+
 	// NonSpecific findings appear in almost every sick animal. They never enter
 	// the explained set even when a clause matched on them, which is what keeps
 	// the unexplained-findings channel alive.
@@ -182,7 +201,17 @@ type Register struct {
 	nonSpecific map[string]bool
 	vocabulary  map[string]bool
 	quarantine  map[string]bool
+
+	// boundClass is the class this register was bound to at load. It is set from
+	// the binding rather than read from the file, so it covers adult-1 too --
+	// adult-1 predates the four-class split and declares no applies_class, which
+	// would otherwise leave the one register most likely to be reached for by
+	// default as the only one that could not detect a mismatch.
+	boundClass string
 }
+
+// BoundClass is the animal class this register serves.
+func (r *Register) BoundClass() string { return r.boundClass }
 
 // Load parses a register from bytes.
 //

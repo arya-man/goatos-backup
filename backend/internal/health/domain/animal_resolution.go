@@ -82,17 +82,35 @@ func ResolveAnimal(facts GoatFacts) (diagnosis.Animal, error) {
 		return diagnosis.Animal{}, fmt.Errorf("%w: unknown sex %q", ErrGoatNotDiagnosable, facts.Sex)
 	}
 
+	// CLASS RESOLUTION FAILS CLOSED FOR KIDS, and this is deliberate.
+	//
+	// The engine now carries four registers -- adult, kid_milk, kid_weaning,
+	// kid_fattening -- and they differ in ways that make picking the wrong one
+	// worse than picking none. A fattening kid diagnosed off the milk register
+	// would never be checked for acidosis, the single thing most likely to kill
+	// it; a milk kid diagnosed off the weaning register would never get the drop
+	// test, which is the only way floppy kid is caught while it is still cheap
+	// to treat.
+	//
+	// GoatOS cannot currently tell the three apart. `age_band` is only
+	// `kid` | `adult`, and nothing maps `management_stage` onto the milk /
+	// weaning / fattening split or onto the K0-K3 sub-stage the milk and weaning
+	// registers read. Until that mapping exists as a MAINTAINER decision, a kid
+	// is refused rather than guessed.
+	//
+	// The old code defaulted every kid to `kid_milk`. That was harmless while
+	// kids were out of diagnostic scope entirely -- the class only had to exist
+	// so emergencies could fire -- and it became dangerous the moment the milk
+	// register started producing diagnoses.
 	ageBand := strings.ToLower(strings.TrimSpace(facts.AgeBand))
-	class := diagnosis.ScopeAdult
 	if ageBand != AgeBandAdult {
-		// Anything not explicitly adult is out of the v1 diagnosis scope. The
-		// engine still emits emergencies for it -- that ordering is the whole
-		// point of running red flags before the scope check.
-		class = "kid_milk"
+		return diagnosis.Animal{}, fmt.Errorf(
+			"%w: age band %q cannot be resolved to a diagnosis class -- kids need the milk / weaning / fattening split and the K0-K3 stage, which GoatOS does not yet record",
+			ErrGoatNotDiagnosable, facts.AgeBand)
 	}
 
 	return diagnosis.Animal{
-		Class:   class,
+		Class:   diagnosis.ClassAdult,
 		Species: species,
 		Sex:     sex,
 		Status:  resolveStatus(facts),

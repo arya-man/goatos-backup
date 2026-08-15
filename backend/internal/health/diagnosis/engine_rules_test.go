@@ -91,7 +91,7 @@ func TestEvaluateIsDeterministic(t *testing.T) {
 		Temp:      floatPtr(104.8),
 		Eating:    MultiValue{"not_eating"},
 		Activity:  "weak",
-		Diarrhea:  true,
+		Diarrhea:  Flag{Set: true},
 		Mouth:     "orf_scabs",
 		Eyes:      MultiValue{"red", "discharge"},
 		CMT:       "pos",
@@ -111,32 +111,194 @@ func TestEvaluateIsDeterministic(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
-// TestEmergenciesFireOutsideAdultScope pins the ordering decision from
-// ALGORITHM 2: red flags run BEFORE the scope check, for every class. A kid with
-// frothy bloat must still raise the alarm even though no adult diagnostic rule
-// applies to it. Scope gates diagnosis; it never gates emergency detection.
-func TestEmergenciesFireOutsideAdultScope(t *testing.T) {
-	reg := mustLoad(t)
-
-	got := reg.Evaluate(
-		Animal{Class: "kid_milk", Species: "goat", Sex: "M", Status: "normal"},
-		Findings{
-			Temp:        floatPtr(102.0),
-			Eating:      MultiValue{"normal"},
-			Activity:    "standing",
-			LeftStomach: MultiValue{"bloating"},
-		},
-		Context{},
-	)
-
-	if got.Scope != ScopeOutOfScope {
-		t.Errorf("scope = %q, want %q", got.Scope, ScopeOutOfScope)
+// TestEmergenciesFireForEveryClass pins the ordering decision from ALGORITHM 2:
+// red flags are finding-triggered and run for every class, never gated on a rule
+// matching. Bloat is the case that proves it -- a kid with a drum-tight rumen
+// must raise the alarm on whichever register serves it.
+//
+// This replaces an earlier test that asserted a kid came back `out_of_scope`
+// with emergencies only. That was correct while adult was the sole register;
+// each class now has its own, so there is no out-of-scope class left to assert.
+func TestEmergenciesFireForEveryClass(t *testing.T) {
+	cases := []struct {
+		class string
+		stage string
+	}{
+		{ClassAdult, ""},
+		{ClassKidMilk, "K1"},
+		{ClassKidWeaning, "K3"},
+		{ClassKidFattening, ""},
 	}
-	if !contains(got.Emergencies, EmergencyTube) {
-		t.Errorf("emergencies = %v, want to contain %q", got.Emergencies, EmergencyTube)
+
+	for _, c := range cases {
+		t.Run(c.class, func(t *testing.T) {
+			f := Findings{
+				Temp:        floatPtr(102.0),
+				Eating:      MultiValue{"normal"},
+				Activity:    "standing",
+				LeftStomach: MultiValue{"bloating"},
+				Suckle:      "present",
+			}
+			// Satisfy each slice's own compulsory rows so the form is judged on
+			// the bloat rather than rejected before it is looked at.
+			switch c.class {
+			case ClassKidMilk:
+				f.Landing = "spiderman"
+				f.RefusalsToday = intPtr(0)
+			case ClassKidWeaning:
+				f.RefusalsToday = intPtr(0)
+			}
+
+			got, err := Evaluate(
+				Animal{Class: c.class, Stage: c.stage, Species: "goat", Sex: "M", Status: "normal"},
+				f, Context{},
+			)
+			if err != nil {
+				t.Fatalf("evaluate: %v", err)
+			}
+			if !got.Valid {
+				t.Fatalf("form rejected (%s) before the emergency could fire", got.RejectReason)
+			}
+			if got.Scope != c.class {
+				t.Errorf("scope = %q, want %q", got.Scope, c.class)
+			}
+			if !contains(got.Emergencies, EmergencyTube) {
+				t.Errorf("emergencies = %v, want to contain %q", got.Emergencies, EmergencyTube)
+			}
+		})
 	}
-	if len(got.Problems) != 0 {
-		t.Errorf("a non-adult must receive no diagnosis, got %v", got.Problems)
+}
+
+// TestMilkKidNeverGetsAcidosisFromWaterSound pins the narrowing that the milk
+// register enforces in its vocabulary and the emergency detector enforces in
+// code: a slosh in a milk-fed belly is milk, not acid. Firing acidosis there
+// would pull concentrate the kid is not eating and treat a healthy animal.
+func TestMilkKidNeverGetsAcidosisFromWaterSound(t *testing.T) {
+	f := Findings{
+		Temp:          floatPtr(103.0),
+		Eating:        MultiValue{"not_eating"},
+		Activity:      "standing",
+		LeftStomach:   MultiValue{"acidosis"},
+		Landing:       "spiderman",
+		Suckle:        "present",
+		RefusalsToday: intPtr(0),
+	}
+	milk, err := Evaluate(Animal{Class: ClassKidMilk, Stage: "K1", Species: "goat", Sex: "M"}, f, Context{})
+	if err != nil {
+		t.Fatalf("evaluate milk: %v", err)
+	}
+	if contains(milk.Emergencies, EmergencyAcidosisNow) {
+		t.Errorf("a milk kid was given the acidosis emergency: %v", milk.Emergencies)
+	}
+	if contains(milk.Problems, "ACIDOSIS") {
+		t.Errorf("a milk kid was diagnosed with acidosis: %v", milk.Problems)
+	}
+
+	// The SAME finding on a fattening kid is acidosis, which is the point: the
+	// difference is the animal's gut, not the observation.
+	fat := f
+	fat.Landing = ""
+	fat.RefusalsToday = nil
+	fattening, err := Evaluate(Animal{Class: ClassKidFattening, Species: "goat", Sex: "M"}, fat, Context{})
+	if err != nil {
+		t.Fatalf("evaluate fattening: %v", err)
+	}
+	if !contains(fattening.Emergencies, EmergencyAcidosisNow) {
+		t.Errorf("a fattening kid with water sound and off feed must get the acidosis emergency: %v",
+			fattening.Emergencies)
+	}
+}
+
+// TestFloppyKidIsMilkOnly pins a documented never: floppy kid must not fire on a
+// weaning or fattening kid, because the drop test is not on those forms and the
+// diagnosis is meaningless without it.
+//
+// Weaning is protected twice -- the form REJECTS a landing value outright -- but
+// fattening is protected only by the class gate in the emergency detector, and
+// no catalog story exercises it. That gap was found by deleting the gate and
+// watching the whole suite stay green, which is the only way an untested
+// safeguard announces itself.
+func TestFloppyKidIsMilkOnly(t *testing.T) {
+	landingBarely := func(class, stage string) Findings {
+		return Findings{
+			Temp: floatPtr(103.0), Eating: MultiValue{"normal"},
+			Activity: "standing", Responsiveness: "alert", Suckle: "present",
+			Landing: "barely",
+		}
+	}
+
+	t.Run("fattening", func(t *testing.T) {
+		got, err := Evaluate(
+			Animal{Class: ClassKidFattening, Species: "goat", Sex: "M"},
+			landingBarely(ClassKidFattening, ""), Context{})
+		if err != nil {
+			t.Fatalf("evaluate: %v", err)
+		}
+		if contains(got.Emergencies, EmergencyFloppyNow) {
+			t.Errorf("a fattening kid raised the floppy emergency: %v", got.Emergencies)
+		}
+		if contains(got.Problems, IDFloppyKid) {
+			t.Errorf("a fattening kid was diagnosed floppy: %v", got.Problems)
+		}
+	})
+
+	t.Run("weaning rejects the row outright", func(t *testing.T) {
+		f := landingBarely(ClassKidWeaning, "K3")
+		f.RefusalsToday = intPtr(0)
+		got, err := Evaluate(
+			Animal{Class: ClassKidWeaning, Stage: "K3", Species: "goat", Sex: "M"}, f, Context{})
+		if err != nil {
+			t.Fatalf("evaluate: %v", err)
+		}
+		if got.Valid {
+			t.Fatalf("a landing value on weaning must be rejected, got problems %v", got.Problems)
+		}
+		if got.RejectReason != RejectLandingNotOnWeaning {
+			t.Errorf("reject = %q, want %q", got.RejectReason, RejectLandingNotOnWeaning)
+		}
+	})
+
+	t.Run("milk kid still gets it", func(t *testing.T) {
+		f := landingBarely(ClassKidMilk, "K1")
+		f.RefusalsToday = intPtr(0)
+		got, err := Evaluate(
+			Animal{Class: ClassKidMilk, Stage: "K1", Species: "goat", Sex: "M"}, f, Context{})
+		if err != nil {
+			t.Fatalf("evaluate: %v", err)
+		}
+		if !contains(got.Emergencies, EmergencyFloppyNow) {
+			t.Errorf("a milk kid that lands badly must raise floppy: %v", got.Emergencies)
+		}
+	})
+}
+
+// TestKidFeverBandIsOneTenthLowerThanAdult pins the single value where the
+// classes disagree. A kid at 103.5degF IS febrile; an adult at 103.5 is not.
+func TestKidFeverBandIsOneTenthLowerThanAdult(t *testing.T) {
+	at1035 := func(class, stage string, extra func(*Findings)) Proposal {
+		t.Helper()
+		f := Findings{
+			Temp: floatPtr(103.5), Eating: MultiValue{"normal"},
+			Activity: "standing", Suckle: "present",
+		}
+		if extra != nil {
+			extra(&f)
+		}
+		got, err := Evaluate(Animal{Class: class, Stage: stage, Species: "goat", Sex: "M"}, f, Context{})
+		if err != nil {
+			t.Fatalf("evaluate %s: %v", class, err)
+		}
+		return got
+	}
+
+	adult := at1035(ClassAdult, "", nil)
+	if contains(adult.Problems, "FEVER") {
+		t.Errorf("an adult at 103.5 must not be febrile: %v", adult.Problems)
+	}
+
+	kid := at1035(ClassKidWeaning, "K3", func(f *Findings) { f.RefusalsToday = intPtr(0) })
+	if !contains(kid.Problems, "FEVER") {
+		t.Errorf("a kid at 103.5 must be febrile: %v", kid.Problems)
 	}
 }
 

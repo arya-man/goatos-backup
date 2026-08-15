@@ -1,0 +1,519 @@
+# Fattening kids register (post-weaning concentrate, until adult).
+# Do not copy adult/register.yaml wholesale (no repro / mastitis / milk fever).
+# Water sound means acidosis. Male straining means calculi. Landing is not on this slice. No navel.
+# Crash: IP dextrose then heat; milk if it sucks and >100°F, else RL.
+# Fever ≥103.5°F (one kids temp story).
+register_version: kid-fattening-1
+status: locked
+applies_class: [kid_fattening]
+
+non_specific:
+  - eating:not_eating
+  - activity:weak
+  - skin_tent:2-4s
+  - responsiveness:dull
+
+vocabulary:
+  - FEVER
+  - HIGH_FEVER
+  - HYPOTHERMIA
+  - TENT_GT4
+  - left_stomach:bloating
+  - left_stomach:acidosis
+  - frothy_mouth
+  - diarrhea
+  - breathing:cough
+  - breathing:labored
+  - breathing:fast
+  - breathing:pant
+  - nasal_discharge
+  - famacha:5
+  - famacha:4
+  - famacha:3
+  - famacha:yellow
+  - misc:competition
+  - misc:stomach_inside
+  - status:normal
+  - activity:not_able_to_stand
+  - activity:weak
+  - activity:limping
+  - activity:front_leg_knees
+  - eating:not_eating
+  - suckle:present
+  - suckle:absent
+  - responsiveness:alert
+  - responsiveness:dull
+  - responsiveness:unresponsive
+  - neuro:tremors
+  - neuro:circling
+  - neuro:head_tilt
+  - neuro:star_gazing
+  - neuro:blind
+  - neuro:ataxia
+  - neuro:seizure
+  - mouth:orf_scabs
+  - rash_character:nodular
+  - rash_character:flat_itchy
+  - rashes:present
+  - eyes:cloudy
+  - eyes:red
+  - eyes:discharge
+  - locked_jaw
+  - leg:foot_rot
+  - leg:fracture
+  - leg:arthritis
+  - leg:normal
+  - flystrike
+  - eartag:flystrike
+  - eartag:wound
+  - lumps:neck
+  - lumps:body
+  - wounds:present
+  - wounds:neck
+  - wounds:body
+  - wounds:legs
+  - skin_coat:ticks
+  - skin_coat:hairloss_body
+  - skin_coat:hairloss_neck
+  - skin_coat:hairloss_legs
+  - skin_tent:>4s
+  - straining_urine:no_urine_passed
+  - straining_urine:straining
+  - sex:M
+  - sex:F
+
+rules:
+  - id: BLOAT
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [left_stomach:bloating]
+      - findings: [frothy_mouth]
+    severity_base: 4
+    acute_actionable: true
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Bloat
+    containment: home
+
+  - id: ACIDOSIS
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    # Water sound only. Silent rumen is not acidosis.
+    pathognomonic:
+      - findings: [left_stomach:acidosis]
+    severity_base: 3
+    severity_modifiers:
+      - finding: eating:not_eating
+        severity: 4
+    acute_actionable: true
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Acidosis
+    containment: home
+
+  - id: HYPOTHERMIA
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [HYPOTHERMIA]
+    severity_base: 4
+    acute_actionable: true
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Hypothermia
+    containment: home
+
+  - id: DIARRHEA
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [diarrhea]
+    severity_base: 2
+    severity_modifiers:
+      - finding: skin_tent:>4s
+        severity: 4
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Diarrhea
+    containment: home
+
+  - id: FEVER
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    probable:
+      - findings: [FEVER]
+        residual: true
+      - findings: [breathing:labored]
+        residual: true
+      - findings: [breathing:cough, nasal_discharge]
+        residual: true
+    possible:
+      - findings: [breathing:fast]
+        residual: true
+      - findings: [breathing:cough]
+        residual: true
+    severity_base: 3
+    severity_modifiers:
+      - finding: HIGH_FEVER
+        severity: 4
+      - finding: breathing:labored
+        severity: 4
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Fever
+    containment: home
+    recheck_id_possible: FEVER_POSSIBLE
+
+  - id: HEAT_STRESS
+    kind: problem
+    human_selected_only: true
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    severity_base: 3
+    exit_type: F
+    sop_ref: Heat
+    containment: home
+
+  - id: ANEMIA
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [famacha:5]
+      - findings: [famacha:4]
+    possible:
+      - findings: [famacha:3]
+    severity_base: 3
+    severity_modifiers:
+      - finding: famacha:5
+        severity: 4
+    treatment_risk: low
+    exit_type: T
+    sop_ref: Anemia
+    containment: home
+    recheck_id_possible: FAMACHA3
+
+  - id: JAUNDICE
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [famacha:yellow]
+    severity_base: 3
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Jaundice
+    containment: home
+
+  - id: CALCULI
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M]
+    applies_status: [any]
+    gate_required: [sex:M]
+    # Same adult lock: straining or no urine only. Rare on milk kids.
+    pathognomonic:
+      - findings: [straining_urine:no_urine_passed]
+      - findings: [straining_urine:straining]
+    severity_base: 4
+    treatment_risk: high
+    exit_type: F
+    sop_ref: Calculi
+    containment: home
+
+  - id: PPR
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [FEVER, mouth:orf_scabs, diarrhea]
+    probable:
+      - findings: [FEVER, nasal_discharge, diarrhea]
+      - findings: [FEVER, mouth:orf_scabs, nasal_discharge]
+    possible:
+      - findings: [FEVER, nasal_discharge, eyes:discharge]
+    severity_base: 4
+    treatment_risk: low
+    exit_type: Supportive
+    sop_ref: Supportive
+    containment: quarantine
+    explains_findings: [FEVER, diarrhea, mouth:orf_scabs, nasal_discharge]
+    suppresses: [ORF, DIARRHEA, FEVER]
+
+  - id: POX
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [rash_character:nodular]
+    severity_base: 3
+    severity_modifiers:
+      - finding: activity:not_able_to_stand
+        severity: 4
+    treatment_risk: low
+    exit_type: Supportive
+    sop_ref: Supportive
+    containment: quarantine
+    explains_findings: [FEVER]
+    suppresses: [SKIN]
+
+  - id: ORF
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [mouth:orf_scabs]
+    severity_base: 2
+    treatment_risk: low
+    exit_type: F
+    sop_ref: ORF
+    containment: quarantine
+
+  - id: TETANUS
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [locked_jaw]
+    probable:
+      - findings: [neuro:tremors, wounds:present]
+      - findings: [neuro:tremors, eartag:wound]
+    severity_base: 4
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Tetanus
+    containment: home
+
+  - id: NEURO
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [neuro:circling]
+      - findings: [neuro:head_tilt]
+      - findings: [neuro:seizure]
+    probable:
+      - findings: [neuro:star_gazing]
+      - findings: [neuro:blind, neuro:ataxia]
+      - findings: [neuro:blind, eating:not_eating]
+    possible:
+      - findings: [neuro:ataxia]
+      - findings: [neuro:blind]
+    severity_base: 4
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Neuro
+    containment: home
+
+  - id: FOOT_ROT
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [leg:foot_rot]
+    severity_base: 2
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Foot rot
+    containment: home
+
+  - id: FRACTURE
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [leg:fracture]
+    severity_base: 3
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Fracture
+    containment: home
+
+  - id: LAMINITIS
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [activity:front_leg_knees]
+    severity_base: 2
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Laminitis
+    containment: home
+
+  - id: ARTHRITIS
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [leg:arthritis]
+    severity_base: 2
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Arthritis
+    containment: home
+
+  - id: SKIN
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    gate_excluded: [rash_character:nodular]
+    probable:
+      - findings: [rash_character:flat_itchy]
+      - findings: [skin_coat:hairloss_body]
+      - findings: [skin_coat:hairloss_neck]
+      - findings: [skin_coat:hairloss_legs]
+    possible:
+      - findings: [rashes:present]
+    severity_base: 2
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Skin
+    containment: home
+
+  - id: FLYSTRIKE
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [flystrike]
+      - findings: [eartag:flystrike]
+    severity_base: 3
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Flystrike
+    containment: home
+    explains_findings: [wounds:present, wounds:body, wounds:neck, wounds:legs, eartag:wound]
+    suppresses: [WOUNDS]
+
+  - id: LUMPS
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [lumps:neck]
+      - findings: [lumps:body]
+    severity_base: 2
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Lumps
+    containment: home
+
+  - id: WOUNDS
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    probable:
+      - findings: [wounds:neck]
+        residual: true
+      - findings: [wounds:body]
+        residual: true
+      - findings: [wounds:legs]
+        residual: true
+      - findings: [eartag:wound]
+        residual: true
+    severity_base: 2
+    treatment_risk: low
+    exit_type: V
+    sop_ref: Wounds
+    containment: home
+
+  - id: PINKEYE
+    kind: problem
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [eyes:cloudy]
+    probable:
+      - findings: [eyes:red, eyes:discharge]
+    possible:
+      - findings: [eyes:red]
+      - findings: [eyes:discharge]
+        residual: true
+    severity_base: 2
+    treatment_risk: low
+    exit_type: F
+    sop_ref: Pinkeye
+    containment: home
+    recheck_id_possible: PINKEYE_POSSIBLE
+
+  - id: TICKS
+    kind: field
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [skin_coat:ticks]
+    severity_base: 1
+    treatment_risk: low
+    exit_type: field
+    sop_ref: Field
+    containment: home
+
+  - id: HOOF
+    kind: field
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [activity:limping, leg:normal]
+    severity_base: 1
+    treatment_risk: low
+    exit_type: field
+    sop_ref: Field
+    containment: home
+
+  - id: ANTIHISTAMINE
+    kind: field
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [nasal_discharge]
+    severity_base: 1
+    treatment_risk: low
+    exit_type: field
+    sop_ref: Field
+    containment: home
+    adjunct_when: [FEVER, PPR]
+
+  - id: SEPARATE_FEEDING
+    kind: field
+    applies_species: [goat, sheep]
+    applies_sex: [M, F]
+    applies_status: [any]
+    pathognomonic:
+      - findings: [misc:competition]
+    severity_base: 1
+    treatment_risk: low
+    exit_type: field
+    sop_ref: Field
+    containment: home

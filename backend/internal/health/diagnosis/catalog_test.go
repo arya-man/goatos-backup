@@ -101,9 +101,11 @@ func loadRegister(t *testing.T) *Register {
 	return reg
 }
 
-func loadCatalog(t *testing.T) catalog {
+func loadCatalog(t *testing.T) catalog { return loadCatalogAt(t, catalogPath) }
+
+func loadCatalogAt(t *testing.T, path string) catalog {
 	t.Helper()
-	raw, err := os.ReadFile(catalogPath)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read catalog: %v", err)
 	}

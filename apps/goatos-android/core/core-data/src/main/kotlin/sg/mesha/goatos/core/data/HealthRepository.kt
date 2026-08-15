@@ -148,6 +148,8 @@ class DefaultHealthRepository(
     override fun observeDiagnosisRun(diagnosisRunId: String): Flow<CachedDiagnosisRun?> =
         database.healthDiagnosisRunDao().observe(diagnosisRunId).map { entity ->
             val row = entity ?: return@map null
+            // exception:exempt cached-read fallback; an undecodable cached blob emits null so the
+            // screen shows its loading state and the refresh already in flight replaces the row.
             val proposal = runCatching {
                 json.decodeFromString<HealthDiagnosisProposalResponseDto>(row.dtoJson)
             }.getOrNull() ?: return@map null

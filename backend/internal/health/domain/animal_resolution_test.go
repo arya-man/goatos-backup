@@ -163,17 +163,47 @@ func TestMissingKiddingHistoryIsReportedNotFatal(t *testing.T) {
 	}
 }
 
-// A non-adult is out of diagnosis scope but must still reach the engine, because
-// emergencies fire before the scope check.
-func TestResolveAnimalMarksNonAdultsOutOfScope(t *testing.T) {
+// TestResolveAnimalRefusesAKidRatherThanGuessingItsClass pins a fail-closed
+// decision.
+//
+// The engine now carries three kid registers and they differ in ways that make
+// the wrong one worse than none: a fattening kid diagnosed off the milk register
+// is never checked for acidosis, the thing most likely to kill it, and a milk
+// kid diagnosed off the weaning register never gets the drop test, the only way
+// floppy kid is caught early.
+//
+// GoatOS cannot yet tell the three apart -- `age_band` is only kid|adult and
+// nothing maps management stage onto the milk / weaning / fattening split or the
+// K0-K3 sub-stage. Until that mapping is a maintainer decision, a kid is REFUSED.
+//
+// This replaces an earlier test that asserted a kid resolved to `kid_milk`. That
+// default was harmless while kids were out of diagnostic scope entirely, and
+// became dangerous the moment the milk register started producing diagnoses.
+func TestResolveAnimalRefusesAKidRatherThanGuessingItsClass(t *testing.T) {
 	facts := adultDoe()
 	facts.AgeBand = AgeBandKid
+
 	got, err := ResolveAnimal(facts)
+	if err == nil {
+		t.Fatalf("a kid was resolved to class %q instead of being refused", got.Class)
+	}
+	if !errors.Is(err, ErrGoatNotDiagnosable) {
+		t.Errorf("error = %v, want it to wrap ErrGoatNotDiagnosable", err)
+	}
+	if got.Class != "" {
+		t.Errorf("a refused animal must carry no class, got %q", got.Class)
+	}
+}
+
+// TestResolveAnimalClassesAnAdultAsAdult is the other half: the refusal above
+// must not have made the ordinary path fail too.
+func TestResolveAnimalClassesAnAdultAsAdult(t *testing.T) {
+	got, err := ResolveAnimal(adultDoe())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Class == diagnosis.ScopeAdult {
-		t.Errorf("a kid must not be classed adult, got %q", got.Class)
+	if got.Class != diagnosis.ClassAdult {
+		t.Errorf("class = %q, want %q", got.Class, diagnosis.ClassAdult)
 	}
 }
 

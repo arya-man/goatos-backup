@@ -15,7 +15,37 @@ type Animal struct {
 	Status  string `json:"status"`
 	Breed   string `json:"breed"` // deliberately unused: the engine must not use breed
 	Shed    string `json:"shed"`
+
+	// Stage is the milk/weaning sub-stage: K0 colostrum, K1 milk-bar training,
+	// K2 free-choice bar, K3 weaning. It comes from GoatOS, NOT from the form,
+	// for the same reason species and sex do: it decides how a missed feed is
+	// read, and a manager who could type it could turn a real refusal into a
+	// learner's miss.
+	//
+	// Empty for adults and fattening kids, which have no sub-stage.
+	Stage string `json:"stage"`
+
+	// WeightKg is carried because the source registers band fattening kids by
+	// weight. No rule reads it yet; it is on the struct so the catalogs decode
+	// without a loader that silently drops it.
+	WeightKg *float64 `json:"weight_kg"`
 }
+
+// isKid reports whether this animal is on one of the three kid registers. The
+// kid slices share a form, a temperature band and a crash ladder; where they
+// differ, the specific class is tested instead.
+func (a Animal) isKid() bool {
+	switch a.class() {
+	case ClassKidMilk, ClassKidWeaning, ClassKidFattening:
+		return true
+	}
+	return false
+}
+
+// isMilkBar reports the K2 free-choice stage, where the animal has already
+// proved it drinks unaided. A K2 refusal is therefore a problem on the first
+// miss, while the same first miss on K1 is still training.
+func (a Animal) isMilkBar() bool { return a.class() == ClassKidMilk && a.Stage == "K2" }
 
 func (a Animal) species() string {
 	if a.Species == "" {
@@ -102,6 +132,54 @@ func (m MultiValue) orDefault(fallback string) MultiValue {
 	return m
 }
 
+// Flag is a yes/no observation that may also arrive as a descriptive string.
+//
+// Diarrhea is the case that needs it: the form records presence, but an observer
+// may report `bloody`. Blood is a severity detail, NOT a different diagnosis --
+// the spec is explicit that bloody diarrhea is still Diarrhea and must not be
+// read as coccidiosis. Decoding it as a truthy Flag keeps that rule in the type
+// rather than leaving a `"bloody"` string to be tested for somewhere downstream
+// and eventually forgotten.
+type Flag struct {
+	Set    bool
+	Detail string
+}
+
+func (fl *Flag) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	switch trimmed {
+	case "null":
+		*fl = Flag{}
+		return nil
+	case "true":
+		*fl = Flag{Set: true}
+		return nil
+	case "false":
+		*fl = Flag{}
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("flag: want bool or string, got %s", trimmed)
+	}
+	// An explicit negative spelling is still a negative. Anything else is a
+	// present finding with a detail attached.
+	switch s {
+	case "", "no", "none", "normal", "false":
+		*fl = Flag{}
+	default:
+		*fl = Flag{Set: true, Detail: s}
+	}
+	return nil
+}
+
+func (fl Flag) MarshalJSON() ([]byte, error) {
+	if fl.Detail != "" {
+		return json.Marshal(fl.Detail)
+	}
+	return json.Marshal(fl.Set)
+}
+
 // Findings is the observation form: one complete head-to-toe pass over one
 // animal. Every field is compulsory in the product — sex-hidden fields record
 // N/A rather than blank — because a blank cannot distinguish "nobody looked"
@@ -119,7 +197,7 @@ type Findings struct {
 	LeftStomach   MultiValue `json:"left_stomach"`
 	FrothyMouth   bool       `json:"frothy_mouth"`
 	RumenMovement string     `json:"rumen_movement"`
-	Diarrhea      bool       `json:"diarrhea"`
+	Diarrhea      Flag       `json:"diarrhea"`
 
 	SkinTent string `json:"skin_tent"`
 
@@ -153,6 +231,57 @@ type Findings struct {
 	EartagFlystrike bool `json:"eartag_flystrike"`
 	EartagWound     bool `json:"eartag_wound"`
 	Ticks           bool `json:"ticks"`
+
+	// --- Kids form. These rows are HIDDEN on the adult form, and hidden means
+	// ABSENT, not N/A: the adult form's convention of recording N/A for a
+	// sex-hidden row exists so a blank cannot mean "nobody looked", but a row
+	// that is not on this animal's form was never a question to answer.
+
+	// Suckle is the finger test, and it is a treatment gate rather than a
+	// symptom: a kid that sucks can be given milk by mouth, and one that cannot
+	// must never be. It is asked on all three kid slices for that reason.
+	Suckle string `json:"suckle"`
+
+	// Responsiveness is the kid's own dullness axis. It is deliberately
+	// non-specific: dull alone names no disease and must not enter `explained`.
+	Responsiveness string `json:"responsiveness"`
+
+	// Navel is milk-kids only; it has closed and healed by weaning.
+	Navel string `json:"navel"`
+
+	// Landing is the drop test, and it is the whole point of the milk-kid form:
+	// from about 20 cm a well kid lands like Spider-Man, a floppy one barely
+	// stays up or falls. It is the ONLY way floppy kid is caught while the animal
+	// is still standing and still cheap to treat.
+	//
+	// Compulsory when the kid is standing, and `na` when it is already down --
+	// you do not drop a recumbent kid to see what happens. Weaning and fattening
+	// never ask it, and sending it there is a reject rather than an ignored field.
+	Landing string `json:"landing"`
+
+	// MilkIntake is the K2 bar reading: `normal` or `not_drinking`. On K1 and K3
+	// the drinking axis is the refusal COUNT instead, because those are counted
+	// sessions and this is free choice.
+	//
+	// Multi-valued for the same reason `eating` is: it is the milk analogue of
+	// the feed row, and `not_drinking` together with `normal` is the same
+	// contradiction that `not_eating` with `normal` is on the adult form. A
+	// single-valued field could not express it, which would leave the documented
+	// reject unreachable rather than merely unexercised.
+	MilkIntake MultiValue `json:"milk_intake"`
+
+	// RefusalsToday is how many feeds were refused today, with carry-forward
+	// already applied by GoatOS. Milk kids run 0-3 (three bar sessions), weaning
+	// 0-2 (two measured bottles).
+	//
+	// A pointer because zero refusals and "not asked" are different facts: zero
+	// is a kid that drank, and on K1 the count is compulsory, so a missing value
+	// is a reject rather than a quiet zero.
+	RefusalsToday *int `json:"refusals_today"`
+
+	// Session is which feed this observation belongs to: 1-3 on the milk bar,
+	// 1-2 (morning/evening) on weaning.
+	Session *int `json:"session"`
 }
 
 const defaultTemp = 102.0
@@ -230,6 +359,20 @@ const (
 	RejectWoundsExclusive   = "wounds_exclusive"
 	RejectFemaleStraining   = "female_straining"
 	RejectCMTWithoutMilk    = "cmt_without_milk"
+
+	// Kids form.
+	RejectNotDrinkingWithMilk = "not_drinking_with_milk"
+	RejectLandingRequired     = "landing_required"
+	RejectLandingWhenDown     = "landing_when_down"
+	RejectRefusalsRequired    = "refusals_today_required"
+	RejectSessionRequired     = "session_required"
+	RejectLandingNotOnWeaning = "landing_not_on_weaning"
+	RejectNavelNotOnWeaning   = "navel_not_on_weaning"
+
+	// RejectRegisterClassMismatch means a register was asked to diagnose an
+	// animal of a class it does not serve. It is a wiring defect, not a form
+	// defect, and it is surfaced rather than silently corrected.
+	RejectRegisterClassMismatch = "register_class_mismatch"
 )
 
 // validateForm returns the reject reason, or "" when the form is internally
@@ -252,7 +395,121 @@ func validateForm(animal Animal, f Findings) string {
 	if f.Lactation == "no" && (f.CMT == "pos" || f.CMT == "neg") {
 		return RejectCMTWithoutMilk
 	}
+	if animal.isKid() {
+		return validateKidsForm(animal, f)
+	}
 	return ""
+}
+
+// validateKidsForm enforces the rows the kids form actually asks for.
+//
+// Two of these are structural rather than clinical, and they are the reason a
+// wrong row is a REJECT and not an ignored field. Landing is not on the weaning
+// or fattening form at all, so a landing value arriving on one of those means
+// the wrong form was rendered or the wrong animal was opened; accepting it would
+// let a floppy-kid finding be recorded against a slice where floppy cannot exist.
+// The refusal count is compulsory where feeds are counted, because a missing
+// count read as zero would silently turn a kid that refused every bottle into a
+// kid that drank.
+func validateKidsForm(animal Animal, f Findings) string {
+	if f.MilkIntake.has("not_drinking") && f.MilkIntake.has("normal") {
+		return RejectNotDrinkingWithMilk
+	}
+
+	switch animal.class() {
+	case ClassKidMilk:
+		// The drop test is compulsory while the kid is on its feet, and refused
+		// once it is down: dropping a recumbent kid to grade its landing is the
+		// one thing this test must never cause.
+		standing := f.Activity == "" || f.Activity == "standing" ||
+			f.Activity == "weak" || f.Activity == "limping"
+		switch {
+		case f.Activity == "down" && f.Landing != "na":
+			return RejectLandingWhenDown
+		case standing && !isOneOf(f.Landing, "spiderman", "barely", "falls"):
+			return RejectLandingRequired
+		}
+
+		// K1 counts three bar sessions, so the count is compulsory there. K0 and
+		// K2 may omit it, but a value that IS sent must still be in range.
+		if animal.Stage == "K1" {
+			if f.RefusalsToday == nil || *f.RefusalsToday < 0 || *f.RefusalsToday > 3 {
+				return RejectRefusalsRequired
+			}
+		} else if f.RefusalsToday != nil && (*f.RefusalsToday < 0 || *f.RefusalsToday > 3) {
+			return RejectRefusalsRequired
+		}
+		if f.Session != nil && (*f.Session < 1 || *f.Session > 3) {
+			return RejectSessionRequired
+		}
+
+	case ClassKidWeaning:
+		if f.Landing != "" {
+			return RejectLandingNotOnWeaning
+		}
+		if f.Navel != "" {
+			return RejectNavelNotOnWeaning
+		}
+		// Two measured bottles, both counted.
+		if f.RefusalsToday == nil || *f.RefusalsToday < 0 || *f.RefusalsToday > 2 {
+			return RejectRefusalsRequired
+		}
+		if f.Session != nil && (*f.Session < 1 || *f.Session > 2) {
+			return RejectSessionRequired
+		}
+	}
+	return ""
+}
+
+func isOneOf(value string, allowed ...string) bool {
+	for _, a := range allowed {
+		if value == a {
+			return true
+		}
+	}
+	return false
+}
+
+// milkProblem reports whether this observation is a not-drinking ENERGY problem,
+// which is a different question from "did the kid miss a feed".
+//
+// The three slices count a miss differently, and the differences are the whole
+// clinical point:
+//
+//   - K1 is learning at the bar across three sessions. ONE miss is gut capacity
+//     or inexperience, not a disease. Two is a problem.
+//   - K2 has already earned free choice by drinking unaided. Any miss is a
+//     problem on the FIRST one, because this kid has proved it can drink.
+//   - K3 (weaning) has two measured 200 ml bottles. Any miss is a problem.
+//
+// Reading K2 or K3 as a learner's miss under-treats a kid that has demonstrably
+// stopped drinking; reading a K1 first miss as a disease sends a healthy kid to
+// the ward. Neither is a rounding error.
+func milkProblem(animal Animal, f Findings) bool {
+	n := f.RefusalsToday
+	notDrinking := f.MilkIntake.has("not_drinking")
+
+	switch animal.class() {
+	case ClassKidWeaning:
+		return notDrinking || (n != nil && *n >= 1)
+	case ClassKidMilk:
+		if animal.isMilkBar() {
+			return notDrinking || (n != nil && *n >= 1)
+		}
+		if n != nil {
+			return *n >= 2
+		}
+		return notDrinking
+	}
+	return notDrinking
+}
+
+// refusals is the refusal count, or zero when the slice does not count feeds.
+func (f Findings) refusals() int {
+	if f.RefusalsToday == nil {
+		return 0
+	}
+	return *f.RefusalsToday
 }
 
 // derived holds the tokens computed from raw numbers, plus the corrected skin
@@ -277,15 +534,23 @@ func (d derived) any() bool             { return len(d.tokens) > 0 }
 //     dehydrated. When the flank is sunken, a >4s tent is read as 2-4s BEFORE the
 //     fluids emergency is considered, so an emaciated animal does not trigger an
 //     emergency drip on the strength of its body condition.
-func deriveTokens(f Findings) derived {
+func deriveTokens(animal Animal, f Findings) derived {
 	d := derived{tokens: map[string]bool{}}
 
 	temp := f.temp()
+	// The fever cut differs by class at exactly one value. A kid at 103.5degF IS
+	// febrile; an adult at 103.5 is not. It is a single tenth of a degree and it
+	// decides whether a kid is treated at all, so the band is taken from the
+	// class rather than shared.
+	febrile := temp > 103.5
+	if animal.isKid() {
+		febrile = temp >= 103.5
+	}
 	switch {
 	case temp > 106.0:
 		d.tokens["HIGH_FEVER"] = true
 		d.tokens["FEVER"] = true
-	case temp > 103.5:
+	case febrile:
 		d.tokens["FEVER"] = true
 	}
 	if temp < 100.0 {
@@ -347,7 +612,7 @@ func buildEvidence(animal Animal, f Findings, d derived) map[string]bool {
 	if f.FrothyMouth {
 		ev["frothy_mouth"] = true
 	}
-	if f.Diarrhea {
+	if f.Diarrhea.Set {
 		ev["diarrhea"] = true
 	}
 	if f.RumenMovement == "not_felt" {
@@ -412,10 +677,11 @@ func buildEvidence(animal Animal, f Findings, d derived) map[string]bool {
 		ev["misc:stomach_inside"] = true
 	}
 
-	for _, n := range f.Neuro {
-		if n != "" {
-			ev["neuro:"+n] = true
-		}
+	// `none` / `normal` are the absence of a neuro sign, not a sign named
+	// "none". Emitting them would put a normal finding into the evidence set,
+	// where it could anchor a clause and surface as an unexplained finding.
+	for _, n := range f.Neuro.except("none", "normal") {
+		ev["neuro:"+n] = true
 	}
 
 	switch f.Vulva {
@@ -491,7 +757,48 @@ func buildEvidence(animal Animal, f Findings, d derived) map[string]bool {
 		ev["skin_tent:2-4s"] = true
 	}
 
+	addKidEvidence(ev, animal, f)
 	return ev
+}
+
+// addKidEvidence emits the rows that exist only on the kids form.
+//
+// The one non-obvious mapping is milk. A milk PROBLEM (not merely a missed feed
+// -- see milkProblem) also emits `eating:not_eating`, because on a milk kid the
+// bar IS the diet and refusing it is being off feed. Weaning is the deliberate
+// exception: a K3 kid that skips a 200 ml bottle is still eating concentrate,
+// so calling it off-feed would misread a missed bottle as a rumen problem and,
+// downstream, hand it an acidosis emergency it does not have.
+func addKidEvidence(ev map[string]bool, animal Animal, f Findings) {
+	if !animal.isKid() {
+		return
+	}
+
+	if animal.Stage != "" {
+		ev["stage:"+animal.Stage] = true
+	}
+
+	if milkProblem(animal, f) {
+		ev["milk_intake:not_drinking"] = true
+		if animal.class() != ClassKidWeaning {
+			ev["eating:not_eating"] = true
+		}
+	} else if animal.Stage != "K1" && f.MilkIntake.has("reduced") {
+		ev["milk_intake:reduced"] = true
+	}
+
+	if isOneOf(f.Suckle, "present", "absent") {
+		ev["suckle:"+f.Suckle] = true
+	}
+	if isOneOf(f.Navel, "wet", "swollen", "painful") {
+		ev["navel:"+f.Navel] = true
+	}
+	if isOneOf(f.Responsiveness, "alert", "dull", "unresponsive") {
+		ev["responsiveness:"+f.Responsiveness] = true
+	}
+	if isOneOf(f.Landing, "spiderman", "barely", "falls", "na") {
+		ev["landing:"+f.Landing] = true
+	}
 }
 
 func sortedTokens(set map[string]bool) []string {

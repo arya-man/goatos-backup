@@ -104,6 +104,8 @@ class ObservationFormViewModel @Inject constructor(
                 .mapNotNull { item ->
                     if (item?.status != SyncItemStatus.SUCCEEDED) return@mapNotNull null
                     val result = item.resultJson ?: return@mapNotNull null
+                    // exception:exempt navigation trigger; an undecodable result simply does not
+                    // navigate, leaving the manager on the form with the submission still queued.
                     runCatching {
                         wireJson.decodeFromString<HealthDiagnosisProposalResponseDto>(result)
                     }.getOrNull()?.diagnosisRunId?.takeIf { it.isNotBlank() }
