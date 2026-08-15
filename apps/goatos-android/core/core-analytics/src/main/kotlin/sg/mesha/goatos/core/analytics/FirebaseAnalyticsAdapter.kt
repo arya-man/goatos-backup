@@ -81,19 +81,32 @@ class FirebaseAnalyticsAdapter(
     }
 }
 
-// 2026-08-15: maintainer decision — raised from the original GA4-envelope budget of 25 to 37 so
-// the proof-flow-integration params (result, slot_mask, retry_count, source, local_slot_state,
-// feed_weight_source, feed_video_source, water_video_source, previous, next, status, kind) can be
-// preserved in Firebase instead of being silently dropped by the allowlist truncation at 25. This
-// is exactly the pre-existing 25-entry budget plus the 12 new params (no unused headroom). Firebase
-// Analytics/GA4 itself enforces a hard technical cap of 25 custom parameters per logged event —
-// raising this internal budget past that number does not raise Google's platform-side limit, so
-// entries beyond GA4's own 25-param ceiling may still be dropped at ingestion even though this
-// guard now allows them. This constant governs what the adapter is willing to attempt to send, not
-// what Firebase is guaranteed to keep; see AnalyticsContractTest's
-// `firebase event params keep newly-preserved proof telemetry` test for a same-adapter
-// param-survival check on these 12 params.
-internal const val FIREBASE_MAX_EVENT_PARAMS = 37
+// 2026-08-15 (P1 fix): FIREBASE_MAX_EVENT_PARAMS was briefly raised from 25 to 37 to fit the
+// proof-flow-integration params (result, slot_mask, retry_count, source, local_slot_state,
+// feed_weight_source, feed_video_source, water_video_source, previous, next, status, kind).
+// That was wrong: GA4 enforces a HARD technical ceiling of 25 custom parameters per logged event
+// at ingestion, unconditionally -- raising this internal constant past 25 does not raise Google's
+// platform-side limit, it just makes the local guard bless events that Firebase itself silently
+// truncates on arrival (params dropped with zero client-visible error). Restored to a HARD 25 here
+// AND in the CI guard (tools/agent-hooks/check-firebase-analytics-param-budget.mjs), which now
+// FAILS any allowlist entry count above 25 instead of merely warning.
+//
+// To make room for the proof-flow params without exceeding 25, FIREBASE_PARAM_ALLOWLIST below was
+// re-curated rather than just grown: several pre-existing proof-capture diagnostic params that are
+// redundant with, or lower-value than, what stayed (capture_source, mime_type, processing_attempt,
+// location_status, geocoder_status, original_size_bucket, upload_original, proof_subject, and the
+// duplicate-of-rfid_tag Params.RFID key) were DROPPED from the Firebase envelope, and 2 of the 12
+// new proof-flow params (feed_video_source, water_video_source) were dropped too, keeping only
+// feed_weight_source as the representative "which slot source" diagnostic. Firebase/GA4 stays a
+// compact diagnostic surface only -- the FULL payload (every param, no allowlist, no cap) still
+// reaches the backend via BackendAnalyticsAdapter on the same call sites, so nothing is lost for
+// forensic debugging; it just is not duplicated into Firebase where GA4 would drop it past 25
+// anyway. The surviving 25 entries deliberately preserve: split-operator slot info (slot_mask,
+// local_slot_state, feed_weight_source), submit source (source), retry/failure reason (retry_count,
+// reason, outcome), and live-status transition (previous, next, status), plus the pre-existing
+// proof-capture core diagnostics (proof_id, task_id, field_key, feature_surface, rfid_tag,
+// processing_state, duration_bucket, proof_upload_status, submit_status) and result/kind.
+internal const val FIREBASE_MAX_EVENT_PARAMS = 25
 internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
 
 internal fun firebaseEventParams(props: Map<String, String>): Map<String, String> {
@@ -109,6 +122,8 @@ internal fun firebaseEventParams(props: Map<String, String>): Map<String, String
 private fun String.firebaseParamValue(): String =
     if (length <= FIREBASE_MAX_PARAM_VALUE_LENGTH) this else take(FIREBASE_MAX_PARAM_VALUE_LENGTH)
 
+// Exactly 25 entries -- the hard GA4 platform cap. Do not add without removing one; see the
+// FIREBASE_MAX_EVENT_PARAMS comment above for what was traded off and why.
 private val FIREBASE_PARAM_ALLOWLIST = listOf(
     AnalyticsEvents.Params.DEVICE_ID,
     AnalyticsEvents.Params.JOURNEY_ID,
@@ -118,33 +133,21 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     "task_id",
     "field_key",
     "feature_surface",
-    "proof_subject",
     "rfid_tag",
-    AnalyticsEvents.Params.RFID,
     AnalyticsEvents.Params.OUTCOME,
     AnalyticsEvents.Params.REASON,
-    "capture_source",
-    "mime_type",
     "processing_state",
-    "processing_attempt",
-    "upload_original",
-    "location_status",
-    "geocoder_status",
     "duration_bucket",
-    "original_size_bucket",
-    "processed_size_bucket",
     "proof_upload_status",
     "submit_status",
-    // 2026-08-15: added per maintainer decision (see FIREBASE_MAX_EVENT_PARAMS comment above) to
-    // stop dropping feed-proof-flow telemetry that was silently truncated at the old 25-entry cap.
+    // proof-flow-integration additions (2026-08-15) -- kept within the 25-cap by trading off the
+    // lower-value legacy params documented in the comment above.
     AnalyticsEvents.Params.RESULT,
     AnalyticsEvents.Params.SLOT_MASK,
     AnalyticsEvents.Params.RETRY_COUNT,
     AnalyticsEvents.Params.SOURCE,
     AnalyticsEvents.Params.LOCAL_SLOT_STATE,
     AnalyticsEvents.Params.FEED_WEIGHT_SOURCE,
-    AnalyticsEvents.Params.FEED_VIDEO_SOURCE,
-    AnalyticsEvents.Params.WATER_VIDEO_SOURCE,
     AnalyticsEvents.Params.PREVIOUS,
     AnalyticsEvents.Params.NEXT,
     AnalyticsEvents.Params.STATUS,
