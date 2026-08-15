@@ -99,6 +99,7 @@ steps:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
+      - COMMIT_SHA=$COMMIT_SHA
       - BUILD_ID=$BUILD_ID
       - ARTIFACT_REPOSITORY=goatos
       - DELIVERY_PIPELINE=goatos-stg
@@ -147,6 +148,7 @@ steps:
     env:
       - PROJECT_ID=goatos-stg
       - BUILD_ID=$BUILD_ID
+      - COMMIT_SHA=$COMMIT_SHA
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - TRIGGERED_BY=${_TRIGGERED_BY}
     args:
