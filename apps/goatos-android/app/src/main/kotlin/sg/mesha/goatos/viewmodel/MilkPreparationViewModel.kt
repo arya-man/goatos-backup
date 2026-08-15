@@ -32,7 +32,10 @@ import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -231,9 +234,12 @@ class MilkPreparationViewModel @Inject constructor(
 ) : ViewModel() {
     private val parkId = saved.get<String>(ARG_PARK_ID).orEmpty()
     private val preparationDate = LocalDate.now(MILK_IST).toString()
-    // NON-CANONICAL proof/draft key building: see
-    // sg.mesha.goatos.core.data.capture.NON_CANONICAL_PROOF_KEY_FLOWS ("milk_preparation") for why
-    // this ViewModel does NOT route through ProofIdentity.storageKey()/idempotencyKey().
+    // Proof/draft field-key building now routes through the canonical ProofIdentity/EvidenceSlot
+    // model (see evidenceSlot() below). identity.taskId is set to the EXISTING groupKey() literal
+    // and fieldKey to the EXISTING "milk_preparation_$stepCode" literal, so the strings written to
+    // Room/outbox are byte-for-byte unchanged — only the plumbing carrying them is canonical now.
+    // DraftIdempotencyKey/SavedStateHandle process-death survival for the mint-random-UUID
+    // idempotency keys is unrelated to identity addressing and is unaffected by this migration.
     private val submitKey = DraftIdempotencyKey(saved, "milkPreparation.submitKey", "milk-preparation-submit")
     private val proofKeys = allSteps.associateWith { DraftIdempotencyKey(saved, "milkPreparation.proofKey.$it", "milk-preparation-$it") }
     private val submitOutboxItemId = DraftOutboxItemId(saved, "milkPreparation.submitOutboxItemId")
@@ -426,9 +432,10 @@ class MilkPreparationViewModel @Inject constructor(
                 return@launch
             }
             draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
+            val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.capture(
-                taskId = groupKey(),
-                fieldKey = "milk_preparation_$stepCode",
+                taskId = slot.identity.taskId,
+                fieldKey = slot.fieldKey,
                 subject = ProofSubject.PARK,
                 subjectId = parkId,
                 localUri = video.localUri,
@@ -494,9 +501,10 @@ class MilkPreparationViewModel @Inject constructor(
                 setCapturing(stepCode, false)
                 return@launch
             }
+            val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.capture(
-                taskId = groupKey(),
-                fieldKey = "milk_preparation_$stepCode",
+                taskId = slot.identity.taskId,
+                fieldKey = slot.fieldKey,
                 subject = ProofSubject.PARK,
                 subjectId = parkId,
                 localUri = video.localUri,
@@ -574,6 +582,19 @@ class MilkPreparationViewModel @Inject constructor(
 
     /** The work item the durable draft belongs to: this park's preparation for this business day. */
     private val entityId get() = "$parkId:$preparationDate"
+
+    /** Canonical slot grain for a milk-preparation step capture. identity.taskId/fieldKey resolve
+     *  to the SAME strings [groupKey] / the raw `"milk_preparation_$stepCode"` literal already
+     *  produced, so routing captures through this slot changes no on-disk value. */
+    private fun evidenceSlot(stepCode: String): EvidenceSlot = EvidenceSlot(
+        identity = ProofIdentity(
+            flow = ProofFlow.MILK_PREPARATION,
+            taskId = groupKey(),
+            partitionKey = "whole",
+            subjectKey = parkId,
+        ),
+        fieldKey = "milk_preparation_$stepCode",
+    )
     private fun setCapturing(step: String, value: Boolean) = draft.update { current ->
         current.copy(steps = current.steps.map { row -> if (row.code == step) row.copy(capturing = value) else row })
     }
