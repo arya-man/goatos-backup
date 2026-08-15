@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
@@ -224,6 +226,7 @@ class MilkPreparationViewModel @Inject constructor(
     private val capture: ProofCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val drafts: CaptureDraftRepository,
+    private val analytics: AnalyticsPort,
     private val saved: SavedStateHandle,
 ) : ViewModel() {
     private val parkId = saved.get<String>(ARG_PARK_ID).orEmpty()
@@ -332,6 +335,7 @@ class MilkPreparationViewModel @Inject constructor(
     private var captureDraft = CaptureDraft()
 
     init {
+        analytics.track(AnalyticsEvents.MILK_PREPARATION_OPENED)
         viewModelScope.launch {
             captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             val answers = captureDraft.answers
@@ -465,6 +469,7 @@ class MilkPreparationViewModel @Inject constructor(
         val current = state.value
         val step = current.steps.firstOrNull { it.code == stepCode } ?: return
         if (!current.isEditable || parkId.isBlank() || !step.enabled || !step.answerComplete || step.captured || step.capturing) return
+        analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT)
         draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
         viewModelScope.launch {
             val caption = proofOverlayContextLine(
@@ -481,7 +486,11 @@ class MilkPreparationViewModel @Inject constructor(
                     headerTitle = step.label,
                 ),
             )
-            if (video == null) { setCapturing(stepCode, false); return@launch }
+            if (video == null) {
+                analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE)
+                setCapturing(stepCode, false)
+                return@launch
+            }
             when (val result = proofCaptureRepository.capture(
                 taskId = groupKey(),
                 fieldKey = "milk_preparation_$stepCode",
@@ -502,6 +511,7 @@ class MilkPreparationViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
+                        analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE)
                         setCapturing(stepCode, false)
                         draft.update { it.copy(message = "Proof upload could not be queued") }
                         return@launch
@@ -509,10 +519,12 @@ class MilkPreparationViewModel @Inject constructor(
                     // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
                     drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, proofOutboxId)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_SUCCESS)
                     draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
                 }
                 is AppResult.Err -> {
                     proofKeys.getValue(stepCode).invalidate()
+                    analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE)
                     setCapturing(stepCode, false)
                     draft.update { it.copy(message = result.message) }
                 }
@@ -537,6 +549,7 @@ class MilkPreparationViewModel @Inject constructor(
                 drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, null)
                 captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             }
+            analytics.track(AnalyticsEvents.MILK_PREPARATION_SUBMITTED)
             when (val result = sync.enqueueMilkPreparationSubmit(groupKey(), submitIdempotencyKey, current.selectedParkId, current.preparationDate, goatMilkUsed, answers, proofItems)) {
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, result.value)
@@ -546,7 +559,10 @@ class MilkPreparationViewModel @Inject constructor(
                     observeOutboxItem(result.value)
                     draft.update { it.copy(submitting = false, queued = true, message = "Proof uploads in background.") }
                 }
-                is AppResult.Err -> draft.update { it.copy(submitting = false, message = result.message) }
+                is AppResult.Err -> {
+                    analytics.track(AnalyticsEvents.MILK_PREPARATION_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message))
+                    draft.update { it.copy(submitting = false, message = result.message) }
+                }
             }
         }
     }
@@ -579,6 +595,10 @@ class MilkPreparationViewModel @Inject constructor(
                             draft.update { it.copy(submitting = false, queued = false, message = "Submission complete.") }
                         }
                         SyncItemStatus.FAILED -> {
+                            // Clear submitOutboxItemId so the operator can retry. The outbox item reached
+                            // terminal FAILED, but the submit button was blocked while it was in-flight.
+                            // Without this clear, the button stays dead forever (see FeedPackingCompleteViewModel:434-436).
+                            submitOutboxItemId.value = null
                             draft.update { it.copy(submitting = false, queued = false, message = item.lastError ?: "Submission failed. Please retry.") }
                         }
                     }

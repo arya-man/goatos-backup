@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
@@ -169,6 +171,7 @@ class MilkFeedingViewModel @Inject constructor(
     private val capture: ProofCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val drafts: CaptureDraftRepository,
+    private val analytics: AnalyticsPort,
     private val saved: SavedStateHandle,
 ) : ViewModel() {
     private val taskId = saved.get<String>(ARG_TASK_ID).orEmpty()
@@ -203,6 +206,7 @@ class MilkFeedingViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MilkFeedingUiState(taskId = taskId, feedingDate = feedingDate))
 
     init {
+        analytics.track(AnalyticsEvents.MILK_FEEDING_OPENED)
         viewModelScope.launch {
             captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
             draft.update { current ->
@@ -323,6 +327,7 @@ class MilkFeedingViewModel @Inject constructor(
 
     private fun captureProof(code: String) = viewModelScope.launch {
         val proof = state.value.proofs.firstOrNull { it.code == code } ?: return@launch
+        analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_ATTEMPT)
         draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = true) else row }) }
         val current = state.value
         val caption = proofOverlayContextLine(
@@ -339,7 +344,11 @@ class MilkFeedingViewModel @Inject constructor(
                 headerTitle = proof.label,
             ),
         )
-        if (video == null) { draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }; return@launch }
+        if (video == null) {
+            analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE)
+            draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
+            return@launch
+        }
         when (val result = proofCaptureRepository.capture(
             taskId = groupKey(),
             fieldKey = "milk_feeding_$code",
@@ -360,15 +369,21 @@ class MilkFeedingViewModel @Inject constructor(
             is AppResult.Ok -> {
                 val proofOutboxId = result.value.outboxItemId
                 if (proofOutboxId.isNullOrBlank()) {
+                    analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE)
                     draft.update { it.copy(message = "Proof upload could not be queued", proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
                     return@launch
                 }
                 // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
                 drafts.putProof(CaptureFlow.MILK_FEEDING, taskId, code, proofOutboxId)
                 captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
+                analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_SUCCESS)
                 draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(captured = true, capturing = false) else row }) }
             }
-            is AppResult.Err -> { proofKeys.getValue(code).invalidate(); draft.update { it.copy(message = result.message, proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) } }
+            is AppResult.Err -> {
+                proofKeys.getValue(code).invalidate()
+                analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE)
+                draft.update { it.copy(message = result.message, proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
+            }
         }
     }
 
@@ -391,6 +406,7 @@ class MilkFeedingViewModel @Inject constructor(
             drafts.putSubmit(CaptureFlow.MILK_FEEDING, taskId, submitIdempotencyKey, null)
             captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
         }
+        analytics.track(AnalyticsEvents.MILK_FEEDING_SUBMITTED)
         when (val result = sync.enqueueMilkFeedingSubmit(groupKey(), submitIdempotencyKey, current.taskId, current.parkId, current.feedingDate, current.sessionNo, answers, clean, mixing)) {
             is AppResult.Ok -> {
                 drafts.putSubmit(CaptureFlow.MILK_FEEDING, taskId, submitIdempotencyKey, result.value)
@@ -400,7 +416,10 @@ class MilkFeedingViewModel @Inject constructor(
                 observeOutboxItem(result.value)
                 draft.update { it.copy(submitting = false, queued = true, message = "Answers and proofs are uploading in background.") }
             }
-            is AppResult.Err -> draft.update { it.copy(submitting = false, message = result.message) }
+            is AppResult.Err -> {
+                analytics.track(AnalyticsEvents.MILK_FEEDING_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message))
+                draft.update { it.copy(submitting = false, message = result.message) }
+            }
         }
     }
 
@@ -426,6 +445,10 @@ class MilkFeedingViewModel @Inject constructor(
                             draft.update { it.copy(submitting = false, queued = false, message = "Submission complete.") }
                         }
                         SyncItemStatus.FAILED -> {
+                            // Clear submitOutboxItemId so the operator can retry. The outbox item reached
+                            // terminal FAILED, but the submit button was blocked while it was in-flight.
+                            // Without this clear, the button stays dead forever (see FeedPackingCompleteViewModel:434-436).
+                            submitOutboxItemId.value = null
                             draft.update { it.copy(submitting = false, queued = false, message = item.lastError ?: "Submission failed. Please retry.") }
                         }
                     }

@@ -519,6 +519,42 @@ object AnalyticsEvents {
     /** A feed-transport proof or completion could not be queued. */
     const val FEED_TRANSPORT_FAILURE = "feed_transport_failure"
 
+    /** The milk preparation screen (park's milk processing setup) was opened. */
+    const val MILK_PREPARATION_OPENED = "milk_preparation_opened"
+
+    /** Operator attempted to capture a proof video for a milk preparation step. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT = "milk_preparation_proof_capture_attempt"
+
+    /** A milk preparation proof video was captured successfully. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_SUCCESS = "milk_preparation_proof_capture_success"
+
+    /** A milk preparation proof capture failed or was cancelled. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_FAILURE = "milk_preparation_proof_capture_failure"
+
+    /** Operator submitted milk preparation answers and proofs for verification. */
+    const val MILK_PREPARATION_SUBMITTED = "milk_preparation_submitted"
+
+    /** A milk preparation submission could not be queued. [Params.REASON] carries a coarse cause. */
+    const val MILK_PREPARATION_FAILURE = "milk_preparation_failure"
+
+    /** The milk feeding screen (recording feeding observations) was opened. */
+    const val MILK_FEEDING_OPENED = "milk_feeding_opened"
+
+    /** Operator attempted to capture a proof video for a milk feeding task. */
+    const val MILK_FEEDING_PROOF_CAPTURE_ATTEMPT = "milk_feeding_proof_capture_attempt"
+
+    /** A milk feeding proof video was captured successfully. */
+    const val MILK_FEEDING_PROOF_CAPTURE_SUCCESS = "milk_feeding_proof_capture_success"
+
+    /** A milk feeding proof capture failed or was cancelled. */
+    const val MILK_FEEDING_PROOF_CAPTURE_FAILURE = "milk_feeding_proof_capture_failure"
+
+    /** Operator submitted milk feeding answers and proofs for verification. */
+    const val MILK_FEEDING_SUBMITTED = "milk_feeding_submitted"
+
+    /** A milk feeding submission could not be queued. [Params.REASON] carries a coarse cause. */
+    const val MILK_FEEDING_FAILURE = "milk_feeding_failure"
+
     /**
      * A Birth/Death workflow work list was opened (docs/decisions/birth-death-workflows.md).
      * [Params.KIND] is the module (`birth`/`death`).

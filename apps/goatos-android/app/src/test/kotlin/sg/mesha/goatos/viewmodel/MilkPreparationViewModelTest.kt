@@ -63,6 +63,7 @@ class MilkPreparationViewModelTest {
             capture = videoSource,
             proofCaptureRepository = proofCaptureRepository,
             drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
             saved = SavedStateHandle(
                 mapOf(
                     MilkPreparationViewModel.ARG_PARK_ID to "park-1",
@@ -120,6 +121,7 @@ class MilkPreparationViewModelTest {
             capture = videoSource,
             proofCaptureRepository = proofCaptureRepository,
             drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
             saved = SavedStateHandle(
                 mapOf(
                     MilkPreparationViewModel.ARG_PARK_ID to "park-1",
@@ -176,6 +178,7 @@ class MilkPreparationViewModelTest {
             capture = videoSource,
             proofCaptureRepository = proofCaptureRepository,
             drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
             saved = SavedStateHandle(
                 mapOf(
                     MilkPreparationViewModel.ARG_PARK_ID to "park-1",
