@@ -42,7 +42,7 @@ type Service interface {
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
 	// ListPenSessionCaptures reports which of a pen-session's proof slots are ALREADY recorded, by
 	// any operator, with the server proof id of each. Read-only; it gates nothing.
-	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) ([]ports.CapturedProofSlot, error)
+	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) (app.PenSessionCapturesResult, error)
 }
 
 type Handler struct {

@@ -801,14 +801,19 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 targetDate = targetDate,
                 workflow = workflow,
             )
-            var slots: List<FeedDistributionCapturedSlotDto>? = feedRepository.penSessionCaptures(query)
+            var captures = feedRepository.penSessionCaptures(query)
             var retryCount = 0
             for (delayMs in TEAMMATE_CAPTURE_RETRY_DELAYS_MS) {
-                if (slots != null) break
+                if (captures != null) break
                 delay(delayMs)
                 retryCount += 1
-                slots = feedRepository.penSessionCaptures(query)
+                captures = feedRepository.penSessionCaptures(query)
             }
+            // The read-only gate and the slots arrive in ONE answer — apply the authoritative
+            // session status FIRST so a submitted session locks at open, before any slot/capture
+            // interaction. A null status (no completion row / older server) changes nothing.
+            captures?.sessionStatus?.let { applyLiveStatus(it, source) }
+            val slots = captures?.slots
             if (slots == null) {
                 trackTeammateCapturesRead(
                     result = if (retryCount >= TEAMMATE_CAPTURE_RETRY_DELAYS_MS.size) "retry_exhausted" else "failed",

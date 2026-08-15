@@ -168,23 +168,24 @@ fun FeedDistributionCompleteScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // ALREADY SUBMITTED: the session went to the verifier (or was decided) elsewhere, so
-            // there is nothing to record. Mirrors FeedPackingCompleteScreen's same-shaped gate.
+            // there is nothing to record. The captured proofs stay VISIBLE below (read-only —
+            // every capture path is gated on isFinalSubmitted): operators still need to see WHAT
+            // was submitted and by whom; only the actions disappear.
             if (state.alreadySubmitted) {
                 item {
                     FeedDistStatusCardBody(
-                        text = stringResource(R.string.feed_complete_already_submitted_body),
+                        text = stringResource(R.string.feed_dist_session_submitted_body),
                         tone = MeshaColors.Muted,
                     )
                 }
-                return@LazyColumn
-            }
-
-            item {
-                FeedDistStatusCard(
-                    state = state,
-                    committed = committed,
-                    onRetrySubmit = { onEvent(FeedDistributionEvent.MarkDone) },
-                )
+            } else {
+                item {
+                    FeedDistStatusCard(
+                        state = state,
+                        committed = committed,
+                        onRetrySubmit = { onEvent(FeedDistributionEvent.MarkDone) },
+                    )
+                }
             }
             item {
                 FeedDistProofAction(
@@ -220,7 +221,7 @@ fun FeedDistributionCompleteScreen(
                     loadingLabel = stringResource(R.string.feed_dist_video_uploading),
                     retryLabel = stringResource(R.string.feed_dist_retry_feed_video),
                     replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = !state.isCapturingVideo && !committed,
+                    enabled = !state.isCapturingVideo && !committed && !state.isFinalSubmitted,
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                     remotePreviewUrl = state.videoRemoteUrl,

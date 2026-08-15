@@ -28,6 +28,11 @@ type capturedSlotDTO struct {
 
 type distributionCapturesResponse struct {
 	Items []capturedSlotDTO `json:"items"`
+	// SessionStatus is the pen-session's completion status ("pending_verification", "completed",
+	// "rework"), empty when nothing was submitted yet. Travels WITH the slots so the mobile
+	// proof screen paints its read-only gate and the slot list from one consistent answer
+	// (field bug 2026-08-15: a stale list-row hint opened a submitted session editable).
+	SessionStatus string `json:"session_status,omitempty"`
 }
 
 // GetDistributionCaptures serves the pen-session's already-recorded proof slots.
@@ -65,7 +70,7 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	slots, err := h.service.ListPenSessionCaptures(r.Context(), app.PenSessionCapturesInput{
+	result, err := h.service.ListPenSessionCaptures(r.Context(), app.PenSessionCapturesInput{
 		TenantID: tenantID,
 		ParkID:   scope.ParkID,
 		ShedID:   strings.TrimSpace(q.Get("shed_id")),
@@ -82,8 +87,8 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	items := make([]capturedSlotDTO, 0, len(slots))
-	for _, slot := range slots {
+	items := make([]capturedSlotDTO, 0, len(result.Slots))
+	for _, slot := range result.Slots {
 		items = append(items, capturedSlotDTO{
 			FieldKey:       slot.FieldKey,
 			ProofRef:       slot.ProofID,
@@ -92,5 +97,5 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 			CapturedByName: slot.CapturedByName,
 		})
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{Items: items})
+	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{Items: items, SessionStatus: result.SessionStatus})
 }

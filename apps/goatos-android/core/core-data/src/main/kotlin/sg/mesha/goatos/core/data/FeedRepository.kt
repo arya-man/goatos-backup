@@ -127,6 +127,15 @@ private const val MAX_STATUS_POLL_PAGES = 10
  * backend by a `RemoteMediator`. Both layers page identically at [FEED_PAGE_SIZE]; nothing ever
  * holds the whole row set. These are read-only surfaces — there is no capture/write path here.
  */
+/**
+ * ONE server answer for a pen-session: the recorded proof slots AND the session's completion
+ * status, from the same instant. [sessionStatus] null = no completion row yet (or field absent).
+ */
+data class FeedPenSessionCaptures(
+    val slots: List<FeedDistributionCapturedSlotDto>,
+    val sessionStatus: String?,
+)
+
 interface FeedRepository {
     /** Cache-first stream of the Feed Direction whole-scope summary (`total_kg_by_feed_item`,
      *  blocked counts). Independent of the page. */
@@ -214,7 +223,7 @@ interface FeedRepository {
      * teammate has recorded anything; null means we do not know and the caller should retry
      * rather than conclude the slots are free.
      */
-    suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto>?
+    suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): FeedPenSessionCaptures?
 
     /**
      * Fetches the download URL for a proof so its media can be previewed.
@@ -432,16 +441,17 @@ class DefaultFeedRepository(
 
     override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
         query: FeedPenSessionCaptureQuery,
-    ): List<FeedDistributionCapturedSlotDto>? =
+    ): FeedPenSessionCaptures? =
         runCatching {
-            api.getFeedDistributionCaptures(
+            val dto = api.getFeedDistributionCaptures(
                 parkId = query.parkId.takeIf { it.isNotBlank() },
                 shedId = query.shedId,
                 partitionLabel = query.partitionLabel.takeIf { it.isNotBlank() },
                 sessionNo = query.sessionNo,
                 targetDate = query.targetDate,
                 workflow = query.workflow,
-            ).items
+            )
+            FeedPenSessionCaptures(slots = dto.items, sessionStatus = dto.sessionStatus.takeIf { it.isNotBlank() })
         }.getOrElse {
             // Fail soft but NOT silent to the caller: null tells the ViewModel the read failed so
             // it can retry, instead of treating a network blip as "no teammate has recorded
