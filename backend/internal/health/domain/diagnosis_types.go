@@ -148,6 +148,16 @@ type DiagnosisRun struct {
 	DiagnosisRunID string `json:"health_diagnosis_run_id"`
 	GoatID         string `json:"goat_id"`
 
+	// GoatDisplayID is the animal as a PERSON recognises it, and it is carried on
+	// the read for the same reason the queue row carries it: the screen must never
+	// have to name the animal from a uuid, and it cannot compose the name itself.
+	//
+	// A device opening an assessment has often never seen the submit response --
+	// the manager submitted from their phone, the Director opens it on theirs --
+	// so a client-side cache is not a source for this. Without it the assessment
+	// header is simply blank, which is the defect this field exists to close.
+	GoatDisplayID string `json:"goat_display_id"`
+
 	// RegisterVersion is the DIAGNOSIS pin. A case separately pins its treatment
 	// protocol version; the two move independently.
 	RegisterVersion string `json:"register_version"`

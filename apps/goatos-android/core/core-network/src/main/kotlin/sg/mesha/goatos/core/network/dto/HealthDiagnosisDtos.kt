@@ -218,6 +218,13 @@ data class ConfirmHealthDiagnosisResponseDto(
 data class HealthDiagnosisRunDto(
     @SerialName("health_diagnosis_run_id") val diagnosisRunId: String = "",
     @SerialName("goat_id") val goatId: String = "",
+    /**
+     * The animal as a person recognises it. Comes from the SERVER, not from a
+     * local cache: a device opening an assessment has usually never seen the
+     * submit response, because the manager submits from their phone and the
+     * Director opens it on theirs.
+     */
+    @SerialName("goat_display_id") val goatDisplayId: String = "",
     @SerialName("register_version") val registerVersion: String = "",
     @SerialName("observed_by") val observedBy: String = "",
     @SerialName("observed_at") val observedAt: String = "",

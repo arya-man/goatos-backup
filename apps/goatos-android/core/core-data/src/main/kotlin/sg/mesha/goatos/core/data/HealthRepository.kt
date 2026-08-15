@@ -57,8 +57,14 @@ interface HealthRepository {
     suspend fun refreshDetail(healthSessionId: String): Result<Unit>
     suspend fun markCompleted(healthSessionId: String)
 
-    /** The register's assessment of one animal, read from Room. */
-    fun observeDiagnosisRun(diagnosisRunId: String): Flow<HealthDiagnosisProposalResponseDto?>
+    /**
+     * The register's assessment of one animal, read from Room.
+     *
+     * Carries the animal's NAME alongside the proposal. The proposal itself has no
+     * room for it -- it is about findings, not identity -- and the screen must
+     * never fall back to a uuid.
+     */
+    fun observeDiagnosisRun(diagnosisRunId: String): Flow<CachedDiagnosisRun?>
 
     /** Re-reads one run from the server. The server is the authority on its status. */
     suspend fun refreshDiagnosisRun(diagnosisRunId: String): Result<Unit>
@@ -74,6 +80,17 @@ interface HealthRepository {
     /** Whether this user may decide, and whether the queue has been read at all. */
     fun observeDiagnosisQueueMeta(filters: DiagnosisQueueFilters): Flow<DiagnosisQueueMeta?>
 }
+
+/**
+ * One cached assessment: who it is about, and what the register made of it.
+ *
+ * The name is a separate field rather than something read off the proposal,
+ * because the proposal is about FINDINGS and holds no identity at all.
+ */
+data class CachedDiagnosisRun(
+    val goatDisplayId: String,
+    val proposal: HealthDiagnosisProposalResponseDto,
+)
 
 /**
  * Which slice of the queue to show.
@@ -128,9 +145,13 @@ class DefaultHealthRepository(
             entity?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
         }.flowOn(Dispatchers.Default)
 
-    override fun observeDiagnosisRun(diagnosisRunId: String): Flow<HealthDiagnosisProposalResponseDto?> =
+    override fun observeDiagnosisRun(diagnosisRunId: String): Flow<CachedDiagnosisRun?> =
         database.healthDiagnosisRunDao().observe(diagnosisRunId).map { entity ->
-            entity?.let { runCatching { json.decodeFromString<HealthDiagnosisProposalResponseDto>(it.dtoJson) }.getOrNull() }
+            val row = entity ?: return@map null
+            val proposal = runCatching {
+                json.decodeFromString<HealthDiagnosisProposalResponseDto>(row.dtoJson)
+            }.getOrNull() ?: return@map null
+            CachedDiagnosisRun(goatDisplayId = row.goatDisplayId, proposal = proposal)
         }.flowOn(Dispatchers.Default)
 
     @OptIn(ExperimentalPagingApi::class)
@@ -161,9 +182,10 @@ class DefaultHealthRepository(
             HealthDiagnosisRunEntity(
                 diagnosisRunId = diagnosisRunId,
                 goatId = run.goatId,
-                // The server does not carry the operator-facing id, so the cached one is kept.
-                // Losing it would turn a named animal back into a uuid on the Director's queue.
-                goatDisplayId = cached?.goatDisplayId.orEmpty(),
+                // The SERVER owns the animal's name. It used to fall back to whatever this
+                // device had cached, which is empty on the Director's phone -- they never saw
+                // the submit response -- so the assessment header rendered blank.
+                goatDisplayId = run.goatDisplayId.ifBlank { cached?.goatDisplayId.orEmpty() },
                 status = run.status,
                 observedAtMs = cached?.observedAtMs ?: clock(),
                 dtoJson = json.encodeToString(

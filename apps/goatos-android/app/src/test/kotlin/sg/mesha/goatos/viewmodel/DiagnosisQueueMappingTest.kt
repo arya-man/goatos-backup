@@ -35,14 +35,21 @@ class DiagnosisQueueMappingTest {
     }
 
     // The backend composes the location; the client renders it verbatim.
+    //
+    // The fixture uses a WORDED partition on purpose. The shed/partition separator
+    // is a maintainer decision that has already changed once -- bare numerals moved
+    // from "Castro - 2" to "Castro 2" -- and a fixture pinned to the numeric form
+    // teaches every later reader a shape the farm may no longer use. A worded label
+    // reads the same under both conventions, so this asserts PASSTHROUGH without
+    // quietly asserting a composition rule this layer does not own.
     @Test
     fun `the location is taken from the backend, never re-derived`() {
         val row = HealthDiagnosisQueueItemDto(
-            shedName = "Castro",
-            partitionLabel = "2",
-            operationalLocationDisplay = "Castro - 2",
+            shedName = "Godel 1",
+            partitionLabel = "Part 3",
+            operationalLocationDisplay = "Godel 1 - Part 3",
         ).toQueueRow()
-        assertEquals("Castro - 2", row.location)
+        assertEquals("Godel 1 - Part 3", row.location)
     }
 
     // A shed that does not resolve leaves the row's location blank. Showing the

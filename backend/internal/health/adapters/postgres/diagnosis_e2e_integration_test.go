@@ -679,3 +679,42 @@ func TestQueueRejectsAnUnknownStatus(t *testing.T) {
 		t.Fatal("an unknown status must be refused, not silently ignored")
 	}
 }
+
+// The assessment must NAME the animal.
+//
+// The Director opening a run has usually never seen the submit response -- the
+// manager submitted from their phone -- so the name cannot come from a client
+// cache and must be on the read. Without it the assessment header renders blank,
+// which is exactly what shipped before this test existed.
+func TestReadingARunNamesTheAnimal(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	submitted, err := svc.SubmitObservation(ctx, feverObservation("obs-named"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	var expected string
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(display_id,'') FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		healthTenant, healthGoat).Scan(&expected); err != nil {
+		t.Fatalf("read goat: %v", err)
+	}
+	if expected == "" {
+		t.Fatal("fixture must give the animal a display id, or this proves nothing")
+	}
+
+	run, err := svc.GetDiagnosisRun(ctx, healthTenant, submitted.DiagnosisRunID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if run.GoatDisplayID != expected {
+		t.Errorf("goat_display_id = %q, want %q -- the screen has no other source for the name",
+			run.GoatDisplayID, expected)
+	}
+}
