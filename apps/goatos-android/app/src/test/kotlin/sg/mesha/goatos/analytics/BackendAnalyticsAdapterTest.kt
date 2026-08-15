@@ -60,7 +60,7 @@ class BackendAnalyticsAdapterTest {
     @Test
     fun `a critical event is persisted when the send fails offline`() = runTest {
         val api = FakeAppApi(shouldFail = true)
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         val backend = adapter(api, this, queue)
 
         backend.track(AnalyticsEvents.SYNC_WRITE_DEAD, mapOf(AnalyticsEvents.Params.REASON to "conflict"))
@@ -72,7 +72,7 @@ class BackendAnalyticsAdapterTest {
     @Test
     fun `a non-critical event is NOT persisted when the send fails -- stays fire-and-forget`() = runTest {
         val api = FakeAppApi(shouldFail = true)
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         val backend = adapter(api, this, queue)
 
         backend.track(AnalyticsEvents.APP_OPEN)
@@ -84,7 +84,7 @@ class BackendAnalyticsAdapterTest {
     @Test
     fun `a queued critical event drains exactly once on the next successful track call`() = runTest {
         val api = FakeAppApi(shouldFail = true)
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         val backend = adapter(api, this, queue)
 
         // First call fails and queues the critical event.
@@ -118,7 +118,7 @@ class BackendAnalyticsAdapterTest {
     @Test
     fun `every request carries a client_event_id for backend dedupe`() = runTest {
         val api = FakeAppApi(shouldFail = false)
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         val backend = adapter(api, this, queue)
 
         backend.track(AnalyticsEvents.APP_OPEN)

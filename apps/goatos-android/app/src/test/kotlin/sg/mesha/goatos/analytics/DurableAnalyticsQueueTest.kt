@@ -37,7 +37,7 @@ class DurableAnalyticsQueueTest {
 
     @Test
     fun `an event emitted while offline is persisted`() = runTest {
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
 
         queue.enqueue(event("e1"))
 
@@ -46,7 +46,7 @@ class DurableAnalyticsQueueTest {
 
     @Test
     fun `draining sends persisted entries once and removes them on success`() = runTest {
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         queue.enqueue(event("e1"))
         queue.enqueue(event("e2"))
 
@@ -71,7 +71,7 @@ class DurableAnalyticsQueueTest {
 
     @Test
     fun `drain stops at the first failure and preserves order for the next attempt`() = runTest {
-        val queue = DurableAnalyticsQueue(context)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         queue.enqueue(event("e1"))
         queue.enqueue(event("e2"))
         queue.enqueue(event("e3"))
@@ -99,7 +99,7 @@ class DurableAnalyticsQueueTest {
 
     @Test
     fun `queue is capped and drops the oldest entries`() = runTest {
-        val queue = DurableAnalyticsQueue(context, maxEntries = 3)
+        val queue = DurableAnalyticsQueue(context, maxEntries = 3, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
 
         repeat(5) { i -> queue.enqueue(event("e$i")) }
 
@@ -116,7 +116,7 @@ class DurableAnalyticsQueueTest {
 
     @Test
     fun `queue with no context is a safe no-op`() = runTest {
-        val queue = DurableAnalyticsQueue(context = null)
+        val queue = DurableAnalyticsQueue(context = null, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
 
         queue.enqueue(event("e1"))
         assertEquals(0, queue.size())
