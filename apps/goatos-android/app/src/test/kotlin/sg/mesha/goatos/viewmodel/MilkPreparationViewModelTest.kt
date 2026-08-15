@@ -217,6 +217,48 @@ class MilkPreparationViewModelTest {
             syncRepository.deletedOutboxItems.size,
         )
     }
+
+    /** INVARIANT (judge finding #2, 2026-08-16): queued submit survives process death — fresh VM
+     *  from persisted SavedStateHandle blocks edits while QUEUED; terminal FAILED unlocks. */
+    @Test
+    fun `process death with queued submit blocks edits and terminal failed unlocks`() = runTest(dispatcher) {
+        fun item(status: sg.mesha.goatos.core.data.sync.SyncItemStatus) =
+            sg.mesha.goatos.core.data.sync.SyncQueueItem(
+                id = "outbox-prep-1", opType = "MILK_PREPARATION_SUBMIT", idempotencyKey = "k",
+                groupKey = "g", status = status, attemptCount = 1, maxAttempts = 8,
+                conflict = false, createdAt = 1L, updatedAt = 2L, lastError = null,
+            )
+        val syncRepository = FakeMilkPreparationSyncRepository()
+        syncRepository.itemFlow.value = item(sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED)
+        val viewModel = MilkPreparationViewModel(
+            sync = syncRepository,
+            repo = FakeMilkPreparationRepository(),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = FakeMilkPreparationDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkPreparationViewModel.ARG_PARK_ID to "park-1",
+                    "milkPreparation.submitOutboxItemId" to "outbox-prep-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "77"))
+        advanceUntilIdle()
+        org.junit.Assert.assertNotEquals("edits blocked while queued", "77", viewModel.state.value.morningMilkCollected)
+
+        // Terminal failure unlocks (latch cleared) so the operator can fix and resubmit.
+        syncRepository.itemFlow.value = item(sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED).copy(attemptCount = 8)
+        advanceUntilIdle()
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "77"))
+        advanceUntilIdle()
+        assertEquals("terminal failure must unlock edits", "77", viewModel.state.value.morningMilkCollected)
+    }
+
 }
 
 private class FakeMilkPreparationSyncRepository : SyncRepository {
@@ -224,7 +266,8 @@ private class FakeMilkPreparationSyncRepository : SyncRepository {
     val deletedOutboxItems = mutableListOf<String>()
 
     override fun observeStatus(): MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = MutableStateFlow(null)
+    val itemFlow = MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncQueueItem?>(null)
+    override fun observeItem(itemId: String): Flow<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = itemFlow
 
     override suspend fun enqueueProofUpload(
         groupKey: String,

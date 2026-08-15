@@ -601,7 +601,8 @@ fun feedShedProofPolicy(captureSource: String): ProofPolicy =
 
 /** Shared test double for analytics. Used across multiple test files to avoid redeclaration. */
 class FakeAnalyticsPort : sg.mesha.goatos.core.analytics.AnalyticsPort {
-    override fun track(event: String, props: Map<String, String>) = Unit
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+    override fun track(event: String, props: Map<String, String>) { events += event to props }
     override fun setUserProperty(name: String, value: String?) = Unit
     override fun setUserId(id: String?) = Unit
 }

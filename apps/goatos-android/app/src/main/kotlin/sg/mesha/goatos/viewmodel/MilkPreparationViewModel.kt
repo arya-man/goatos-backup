@@ -358,7 +358,10 @@ class MilkPreparationViewModel @Inject constructor(
             persistAnswers()
             // Restore the submit outbox item ID from the durable store so process death doesn't
             // lose the in-flight submission state. If one exists, observe it for status changes.
-            submitOutboxItemId.value = captureDraft.submitOutboxItemId
+            // Draft store may lag or be pruned — it must never CLOBBER a SavedStateHandle-restored
+            // in-flight id back to null (that reopened a queued submit for editing; caught by the
+            // process-death regression test 2026-08-16).
+            captureDraft.submitOutboxItemId?.let { submitOutboxItemId.value = it }
             submitOutboxItemId.value?.let(::observeOutboxItem)
         }
     }
