@@ -127,6 +127,7 @@ steps:
       - PROJECT_ID=goatos-stg
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
+      - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - TRIGGERED_BY=${_TRIGGERED_BY}

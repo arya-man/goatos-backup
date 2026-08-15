@@ -40,23 +40,25 @@ github_pat() {
     --secret="$GITHUB_PAT_SECRET" 2>/dev/null || true
 }
 
-notify_slack_bookkeeping_warning() {
-  local text="$1"
+notify_slack_final() {
+  local color="$1"
+  local title="$2"
+  local text="$3"
   local webhook
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$color" "$title" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
 
-text, sha, release, build_id, triggered_by = sys.argv[1:]
+color, title, text, sha, release, build_id, triggered_by = sys.argv[1:]
 build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
 deploy_url = "https://console.cloud.google.com/deploy/delivery-pipelines/asia-south1/goatos-stg/releases?project=goatos-stg"
 payload = {
     "attachments": [{
-        "color": "#ECB22E",
-        "title": "Goat OS STG release bookkeeping warning",
+        "color": color,
+        "title": title,
         "text": text,
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
@@ -145,9 +147,16 @@ if [[ -z "${notify_reason:-}" && -n "$pat" ]]; then
   git -C "$tag_checkout" config http.https://github.com/vgoats/goatos.git.extraheader "AUTHORIZATION: basic ${auth}"
 fi
 
-if [[ -z "${notify_reason:-}" && -n "$pat" ]] && ENV=stg SHA="$(git -C "$tag_checkout" rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
-  "$tag_checkout/tools/release/create-release-tag.sh"; then
+if [[ -z "${notify_reason:-}" && -n "$pat" ]] && (
+  cd "$tag_checkout"
+  ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
+    ./tools/release/create-release-tag.sh
+); then
   echo "release-tag-bookkeeping: release tag recorded for $commit_sha"
+  notify_slack_final \
+    "#2EB67D" \
+    "Goat OS STG deploy succeeded" \
+    "STG rollout succeeded, live images were verified, and release-tag bookkeeping completed."
   exit 0
 fi
 
@@ -156,5 +165,8 @@ git status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: dirty status in clean tag checkout, if any:"
 git -C "$tag_checkout" status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: ${notify_reason:-release tag failed after verified STG rollout; STG remains deployed.}"
-notify_slack_bookkeeping_warning "${notify_reason:-STG deploy succeeded, but release-tag bookkeeping failed. STG remains deployed; deploy status is green.}"
+notify_slack_final \
+  "#ECB22E" \
+  "Goat OS STG deploy succeeded with release-tag warning" \
+  "${notify_reason:-STG rollout succeeded and live images were verified, but release-tag bookkeeping failed. STG remains deployed; deploy status is green.}"
 exit 0
