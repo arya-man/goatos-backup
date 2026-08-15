@@ -203,6 +203,14 @@ enum class ProofProcessingStatus(val wireValue: String, val operatorLabel: Strin
                 "UPLOAD_FAILED_RETRYING" -> RETRYING
                 "UPLOAD_ORIGINAL_FAILED_RETRYING" -> RETRYING_ORIGINAL
                 "DEAD_LETTER" -> RECORD_AGAIN
+                // HIGH fix: a processed-artifact validation/processing failure leaves the row
+                // here with syncStatus still PENDING (nothing is ever enqueued for this state —
+                // see CaptureRepository's P1 fix). Without this branch it fell through to the
+                // syncStatus=PENDING default below and read as "Uploading proof..." forever, with
+                // no operator affordance to notice the stuck row. RECORD_AGAIN is the SAME
+                // recovery action DEAD_LETTER already renders: a fresh recording sidesteps the
+                // stuck row entirely via captureReplacingLatest.
+                "PROCESSING_FAILED_AWAITING_RETRY" -> RECORD_AGAIN
                 else -> when (syncStatus) {
                     CaptureSyncStatus.PENDING,
                     CaptureSyncStatus.IN_FLIGHT -> if (uploadOriginal) UPLOADING_ORIGINAL else UPLOADING

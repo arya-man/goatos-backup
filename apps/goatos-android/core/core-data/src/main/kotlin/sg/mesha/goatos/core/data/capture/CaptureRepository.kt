@@ -693,14 +693,30 @@ class DefaultProofCaptureRepository(
      *  when [pendingSlotRetirement] is empty (the common case: most rows are never part of a
      *  captureReplacingLatest replace). */
     private suspend fun fireAnyPendingRetirementsFor(rows: List<ProofCaptureEntity>): Set<String> {
-        if (pendingSlotRetirement.isEmpty()) return emptySet()
         val retired = mutableSetOf<String>() // mobile-guard:ignore: function-local accumulator, returned and GC-ed per call
         rows.forEach { row ->
             if (row.syncStatus == EntitySyncStatus.SYNCED.name && !row.serverProofId.isNullOrBlank()) {
-                retired += fireSlotRetirementIfPending(row.id)
+                if (pendingSlotRetirement.isNotEmpty()) retired += fireSlotRetirementIfPending(row.id)
+                // P1 fix (CRITICAL follow-up): the durable marker path — re-derives retirement
+                // even with an EMPTY pendingSlotRetirement map (a fresh repository instance after
+                // process death has no in-memory ticket at all).
+                retired += retireSupersededRowIfAny(row)
             }
         }
         return retired
+    }
+
+    /** P1 fix (CRITICAL follow-up): durable counterpart to the in-memory
+     *  [pendingSlotRetirement] ticket. If [row] is SYNCED with a serverProofId and carries a
+     *  [ProofCaptureEntity.supersedesRowId], retires the row it names — re-derivable from durable
+     *  state alone, so a process death between a successful captureReplacingLatest and the new
+     *  row reaching SYNCED can never lose the retirement intent. Idempotent: once the superseded
+     *  row is gone, [ProofCaptureDao.findById] returns null and this is a no-op on every later
+     *  pass. */
+    private suspend fun retireSupersededRowIfAny(row: ProofCaptureEntity): Set<String> {
+        val supersededId = row.supersedesRowId?.takeIf { it.isNotBlank() } ?: return emptySet()
+        val superseded = dao.findById(supersededId) ?: return emptySet()
+        return if (remove(superseded.taskId, superseded.id) is AppResult.Ok) setOf(superseded.id) else emptySet()
     }
 
     override suspend fun capture(
@@ -722,6 +738,55 @@ class DefaultProofCaptureRepository(
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
         allowReplacementOverCap: Boolean,
+    ): AppResult<ProofCaptureRow> = captureInternal(
+        taskId = taskId,
+        fieldKey = fieldKey,
+        subject = subject,
+        subjectId = subjectId,
+        localUri = localUri,
+        mimeType = mimeType,
+        caption = caption,
+        rfidTag = rfidTag,
+        scopeType = scopeType,
+        scopeId = scopeId,
+        capturedStartMs = capturedStartMs,
+        capturedEndMs = capturedEndMs,
+        capturedByPrincipalId = capturedByPrincipalId,
+        proofPolicy = proofPolicy,
+        partitionLabel = partitionLabel,
+        awaitUploadEnqueue = awaitUploadEnqueue,
+        uploadGroupKey = uploadGroupKey,
+        allowReplacementOverCap = allowReplacementOverCap,
+        supersedesRowId = null,
+    )
+
+    /** The real capture implementation. Deliberately NOT part of [ProofCaptureRepository]'s
+     *  public interface — [supersedesRowId] is an internal-only detail of
+     *  [captureReplacingLatest]'s durable-supersession fix (P1 CRITICAL follow-up); adding it to
+     *  the public [capture] signature would force every test double implementing
+     *  [ProofCaptureRepository] (several, across modules this fix does not own) to redeclare a
+     *  parameter they have no reason to know about. [capture] is a thin public wrapper below that
+     *  always passes null. */
+    private suspend fun captureInternal(
+        taskId: String,
+        fieldKey: String,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        partitionLabel: String?,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+        allowReplacementOverCap: Boolean,
+        supersedesRowId: String?,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
         val partitionKey = executionPartitionKey(partitionLabel)
         val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
@@ -814,6 +879,8 @@ class DefaultProofCaptureRepository(
             geocoderStatus = location.geocoderStatus,
             geocodedAddress = location.address,
             updatedAtMs = clock(),
+            // P1 fix (CRITICAL follow-up): durable supersession marker, part of this SAME insert.
+            supersedesRowId = supersedesRowId?.takeIf { it.isNotBlank() },
         )
         // Gate 3: Backstop validation — file must exist && length > 0 before Room insert.
         // Mime-aware: a JPEG must never be judged by the video duration probe (OEMs that report
@@ -998,8 +1065,22 @@ class DefaultProofCaptureRepository(
         return mutex.withLock {
             val taskId = slot.identity.taskId
             val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+            val partitionKey = executionPartitionKey(partitionLabel)
+            // P1 fix (CRITICAL follow-up): capture the CURRENT single active occupant's id BEFORE
+            // the new capture, so the new row's insert can durably record what it supersedes.
+            // Same selection rule retireSlotAction uses (most-recent active row for this exact
+            // subject grain) — "the previous occupant" this replace is standing in for.
+            val previousOccupantId = dao.listForTask(taskId)
+                .filter {
+                    it.partitionKey == partitionKey &&
+                        it.fieldKey == slot.fieldKey &&
+                        it.syncStatus != EntitySyncStatus.FAILED.name &&
+                        it.subjectId == effectiveSubjectId
+                }
+                .maxByOrNull { it.capturedAtMs }
+                ?.id
             // Capture with allowReplacementOverCap=true to bypass per-field cap during replace (Manohar ordering).
-            val result = capture(
+            val result = captureInternal(
                 taskId = taskId,
                 fieldKey = slot.fieldKey,
                 subject = subject,
@@ -1018,6 +1099,7 @@ class DefaultProofCaptureRepository(
                 awaitUploadEnqueue = awaitUploadEnqueue,
                 uploadGroupKey = uploadGroupKey,
                 allowReplacementOverCap = true,  // Allow transient second row during replace
+                supersedesRowId = previousOccupantId,
             )
             if (result is AppResult.Ok) {
                 val newId = result.value.id
@@ -1641,7 +1723,10 @@ class DefaultProofCaptureRepository(
             if (entity.syncStatus != EntitySyncStatus.SYNCED.name || entity.lastError != null) {
                 dao.updateStatus(entity.id, EntitySyncStatus.SYNCED.name, entity.serverProofId, null)
             }
-            return fireSlotRetirementIfPending(entity.id)
+            // P1 fix (CRITICAL follow-up): fire BOTH the in-memory ticket (same process, still
+            // live) and the durable-marker path (survives process death — this recovery walk is
+            // exactly the "fresh repository instance after process death" case).
+            return fireSlotRetirementIfPending(entity.id) + retireSupersededRowIfAny(entity)
         }
         if (!entity.isRecoverableUploadState()) return emptySet()
         dao.setOutboxItemId(entity.id, null)
@@ -1712,6 +1797,11 @@ class DefaultProofCaptureRepository(
                                         dao.updateStatus(row.id, newStatus, proofId, null)
                                     }
                                     retired += fireSlotRetirementIfPending(row.id)
+                                    // P1 fix (CRITICAL follow-up): durable-marker path, alongside
+                                    // the in-memory ticket — see retireSupersededRowIfAny's kdoc.
+                                    // Only reads row.supersedesRowId, so the pre-update `row` (not
+                                    // yet reflecting the just-written SYNCED status) is fine here.
+                                    retired += retireSupersededRowIfAny(row)
                                 }
                             }
                             item.status == SyncItemStatus.IN_FLIGHT && row.syncStatus != EntitySyncStatus.IN_FLIGHT.name -> {

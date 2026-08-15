@@ -497,6 +497,16 @@ data class ProofCaptureEntity(
      *  flooding Gallery with duplicate final media. */
     val gallerySavedUri: String? = null,
     val updatedAtMs: Long = capturedAtMs,
+    /** P1 fix (CRITICAL follow-up): durable supersession marker. Set on a captureReplacingLatest
+     *  replacement row to the id of the SINGLE active occupant it is replacing, persisted in the
+     *  SAME insert as this row (no separate write, no window for the marker to go missing). An
+     *  in-memory-only "retire once synced" ticket cannot survive process death between a
+     *  successful replace and the new row reaching SYNCED — this column is the fallback a fresh
+     *  repository instance re-derives retirement from: once THIS row is SYNCED with a
+     *  serverProofId, [sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository]'s reconcile
+     *  passes retire the row named here, exactly as if the in-memory ticket had fired. Null for
+     *  every capture that is not part of a replace. */
+    val supersedesRowId: String? = null,
 )
 
 enum class ProofProcessingState {
