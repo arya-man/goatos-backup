@@ -164,7 +164,19 @@ wait_service_ready() {
       gcloud run services describe "$service" \
         --project="$PROJECT_ID" \
         --region="$REGION" \
-        --format='value(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.conditions[?type="Ready"].status)'
+        --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+status = doc.get("status", {})
+ready = ""
+for condition in status.get("conditions", []):
+    if condition.get("type") == "Ready":
+        ready = condition.get("status") or ""
+        break
+print(status.get("latestCreatedRevisionName") or "", status.get("latestReadyRevisionName") or "", ready)
+'
     )
     if [[ -n "$latest_created" && "$latest_created" == "$latest_ready" && "$ready_condition" == "True" ]]; then
       return 0
