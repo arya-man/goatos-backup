@@ -14,6 +14,15 @@ import javax.inject.Provider
 /**
  * Backend mirror for product analytics. Firebase/GA4 is useful, but not trustworthy enough as the
  * only receipt surface while the console can lag or be misconfigured.
+ *
+ * Delivery is explicitly BEST-EFFORT, not durable: [track] fires the network call on [appScope]
+ * and does not retry, queue, or persist it. If the device is offline or the request otherwise
+ * fails, the event is silently dropped from the backend's perspective — only a [Log.w] breadcrumb
+ * (event name + error) survives, and only for as long as this process/logcat session lives. Do not
+ * treat backend analytics as a forensic-grade proof source for any event that can occur while the
+ * device is offline; nothing here currently reconciles a dropped send. Full durability (a Room-backed
+ * outbox with retry, mirroring the existing offline outbox pattern elsewhere in the app) is an
+ * intentional follow-up, not yet implemented.
  */
 class BackendAnalyticsAdapter(
     private val apiProvider: Provider<AppApi>,

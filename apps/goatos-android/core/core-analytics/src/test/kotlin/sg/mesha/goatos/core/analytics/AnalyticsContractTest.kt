@@ -67,6 +67,7 @@ class AnalyticsContractTest {
         assertEquals("previous", AnalyticsEvents.Params.PREVIOUS)
         assertEquals("next", AnalyticsEvents.Params.NEXT)
         assertEquals("status", AnalyticsEvents.Params.STATUS)
+        assertEquals("kind", AnalyticsEvents.Params.KIND)
     }
 
     @Test
@@ -160,5 +161,43 @@ class AnalyticsContractTest {
         assertNull(params["input_height"])
         assertNull(params["object_key"])
         assertNull(params["random_future_param"])
+    }
+
+    @Test
+    fun `firebase event params keep the newly-preserved proof-flow telemetry params`() {
+        // 2026-08-15: maintainer decision raised FIREBASE_MAX_EVENT_PARAMS from 25 to 37 (see the
+        // comment on that constant in FirebaseAnalyticsAdapter.kt) specifically so these 12 params
+        // stop being silently dropped by the Firebase adapter's allowlist truncation. This test
+        // proves the adapter output actually contains each one, not just that the constants exist.
+        val params = firebaseEventParams(
+            mapOf(
+                AnalyticsEvents.Params.RESULT to "success_slots",
+                AnalyticsEvents.Params.SLOT_MASK to "weight_feed",
+                AnalyticsEvents.Params.RETRY_COUNT to "2",
+                AnalyticsEvents.Params.SOURCE to "sync_tap",
+                AnalyticsEvents.Params.LOCAL_SLOT_STATE to "local_present",
+                AnalyticsEvents.Params.FEED_WEIGHT_SOURCE to "local_outbox",
+                AnalyticsEvents.Params.FEED_VIDEO_SOURCE to "server_ref",
+                AnalyticsEvents.Params.WATER_VIDEO_SOURCE to "missing",
+                AnalyticsEvents.Params.PREVIOUS to "editable",
+                AnalyticsEvents.Params.NEXT to "readonly",
+                AnalyticsEvents.Params.STATUS to "pending_verification",
+                AnalyticsEvents.Params.KIND to "birth",
+            ),
+        )
+
+        assertTrue(params.size <= FIREBASE_MAX_EVENT_PARAMS)
+        assertEquals("success_slots", params[AnalyticsEvents.Params.RESULT])
+        assertEquals("weight_feed", params[AnalyticsEvents.Params.SLOT_MASK])
+        assertEquals("2", params[AnalyticsEvents.Params.RETRY_COUNT])
+        assertEquals("sync_tap", params[AnalyticsEvents.Params.SOURCE])
+        assertEquals("local_present", params[AnalyticsEvents.Params.LOCAL_SLOT_STATE])
+        assertEquals("local_outbox", params[AnalyticsEvents.Params.FEED_WEIGHT_SOURCE])
+        assertEquals("server_ref", params[AnalyticsEvents.Params.FEED_VIDEO_SOURCE])
+        assertEquals("missing", params[AnalyticsEvents.Params.WATER_VIDEO_SOURCE])
+        assertEquals("editable", params[AnalyticsEvents.Params.PREVIOUS])
+        assertEquals("readonly", params[AnalyticsEvents.Params.NEXT])
+        assertEquals("pending_verification", params[AnalyticsEvents.Params.STATUS])
+        assertEquals("birth", params[AnalyticsEvents.Params.KIND])
     }
 }
