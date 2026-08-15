@@ -102,35 +102,19 @@ data class ProofIdentity(
 }
 
 /**
- * Blocker 9 (proof-flow-integration audit): a registry of screens/viewmodels that KNOWINGLY build
- * their own local proof/draft field keys instead of routing through [ProofIdentity]'s
- * storageKey()/idempotencyKey() producers, so nobody downstream assumes every capture flow in the
- * app is canonically addressed.
+ * Blocker 9 (proof-flow-integration audit) — CLOSED. Milk preparation, milk feeding, and
+ * generic-workflow captures used to build their own local proof/draft field keys instead of
+ * routing through [ProofIdentity]. All three now address their captures via
+ * [ProofFlow.MILK_PREPARATION] / [ProofFlow.MILK_FEEDING] / [ProofFlow.WORKFLOW_DETAIL] +
+ * [EvidenceSlot], keeping the SAME on-disk taskId/fieldKey/idempotencyKey strings those flows
+ * already wrote (identity.taskId is set to the existing literal task key; fieldKey stays the
+ * existing step-code / `workflowProofFieldKey(actionId)` string) — no Room migration was needed
+ * because no on-disk string changed, only the plumbing that carries it.
  *
- * Each of these was evaluated for migration and rejected as NOT a small, contained change:
- * - [MilkPreparationViewModel] / [MilkFeedingViewModel] key their per-step proof/draft state off
- *   `CaptureFlow.MILK_PREPARATION`/`CaptureFlow.MILK_FEEDING` (a DIFFERENT flow-key enum than
- *   [ProofFlow]) plus a per-step `DraftIdempotencyKey(saved, ...)` that is itself persisted in
- *   `SavedStateHandle` for process-death survival — [ProofIdentity] has no equivalent
- *   per-step/per-`SavedStateHandle` concept, so unifying the two would mean redesigning
- *   [ProofIdentity] itself, not just swapping call sites.
- *   **Recapture ordering is now safe** (Manohar ordering: capture new proof durably before
- *   deleting old), but keys remain non-canonical.
- * - [WorkflowDetailViewModel] derives its field key from a backend-declared, per-workflow
- *   `actionId` (`workflowProofFieldKey(actionId)`) whose vocabulary is open-ended and
- *   server-defined per workflow definition — [ProofIdentity.subjectKey] assumes a bounded,
- *   client-known identity shape (goat/obligation/shed id), not an arbitrary backend action id.
- *
- * Forcing either family through [ProofIdentity] in this pass would risk silently changing
- * storage/idempotency key formats for already-shipped milk and generic-workflow proofs (a data
- * migration hazard), so they stay on their own hand-rolled keys instead. If a future change makes
- * migration safe, remove the corresponding flow name from [NON_CANONICAL_PROOF_KEY_FLOWS] here.
+ * The registry that used to list migration holdouts here is now empty and deleted; this set no
+ * longer exists. See `check-feed-proof-collaboration-guard.mjs` for the ratchet that keeps it
+ * from coming back.
  */
-val NON_CANONICAL_PROOF_KEY_FLOWS: Set<String> = setOf(
-    "milk_preparation", // MilkPreparationViewModel — CaptureFlow.MILK_PREPARATION, own field keys
-    "milk_feeding", // MilkFeedingViewModel — CaptureFlow.MILK_FEEDING, own field keys
-    "workflow_detail", // WorkflowDetailViewModel — workflowProofFieldKey(actionId), backend-declared
-)
 
 enum class ProofFlow(val wireValue: String) {
     VACCINATION("vaccination"),
@@ -144,6 +128,9 @@ enum class ProofFlow(val wireValue: String) {
     MILK("milk"),
     BIRTH("birth"),
     GENERIC_SUBMIT("generic_submit"),
+    MILK_PREPARATION("milk_preparation"),
+    MILK_FEEDING("milk_feeding"),
+    WORKFLOW_DETAIL("workflow_detail"),
     ;
 
     companion object {
