@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.ActiveOutboxCounts
 
 /**
  * Persistence port for the outbox. [SyncEngine] and [SyncRepository] talk to this, never to
@@ -28,8 +29,19 @@ interface OutboxStore {
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
     /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, non-conflict FAILED) — never includes
-     *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance. */
+     *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance.
+     *
+     *  DEPRECATED: Use [observeActiveCounts] for counts-only UI (most use case) or
+     *  [observeActiveWindow] for a bounded list. Full materialization violates bounded-memory rules. */
     fun observeActive(): Flow<List<OutboxEntity>>
+
+    /** Observes aggregate counts of active items (QUEUED, IN_FLIGHT, FAILED) without materializing
+     *  rows. Used for sync-status badges and health monitoring. Emits on any change in counts. */
+    fun observeActiveCounts(): Flow<ActiveOutboxCounts>
+
+    /** Observes a bounded window of active rows (newest-first, max [limit] rows). Use this
+     *  instead of [observeActive] when displaying a subset for UI. */
+    fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>>
 
     /** Bounded active writes for one ordering group and selected operation types. */
     suspend fun findActiveForGroup(
@@ -108,6 +120,8 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
         dao.findLatestForGroupAndOpType(groupKey, opType)
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
+    override fun observeActiveCounts(): Flow<ActiveOutboxCounts> = dao.observeActiveCounts()
+    override fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>> = dao.observeActiveWindow(limit)
     override suspend fun findActiveForGroup(
         groupKey: String,
         opTypes: List<String>,

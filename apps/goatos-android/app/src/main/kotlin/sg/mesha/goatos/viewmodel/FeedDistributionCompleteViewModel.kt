@@ -195,6 +195,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 ),
             )
         }
+        // Persist the fetched status into Room so the live observer emits and the screen survives
+        // process death offline (blocker 1: poll result must write through Room).
+        viewModelScope.launch {
+            feedRepository.persistDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
+        }
     }
 
     /**

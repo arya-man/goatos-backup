@@ -237,6 +237,32 @@ interface FeedRepository {
      * cache can serve without network, so "no timestamp movement" must never be read as offline.
      */
     suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean
+
+    /**
+     * Persist a fetched lifecycle status into the Room row for a direction shed-session so the
+     * live [observeDirectionSessionStatus] flow emits and screens survive process death offline.
+     * If no cached row exists yet, this is a no-op (the row will arrive on next list refresh).
+     */
+    suspend fun persistDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit
+
+    /**
+     * Persist a fetched lifecycle status into the Room row for a packing pen-session so the
+     * live [observePackingRowStatus] flow emits and screens survive process death offline.
+     * If no cached row exists yet, this is a no-op (the row will arrive on next list refresh).
+     */
+    suspend fun persistPackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit
 }
 
 /** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
@@ -489,6 +515,48 @@ class DefaultFeedRepository(
             throw cancellation
         } catch (_: Exception) {
             null
+        }
+    }
+
+    override suspend fun persistDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        // Find the most recently cached row for this shed-session (same logic as observeDirectionSessionStatus)
+        val prefix = "$shedId|$partitionLabel|$workflow|"
+        val prefixEnd = prefix + "￿"
+        val row = database.feedDirectionItemDao()
+            .observeRowForShedSessionInRange(prefix, prefixEnd, sessionNo.toString())
+            .first()
+        if (row != null) {
+            // Decode the cached DTO, update the lifecycleStatus, and re-encode
+            val dto = json.decodeFromString<FeedDirectionRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            val updatedRow = row.copy(dtoJson = json.encodeToString(dto))
+            database.feedDirectionItemDao().upsertAll(listOf(updatedRow))
+        }
+    }
+
+    override suspend fun persistPackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        // Find the most recently cached row for this pen-session (same logic as observePackingRowStatus)
+        val row = database.feedPackingItemDao()
+            .observeRowForPenSession(shedId, partitionLabel, workflow, sessionNo.toString())
+            .first()
+        if (row != null) {
+            // Decode the cached DTO, update the lifecycleStatus, and re-encode
+            val dto = json.decodeFromString<FeedPackingRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            val updatedRow = row.copy(dtoJson = json.encodeToString(dto))
+            database.feedPackingItemDao().upsertAll(listOf(updatedRow))
         }
     }
 }

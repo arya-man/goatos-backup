@@ -83,10 +83,12 @@ class UploadSyncCoordinator(
         return Outcome.InProgress(relevantActiveRows().size, totalSeen)
     }
 
-    // store.observeActive() is ALREADY scoped to QUEUED/IN_FLIGHT/non-conflict-FAILED rows (see
-    // OutboxDao.observeActive) — this only narrows further by op type.
+    // store.observeActiveWindow() is ALREADY scoped to QUEUED/IN_FLIGHT/non-conflict-FAILED rows
+    // (see OutboxDao.observeActiveWindow) — this only narrows further by op type. Window bound
+    // prevents unbounded memory growth in long offline field work with heavy capture.
     private suspend fun relevantActiveRows(): List<OutboxEntity> =
-        store.observeActive().first().filter { OutboxOpType.valueOf(it.opType) in RELEVANT_OP_TYPES }
+        store.observeActiveWindow(limit = 500).first()
+            .filter { OutboxOpType.valueOf(it.opType) in RELEVANT_OP_TYPES }
 
     companion object {
         /** Op types that represent an "upload" worth a visible progress notification. */
