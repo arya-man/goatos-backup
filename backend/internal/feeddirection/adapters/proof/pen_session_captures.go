@@ -137,7 +137,7 @@ func (v *Validator) lookupWorkforceDisplayNames(ctx context.Context, tenantID st
 		SELECT user_id::text, display_name
 		FROM workforce_members
 		WHERE tenant_id = $1::uuid
-		  AND user_id::text = ANY($2::text[])
+		  AND user_id = ANY($2::uuid[])
 	`, tenantID, userIDs)
 	if err != nil {
 		return result
