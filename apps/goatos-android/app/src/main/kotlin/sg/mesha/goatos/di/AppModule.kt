@@ -148,6 +148,7 @@ import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.push.PushLogoutCleanup
 import sg.mesha.goatos.sync.AndroidForegroundSyncController
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
 
@@ -786,6 +787,7 @@ object AppModule {
         engine: SyncEngine,
         syncRepository: SyncRepository,
         connectivityGate: ConnectivityGate,
+        backendAnalyticsAdapter: BackendAnalyticsAdapter,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
         return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { platformOnline ->
@@ -798,7 +800,10 @@ object AppModule {
             // rendered freshly fetched data.
             val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
-            if (online) appScope.launch { engine.drainOnce() }
+            if (online) appScope.launch {
+                engine.drainOnce()
+                runCatching { backendAnalyticsAdapter.drainQueue() }
+            }
         }
     }
 }

@@ -99,6 +99,10 @@ class BackendAnalyticsAdapter(
         track("analytics_user_id_set", mapOf("has_value" to (!id.isNullOrBlank()).toString()))
     }
 
+    suspend fun drainQueue() {
+        drainQueuedEvents()
+    }
+
     private suspend fun drainQueuedEvents() {
         queue.drain { queued ->
             val dto = AppAnalyticsEventRequestDto(

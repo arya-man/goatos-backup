@@ -881,6 +881,14 @@ class DefaultProofCaptureRepository(
             updatedAtMs = clock(),
             // P1 fix (CRITICAL follow-up): durable supersession marker, part of this SAME insert.
             supersedesRowId = supersedesRowId?.takeIf { it.isNotBlank() },
+            // Codex blocker 3: persist uploadGroupKey for ordering/grouping recovery. This is the
+            // exact group key passed at capture time; startup recovery re-enqueues with this verbatim
+            // to preserve proof ordering (feed, milk, packing flows) across process death.
+            uploadGroupKey = uploadGroupKey?.takeIf { it.isNotBlank() },
+            // Derive clientTaskKey from uploadGroupKey when present; falls back to taskId for legacy.
+            // This is the application-level session/context id (e.g. feed workflow id, milk batch id).
+            // Recovery uses this to preserve grouping semantics across process death.
+            clientTaskKey = uploadGroupKey?.takeIf { it.isNotBlank() } ?: taskId,
         )
         // Gate 3: Backstop validation — file must exist && length > 0 before Room insert.
         // Mime-aware: a JPEG must never be judged by the video duration probe (OEMs that report
@@ -1183,7 +1191,14 @@ class DefaultProofCaptureRepository(
                 val outboxItemId = entity.outboxItemId
                 if (outboxItemId.isNullOrBlank()) {
                     val (scopeType, scopeId) = recoveryScope(entity)
-                    enqueueRegistrationNow(entity, scopeType, scopeId)
+                    // Use persisted uploadGroupKey (and clientTaskKey) to preserve proof ordering across
+                    // process death. Legacy null falls back to current derivation.
+                    enqueueRegistrationNow(
+                        entity,
+                        scopeType,
+                        scopeId,
+                        uploadGroupKey = entity.uploadGroupKey?.takeIf { it.isNotBlank() },
+                    )
                 } else {
                     when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {
                         is AppResult.Err -> Unit
@@ -1243,7 +1258,15 @@ class DefaultProofCaptureRepository(
             subjectId = uploadEntity.subjectId,
             metadata = buildMap {
                 put("field_key", JsonPrimitive(uploadEntity.fieldKey))
-                put("client_task_key", JsonPrimitive(uploadGroupKey?.takeIf { it.isNotBlank() } ?: uploadEntity.taskId))
+                // Use persisted clientTaskKey if available; this is the application-level session/context
+                // id (e.g. feed workflow id, milk batch id). Recovery re-sends the ORIGINAL key to preserve
+                // grouping across process death. Legacy null falls back to uploadGroupKey (if present),
+                // then taskId.
+                put("client_task_key", JsonPrimitive(
+                    uploadEntity.clientTaskKey?.takeIf { it.isNotBlank() }
+                        ?: uploadGroupKey?.takeIf { it.isNotBlank() }
+                        ?: uploadEntity.taskId
+                ))
                 // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery
                 // path (which has no in-memory ProofPolicy) re-sends the ORIGINAL source instead of a
                 // Default fallback that would silently rewrite a non-camera source.

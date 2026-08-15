@@ -9,6 +9,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -33,6 +35,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
 import sg.mesha.goatos.feature.counts.MilkPreparationCardBucket
@@ -230,6 +233,7 @@ class MilkPreparationViewModel @Inject constructor(
     // this ViewModel does NOT route through ProofIdentity.storageKey()/idempotencyKey().
     private val submitKey = DraftIdempotencyKey(saved, "milkPreparation.submitKey", "milk-preparation-submit")
     private val proofKeys = allSteps.associateWith { DraftIdempotencyKey(saved, "milkPreparation.proofKey.$it", "milk-preparation-$it") }
+    private val submitOutboxItemId = DraftOutboxItemId(saved, "milkPreparation.submitOutboxItemId")
     private val refresh = MutableStateFlow(MilkPreparationRefreshState())
 
     // Starts empty and is rehydrated from the DURABLE draft in init. Answers used to be mirrored
@@ -237,6 +241,7 @@ class MilkPreparationViewModel @Inject constructor(
     // recorded videos beside blank fields, and every step gates on answerComplete && captured, so
     // the whole sheet had to be retyped before Submit re-enabled.
     private val draft = MutableStateFlow(MilkPreparationDraftState(goatMilkUsed = null, steps = emptyList()))
+    private var statusJob: Job? = null
 
     val state: StateFlow<MilkPreparationUiState> = combine(repo.observe(preparationDate), draft, refresh) { resource, local, syncState ->
         val page = resource.data
@@ -284,6 +289,9 @@ class MilkPreparationViewModel @Inject constructor(
     init { refresh() }
 
     fun onEvent(event: MilkPreparationEvent) {
+        // Block all edits if this submit is already in-flight/completed
+        val isSubmitInFlightOrCompleted = submitOutboxItemId.value != null
+        if (event != MilkPreparationEvent.Refresh && event != MilkPreparationEvent.Back && isSubmitInFlightOrCompleted) return
         when (event) {
             is MilkPreparationEvent.SetGoatMilkUsed -> if (state.value.goatMilkQuestionEnabled) {
                 // Answers already typed are carried across the step-set change, so toggling the
@@ -344,6 +352,10 @@ class MilkPreparationViewModel @Inject constructor(
             // Restore BEFORE the writer starts, or the empty initial state would immediately
             // overwrite the answers just read back.
             persistAnswers()
+            // Restore the submit outbox item ID from the durable store so process death doesn't
+            // lose the in-flight submission state. If one exists, observe it for status changes.
+            submitOutboxItemId.value = captureDraft.submitOutboxItemId
+            submitOutboxItemId.value?.let(::observeOutboxItem)
         }
     }
 
@@ -511,6 +523,8 @@ class MilkPreparationViewModel @Inject constructor(
     private fun submit() {
         val current = state.value
         if (!current.canSubmit) return
+        // Prevent double-submit: if one is already queued/in-flight/succeeded, don't submit again
+        if (submitOutboxItemId.value != null) return
         val proofItems = current.steps.associate { it.code to captureDraft.proofs[it.code].orEmpty() }
         if (proofItems.values.any(String::isBlank)) return
         draft.update { it.copy(submitting = true, message = null) }
@@ -527,6 +541,9 @@ class MilkPreparationViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, result.value)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    // Store the outbox item ID durably so process death doesn't lose the in-flight state
+                    submitOutboxItemId.value = result.value
+                    observeOutboxItem(result.value)
                     draft.update { it.copy(submitting = false, queued = true, message = "Proof uploads in background.") }
                 }
                 is AppResult.Err -> draft.update { it.copy(submitting = false, message = result.message) }
@@ -540,6 +557,33 @@ class MilkPreparationViewModel @Inject constructor(
     private val entityId get() = "$parkId:$preparationDate"
     private fun setCapturing(step: String, value: Boolean) = draft.update { current ->
         current.copy(steps = current.steps.map { row -> if (row.code == step) row.copy(capturing = value) else row })
+    }
+
+    /**
+     * Observes the submit outbox item's status to detect when submission completes or fails,
+     * so the screen can update its state durably and reflect the result to the operator.
+     */
+    private fun observeOutboxItem(itemId: String) {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            sync.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { item ->
+                    when (item.status) {
+                        SyncItemStatus.QUEUED, SyncItemStatus.IN_FLIGHT -> {
+                            // Still uploading in background
+                            draft.update { it.copy(submitting = false, queued = true, message = "Proof uploads in background.") }
+                        }
+                        SyncItemStatus.SUCCEEDED -> {
+                            draft.update { it.copy(submitting = false, queued = false, message = "Submission complete.") }
+                        }
+                        SyncItemStatus.FAILED -> {
+                            draft.update { it.copy(submitting = false, queued = false, message = item.lastError ?: "Submission failed. Please retry.") }
+                        }
+                    }
+                }
+        }
     }
 
     companion object {

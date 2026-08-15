@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.data.cache.ExecutionCacheVersionGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.push.PushNotifications
 import sg.mesha.goatos.sync.SyncWorkScheduler
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import javax.inject.Inject
 
 /** Application entry point + Hilt DI root. Kept thin (TRD §3).
