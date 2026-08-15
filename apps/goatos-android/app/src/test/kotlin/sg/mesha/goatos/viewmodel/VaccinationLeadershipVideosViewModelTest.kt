@@ -411,9 +411,3 @@ private class FakeVerificationRepository : VerificationRepository {
     override suspend fun refreshLeadershipVideos(category: String?, windowSize: Int, reset: Boolean) =
         AppResult.Ok(Unit)
 }
-
-private class FakeAnalyticsPort : AnalyticsPort {
-    override fun track(event: String, props: Map<String, String>) = Unit
-    override fun setUserProperty(name: String, value: String?) = Unit
-    override fun setUserId(id: String?) = Unit
-}

@@ -598,3 +598,10 @@ fun feedShedProofPolicy(captureSource: String): ProofPolicy =
         maximumCountPerField = 1,
         maximumCount = 5,
     )
+
+/** Shared test double for analytics. Used across multiple test files to avoid redeclaration. */
+class FakeAnalyticsPort : sg.mesha.goatos.core.analytics.AnalyticsPort {
+    override fun track(event: String, props: Map<String, String>) = Unit
+    override fun setUserProperty(name: String, value: String?) = Unit
+    override fun setUserId(id: String?) = Unit
+}
