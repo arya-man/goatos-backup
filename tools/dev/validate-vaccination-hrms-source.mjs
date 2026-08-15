@@ -850,3 +850,6 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-08-14: pen capacity/cohort config now lives on shed_partitions for the
 // Counts/Sheds directory. Source validation remains unchanged because those columns are not raw HRMS
 // or vaccination source fields and do not change goat_shed_partitions animal placement semantics.
+// Coupling review 2026-08-15: source validation keeps DOB/stage/history as evidence only.
+// Kid/adult schedule-path selection is owned by shared SchedulePathForGoat during seed/runtime
+// generation; the raw source validator must not grow a second classifier.

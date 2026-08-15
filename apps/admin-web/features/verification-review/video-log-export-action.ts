@@ -22,6 +22,8 @@ export type VideoLogExport = {
  * the action gets it from the same authenticated server client every other read on this page uses.
  * The backend gates it on permissions.VerificationEvidenceTimeline exactly as it gates the panel,
  * so this opens no path a caller did not already have.
+ *
+ * server-action-read-only: GET-backed export; no mutation replay key required.
  */
 export async function exportVideoLogAction(input: {
   businessDate: string;

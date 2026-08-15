@@ -169,6 +169,7 @@ export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
   "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
 export const ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE = true;
 export const VACCINATION_MEDICAL_DATE_FIELD = "vaccination_completions.administered_at";
+export const SCHEDULE_PATH_POLICY = "shared_schedule_path_for_goat";
 export const OPTIONAL_SECONDARY_RFID_FIELD = "rfid2";
 export const SEED_PUBLICATION_VACCINE_EXCLUSION_ENV = "GOATOS_SEED_EXCLUDE_VACCINES";
 
@@ -360,6 +361,7 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
   expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
   expect(manifest.contracts?.adult_blank_history_joins_normal_drive === ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE, "manifest must auto-enrol adult blank-history animals into the normal generated drive", problems);
+  expect(manifest.contracts?.schedule_path_policy === SCHEDULE_PATH_POLICY, "manifest must bind kid/adult path selection to shared SchedulePathForGoat", problems);
   expect(manifest.contracts?.vaccination_medical_date_field === VACCINATION_MEDICAL_DATE_FIELD, "manifest must bind repeat timing to operator-administered vaccination_completions.administered_at", problems);
 
   if (checkHashes) {
@@ -685,3 +687,6 @@ export function updateManifestHashes(directory, manifest) {
 // shed_partitions for the Counts/Sheds directory. Those are pen-catalog configuration fields, not
 // vaccination HRMS source fields; the committed fixture bytes, hashes, row counts, SOP proof grain,
 // protocol rows, goat_shed_partitions placement contract, and operator capacity rules stay unchanged.
+// Coupling review 2026-08-15: seed import and runtime generation share SchedulePathForGoat.
+// No raw fixture bytes or HRMS rows change; the fixture contract records that kid/adult path
+// selection is derived once from reviewed DOB/stage/history evidence through that shared policy.

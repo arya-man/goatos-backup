@@ -4,7 +4,7 @@
 //
 // The Weights page is long — the gain chart sits ~2,600px down and the feed table further still —
 // and every one of its toggles changes a search param, which means a real navigation and a real
-// server re-render. Rendered as plain <a> links, each of those answered the question and then
+// server re-render. As ordinary anchor links, each of those answered the question and then
 // scrolled to the top, so the reader had to find the chart again to see what changed.
 //
 // `<Link scroll={false}>` did NOT fix it here: the navigation is genuinely client-side (a marker
