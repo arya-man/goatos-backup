@@ -135,7 +135,10 @@ If the secret is absent, deploy continues and logs remain in Cloud Build.
 Release-tag bookkeeping is deliberately separate from STG deploy success. The
 Cloud Build deploy step is green only after Cloud Deploy rollout succeeds and
 live Cloud Run service/job images match the commit. After that, the
-`stg-release-tag-bookkeeping` step records the annotated GitHub release tag. If
+`stg-release-tag-bookkeeping` step records the annotated GitHub release tag from
+a fresh clean checkout of the verified commit, using the `goatos-github-pat`
+Secret Manager token. It must not tag from the mutable deploy workspace because
+earlier Cloud Build steps may create generated or ignored files there. If
 tagging fails, it posts a Slack warning and exits successfully; STG remains
 deployed and the deploy card must stay green.
 
