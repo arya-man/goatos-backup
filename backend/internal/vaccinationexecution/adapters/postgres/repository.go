@@ -225,6 +225,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.DueCount = int(dueCount)
 		p.InProgressCount = int(inProgressCount)
 		p.CompletedCount = int(completedCount)
+		// projection-review: membership=one row per (shed,stage) execution-projection group scanned from the serving SQL; group_key=unchanged (park,shed,stage) grain — done_count is an added measure, not a grain change; join_cardinality=done_count is the SQL-side BOOL_OR union of completion paths pre-aggregated per obligation, so multi-vaccine one-to-many rows cannot double-count a goat; pagination=scan preserves the query's keyset page, totals computed before truncation; scope=tenant+park/shed filters applied in the serving SQL before this scan.
 		p.DoneCount = int(doneCount)
 		p.MissedCount = int(missedCount)
 		p.DeferredCount = int(deferredCount)

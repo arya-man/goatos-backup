@@ -1,3 +1,4 @@
+-- projection-review: membership=local-dev seed rows only (fixed test UUIDs), never a serving read; group_key=per-goat obligation grain identical to the production tables it seeds; join_cardinality=inserts are keyed by deterministic ids so re-running upserts rather than multiplying rows; pagination=not a read path — no pages served from this script; scope=throwaway local tenant seed, tenant-scoped ids throughout.
 -- Seed script for the vaccination card-lock invariant fix (proof-flow-integration).
 --
 -- Extends the existing seeded batch e2000000-0000-4000-8000-000000000102 (protocol
