@@ -37,6 +37,39 @@ internal class FakeFeedRepository : FeedRepository {
     private var delayedDirectionStatus: String? = null
     private var delayedDirectionDelayMs: Long = 0
 
+    // --- server poll (fetchDirectionSessionStatus / fetchPackingRowStatus) ---
+    // Queues of answers consumed one-per-call so a test can script "poll 1 returns X, poll 2
+    // returns Y (or throws)". An empty queue falls back to [defaultServerDirectionStatus] /
+    // [defaultServerPackingStatus] (null by default, i.e. "server poll found nothing / not called").
+    private val directionServerStatusQueue = ArrayDeque<Result<String?>>()
+    private val packingServerStatusQueue = ArrayDeque<Result<String?>>()
+    var defaultServerDirectionStatus: String? = null
+    var defaultServerPackingStatus: String? = null
+    var directionServerFetchCalls: Int = 0
+        private set
+    var packingServerFetchCalls: Int = 0
+        private set
+
+    /** Queues the next [fetchDirectionSessionStatus] answer. */
+    fun queueServerDirectionStatus(status: String?) {
+        directionServerStatusQueue.addLast(Result.success(status))
+    }
+
+    /** Queues the next [fetchDirectionSessionStatus] call to FAIL (simulating offline/timeout/5xx). */
+    fun queueServerDirectionFailure() {
+        directionServerStatusQueue.addLast(Result.failure(IllegalStateException("simulated poll failure")))
+    }
+
+    /** Queues the next [fetchPackingRowStatus] answer. */
+    fun queueServerPackingStatus(status: String?) {
+        packingServerStatusQueue.addLast(Result.success(status))
+    }
+
+    /** Queues the next [fetchPackingRowStatus] call to FAIL (simulating offline/timeout/5xx). */
+    fun queueServerPackingFailure() {
+        packingServerStatusQueue.addLast(Result.failure(IllegalStateException("simulated poll failure")))
+    }
+
     fun emitPackingStatus(status: String?) {
         packingStatus.value = status
     }
@@ -83,6 +116,32 @@ internal class FakeFeedRepository : FeedRepository {
         directionStatus
     }
 
+    override suspend fun fetchDirectionSessionStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String? {
+        directionServerFetchCalls += 1
+        if (directionServerStatusQueue.isNotEmpty()) return directionServerStatusQueue.removeFirst().getOrThrow()
+        return defaultServerDirectionStatus
+    }
+
+    override suspend fun fetchPackingRowStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String? {
+        packingServerFetchCalls += 1
+        if (packingServerStatusQueue.isNotEmpty()) return packingServerStatusQueue.removeFirst().getOrThrow()
+        return defaultServerPackingStatus
+    }
+
     override fun observeDirectionTotals(query: FeedDirectionQuery): Flow<Resource<FeedDirectionPreviewPageDto>> = error("unused")
     override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
     override fun observePackingTotals(query: FeedPackingQuery): Flow<Resource<FeedPackingWorklistPageDto>> = error("unused")
@@ -114,5 +173,25 @@ internal class FakeFeedTransportStatusSource : FeedTransportStatusSource {
         }
     } else {
         status
+    }
+
+    // --- server poll (fetchTaskStatus) --- same queue idiom as FakeFeedRepository above.
+    private val serverStatusQueue = ArrayDeque<Result<String?>>()
+    var defaultServerStatus: String? = null
+    var serverFetchCalls: Int = 0
+        private set
+
+    fun queueServerStatus(status: String?) {
+        serverStatusQueue.addLast(Result.success(status))
+    }
+
+    fun queueServerFailure() {
+        serverStatusQueue.addLast(Result.failure(IllegalStateException("simulated poll failure")))
+    }
+
+    override suspend fun fetchTaskStatus(businessDate: String, shedId: String, taskId: String): String? {
+        serverFetchCalls += 1
+        if (serverStatusQueue.isNotEmpty()) return serverStatusQueue.removeFirst().getOrThrow()
+        return defaultServerStatus
     }
 }

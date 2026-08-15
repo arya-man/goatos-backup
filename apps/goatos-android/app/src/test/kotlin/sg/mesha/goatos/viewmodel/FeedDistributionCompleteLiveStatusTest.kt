@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -204,6 +206,62 @@ class FeedDistributionCompleteLiveStatusTest {
         // After the delayed emission, live status must override nav-arg
         assertTrue(
             "after delayed emission arrives, submitted live status must override nav-arg",
+            viewModel.state.value.alreadySubmitted,
+        )
+    }
+
+    /**
+     * SERVER-POLL FLIP: a TEAMMATE submits this same session on another phone. This phone's own
+     * Room cache never changes (nothing here synced a fresh worklist page), so
+     * [FakeFeedRepository.observeDirectionSessionStatus] alone would keep emitting the stale open
+     * status forever. The periodic SERVER poll (fetchDirectionSessionStatus) is what closes that
+     * gap: on its next tick it must flip the screen read-only without a back/reopen.
+     */
+    @Test
+    fun `screen open editable flips read-only when the periodic server poll reports pending verification`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        feedRepository.emitDirectionStatus(FeedStatus.PENDING) // Room cache: still open.
+
+        // runCurrent() (NOT advanceUntilIdle()): the bounded server-poll loop below is finite
+        // (MAX_SERVER_STATUS_POLLS) but still spans ~24h of virtual time, and advanceUntilIdle()
+        // would greedily run every one of those ticks right here, exhausting the poll budget
+        // before this test gets to control it. runCurrent() only drains work that is ALREADY ready
+        // (the Room-backed flow's synchronous first emission), leaving the delayed poll tick alone.
+        val viewModel = buildViewModel(feedRepository, lifecycleStatus = "open")
+        runCurrent()
+        assertFalse("screen starts editable", viewModel.state.value.alreadySubmitted)
+
+        // The Room-backed source never changes; only the SERVER poll learns about the teammate's
+        // submit.
+        feedRepository.queueServerDirectionStatus(FeedStatus.AWAITING)
+        advanceTimeBy(30_001L)
+
+        assertTrue(
+            "a server-poll tick reporting pending_verification must flip the screen read-only",
+            viewModel.state.value.alreadySubmitted,
+        )
+        assertFalse(viewModel.state.value.videoCaptureEnabled)
+        assertFalse(viewModel.state.value.submitEnabled)
+    }
+
+    /**
+     * FAIL-SOFT: a poll failure (offline/timeout/5xx) must leave the screen exactly as it was —
+     * never flips editable -> locked on a guess.
+     */
+    @Test
+    fun `a failed server poll tick leaves the editable state unchanged`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        feedRepository.emitDirectionStatus(FeedStatus.PENDING)
+
+        val viewModel = buildViewModel(feedRepository, lifecycleStatus = "open")
+        runCurrent() // see the sibling test above for why this is runCurrent(), not advanceUntilIdle().
+        assertFalse(viewModel.state.value.alreadySubmitted)
+
+        feedRepository.queueServerDirectionFailure()
+        advanceTimeBy(30_001L)
+
+        assertFalse(
+            "a failed poll tick must never flip the screen to read-only",
             viewModel.state.value.alreadySubmitted,
         )
     }
