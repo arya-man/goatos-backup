@@ -175,3 +175,4 @@ fixtures/vaccination-hrms-source-full/seed-stage-correction-*.json
 
 # Compiled one-off importer binaries built in place (13MB Mach-O); build to a temp path instead.
 backend/import-procurement-vendors
+/backend/mcp
