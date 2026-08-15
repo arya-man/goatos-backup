@@ -48,6 +48,10 @@ import sg.mesha.goatos.feature.feed.FeedDistributionUiState
 import java.util.Locale
 import java.util.EnumSet
 import java.util.UUID
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.LocalDate
 import javax.inject.Inject
 
 /**
@@ -825,15 +829,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 when (slot.fieldKey) {
                     FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO -> {
                         sawWeight = true
-                        adoptTeammateCapture(ProofSlot.FEED_WEIGHT_PHOTO, feedWeightRemoteRef, slot.proofRef)
+                        adoptTeammateCapture(ProofSlot.FEED_WEIGHT_PHOTO, feedWeightRemoteRef, slot.proofRef, slot.capturedByName, slot.capturedAt)
                     }
                     FIELD_FEED_DISTRIBUTION_VIDEO -> {
                         sawFeed = true
-                        adoptTeammateCapture(ProofSlot.FEED_VIDEO, videoRemoteRef, slot.proofRef)
+                        adoptTeammateCapture(ProofSlot.FEED_VIDEO, videoRemoteRef, slot.proofRef, slot.capturedByName, slot.capturedAt)
                     }
                     FIELD_FEED_DISTRIBUTION_WATER_VIDEO -> {
                         sawWater = true
-                        adoptTeammateCapture(ProofSlot.WATER_VIDEO, waterVideoRemoteRef, slot.proofRef)
+                        adoptTeammateCapture(ProofSlot.WATER_VIDEO, waterVideoRemoteRef, slot.proofRef, slot.capturedByName, slot.capturedAt)
                     }
                 }
             }
@@ -885,8 +889,12 @@ class FeedDistributionCompleteViewModel @Inject constructor(
      * When a teammate re-captures a slot, the newer proofRef arrives on the next read; this
      * function overwrites the previous ref (re-capture detection) unless THIS phone holds its
      * own proof for that slot.
+     *
+     * @param capturedByName The display name of the operator who captured this proof.
+     *        Used to show "Captured by <name> · <time>" in the UI. May be blank.
+     * @param capturedAtIso ISO 8601 timestamp when the proof was captured (e.g. "2026-08-15T10:30:00Z").
      */
-    private fun adoptTeammateCapture(slot: ProofSlot, remoteRef: DraftOutboxItemId, proofRef: String) {
+    private fun adoptTeammateCapture(slot: ProofSlot, remoteRef: DraftOutboxItemId, proofRef: String, capturedByName: String = "", capturedAtIso: String = "") {
         if (proofRef.isBlank()) return
         val locallyCaptured = when (slot) {
             ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofItemId.value != null
@@ -918,22 +926,26 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 AnalyticsEvents.Params.LOCAL_SLOT_STATE to "empty",
             ),
         )
+
+        // Format the message: "Captured by <name> · <formatted time>" or fallback to generic message.
+        val message = buildTeammateProofMessage(capturedByName, capturedAtIso)
+
         _state.update {
             when (slot) {
                 ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
                     feedWeightPhotoCaptured = true,
                     feedWeightPhotoStatus = FeedDistributionProofStatus.SYNCED,
-                    feedWeightPhotoMessage = PROOF_RECORDED_BY_TEAMMATE,
+                    feedWeightPhotoMessage = message,
                 )
                 ProofSlot.FEED_VIDEO -> it.copy(
                     videoCaptured = true,
                     videoStatus = FeedDistributionProofStatus.SYNCED,
-                    videoMessage = PROOF_RECORDED_BY_TEAMMATE,
+                    videoMessage = message,
                 )
                 ProofSlot.WATER_VIDEO -> it.copy(
                     waterVideoCaptured = true,
                     waterVideoStatus = FeedDistributionProofStatus.SYNCED,
-                    waterVideoMessage = PROOF_RECORDED_BY_TEAMMATE,
+                    waterVideoMessage = message,
                 )
             }
         }
@@ -948,6 +960,50 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
                 }
             }
+        }
+    }
+
+    /**
+     * Builds the message to display when a teammate's proof is adopted.
+     * Format: "Captured by <name> · <formatted time>" when name and time are available,
+     * fallback to "Captured by <name>" with no time, or generic message if name is missing.
+     */
+    private fun buildTeammateProofMessage(capturedByName: String, capturedAtIso: String): String {
+        if (capturedByName.isBlank()) return PROOF_RECORDED_BY_TEAMMATE
+
+        val formattedTime = formatCaptureTime(capturedAtIso)
+        return if (formattedTime.isNotBlank()) {
+            "Captured by $capturedByName · $formattedTime"
+        } else {
+            "Captured by $capturedByName"
+        }
+    }
+
+    /**
+     * Formats an ISO 8601 timestamp (e.g. "2026-08-15T10:30:00Z") to device-local time.
+     * Format: "h:mm a" for today (e.g. "10:30 AM"), or "MMM d · h:mm a" for other days (e.g. "Aug 14 · 10:30 AM").
+     * Returns empty string if parsing or formatting fails.
+     */
+    private fun formatCaptureTime(capturedAtIso: String): String {
+        return try {
+            if (capturedAtIso.isBlank()) return ""
+            val instant = Instant.parse(capturedAtIso)
+            val deviceZone = ZoneId.systemDefault()
+            val localDateTime = instant.atZone(deviceZone).toLocalDateTime()
+            val localDate = localDateTime.toLocalDate()
+
+            if (localDate == LocalDate.now(deviceZone)) {
+                // Today: h:mm a (e.g. "10:30 AM")
+                DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+                    .format(localDateTime)
+            } else {
+                // Other days: MMM d · h:mm a (e.g. "Aug 14 · 10:30 AM")
+                val dateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+                val timeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+                "${dateFormat.format(localDate)} · ${timeFormat.format(localDateTime)}"
+            }
+        } catch (e: Exception) {
+            "" // Non-fatal: return empty string on parse failure
         }
     }
 

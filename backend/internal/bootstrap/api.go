@@ -557,7 +557,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// now reads verified rows from here, and the enqueue seam is wired below.
 		WithPackingStore(feedDirectionRepo).
 		WithTransportStore(feedDirectionRepo).
-		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
+		WithProofValidator(feeddirectionproof.NewValidatorWithPool(proofRepo, pool)).
 		// The feed module's own lifecycle alerts feed (GET /app/feed/alerts), the twin of
 		// weighing/vaccination's alerts feeds. Same repository instance already used for
 		// config/issue/schedule/completion reads implements ports.AlertsRepository.

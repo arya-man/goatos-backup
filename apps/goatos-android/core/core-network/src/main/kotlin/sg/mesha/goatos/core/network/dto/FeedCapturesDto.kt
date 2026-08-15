@@ -33,4 +33,9 @@ data class FeedDistributionCapturedSlotDto(
     @SerialName("proof_ref") val proofRef: String,
     @SerialName("captured_at") val capturedAt: String,
     @SerialName("mime_type") val mimeType: String? = null,
+    /**
+     * The display name of the operator who captured this proof.
+     * May be empty if the uploader's workforce record was not found.
+     */
+    @SerialName("captured_by_name") val capturedByName: String = "",
 )
