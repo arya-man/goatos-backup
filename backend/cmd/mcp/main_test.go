@@ -484,12 +484,6 @@ func TestAskRejectsEmailOutsideAllowlistBeforeUpstream(t *testing.T) {
 
 func TestVaccinationTodayCallsLiveTrackerAndReturnsStructuredContent(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/vaccination/live-tracker" {
-			t.Fatalf("path=%s want /vaccination/live-tracker", r.URL.Path)
-		}
-		if r.URL.Query().Get("business_date") != "2026-08-14" || r.URL.Query().Get("status") != "pending" {
-			t.Fatalf("query=%s", r.URL.RawQuery)
-		}
 		if r.Header.Get("Authorization") != "Bearer user-token" {
 			t.Fatalf("Authorization not proxied: %q", r.Header.Get("Authorization"))
 		}
@@ -499,43 +493,72 @@ func TestVaccinationTodayCallsLiveTrackerAndReturnsStructuredContent(t *testing.
 		if r.Header.Get("X-GoatOS-Tenant-ID") != "00000000-0000-4000-8000-000000000001" {
 			t.Fatalf("tenant not proxied: %q", r.Header.Get("X-GoatOS-Tenant-ID"))
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"business_date": "2026-08-14",
-			"generated_at":  "2026-08-14T17:45:00Z",
-			"is_live_day":   true,
-			"kpis": map[string]any{
-				"scheduled_administrations": 10,
-				"closed_administrations":    0,
-				"proof_videos_received":     0,
-				"scan_captures":             0,
-				"remaining":                 10,
-			},
-			"operators": []map[string]any{{
-				"operator_name":             "Darshan Talwar",
-				"park_name":                 "Channapatna",
-				"current_shed_label":        "Yashoda",
-				"current_partition_label":   "Part 2",
-				"current_vaccine_label":     "ET+TT",
-				"scheduled_administrations": 4,
-				"closed_administrations":    0,
-				"proof_videos":              0,
-				"scan_captures":             0,
-				"remaining":                 4,
-				"state":                     "not_started",
-			}},
-			"sheds": []map[string]any{{
-				"park_name":                 "Channapatna",
-				"shed_label":                "Yashoda - Part 2",
-				"vaccine_label":             "ET+TT",
-				"operator_name":             "Darshan Talwar",
-				"scheduled_administrations": 4,
-				"closed_administrations":    0,
-				"proof_videos_received":     0,
-				"remaining":                 4,
-				"state":                     "not_started",
-			}},
-			"unassigned_administrations": 0,
-		})
+		switch r.URL.Path {
+		case "/vaccination/drive-assignments":
+			if r.URL.Query().Get("year") != "2026" || r.URL.Query().Get("month") != "8" {
+				t.Fatalf("drive assignment query=%s", r.URL.RawQuery)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"source": "api",
+				"rows": []map[string]any{{
+					"plannedDate":     "2026-08-14",
+					"operatorName":    "Darshan Talwar",
+					"parkName":        "Channapatna",
+					"physicalShed":    "Yashoda",
+					"partitionLabel":  "Part 2",
+					"animals":         4,
+					"dueAnimals":      4,
+					"doneAnimals":     0,
+					"deferredAnimals": 0,
+					"overdueAnimals":  0,
+					"vaccineNames":    []string{"ET+TT"},
+					"totalDoses":      4,
+				}},
+			})
+		case "/vaccination/live-tracker":
+			if r.URL.Query().Get("business_date") != "2026-08-14" || r.URL.Query().Get("status") != "pending" {
+				t.Fatalf("query=%s", r.URL.RawQuery)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"business_date": "2026-08-14",
+				"generated_at":  "2026-08-14T17:45:00Z",
+				"is_live_day":   true,
+				"kpis": map[string]any{
+					"scheduled_administrations": 10,
+					"closed_administrations":    0,
+					"proof_videos_received":     0,
+					"scan_captures":             0,
+					"remaining":                 10,
+				},
+				"operators": []map[string]any{{
+					"operator_name":             "Darshan Talwar",
+					"park_name":                 "Channapatna",
+					"current_shed_label":        "Yashoda",
+					"current_partition_label":   "Part 2",
+					"current_vaccine_label":     "ET+TT",
+					"scheduled_administrations": 4,
+					"closed_administrations":    0,
+					"proof_videos":              0,
+					"scan_captures":             0,
+					"remaining":                 4,
+					"state":                     "not_started",
+				}},
+				"sheds": []map[string]any{{
+					"park_name":                 "Channapatna",
+					"shed_label":                "Yashoda - Part 2",
+					"vaccine_label":             "ET+TT",
+					"operator_name":             "Darshan Talwar",
+					"scheduled_administrations": 4,
+					"closed_administrations":    0,
+					"proof_videos_received":     0,
+					"remaining":                 4,
+					"state":                     "not_started",
+				}},
+				"unassigned_administrations": 0,
+			})
+		default:
+			t.Fatalf("path=%s", r.URL.Path)
+		}
 	}))
 	defer upstream.Close()
 
@@ -558,7 +581,7 @@ func TestVaccinationTodayCallsLiveTrackerAndReturnsStructuredContent(t *testing.
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Vaccination drive-day progress for 2026-08-14", "Darshan Talwar", `"structuredContent"`, `"scheduled_administrations":10`} {
+	for _, want := range []string{"Vaccination scheduled today (2026-08-14)", "Darshan Talwar", "4 animals scheduled", `"structuredContent"`, `"schedule_source_endpoint":"GET /vaccination/drive-assignments"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in body=%s", want, body)
 		}
