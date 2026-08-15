@@ -834,6 +834,7 @@ interface AppApiService {
 class RetrofitAppApi(
     private val service: AppApiService,
     private val blobUploader: ProofBlobUploader,
+    private val baseUrl: String = "",
 ) : AppApi {
     override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) =
         service.recordAuthSessionEvent(request)
@@ -1126,8 +1127,12 @@ class RetrofitAppApi(
         limit: Int?,
     ): UploadedProofListResponseDto = service.listUploadedProofs(scopeType, scopeId, clientTaskKey, fieldKey, limit)
 
-    override suspend fun getProofDownloadUrl(proofId: String): String =
-        service.getProofDownloadUrl(proofId).downloadUrl
+    override suspend fun getProofDownloadUrl(proofId: String): String {
+        val url = service.getProofDownloadUrl(proofId).downloadUrl
+        // Local storage signs a RELATIVE path; a raw URL loader needs it absolute or the
+        // teammate thumbnail silently never renders (device finding 2026-08-15).
+        return if (url.startsWith("/")) baseUrl.trimEnd('/') + url else url
+    }
 
     override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 
@@ -1624,6 +1629,7 @@ object NetworkFactory {
         RetrofitAppApi(
             retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider, telemetryInterceptor)).create(),
             proofBlobUploader(baseUrl, tokenProvider),
+            baseUrl,
         )
 }
 
