@@ -694,7 +694,7 @@ class DefaultProofCaptureRepository(
      *  captureReplacingLatest replace). */
     private suspend fun fireAnyPendingRetirementsFor(rows: List<ProofCaptureEntity>): Set<String> {
         if (pendingSlotRetirement.isEmpty()) return emptySet()
-        val retired = mutableSetOf<String>()
+        val retired = mutableSetOf<String>() // mobile-guard:ignore: function-local accumulator, returned and GC-ed per call
         rows.forEach { row ->
             if (row.syncStatus == EntitySyncStatus.SYNCED.name && !row.serverProofId.isNullOrBlank()) {
                 retired += fireSlotRetirementIfPending(row.id)
@@ -1066,7 +1066,7 @@ class DefaultProofCaptureRepository(
         val partitionKey = executionPartitionKey(partitionLabel)
         val allActive = dao.listForTask(taskId)
             .filter { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.syncStatus != EntitySyncStatus.FAILED.name }
-        val removedIds = mutableSetOf<String>()
+        val removedIds = mutableSetOf<String>() // mobile-guard:ignore: function-local accumulator, returned and GC-ed per call
         allActive.forEach { r ->
             if (r.id != newId && r.subjectId == newSubjectId) {
                 if (remove(taskId, r.id) is AppResult.Ok) removedIds += r.id
@@ -1681,7 +1681,7 @@ class DefaultProofCaptureRepository(
      *  F4: Guard each updateStatus call so it only fires when values actually differ,
      *  preventing redundant re-emission churn. */
     private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>): Set<String> {
-        val retired = mutableSetOf<String>()
+        val retired = mutableSetOf<String>() // mobile-guard:ignore: function-local accumulator, returned and GC-ed per call
         rows.asSequence()
             .filter { it.syncStatus != EntitySyncStatus.SYNCED.name }
             .forEach { row ->
