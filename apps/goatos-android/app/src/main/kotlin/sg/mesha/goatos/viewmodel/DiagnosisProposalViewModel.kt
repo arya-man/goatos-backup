@@ -82,8 +82,12 @@ class DiagnosisProposalViewModel @Inject constructor(
             healthRepository.observeDiagnosisRun(diagnosisRunId).collect { cached ->
                 if (cached == null) return@collect
                 val current = _state.value
-                _state.value = cached.toProposalState().copy(
-                    goatDisplayId = current.goatDisplayId,
+                _state.value = cached.proposal.toProposalState().copy(
+                    // The animal's name comes from the CACHED RUN, which the server
+                    // filled. It used to be carried over from the previous state --
+                    // which starts blank and nothing ever set -- so the assessment
+                    // header never named the animal on any device.
+                    goatDisplayId = cached.goatDisplayId,
                     refreshing = current.refreshing,
                     sending = current.sending,
                     selected = current.selected,

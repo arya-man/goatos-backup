@@ -9760,6 +9760,8 @@ export interface components {
             health_diagnosis_run_id: string;
             /** Format: uuid */
             goat_id: string;
+            /** @description The animal as a person recognises it. Carried on the read because a device opening an assessment has usually never seen the submit response — the manager submits from their phone, the Director opens it on theirs — so a client cache is not a source for this. */
+            goat_display_id: string;
             register_version: string;
             /** Format: uuid */
             observed_by: string;

@@ -25074,10 +25074,19 @@ components:
     HealthDiagnosisRun:
       type: object
       additionalProperties: false
-      required: [health_diagnosis_run_id, goat_id, register_version, observed_by, observed_at, business_date, proposal, status, confirmable, may_confirm]
+      required:
+        [health_diagnosis_run_id, goat_id, goat_display_id, register_version, observed_by,
+         observed_at, business_date, proposal, status, confirmable, may_confirm]
       properties:
         health_diagnosis_run_id: { type: string, format: uuid }
         goat_id: { type: string, format: uuid }
+        goat_display_id:
+          type: string
+          description: >-
+            The animal as a person recognises it. Carried on the read because a device
+            opening an assessment has usually never seen the submit response — the manager
+            submits from their phone, the Director opens it on theirs — so a client cache
+            is not a source for this.
         register_version: { type: string }
         observed_by: { type: string, format: uuid }
         observed_at: { type: string, format: date-time }

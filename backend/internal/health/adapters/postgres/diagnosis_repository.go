@@ -593,13 +593,24 @@ func (r *DiagnosisRepository) GetDiagnosisRun(ctx context.Context, tenantID, run
 	var out domain.DiagnosisRun
 	var proposalJSON []byte
 	var businessDate time.Time
+	var ageBand string
+	// The goat is joined rather than read separately: the display id, the shed and
+	// the age band all come off the same row, and the age band was previously a
+	// second round trip for the SOP lookup below.
+	//
+	// A LEFT JOIN, so a run whose animal has since been hard-deleted still reads
+	// back. The assessment is a durable medical record; losing it because the
+	// animal row went would be worse than showing it without a name.
 	err := r.pool.QueryRow(ctx, `
-SELECT health_diagnosis_run_id::text, goat_id::text, register_version, observed_by::text, observed_at,
-       business_date, proposal, status, confirmed_by::text, confirmed_at
-FROM health_diagnosis_runs
-WHERE tenant_id=$1::uuid AND health_diagnosis_run_id=$2::uuid`, tenantID, runID).Scan(
+SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, dr.register_version, dr.observed_by::text,
+       dr.observed_at, dr.business_date, dr.proposal, dr.status, dr.confirmed_by::text, dr.confirmed_at,
+       COALESCE(g.display_id, ''), COALESCE(g.age_band, '')
+FROM health_diagnosis_runs dr
+LEFT JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
+WHERE dr.tenant_id=$1::uuid AND dr.health_diagnosis_run_id=$2::uuid`, tenantID, runID).Scan(
 		&out.DiagnosisRunID, &out.GoatID, &out.RegisterVersion, &out.ObservedBy, &out.ObservedAt,
-		&businessDate, &proposalJSON, &out.Status, &out.ConfirmedBy, &out.ConfirmedAt)
+		&businessDate, &proposalJSON, &out.Status, &out.ConfirmedBy, &out.ConfirmedAt,
+		&out.GoatDisplayID, &ageBand)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.DiagnosisRun{}, ports.ErrNotFound
 	}
@@ -617,15 +628,6 @@ WHERE tenant_id=$1::uuid AND health_diagnosis_run_id=$2::uuid`, tenantID, runID)
 	if out.Status == domain.DiagnosisStatusProposed {
 		confirmable := domain.ConfirmableFromProposal(out.Proposal)
 		if len(confirmable) > 0 {
-			// The animal's age band decides which treatment cards apply, so it is
-			// read rather than assumed. A run whose animal has since been culled
-			// still resolves -- the goat row is what is read, not its liveness.
-			var ageBand string
-			if err := r.pool.QueryRow(ctx, `
-SELECT COALESCE(age_band, '') FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
-				tenantID, out.GoatID).Scan(&ageBand); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return domain.DiagnosisRun{}, fmt.Errorf("health: read goat age band: %w", err)
-			}
 			tx, err := r.pool.Begin(ctx)
 			if err != nil {
 				return domain.DiagnosisRun{}, fmt.Errorf("health: begin sop lookup: %w", err)
