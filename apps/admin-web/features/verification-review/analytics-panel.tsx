@@ -4,6 +4,7 @@ import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-o
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { BarChart3, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
 
 /**
  * Opens the CEO/PC-Director oversight analytics in a right-side drawer instead of stacking it above
@@ -36,8 +37,8 @@ export function AnalyticsPanel({
   const { drawerOpen, displayedItem, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
     items: PANEL_ITEMS,
     itemId: (item) => item.id,
-    selectionKey: PANEL_SELECTION_KEY,
-    initialSelectedId: initialOpen ? PANEL_ID : undefined,
+    selectionKey: ANALYTICS_PANEL_SELECTION_KEY,
+    initialSelectedId: initialOpen ? ANALYTICS_PANEL_ID : undefined,
     closeHref,
   });
   const title = copy(pageContract, "oversight_analytics.title");
@@ -48,7 +49,7 @@ export function AnalyticsPanel({
       {/* Primary-styled on purpose: as a ghost `btn sm` it read as page furniture next to the crumb
           and the maintainer missed it. This is the only entry to the oversight numbers, so it gets
           the page's one primary action. */}
-      <LocalOverlayLink href={`#${PANEL_SELECTION_KEY}=${PANEL_ID}`} className="btn p vr-analytics-btn" replace scroll={false}>
+      <LocalOverlayLink href={`#${ANALYTICS_PANEL_SELECTION_KEY}=${ANALYTICS_PANEL_ID}`} className="btn p vr-analytics-btn" replace scroll={false}>
         <BarChart3 className="ic" aria-hidden="true" />
         {copy(pageContract, "oversight_analytics.open")}
       </LocalOverlayLink>
@@ -90,9 +91,4 @@ export function AnalyticsPanel({
 // One synthetic item: the hook is built for a selected RECORD out of a list, and this panel is the
 // degenerate one-record case. Kept module-level so the array identity is stable across renders --
 // the hook's effect depends on `items`, and a fresh array each render would re-subscribe forever.
-const PANEL_ID = "open";
-const PANEL_SELECTION_KEY = "vi_analytics";
-const PANEL_ITEMS = [{ id: PANEL_ID }] as const;
-
-export const ANALYTICS_PANEL_SELECTION_KEY = PANEL_SELECTION_KEY;
-export const ANALYTICS_PANEL_ID = PANEL_ID;
+const PANEL_ITEMS = [{ id: ANALYTICS_PANEL_ID }] as const;
