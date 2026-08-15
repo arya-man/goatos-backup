@@ -347,6 +347,13 @@ func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) erro
 		// reclassify an animal as a kid or an adult.
 		{Code: "ICU", Name: "ICU", SortOrder: 120},
 		{Code: "Quarantine", Name: "Quarantine", SortOrder: 130},
+		// The clinical KID pens are their own tags, and they are WRITABLE (migration 000167) so a
+		// shifting into one stamps it. Bare ICU/Quarantine above remain rejected by
+		// identity.resolveDestinationTag -- a movement may say which pen an animal is in, never
+		// that it is sick. Unclassified for the same reason as their parents: the animal's
+		// existing kid/adult band survives the move untouched.
+		{Code: "ICU-Kid", Name: "ICU kid", SortOrder: 121},
+		{Code: "Quarantine kids", Name: "Quarantine kids", SortOrder: 131},
 	}
 	for _, stage := range stages {
 		if _, err := tx.Exec(ctx, `
