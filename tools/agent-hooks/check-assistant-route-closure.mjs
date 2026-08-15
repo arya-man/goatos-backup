@@ -59,6 +59,12 @@ const GOLDEN_EXTERNAL_MCP_EXPECTATIONS = {
   feed_direction_today: ["get_feed_today", "GET /feed-direction/preview"],
   feed_blocked_config_gaps: ["get_feed_today", "GET /feed-direction/preview"],
   procurement_open_loads: ["get_procurement_pipeline", "GET /procurement/source-entry/loads"],
+  action_center_queue: ["get_action_center", "GET /action-center/obligations"],
+  weighing_progress: ["get_weighing_progress", "GET /weighing/campaigns"],
+  weighing_process_state: ["get_weighing_process_state", "GET /weighing/process-state"],
+  weighing_growth_adg: ["get_weighing_growth_adg", "GET /weighing/leadership/growth"],
+  weighing_shed_weights: ["get_weighing_shed_weights", "GET /weighing/shed-weights"],
+  weighing_weight_demographics: ["get_weighing_weight_demographics", "GET /weighing/weight-demographics"],
 };
 const STALE = [
   { re: /ProjectedCountFor/, why: "counts reader no longer uses ProjectedCountFor (deleted); docs are stale" },
@@ -106,6 +112,15 @@ function checkExternalMCPTools() {
     if (!integration.includes(`\`${tool}\``)) {
       problems.push(`docs/ceo-ai/external-mcp-integration.md: missing tool catalog entry for ${tool}`);
     }
+  }
+  if (!/Feed MCP answers planned\/issued feed[\s\S]*feed_adherence/i.test(integration)) {
+    problems.push("docs/ceo-ai/external-mcp-integration.md: must explicitly state feed actuals/adherence are not covered by external MCP yet");
+  }
+  if (!/reorder thresholds are not configured/i.test(integration)) {
+    problems.push("docs/ceo-ai/external-mcp-integration.md: must explicitly state inventory reorder thresholds are not configured yet");
+  }
+  if (!/feed actuals\/adherence are not covered/i.test(text)) {
+    problems.push("backend/cmd/mcp/main.go: get_feed_today must warn that feed actuals/adherence are not covered yet");
   }
   return problems;
 }

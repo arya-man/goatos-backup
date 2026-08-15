@@ -196,6 +196,7 @@ verify_stg_images() {
   expect_service_image goatos-api-stg "$backend_image"
   expect_service_image goatos-admin-web-stg "$admin_web_image"
   expect_service_image goatos-kernel-worker-stg "$backend_image"
+  expect_service_image goatos-mcp-stg "$backend_image"
   expect_job_image goatos-stg-migrate "$migration_image"
   expect_job_image goatos-stg-outbox-dlq "$backend_image"
   expect_job_image goatos-stg-analytics-rollup "$backend_image"

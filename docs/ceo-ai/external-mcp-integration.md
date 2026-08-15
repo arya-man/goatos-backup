@@ -278,21 +278,50 @@ tokens, SQL, tenant IDs, or internal tool arguments into chat.
 
 ## ChatGPT-Style Custom GPT / App Usage
 
-For a ChatGPT-style custom GPT, app, or connector:
+For ChatGPT, there are two separate flows.
 
-1. Register the external MCP endpoint URL:
+### Admin publishes the Mesha app
+
+1. Open ChatGPT settings and enable Developer Mode if the workspace requires it.
+2. Create a new app/connector named `Mesha Goat OS`.
+3. Add the remote MCP endpoint:
    ```text
    https://mcp.mesha.sg/mcp
    ```
-2. The connector should use the MCP OAuth discovery flow and show Goat OS login.
-3. Sign in with an allowlisted leadership email.
-4. Describe the connector to users as "Mesha Goat OS leadership read-only
+4. Let ChatGPT discover OAuth and tools from the endpoint.
+5. Click the auth/connect step. ChatGPT should open `Connect Mesha Goat OS`.
+6. Sign in with an allowlisted leadership email.
+7. Scan/test the tools with one operating question before sharing it:
+   ```text
+   What vaccination work is scheduled today and what is the progress?
+   ```
+8. Describe the connector to users as "Mesha Goat OS leadership read-only
    operations assistant."
-5. Test with one normal operating question before sharing it with other
-   allowlisted users.
+
+When tool descriptions change, refresh/rescan the app before approval/sharing so
+ChatGPT sees the latest MCP catalog. Treat approval as a publishing step: do not
+assume a previously approved app automatically picked up new tools.
+
+### CEO connects the Mesha app
+
+1. Open ChatGPT.
+2. Choose the `Mesha Goat OS` app/connector.
+3. Click Connect.
+4. On the Mesha page, enter the approved Mesha leadership email and password.
+5. Ask normal questions. The CEO should not paste tokens, SQL, tenant IDs, or
+   endpoint URLs into chat.
 
 Do not embed database credentials, long-lived static bearer tokens, tenant IDs,
 or raw SQL examples in the GPT/app instructions.
+
+Current read-boundary reminders for ChatGPT, Claude, and Codex:
+
+- Feed MCP answers planned/issued feed. It does not prove actual feeding was
+  completed until the `feed_adherence` source/API ships.
+- Inventory reorder thresholds are not configured yet. Do not rank or alert on
+  `reorder_flag`; answer that reorder thresholds are not covered/configured.
+- Procurement Action Center/Control Tower remains intentionally excluded until
+  the top-level read routes are mounted.
 
 ## Troubleshooting
 
