@@ -275,7 +275,12 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val partitionKey = testPartitionKey(partitionLabel)
         // Mirror the production per-SLOT cap. Without this the fake pools every slot under the
         // subject cap, which is exactly the behaviour the real repository stopped doing.
-        proofPolicy.maximumCountPerField?.let { perFieldCap ->
+        // allowReplacementOverCap mirrors DefaultProofCaptureRepository.capture()'s own
+        // `perFieldCap != null && !allowReplacementOverCap` guard: captureReplacingLatest's
+        // transient second row (new capture landing before the old one is removed) must bypass
+        // the cap the same way production does, or every field with maximumCountPerField reachable
+        // via captureReplacingLatest would wrongly fail its FIRST replace attempt in this fake.
+        proofPolicy.maximumCountPerField?.takeUnless { allowReplacementOverCap }?.let { perFieldCap ->
             // Mirrors activeCountForField: a DELIVERED row (serverProofId set) is history, not an
             // in-flight duplicate, so it does not hold the slot. Keeping it counted here would make
             // this fake disagree with the DAO and hide the reopened-pen case. Scoped by taskId too —
@@ -585,4 +590,3 @@ fun feedShedProofPolicy(captureSource: String): ProofPolicy =
         maximumCountPerField = 1,
         maximumCount = 5,
     )
-
