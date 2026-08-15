@@ -283,6 +283,26 @@ type appShiftingEventRequest struct {
 	// nothing" has exactly one representation downstream instead of two.
 	Comment *string `json:"comment,omitempty"`
 
+	// StageMode is the raiser's TAG TOGGLE (maintainer decision 2026-08-15, superseding the
+	// 2026-08-03 rule that the operator is not asked at all):
+	//
+	//	"destination_stage" -- the animals adopt the destination pen's tag  (DEFAULT)
+	//	"keep_current"      -- the animals keep the tag they already carry
+	//
+	// ABSENT MEANS "destination_stage", which is what every client sent implicitly before this
+	// field existed, so an older APK in the field keeps behaving exactly as it does today. That is
+	// the whole reason the default is this side of the toggle rather than the safer-sounding
+	// keep-current: flipping the default would silently change the meaning of every raise from a
+	// phone that has not been updated.
+	//
+	// THE CLIENT SENDS THE MODE, NEVER A STAGE. `target_management_stage` stays rejected as an
+	// unknown field, and the backend still resolves the actual tag itself from the destination
+	// catalog. That keeps the safety property the 2026-08-03 rule was really protecting -- a phone
+	// cannot invent a cohort, cannot name one the relocation would refuse at the second gate, and
+	// cannot disagree with what the park head approved. All the toggle adds is WHICH of the two
+	// backend-owned answers to record.
+	StageMode string `json:"stage_mode,omitempty"`
+
 	// GoatIDs names the individual animals this movement covers. REQUIRED, and load-bearing:
 	// approving the request relocates EXACTLY these animals to the destination shed.
 	//
@@ -346,6 +366,20 @@ var (
 	allowedShiftingCategory = map[string]bool{
 		"growth": true, "health": true, "breeding": true, "delivery": true,
 	}
+	// The raise-form tag toggle's two positions. These are the SAME tokens the
+	// shifting_events.management_stage_mode column already stores, so the toggle records the
+	// operator's intent in the column's existing vocabulary and needs no schema change.
+	allowedShiftingStageMode = map[string]bool{
+		shiftingStageModeDestination: true, shiftingStageModeKeepCurrent: true,
+	}
+)
+
+const (
+	// shiftingStageModeDestination stamps the destination pen's tag. The DEFAULT when the request
+	// omits stage_mode, which is what every pre-toggle client sends.
+	shiftingStageModeDestination = "destination_stage"
+	// shiftingStageModeKeepCurrent preserves each animal's current tag.
+	shiftingStageModeKeepCurrent = "keep_current"
 )
 
 // RecordShiftingEvent records an operator-reported movement between sheds.
@@ -378,18 +412,28 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		h.writeAppError(w, r, err)
 		return
 	}
-	// The movement adopts the DESTINATION SHED's cohort. The operator is not asked (maintainer
-	// decision 2026-08-03, superseding the three-mode chooser): the raise resolves one concrete
-	// answer from the same backend-owned catalog the form already renders, and snapshots it.
+	// THE RAISER'S TAG TOGGLE (maintainer decision 2026-08-15, superseding the 2026-08-03 rule that
+	// the operator is never asked). Two positions, and the raise still resolves the actual tag
+	// itself from the backend-owned catalog -- the client only says WHICH answer it wants:
+	//
+	//	keep_current      -- skip resolution entirely, the animals keep their own tags
+	//	destination_stage -- adopt the destination PEN's tag (the default, and the pre-toggle
+	//	                     behaviour), falling back to keep-current when the pen cannot give one
 	//
 	// Resolving HERE, at raise time, rather than at completion is deliberate and unchanged from the
 	// superseded design: the snapshot is what the park head approves and what the audit trail
 	// shows. A completion-time re-read would let the destination shed's residents drift between
 	// approval and application, so the stage actually applied would be one nobody approved.
 	//
-	// domain.ResolveShiftingDestinationStage owns the rule and its fallbacks; "" means preserve each
-	// animal's current stage, which is the relocation path's existing behaviour for an empty target.
-	stageMode, targetStage := "keep_current", ""
+	// domain.ResolveShiftingDestinationPenStage owns the rule and its fallbacks; "" means preserve
+	// each animal's current stage, which is the relocation path's existing behaviour for an empty
+	// target.
+	//
+	// The catalog fetch and the PARTITION VALIDATION below are deliberately OUTSIDE the toggle:
+	// they are the operational-location contract, not the stage rule, and a movement is just as
+	// ambiguous about which pen it lands in whichever tag it carries. Gating them on the toggle
+	// would let keep_current skip the check that a partitioned destination names its partition.
+	stageMode, targetStage := shiftingStageModeKeepCurrent, ""
 	{
 		catalog, catalogErr := h.shifting.ShiftingDestinations(r.Context(), tenantID)
 		if catalogErr != nil {
@@ -439,11 +483,22 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 				return
 			}
 		}
-		if resolved := domain.ResolveShiftingDestinationPenStage(destinationConfiguredStage, destinationStages, catalog.ManagementStages); resolved != "" {
-			// Recorded as the existing 'destination_stage' mode: the column's meaning ("this target
-			// came from the destination shed") is exactly what the resolver produced, so no schema
-			// change is needed and pre-existing rows keep their recorded raise-time intent.
-			stageMode, targetStage = "destination_stage", resolved
+		// THE TOGGLE. keep_current skips resolution entirely and leaves the pair at
+		// ("keep_current", "") -- the relocation path's existing "preserve each animal's stage"
+		// behaviour.
+		if normalized.StageMode == shiftingStageModeDestination {
+			if resolved := domain.ResolveShiftingDestinationPenStage(destinationConfiguredStage, destinationStages, catalog.ManagementStages); resolved != "" {
+				// Recorded as the existing 'destination_stage' mode: the column's meaning ("this
+				// target came from the destination shed") is exactly what the resolver produced, so
+				// no schema change is needed and pre-existing rows keep their recorded raise-time
+				// intent.
+				stageMode, targetStage = shiftingStageModeDestination, resolved
+			}
+			// A pen that cannot supply a tag falls through to keep_current rather than failing the
+			// raise. The form greys the option out for exactly these pens, so an operator should
+			// not reach here -- but a stale catalog on a phone that has not refreshed can, and
+			// refusing a legitimate movement over a tag the operator never typed would be a worse
+			// answer than moving the animals and leaving their tags alone.
 		}
 	}
 
@@ -715,6 +770,13 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	req.DestinationShedID = strings.TrimSpace(req.DestinationShedID)
 	req.Priority = strings.ToLower(strings.TrimSpace(req.Priority))
 	req.Category = strings.ToLower(strings.TrimSpace(req.Category))
+	// ABSENT defaults to destination_stage -- the pre-toggle behaviour, so an APK that predates the
+	// toggle keeps raising movements exactly as it does today. Applied here, before validation, so
+	// the rest of the handler reads one concrete mode and never re-derives the default.
+	req.StageMode = strings.ToLower(strings.TrimSpace(req.StageMode))
+	if req.StageMode == "" {
+		req.StageMode = shiftingStageModeDestination
+	}
 	if req.EffectiveAt != nil {
 		// Normalize to UTC so two representations of the same instant are the same request.
 		utc := req.EffectiveAt.UTC()
@@ -739,6 +801,13 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	}
 	if req.Category != "" && !allowedShiftingCategory[req.Category] {
 		return req, identityapp.BadRequest("invalid_category", "category must be growth, health, breeding, or delivery")
+	}
+	// A present-but-invalid mode is REJECTED, never silently rewritten. Quietly falling back to the
+	// default would apply the destination pen's tag to a movement whose raiser asked for the
+	// opposite, which is a wrong stage written on real animals rather than a rejected request.
+	if !allowedShiftingStageMode[req.StageMode] {
+		return req, identityapp.BadRequest("invalid_stage_mode",
+			"stage_mode must be destination_stage or keep_current")
 	}
 	// A present-but-too-long comment is REJECTED, never silently truncated: the operator's own
 	// words go in front of an approver and a verifier, so quietly cutting them changes what the

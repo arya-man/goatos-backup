@@ -320,6 +320,20 @@ internal fun CountsSegmented(
     selectedKey: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Option keys that are visible but NOT choosable — drawn dimmed and not clickable.
+     *
+     * Added for the shifting tag toggle, where "use destination tag" has to stay VISIBLE on a pen that
+     * cannot supply one (so the operator can see the choice exists and read why it is unavailable)
+     * while being impossible to select. Hiding the option instead would make the control silently
+     * change shape between pens, and leaving it tappable would let an operator pick something that
+     * does nothing.
+     *
+     * A disabled key that is also the selected key still renders as selected: callers keep their
+     * state valid, and drawing the current selection as absent would be a worse lie than showing a
+     * dimmed one.
+     */
+    disabledKeys: Set<String> = emptySet(),
 ) {
     // Filled track with a selected pill — same coherent segmented look across all Counts screens.
     Row(
@@ -333,18 +347,23 @@ internal fun CountsSegmented(
     ) {
         options.forEach { (key, label) ->
             val selected = key == selectedKey
+            val disabled = key in disabledKeys
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (selected) MeshaColors.Brand else Color.Transparent)
-                    .clickable { onSelect(key) }
+                    .let { base -> if (disabled) base else base.clickable { onSelect(key) } }
                     .padding(vertical = 13.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = label,
-                    color = if (selected) MeshaColors.OnBrand else MeshaColors.Muted,
+                    color = when {
+                        selected -> MeshaColors.OnBrand
+                        disabled -> MeshaColors.Muted.copy(alpha = 0.4f)
+                        else -> MeshaColors.Muted
+                    },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.W700,
                 )

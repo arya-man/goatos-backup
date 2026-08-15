@@ -69,6 +69,7 @@ import sg.mesha.goatos.feature.counts.ShiftingStateTone
 import sg.mesha.goatos.feature.counts.ShiftingPreviousDateUi
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
@@ -530,6 +531,73 @@ class ScreenshotTest {
                 ),
                 destinationParkId = animal.parkId,
             ),
+        )
+    }
+
+    /**
+     * The raise form's TAG TOGGLE with the destination pen's tag AVAILABLE (maintainer decision
+     * 2026-08-15). Both sides are selectable and the pen's tag is named under the control, so the
+     * operator can see what "use destination tag" would actually apply before choosing it.
+     */
+    @Test
+    fun shifting_tag_toggle_available() = shot("shifting_tag_toggle_available") {
+        ShiftingScreen(state = shiftingTagToggleState(destinationStage = "Mother"))
+    }
+
+    /**
+     * The same toggle on a pen that cannot supply a tag. "Use destination tag" is DIMMED and not
+     * clickable, and the backend's farm-worded reason is rendered verbatim beneath it — the
+     * operator is never offered a choice that silently does nothing, and is told why.
+     */
+    @Test
+    fun shifting_tag_toggle_unavailable() = shot("shifting_tag_toggle_unavailable") {
+        ShiftingScreen(
+            state = shiftingTagToggleState(
+                destinationStageReason = "This destination holds a mix of tags",
+            ).copy(stageMode = SHIFTING_STAGE_MODE_KEEP_CURRENT),
+        )
+    }
+
+    /** A raise form with an animal picked and a destination pen selected, ready to show the toggle. */
+    private fun shiftingTagToggleState(
+        destinationStage: String = "",
+        destinationStageReason: String = "",
+    ): ShiftingUiState {
+        val animal = ShiftingAnimalUi(
+            goatId = "d8337607-6e21-41c9-a703-a7b73ae4e545",
+            displayId = "G-000326",
+            tag = "CBE-ASSUMED-RFID-00002",
+            parkId = "00000000-0000-4000-8000-000000003001",
+            shedId = "43071c6e-3b00-47a9-860c-1bbacb570575",
+            parkName = "Coimbatore",
+            shedName = "Castro",
+            partitionLabel = "1",
+            lifecycleStatus = "alive",
+        )
+        val destinationShedID = "43071c6e-3b00-47a9-860c-1bbacb570576"
+        return ShiftingUiState(
+            animalQuery = animal.tag,
+            animalMatches = listOf(animal),
+            selectedAnimal = animal,
+            destinationParks = listOf(
+                ShiftingParkUi(
+                    parkId = animal.parkId,
+                    name = animal.parkName,
+                    sheds = listOf(
+                        ShiftingShedUi(
+                            shedId = destinationShedID,
+                            name = "Castro - 2",
+                            partitionLabel = "2",
+                            operationalLocationDisplay = "Castro - 2",
+                            destinationStage = destinationStage,
+                            destinationStageReason = destinationStageReason,
+                        ),
+                    ),
+                ),
+            ),
+            destinationParkId = animal.parkId,
+            destinationShedId = destinationShedID,
+            destinationPartitionLabel = "2",
         )
     }
 

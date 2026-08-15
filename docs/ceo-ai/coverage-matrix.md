@@ -505,6 +505,21 @@ coverage-matrix mapping required.
 
 | feed_proof_media_validator | func:ValidateFeedProofMedia | Explicit exclusion: write-path proof media validation only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: shifting destination tag resolver helpers (2026-08-16)
+
+`func:Resolved`, `func:ResolveShiftingDestinationStageDetailed`,
+`func:ResolveShiftingDestinationPenStageDetailed`,
+`func:NormalizeClinicalStageKey`, and `func:IsClinicalManagementStage` are
+write-path/form-contract helpers for the shifting raise flow. They decide whether
+the operator may choose the destination pen's tag and explain unavailable choices
+before the existing shifting approval/completion path records the movement. They
+add no new leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view,
+MCP Toolbox tool, or read-only SQL fallback surface. Leadership assistant
+coverage remains the existing counts, herd, and verification reporting reads.
+Explicit documented exclusion — no coverage-matrix mapping required.
+
+| shifting_destination_tag_resolver | func:Resolved, func:ResolveShiftingDestinationStageDetailed, func:ResolveShiftingDestinationPenStageDetailed, func:NormalizeClinicalStageKey, func:IsClinicalManagementStage | Explicit exclusion: shifting write-path/form resolver helpers only; existing counts/herd/verification reads remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
 
 `GET /counts/breakdown` (row 35 above, already `api + view:animal_current_scope`)
