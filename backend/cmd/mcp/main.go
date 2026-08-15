@@ -690,7 +690,7 @@ func tools() []map[string]any {
 		},
 		{
 			"name":        "get_health_today",
-			"description": "Get adult and kids health work items for one day in a single call. Use this for broad CEO health questions so adult and kids sessions are not accidentally reported as a partial answer.",
+			"description": "Get adult health, kids health, and kid milk-feeding health tasks for one day in a single call. Use this for broad CEO health questions so clinical and milk-feeding work are not accidentally reported as a partial answer.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type":       "object",
@@ -741,7 +741,7 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 	case "get_health_today":
 		return s.getHealthToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_today, get_health_work_items, get_workforce_coverage, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_today, get_health_work_items, get_milk_feeding_today, get_workforce_coverage, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
@@ -969,6 +969,28 @@ func apiReadTools() []apiReadTool {
 			},
 		},
 		{
+			Name:        "get_milk_feeding_today",
+			Description: "Get today's kid milk-feeding farm-session tasks. Use this with health answers for kid milk-feeding work, not-submitted sessions, head count, and verification status. Milk Feeding is a separate Milk action, not clinical Adult/Kids Health.",
+			Path:        "/app/counts/milk-feeding/tasks",
+			Source:      "GET /app/counts/milk-feeding/tasks",
+			Properties:  commonReadProperties("feeding_date", "date", "park_id", "session_no", "limit", "offset"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addDate(q, "feeding_date", firstNonEmpty(a.FeedingDate, a.Date, a.TargetDate, a.BusinessDate)); err != nil {
+					return nil, err
+				}
+				if err := addUUID(q, "park_id", a.ParkID); err != nil {
+					return nil, err
+				}
+				if err := addSmallInt(q, "session_no", a.SessionNo, 4); err != nil {
+					return nil, err
+				}
+				addLimit(q, a.Limit, 20)
+				addOffset(q, a.Offset)
+				return q, nil
+			},
+		},
+		{
 			Name:        "get_workforce_coverage",
 			Description: "Get canonical workforce/roster coverage rows. Use this for which sheds, parks, modules, positions, or backup-manager seats are uncovered or weakly covered. Do not answer workforce coverage from Action Center obligations.",
 			Path:        "/admin/roster/coverage",
@@ -1135,6 +1157,7 @@ type apiReadArgs struct {
 	LifecycleStatus  string `json:"lifecycle_status"`
 	AgeBand          string `json:"age_band"`
 	Date             string `json:"date"`
+	FeedingDate      string `json:"feeding_date"`
 	From             string `json:"from"`
 	To               string `json:"to"`
 	DiseaseKey       string `json:"disease_key"`
@@ -1149,6 +1172,7 @@ type apiReadArgs struct {
 	Missed           any    `json:"missed"`
 	Draft            any    `json:"draft"`
 	Session          any    `json:"session"`
+	SessionNo        int    `json:"session_no"`
 	Limit            int    `json:"limit"`
 	Offset           int    `json:"offset"`
 }
@@ -1173,6 +1197,10 @@ func (s *server) getHealthToday(ctx context.Context, r *http.Request, raw json.R
 	if !ok {
 		return nil, -32603, "health_work_items_not_configured"
 	}
+	milkDef, ok := apiReadToolByName("get_milk_feeding_today")
+	if !ok {
+		return nil, -32603, "milk_feeding_today_not_configured"
+	}
 	for _, ageBand := range []string{"adult", "kid"} {
 		next := args
 		next.AgeBand = ageBand
@@ -1188,9 +1216,20 @@ func (s *server) getHealthToday(ctx context.Context, r *http.Request, raw json.R
 		results[ageBand] = payload
 		queries[ageBand] = queryObject(q)
 	}
+	milkQ, err := milkDef.BuildQuery(args)
+	if err != nil {
+		return nil, -32602, err.Error()
+	}
+	var milkPayload any
+	if err := s.getUpstreamJSON(ctx, r, authz, email, milkDef.Path, milkQ, &milkPayload); err != nil {
+		s.log.Warn("goatos_mcp_health_today_milk_feeding_failed", slog.Any("error", err))
+		return nil, -32603, "health_today_unreachable"
+	}
+	results["milk_feeding"] = milkPayload
+	queries["milk_feeding"] = queryObject(milkQ)
 	return structuredTextToolResult(summarizeHealthToday(results), map[string]any{
 		"tool":    "get_health_today",
-		"source":  "GET /app/health/work-items age_band=adult + kid",
+		"source":  "GET /app/health/work-items age_band=adult + kid; GET /app/counts/milk-feeding/tasks",
 		"queries": queries,
 		"data":    results,
 	}), 0, ""
@@ -1469,13 +1508,13 @@ func commonReadProperties(names ...string) map[string]any {
 	props := map[string]any{}
 	for _, name := range names {
 		switch name {
-		case "business_date", "business_date_from", "business_date_to", "target_date", "from", "to":
+		case "business_date", "business_date_from", "business_date_to", "target_date", "from", "to", "date", "feeding_date":
 			props[name] = map[string]any{"type": "string", "description": "Asia/Kolkata business date in YYYY-MM-DD."}
 		case "as_of", "due_after", "due_before":
 			props[name] = map[string]any{"type": "string", "description": "RFC3339 timestamp."}
 		case "park_id", "shed_id", "owner_id", "campaign_id":
 			props[name] = map[string]any{"type": "string", "description": "UUID or backend-supported opaque key where documented."}
-		case "limit", "offset", "session":
+		case "limit", "offset", "session", "session_no":
 			props[name] = map[string]any{"type": "integer"}
 		case "missed", "draft":
 			props[name] = map[string]any{"type": "boolean"}
@@ -1700,6 +1739,8 @@ func summarizeAPIRead(def apiReadTool, payload any) string {
 		b.WriteString("\nJudge note: pending verification weight is not verified weight.\n")
 	case "get_health_work_items":
 		b.WriteString("\nJudge note: open health/treatment work is not a death or mortality event unless the health workflow explicitly reports approved death state.\n")
+	case "get_milk_feeding_today":
+		b.WriteString("\nJudge note: Milk Feeding is kid feeding work under Milk; it is not clinical Adult/Kids Health and should be reported separately from treatment sessions.\n")
 	case "get_workforce_coverage":
 		b.WriteString("\nJudge note: workforce coverage rows are roster/backup ownership facts; do not substitute Action Center obligations for coverage ownership.\n")
 	case "get_counts_summary":
@@ -1710,19 +1751,19 @@ func summarizeAPIRead(def apiReadTool, payload any) string {
 
 func summarizeHealthToday(payload map[string]any) string {
 	var b strings.Builder
-	b.WriteString("Get adult and kids health work items for one day in a single call. Use this for broad CEO health questions so adult and kids sessions are not accidentally reported as a partial answer.\n")
-	b.WriteString("\nSource: GET /app/health/work-items age_band=adult + kid\n")
-	for _, ageBand := range []string{"adult", "kid"} {
-		counts := payloadCounts(payload[ageBand])
+	b.WriteString("Get adult health, kids health, and kid milk-feeding health tasks for one day in a single call. Use this for broad CEO health questions so clinical and milk-feeding work are not accidentally reported as a partial answer.\n")
+	b.WriteString("\nSource: GET /app/health/work-items age_band=adult + kid; GET /app/counts/milk-feeding/tasks\n")
+	for _, label := range []string{"adult", "kid", "milk_feeding"} {
+		counts := payloadCounts(payload[label])
 		if len(counts) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "%s collection sizes:\n", ageBand)
+		fmt.Fprintf(&b, "%s collection sizes:\n", label)
 		for _, item := range counts {
 			fmt.Fprintf(&b, "- %s: %d\n", item.name, item.count)
 		}
 	}
-	b.WriteString("\nJudge note: this combines adult and kids health work. Open health/treatment work is not a death or mortality event unless the health workflow explicitly reports approved death state.\n")
+	b.WriteString("\nJudge note: this combines adult health, kids health, and kid milk-feeding tasks. Milk Feeding is a separate Milk action; open health/treatment work is not a death or mortality event unless the health workflow explicitly reports approved death state.\n")
 	return b.String()
 }
 

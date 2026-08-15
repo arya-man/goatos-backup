@@ -1117,14 +1117,16 @@ are the leadership-relevant ones — how many animals are under treatment, for w
 diseases, in which parks, how long courses run, and how much medicine is being
 administered.
 
-`GET /app/health/work-items` is now externally reachable through
+`GET /app/health/work-items` and `GET /app/counts/milk-feeding/tasks` are now externally reachable through
 `external MCP:get_health_today` and `external MCP:get_health_work_items` at
 treatment-session grain for CEO/CXO questions about
 open/due/in-progress/completed/held/canceled-death work items. Broad health
-questions must use `get_health_today`, which combines adult and kids work instead
-of returning a partial age-band answer. The guardrail is strict: open
-sick/treatment work is not a mortality event unless the health workflow
-explicitly reports an approved death state.
+questions must use `get_health_today`, which combines adult health, kids health,
+and kid milk-feeding tasks instead of returning a partial age-band answer.
+`external MCP:get_milk_feeding_today` is also available as a typed tool for Milk
+Feeding farm-session work. The guardrail is strict: open sick/treatment work is
+not a mortality event unless the health workflow explicitly reports an approved
+death state.
 
 The richer clinical analytics gap remains for tables such as `health_cases`,
 `health_session_steps`, and `health_medicine_administrations`: there is still no
