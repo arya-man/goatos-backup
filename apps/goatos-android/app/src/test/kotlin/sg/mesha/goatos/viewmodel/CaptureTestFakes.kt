@@ -213,6 +213,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     val captureCalls = mutableListOf<CaptureCall>()
     private var nextId = 0
 
+    /** When true, the NEXT [capture] call returns [AppResult.Err] instead of writing a row, then
+     *  resets itself — drives "cancelled/failed re-capture must not lose the old proof" tests. */
+    var failNextCapture: Boolean = false
+
     override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
         flow.map { list ->
             list.filter {
@@ -255,6 +259,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         uploadGroupKey: String?,
         allowReplacementOverCap: Boolean,
     ): AppResult<ProofCaptureRow> {
+        if (failNextCapture) {
+            failNextCapture = false
+            return AppResult.Err("Simulated capture failure.")
+        }
         captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, rfidTag, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
@@ -394,6 +402,60 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
                 it.row.syncStatus != CaptureSyncStatus.FAILED &&
                 it.row.serverProofId == null
         }
+    }
+
+    override suspend fun captureReplacingLatest(
+        slot: EvidenceSlot,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> {
+        val taskId = slot.identity.taskId
+        val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+        val result = capture(
+            taskId = taskId,
+            fieldKey = slot.fieldKey,
+            subject = subject,
+            subjectId = subjectId,
+            localUri = localUri,
+            mimeType = mimeType,
+            caption = caption,
+            rfidTag = rfidTag,
+            scopeType = scopeType,
+            scopeId = scopeId,
+            capturedStartMs = capturedStartMs,
+            capturedEndMs = capturedEndMs,
+            capturedByPrincipalId = capturedByPrincipalId,
+            proofPolicy = proofPolicy,
+            partitionLabel = partitionLabel,
+            awaitUploadEnqueue = awaitUploadEnqueue,
+            uploadGroupKey = uploadGroupKey,
+            allowReplacementOverCap = true,
+        )
+        if (result is AppResult.Ok) {
+            val newId = result.value.id
+            val partitionKey = testPartitionKey(partitionLabel)
+            val toRemove = rows.filter {
+                it.matches(taskId) &&
+                    it.row.partitionKey == partitionKey &&
+                    it.row.fieldKey == slot.fieldKey &&
+                    it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                    it.row.id != newId
+            }
+            toRemove.forEach { remove(taskId, it.row.id) }
+        }
+        return result
     }
 }
 

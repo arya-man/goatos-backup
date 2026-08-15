@@ -560,21 +560,24 @@ interface ProofCaptureRepository {
     suspend fun activeCount(slot: EvidenceSlot): Int
 
     /**
-     * Captures a new proof for [slot], then discards the slot's previous active occupant —
-     * ordering per Manohar's rule: **capture the new evidence first, only discard the old one
+     * Captures a new proof for [slot], then discards the slot's previous active occupants —
+     * ordering per Manohar's rule: **capture the new evidence first, only discard old ones
      * after the new capture succeeds.** A failed new capture must never destroy evidence that was
-     * already proving the slot; the old row is only removed once [capture] returns
+     * already proving the slot; old rows are only removed once [capture] returns
      * [AppResult.Ok].
      *
      * Concurrent-replace safety: after successful capture, re-read ALL active rows for the slot
-     * and remove any non-new occupants (not just the pre-read `previous`). Two concurrent replaces
-     * both read the same `previous`, both capture successfully, but the second remove() must still
+     * and remove any non-new occupants (not just a single `previous`). Two concurrent replaces
+     * both read the same set of previous rows, both capture successfully, but the second remove() must still
      * eliminate the first's new row so exactly one active row remains. Keep Manohar ordering:
      * never remove anything unless the new capture returned Ok.
      *
-     * Implemented over the existing primitives ([capture], [remove], [observeLatest]) so it needs
-     * no new Room query and cannot diverge from the byte-identical id/key formats those primitives
-     * already produce.
+     * CRITICAL: Implementations MUST re-read ALL active rows (not just the newest via observeLatest),
+     * then remove all non-new ones by id. Per-slot serialization (via Mutex or equivalent) is required
+     * to ensure concurrent replaces converge to exactly one active row.
+     *
+     * No default implementation — each implementer must provide full logic to safely re-read all
+     * active rows and clean up old occupants while preserving Manohar ordering.
      */
     suspend fun captureReplacingLatest(
         slot: EvidenceSlot,
@@ -592,43 +595,7 @@ interface ProofCaptureRepository {
         proofPolicy: ProofPolicy = ProofPolicy.Default,
         awaitUploadEnqueue: Boolean = false,
         uploadGroupKey: String? = null,
-    ): AppResult<ProofCaptureRow> {
-        // Use the identity's taskId directly (not storageKey) as that's what capture() expects
-        val taskId = slot.identity.taskId
-        val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
-        val result = capture(
-            taskId = taskId,
-            fieldKey = slot.fieldKey,
-            subject = subject,
-            subjectId = subjectId,
-            localUri = localUri,
-            mimeType = mimeType,
-            caption = caption,
-            rfidTag = rfidTag,
-            scopeType = scopeType,
-            scopeId = scopeId,
-            capturedStartMs = capturedStartMs,
-            capturedEndMs = capturedEndMs,
-            capturedByPrincipalId = capturedByPrincipalId,
-            proofPolicy = proofPolicy,
-            partitionLabel = partitionLabel,
-            awaitUploadEnqueue = awaitUploadEnqueue,
-            uploadGroupKey = uploadGroupKey,
-            allowReplacementOverCap = true,
-        )
-        if (result is AppResult.Ok) {
-            val newId = result.value.id
-            // After successful capture, re-read the slot and remove ALL non-new active rows,
-            // not just the pre-read `previous`. Concurrent replaces converge to exactly one.
-            val allActive = observeLatest(slot).first()?.let { listOf(it) } ?: emptyList()
-            allActive.forEach { row ->
-                if (row.id != newId) {
-                    remove(taskId, row.id)
-                }
-            }
-        }
-        return result
-    }
+    ): AppResult<ProofCaptureRow>
 }
 
 class DefaultProofCaptureRepository(
