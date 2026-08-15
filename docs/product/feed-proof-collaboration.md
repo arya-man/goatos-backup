@@ -32,6 +32,13 @@ server is always a defect, never an acceptable fallback outcome.
   not the app. One operator may fill all three slots; three operators may take
   one each; any 2/1 split is equally valid. The app must never force, assume, or
   restrict who captures which proof.
+- **Slots are INDEPENDENT and PARALLEL — never sequential.** There is no
+  capture order and no "step unlocks the next step." Three operators capture
+  their proofs simultaneously on three phones into the same session. Any doc,
+  code, or UI that gates one proof slot behind another (e.g. "weight photo must
+  exist before feed video") contradicts this contract and is a defect. The only
+  ordering in the real world is physical common sense (feed is weighed before it
+  is given out) — the app records evidence, it does not choreograph the humans.
 - **Attribution is per-proof.** Each captured proof records who captured it
   ("Captured by Amit Kumar · 2:46 pm"). Attribution answers "who did this task",
   it does not gate who may do the next one.
