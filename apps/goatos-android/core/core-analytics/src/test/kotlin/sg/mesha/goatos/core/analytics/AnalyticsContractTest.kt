@@ -36,6 +36,10 @@ class AnalyticsContractTest {
         assertEquals("feed_transport_video_captured", AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED)
         assertEquals("feed_transport_submitted", AnalyticsEvents.FEED_TRANSPORT_SUBMITTED)
         assertEquals("feed_transport_failure", AnalyticsEvents.FEED_TRANSPORT_FAILURE)
+        assertEquals("feed_distribution_teammate_captures_read", AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ)
+        assertEquals("feed_distribution_teammate_proof_adopted", AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED)
+        assertEquals("feed_distribution_submit_sources", AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES)
+        assertEquals("feed_distribution_live_status_changed", AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED)
     }
 
     @Test
@@ -52,6 +56,17 @@ class AnalyticsContractTest {
         assertEquals("park_id", AnalyticsEvents.UserProps.PARK_ID)
         assertEquals("flavor", AnalyticsEvents.UserProps.FLAVOR)
         assertEquals("tenant", AnalyticsEvents.UserProps.TENANT)
+        assertEquals("result", AnalyticsEvents.Params.RESULT)
+        assertEquals("slot_mask", AnalyticsEvents.Params.SLOT_MASK)
+        assertEquals("retry_count", AnalyticsEvents.Params.RETRY_COUNT)
+        assertEquals("source", AnalyticsEvents.Params.SOURCE)
+        assertEquals("local_slot_state", AnalyticsEvents.Params.LOCAL_SLOT_STATE)
+        assertEquals("feed_weight_source", AnalyticsEvents.Params.FEED_WEIGHT_SOURCE)
+        assertEquals("feed_video_source", AnalyticsEvents.Params.FEED_VIDEO_SOURCE)
+        assertEquals("water_video_source", AnalyticsEvents.Params.WATER_VIDEO_SOURCE)
+        assertEquals("previous", AnalyticsEvents.Params.PREVIOUS)
+        assertEquals("next", AnalyticsEvents.Params.NEXT)
+        assertEquals("status", AnalyticsEvents.Params.STATUS)
     }
 
     @Test
