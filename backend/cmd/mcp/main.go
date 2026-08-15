@@ -281,7 +281,7 @@ func (s *server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 		"grant_types_supported":                 []string{"authorization_code"},
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
-		"scopes_supported":                      []string{"goatos.read", "offline_access"},
+		"scopes_supported":                      []string{"goatos.read"},
 	})
 }
 
@@ -318,6 +318,10 @@ func (s *server) renderLogin(w http.ResponseWriter, r *http.Request, message str
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_redirect_uri_or_state"})
 		return
 	}
+	if !allowedOAuthRedirectURI(q.Get("redirect_uri")) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	msg := ""
@@ -336,7 +340,7 @@ button{margin-top:20px;width:100%%;border:0;border-radius:8px;background:#7bd957
 small{display:block;color:#87a38e;margin-top:14px}
 </style></head><body><main>
 <h1>Connect Mesha Goat OS</h1>
-<p>Sign in with your approved leadership account. After this, Claude or Codex can answer Goat OS questions in plain English.</p>
+<p>Sign in with your approved leadership account. After this, ChatGPT, Claude, or Codex can answer Goat OS questions in plain English.</p>
 %s
 <form method="post" action="/authorize">
 <input type="hidden" name="client_id" value="%s">
@@ -371,6 +375,10 @@ func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_redirect_uri_or_state"})
 		return
 	}
+	if !allowedOAuthRedirectURI(redirectURI) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
+		return
+	}
 	idToken, claims, err := s.signInWithFirebase(r.Context(), strings.TrimSpace(r.Form.Get("email")), r.Form.Get("password"))
 	if err != nil {
 		s.log.Warn("goatos_mcp_login_failed", slog.Any("error", err))
@@ -388,6 +396,8 @@ func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
 		Token:               idToken,
 		Email:               email,
 		ExpiresAt:           time.Now().Add(5 * time.Minute),
+		ClientID:            strings.TrimSpace(r.Form.Get("client_id")),
+		RedirectURI:         redirectURI,
 		CodeChallenge:       strings.TrimSpace(r.Form.Get("code_challenge")),
 		CodeChallengeMethod: strings.TrimSpace(r.Form.Get("code_challenge_method")),
 	}
@@ -408,6 +418,8 @@ type oauthCode struct {
 	Token               string
 	Email               string
 	ExpiresAt           time.Time
+	ClientID            string
+	RedirectURI         string
 	CodeChallenge       string
 	CodeChallengeMethod string
 }
@@ -431,6 +443,10 @@ func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 		return
 	}
+	if !entry.clientAllows(strings.TrimSpace(r.Form.Get("client_id"))) || !entry.redirectAllows(strings.TrimSpace(r.Form.Get("redirect_uri"))) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
 	if !entry.pkceAllows(strings.TrimSpace(r.Form.Get("code_verifier"))) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 		return
@@ -441,6 +457,37 @@ func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
 		"expires_in":   3600,
 		"scope":        "goatos.read",
 	})
+}
+
+func allowedOAuthRedirectURI(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return host == "chatgpt.com" || strings.HasSuffix(host, ".chatgpt.com") ||
+			host == "claude.ai" || strings.HasSuffix(host, ".claude.ai")
+	case "http":
+		return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	default:
+		return false
+	}
+}
+
+func (c oauthCode) clientAllows(clientID string) bool {
+	if c.ClientID == "" || clientID == "" {
+		return true
+	}
+	return clientID == c.ClientID
+}
+
+func (c oauthCode) redirectAllows(redirectURI string) bool {
+	if c.RedirectURI == "" {
+		return true
+	}
+	return redirectURI == c.RedirectURI
 }
 
 func (c oauthCode) pkceAllows(verifier string) bool {
@@ -700,6 +747,7 @@ type apiReadTool struct {
 	Path        string
 	Source      string
 	Properties  map[string]any
+	Required    []string
 	BuildQuery  func(apiReadArgs) (url.Values, error)
 }
 
@@ -711,6 +759,7 @@ func (t apiReadTool) mcpTool() map[string]any {
 		"inputSchema": map[string]any{
 			"type":       "object",
 			"properties": t.Properties,
+			"required":   t.Required,
 		},
 	}
 }
@@ -794,10 +843,11 @@ func apiReadTools() []apiReadTool {
 		},
 		{
 			Name:        "get_feed_today",
-			Description: "Get the frozen issued Feed Direction sheet for one park and feed day. Use this for today feed quantities, blocked feed cells, ration/config gaps, and session/shed feed work. Blocked/null feed must not be treated as zero.",
+			Description: "Get the frozen issued Feed Direction sheet for one park and feed day. Use this for today planned/needed feed quantities, blocked feed cells, ration/config gaps, and session/shed feed work. This does not prove feed was actually completed; feed actuals/adherence are not covered until the feed_adherence source ships. Blocked/null feed must not be treated as zero.",
 			Path:        "/feed-direction/preview",
 			Source:      "GET /feed-direction/preview",
 			Properties:  commonReadProperties("park_id", "target_date", "shed_id", "session", "workflow", "draft", "limit", "offset"),
+			Required:    []string{"park_id", "target_date"},
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				if err := addRequiredUUID(q, "park_id", a.ParkID); err != nil {
@@ -875,6 +925,7 @@ func apiReadTools() []apiReadTool {
 			Path:        "/app/health/work-items",
 			Source:      "GET /app/health/work-items",
 			Properties:  commonReadProperties("age_band", "date", "status", "disease_key", "park_id", "shed_id", "session", "cursor", "limit"),
+			Required:    []string{"age_band"},
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				if err := addEnum(q, "age_band", a.AgeBand, "adult", "kid"); err != nil {
@@ -1568,6 +1619,7 @@ func summarizeAPIRead(def apiReadTool, payload any) string {
 		b.WriteString("\nJudge note: pending verification is evidence waiting for review; it is not completed work.\n")
 	case "get_feed_today":
 		b.WriteString("\nJudge note: blocked/null feed quantities are configuration gaps, not zero feed.\n")
+		b.WriteString("Judge note: this is planned/issued feed, not proof that feed actually happened; feed actuals/adherence are not covered by this MCP tool yet.\n")
 	case "get_action_center":
 		b.WriteString("\nJudge note: Action Center rows are process-integrity obligations; do not mix them with operator schedule totals.\n")
 	case "get_weighing_progress":

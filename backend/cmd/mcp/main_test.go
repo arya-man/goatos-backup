@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +29,10 @@ func TestToolsList(t *testing.T) {
 	var got struct {
 		Result struct {
 			Tools []struct {
-				Name string `json:"name"`
+				Name        string `json:"name"`
+				InputSchema struct {
+					Required []string `json:"required"`
+				} `json:"inputSchema"`
 			} `json:"tools"`
 		} `json:"result"`
 	}
@@ -36,8 +40,10 @@ func TestToolsList(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := map[string]bool{}
+	requiredByTool := map[string][]string{}
 	for _, tool := range got.Result.Tools {
 		names[tool.Name] = true
+		requiredByTool[tool.Name] = tool.InputSchema.Required
 	}
 	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_work_items", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
 		if !names[want] {
@@ -46,6 +52,34 @@ func TestToolsList(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"readOnlyHint":true`) || !strings.Contains(rec.Body.String(), `"destructiveHint":false`) {
 		t.Fatalf("tools should advertise read-only annotations: %s", rec.Body.String())
+	}
+	for tool, want := range map[string][]string{
+		"get_feed_today":        {"park_id", "target_date"},
+		"get_health_work_items": {"age_band"},
+	} {
+		gotRequired := map[string]bool{}
+		for _, item := range requiredByTool[tool] {
+			gotRequired[item] = true
+		}
+		for _, item := range want {
+			if !gotRequired[item] {
+				t.Fatalf("%s required=%v, missing %s", tool, requiredByTool[tool], item)
+			}
+		}
+	}
+}
+
+func TestAPIReadToolPathsAreInOpenAPI(t *testing.T) {
+	spec, err := os.ReadFile("../../../contracts/openapi/app-api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(spec)
+	for _, def := range apiReadTools() {
+		want := "\n  " + def.Path + ":"
+		if !strings.Contains(body, want) {
+			t.Fatalf("%s points at %s, but that path is not declared in contracts/openapi/app-api.yaml", def.Name, def.Path)
+		}
 	}
 }
 
@@ -551,6 +585,15 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 	if metaRec.Code != http.StatusOK || !strings.Contains(metaRec.Body.String(), "authorization_servers") {
 		t.Fatalf("metadata status=%d body=%s", metaRec.Code, metaRec.Body.String())
 	}
+	asReq := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+	asRec := httptest.NewRecorder()
+	s.handleAuthorizationServerMetadata(asRec, asReq)
+	if asRec.Code != http.StatusOK {
+		t.Fatalf("auth metadata status=%d body=%s", asRec.Code, asRec.Body.String())
+	}
+	if strings.Contains(asRec.Body.String(), "offline_access") {
+		t.Fatalf("auth metadata must not advertise offline_access without refresh tokens: %s", asRec.Body.String())
+	}
 
 	verifier := "codex-pkce-verifier"
 	sum := sha256.Sum256([]byte(verifier))
@@ -558,12 +601,16 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 	s.oauthCodes["code-1"] = oauthCode{
 		Token:               "firebase-id-token",
 		ExpiresAt:           time.Now().Add(time.Minute),
+		ClientID:            "goatos-mcp-client",
+		RedirectURI:         "https://chatgpt.com/connector/oauth/goatos",
 		CodeChallenge:       challenge,
 		CodeChallengeMethod: "S256",
 	}
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", "code-1")
+	form.Set("client_id", "goatos-mcp-client")
+	form.Set("redirect_uri", "https://chatgpt.com/connector/oauth/goatos")
 	form.Set("code_verifier", verifier)
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -575,6 +622,56 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"access_token":"firebase-id-token"`) {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestOAuthRejectsUntrustedRedirectURI(t *testing.T) {
+	s := newServer(config{
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+	}, http.DefaultClient, nil)
+	req := httptest.NewRequest(http.MethodGet, "/authorize?client_id=client&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&state=abc", nil)
+	rec := httptest.NewRecorder()
+
+	s.handleAuthorize(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_redirect_uri") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestOAuthCodeExchangeRequiresOriginalRedirectURI(t *testing.T) {
+	s := newServer(config{
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+	}, http.DefaultClient, nil)
+	s.oauthCodes["code-1"] = oauthCode{
+		Token:       "firebase-id-token",
+		ExpiresAt:   time.Now().Add(time.Minute),
+		ClientID:    "goatos-mcp-client",
+		RedirectURI: "https://chatgpt.com/connector/oauth/goatos",
+	}
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", "code-1")
+	form.Set("client_id", "goatos-mcp-client")
+	form.Set("redirect_uri", "https://claude.ai/oauth/callback")
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	s.handleToken(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
