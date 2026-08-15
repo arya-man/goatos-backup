@@ -745,8 +745,14 @@ class DefaultProofCaptureRepository(
             geocodedAddress = location.address,
             updatedAtMs = clock(),
         )
-        // Gate 3: Backstop validation — file must exist && length > 0 before Room insert
-        val validationResult = proofArtifactValidator.validateVideoFile(localUri)
+        // Gate 3: Backstop validation — file must exist && length > 0 before Room insert.
+        // Mime-aware: a JPEG must never be judged by the video duration probe (OEMs that report
+        // duration=0 for images would reject every valid photo at this gate).
+        val validationResult = if (mimeType.startsWith("image/")) {
+            proofArtifactValidator.validateImageFile(localUri)
+        } else {
+            proofArtifactValidator.validateVideoFile(localUri)
+        }
         if (!validationResult.isValid) {
             return@withContext AppResult.Err(validationResult.reason ?: "Proof file is invalid. Please re-record.")
         }

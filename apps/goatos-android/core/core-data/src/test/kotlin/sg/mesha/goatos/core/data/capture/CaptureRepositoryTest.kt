@@ -2702,6 +2702,63 @@ class CaptureRepositoryTest {
         }
     }
 
+    // INVARIANT regression (field bug 2026-08-15, third occurrence site): Gate 3 backstop
+    // validation must be mime-aware — a real JPEG through capture() with the PRODUCTION
+    // FileSystemProofArtifactValidator must succeed. Before the fix, the gate ran the video
+    // duration probe on photos; OEMs whose probe reports duration=0 for images rejected every
+    // valid photo at insert time.
+    @Test
+    fun `real jpeg passes gate3 backstop validation with production validator`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                proofArtifactValidator = FileSystemProofArtifactValidator(),
+            )
+            val jpeg = File.createTempFile("proof-photo", ".jpg")
+            try {
+                val bitmap = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888)
+                jpeg.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+                bitmap.recycle()
+                val result = proofs.captureReplacingLatest(
+                    slot = EvidenceSlot(
+                        identity = ProofIdentity(
+                            flow = ProofFlow.VACCINATION,
+                            taskId = "photo-task-1",
+                            partitionKey = "whole",
+                        ),
+                        fieldKey = "feed_distribution_feed_weight_photo",
+                    ),
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-photo",
+                    localUri = jpeg.toURI().toString(),
+                    mimeType = "image/jpeg",
+                    caption = null,
+                    scopeType = "goat",
+                    scopeId = "goat-photo",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 2_000L,
+                    capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = false,
+                )
+                assertTrue(
+                    "Real JPEG must pass gate 3: ${(result as? AppResult.Err)?.message}",
+                    result is AppResult.Ok,
+                )
+            } finally {
+                jpeg.delete()
+            }
+        } finally {
+            db.close()
+        }
+    }
+
     // ============================================================================
     // REGRESSION TEST (d): Malformed-file validation with REAL files
     // ============================================================================
