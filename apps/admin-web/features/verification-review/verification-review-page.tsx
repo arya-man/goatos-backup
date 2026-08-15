@@ -14,8 +14,24 @@ import { ActionsDateFilter } from "./actions-date-filter";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, and every date selection silently fell back to today.
 import { DATE_FROM_PARAM, DATE_TO_PARAM } from "./actions-date-params";
-import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY, AnalyticsPanel } from "./analytics-panel";
+import { AnalyticsPanel } from "./analytics-panel";
+// Server-safe module on purpose: see analytics-panel-params.ts — importing these across the
+// "use client" boundary made closeHref unable to strip its own key, so the drawer would not close.
+import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
 import { OversightAnalytics } from "./oversight-analytics";
+import { VideoLogPanel } from "./video-log-panel";
+// Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
+// client-reference proxy, not the string, so vl_date/vl_shed silently never matched.
+import {
+  VIDEO_LOG_DATE_KEY,
+  VIDEO_LOG_PANEL_ID,
+  VIDEO_LOG_PANEL_SELECTION_KEY,
+  VIDEO_LOG_PARK_KEY,
+  VIDEO_LOG_QUERY_KEY,
+  VIDEO_LOG_SHED_KEY,
+  VIDEO_LOG_SHED_TOKEN,
+} from "./video-log-params";
+import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 
@@ -151,6 +167,11 @@ export async function VerificationReviewPage({
   // control -- see compileVerificationReviewControls's oversight_analytics doc comment for why
   // this is not folded into oversight_filters.
   const oversightAnalyticsEnabled = controlEnabled(pageContract, "oversight_analytics", false);
+  // Gates the VIDEO LOG panel (button + drawer). A DIFFERENT capability from the two above:
+  // permissions.VerificationEvidenceTimeline, which the verifier holds and VerificationOversee is
+  // not. Keeping it a distinct control is what lets her have this panel without the oversight
+  // chrome. See compileVerificationReviewControls's video_log doc comment.
+  const videoLogEnabled = controlEnabled(pageContract, "video_log", false);
 
   // The mock's dot-legend pills (mock/verifier-web-mock.html .legend/.lg) need a live count per
   // status for the CURRENT feature+scope. This is the backend's own whole-filter aggregate
@@ -188,7 +209,10 @@ export async function VerificationReviewPage({
         {oversightAnalyticsEnabled ? (
           <AnalyticsPanel
             pageContract={pageContract}
-            closeHref={hrefWith(sp, {})}
+            // MUST drop the panel's own key. closeHref is what the overlay writes when it cannot
+            // simply pop history, so a href that still carries vi_analytics=open closes the drawer
+            // and immediately reopens it from the URL.
+            closeHref={hrefWith(sp, { [ANALYTICS_PANEL_SELECTION_KEY]: null })}
             initialOpen={one(sp, ANALYTICS_PANEL_SELECTION_KEY) === ANALYTICS_PANEL_ID}
           >
             <OversightAnalytics
@@ -209,6 +233,101 @@ export async function VerificationReviewPage({
               }
             />
           </AnalyticsPanel>
+        ) : null}
+        {/* The VIDEO LOG: one business day, per shed, when each proof arrived (maintainer decision
+            2026-08-14). A SECOND panel beside Analytics, not a tab inside it, because the two are
+            gated on DIFFERENT capabilities: this follows permissions.VerificationEvidenceTimeline,
+            which the VERIFIER holds, while Analytics follows VerificationOversee, which she does
+            not. Folding them together would have handed her the oversight chrome that the
+            2026-08-12 STG incident deliberately took away. */}
+        {videoLogEnabled ? (
+          <VideoLogPanel
+            pageContract={pageContract}
+            // MUST drop the panel key, and the panel's own filters with it.
+            //
+            // Every in-panel navigation (day, shed, Apply) re-asserts vi_video_log=open in the QUERY
+            // so the drawer survives it. That made a closeHref which preserved the whole query
+            // unable to close anything: the overlay wrote a URL that still said open and the hook
+            // reopened from it. Dropping the filters too means the next open starts on the day
+            // summary rather than silently restoring a shed the reader had already left.
+            closeHref={hrefWith(sp, {
+              [VIDEO_LOG_PANEL_SELECTION_KEY]: null,
+              [VIDEO_LOG_SHED_KEY]: null,
+              [VIDEO_LOG_PARK_KEY]: null,
+              [VIDEO_LOG_QUERY_KEY]: null,
+              [VIDEO_LOG_DATE_KEY]: null,
+            })}
+            initialOpen={one(sp, VIDEO_LOG_PANEL_SELECTION_KEY) === VIDEO_LOG_PANEL_ID}
+          >
+            <VideoLog
+              pageContract={pageContract}
+              // The panel's own day, independent of the queue's capture-date filter: the queue may
+              // be showing a range or the whole backlog, but a video log is always ONE day.
+              businessDate={one(sp, VIDEO_LOG_DATE_KEY) || undefined}
+              parkId={scope.parkId || undefined}
+              selectedShedKey={one(sp, VIDEO_LOG_SHED_KEY) || undefined}
+              parkFilter={one(sp, VIDEO_LOG_PARK_KEY) || undefined}
+              query={one(sp, VIDEO_LOG_QUERY_KEY) || undefined}
+              filterAction={PATHNAME}
+              // The filter form REPLACES the panel's own three params and keeps everything else --
+              // including the selected day and the panel key, without which Apply would close the
+              // drawer it was submitted from.
+              filterHiddenInputs={
+                <>
+                  {hiddenInputs(sp, [VIDEO_LOG_PARK_KEY, VIDEO_LOG_SHED_KEY, VIDEO_LOG_QUERY_KEY])}
+                  <input type="hidden" name={VIDEO_LOG_PANEL_SELECTION_KEY} value={VIDEO_LOG_PANEL_ID} />
+                </>
+              }
+              clearHref={hrefWith(sp, {
+                [VIDEO_LOG_PARK_KEY]: null,
+                [VIDEO_LOG_SHED_KEY]: null,
+                [VIDEO_LOG_QUERY_KEY]: null,
+                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+              })}
+              basePath={PATHNAME}
+              today={today}
+              // The calendar's MECHANICS copy is shared with the queue's date filter — one
+              // vocabulary for one calendar. Only the FIELD label differs, and it must: the queue
+              // filters on capture date, while this picks the day whose arrivals are listed, so
+              // reusing "Capture date" here labelled the control with the wrong fact.
+              dateLabels={{
+                field: copy(pageContract, "video_log.day"),
+                today: copy(pageContract, "filter.date.today"),
+                single: copy(pageContract, "filter.date.single"),
+                range: copy(pageContract, "filter.date.range"),
+                aria: copy(pageContract, "filter.date.aria"),
+                previousMonth: copy(pageContract, "filter.date.previous_month"),
+                nextMonth: copy(pageContract, "filter.date.next_month"),
+                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+              }}
+              // An href TEMPLATE rather than a per-shed map: only the page knows the live search
+              // params, but only the component knows which sheds the day actually holds (they come
+              // from its own fetch). The component substitutes each shed's key into the token. A
+              // callback would be the obvious alternative and does not survive being passed as
+              // children of a client component.
+              // Both hrefs carry the panel key so the drawer SURVIVES the navigation. The trigger
+              // opens this panel with a hash (#vi_video_log=open) and a query-only href drops it,
+              // which closed the drawer on every shed click and every date change.
+              shedHrefTemplate={hrefWith(sp, {
+                [VIDEO_LOG_SHED_KEY]: VIDEO_LOG_SHED_TOKEN,
+                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+              })}
+              backHref={hrefWith(sp, {
+                [VIDEO_LOG_SHED_KEY]: null,
+                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+              })}
+              queueHrefs={
+                new Map(
+                  modules.map((option) => [
+                    option.key,
+                    hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+                  ]),
+                )
+              }
+            />
+          </VideoLogPanel>
         ) : null}
       </div>
 

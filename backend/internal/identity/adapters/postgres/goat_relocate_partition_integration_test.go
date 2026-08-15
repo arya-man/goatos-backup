@@ -159,6 +159,202 @@ func TestRelocateGoatsToShedInTxSameShedPartitionMove(t *testing.T) {
 	}
 }
 
+// A move into a clinical KID pen stamps that pen's tag AND saves the animal's milk band, in the
+// same statement, so the band can never be lost in between.
+//
+// Stamping 'ICU-Kid' overwrites management_stage, which is where the milk ladder lives -- and a kid
+// in ICU still drinks milk. milk_cohort (000166) is what Milk Preparation falls back to, so if the
+// stamp landed without the save, the animal would silently stop being prepared for. The return leg
+// clears it: once a real band is back in management_stage, a leftover milk_cohort would outlive its
+// own truth.
+func TestRelocateIntoClinicalKidPenStampsTagAndSavesMilkBand(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	f := seedRelocatePartitionFixture(t, ctx, pool)
+	seedRelocateStageVocabulary(t, ctx, pool)
+
+	goatID := seedRelocateGoat(t, ctx, pool, f.castroShed)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET management_stage='K2', age_band='kid' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		rpTenant, goatID); err != nil {
+		t.Fatalf("seed K2 stage: %v", err)
+	}
+
+	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
+		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
+		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
+		ToParkID: rpPark, ToShedID: f.gandhiShed,
+		DestinationTag: "ICU-Kid", DestinationShedName: "Gandhi",
+		OccurredAt: time.Now(), OutboxIdempotencyPrefix: "test-clinical-kid-pen-in",
+	})
+
+	stage, band, milk := readStageBandAndMilkCohort(t, ctx, pool, goatID)
+	if stage != "ICU-Kid" {
+		t.Fatalf("management_stage = %q after a move into a clinical kid pen, want it stamped as %q", stage, "ICU-Kid")
+	}
+	if milk != "K2" {
+		t.Fatalf("milk_cohort = %q, want %q -- the band must be saved in the same statement that overwrites it", milk, "K2")
+	}
+	// A clinical tag carries no age_band, so the animal's existing kid classification survives.
+	if band != "kid" {
+		t.Fatalf("age_band = %q, want it untouched at %q -- a clinical pen must not reclassify the animal", band, "kid")
+	}
+
+	// Return leg: back onto a real milk band. The band is live in management_stage again, so the
+	// saved copy must be cleared rather than left to go stale.
+	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
+		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
+		FromParkID: strp(rpPark), FromShedID: strp(f.gandhiShed),
+		ToParkID: rpPark, ToShedID: f.yashodaShed,
+		DestinationTag: "K3", DestinationShedName: "Yashoda",
+		OccurredAt: time.Now(), OutboxIdempotencyPrefix: "test-clinical-kid-pen-out",
+	})
+
+	stage, _, milk = readStageBandAndMilkCohort(t, ctx, pool, goatID)
+	if stage != "K3" || milk != "" {
+		t.Fatalf("after the return leg stage=%q milk_cohort=%q, want K3 with the saved band cleared", stage, milk)
+	}
+}
+
+// A move onto a WEANED cohort must not save a band. The animal is leaving milk, not hiding its
+// place on the ladder, and a saved band would put it back into milk preparation forever.
+func TestRelocateOntoWeanedCohortSavesNoMilkBand(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	f := seedRelocatePartitionFixture(t, ctx, pool)
+	seedRelocateStageVocabulary(t, ctx, pool)
+
+	goatID := seedRelocateGoat(t, ctx, pool, f.castroShed)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET management_stage='K3', age_band='kid' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		rpTenant, goatID); err != nil {
+		t.Fatalf("seed K3 stage: %v", err)
+	}
+
+	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
+		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
+		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
+		ToParkID: rpPark, ToShedID: f.gandhiShed,
+		DestinationTag: "F2-Male", DestinationShedName: "Gandhi",
+		OccurredAt: time.Now(), OutboxIdempotencyPrefix: "test-weaned-cohort",
+	})
+
+	stage, _, milk := readStageBandAndMilkCohort(t, ctx, pool, goatID)
+	if stage != "F2-Male" || milk != "" {
+		t.Fatalf("stage=%q milk_cohort=%q, want F2-Male with no saved band -- a weaned kid is OFF milk", stage, milk)
+	}
+}
+
+// Shifting an animal INTO K3 starts its seven-day milk clock; moving it out clears the clock; and a
+// move BETWEEN K3 pens does not restart a week the animal is already partway through.
+//
+// The middle leg is the one worth having a test for. A partition change or a move to another K3 pen
+// still writes management_stage = 'K3', so a naive "stamp the date whenever the tag is K3" would
+// hand the animal a fresh seven days every time it was moved, and an animal that got shuffled
+// around would never wean.
+func TestRelocateIntoK3StartsTheMilkClockAndDoesNotRestartIt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	f := seedRelocatePartitionFixture(t, ctx, pool)
+	seedRelocateStageVocabulary(t, ctx, pool)
+
+	goatID := seedRelocateGoat(t, ctx, pool, f.castroShed)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET management_stage='K2', age_band='kid' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		rpTenant, goatID); err != nil {
+		t.Fatalf("seed K2 stage: %v", err)
+	}
+
+	// 2026-08-15 08:00 IST. Asserted as a business DATE: a feed day is a farm day in Asia/Kolkata.
+	entry := time.Date(2026, 8, 15, 2, 30, 0, 0, time.UTC)
+	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
+		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
+		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
+		ToParkID: rpPark, ToShedID: f.gandhiShed,
+		DestinationTag: "K3", DestinationShedName: "Gandhi",
+		OccurredAt: entry, OutboxIdempotencyPrefix: "test-k3-clock-start",
+	})
+	if got := readK3Start(t, ctx, pool, goatID); got != "2026-08-15" {
+		t.Fatalf("k3_milk_started_on = %q after entering K3, want 2026-08-15", got)
+	}
+
+	// Moved again, four days later, still K3. The clock must NOT restart.
+	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
+		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
+		FromParkID: strp(rpPark), FromShedID: strp(f.gandhiShed),
+		ToParkID: rpPark, ToShedID: f.yashodaShed,
+		DestinationTag: "K3", DestinationShedName: "Yashoda",
+		OccurredAt: entry.AddDate(0, 0, 4), OutboxIdempotencyPrefix: "test-k3-clock-no-restart",
+	})
+	if got := readK3Start(t, ctx, pool, goatID); got != "2026-08-15" {
+		t.Fatalf("k3_milk_started_on = %q after a K3-to-K3 move, want the original 2026-08-15 -- a move must not buy another week", got)
+	}
+
+	// Out of K3 onto a weaned cohort: the clock is cleared, so a later return starts fresh.
+	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
+		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
+		FromParkID: strp(rpPark), FromShedID: strp(f.yashodaShed),
+		ToParkID: rpPark, ToShedID: f.oldYashodaShed,
+		DestinationTag: "F2-Male", DestinationShedName: "Old Yashoda",
+		OccurredAt: entry.AddDate(0, 0, 8), OutboxIdempotencyPrefix: "test-k3-clock-clear",
+	})
+	if got := readK3Start(t, ctx, pool, goatID); got != "" {
+		t.Fatalf("k3_milk_started_on = %q after leaving K3, want it cleared", got)
+	}
+}
+
+func readK3Start(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) string {
+	t.Helper()
+	var started string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(to_char(k3_milk_started_on, 'YYYY-MM-DD'), '')
+FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, rpTenant, goatID).Scan(&started); err != nil {
+		t.Fatalf("read k3_milk_started_on: %v", err)
+	}
+	return started
+}
+
+// seedRelocateStageVocabulary seeds the writable stage vocabulary this suite needs. The two
+// clinical KID pens are listed active on purpose: that listing is the whole mechanism by which a
+// shifting is allowed to stamp them (migration 000167), and without it the raise resolves to
+// keep-current and these tests would pass for the wrong reason.
+func seedRelocateStageVocabulary(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	stages := []struct{ code, ageBand string }{
+		{"K1", "kid"}, {"K2", "kid"}, {"K3", "kid"},
+		{"F2-Male", "kid"}, {"Mother", "adult"},
+		{"ICU-Kid", ""}, {"Quarantine kids", ""},
+	}
+	for _, s := range stages {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, status, age_band)
+VALUES ($1::uuid, $2, $2, 'active', NULLIF($3::text, ''))
+ON CONFLICT (tenant_id, stage_code) DO UPDATE SET status='active', age_band=EXCLUDED.age_band`,
+			rpTenant, s.code, s.ageBand); err != nil {
+			t.Fatalf("seed stage %s: %v", s.code, err)
+		}
+	}
+}
+
+func readStageBandAndMilkCohort(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) (stage, ageBand, milkCohort string) {
+	t.Helper()
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(management_stage, ''), COALESCE(age_band, ''), COALESCE(milk_cohort, '')
+FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, rpTenant, goatID).Scan(&stage, &ageBand, &milkCohort); err != nil {
+		t.Fatalf("read goat stage/band/milk_cohort: %v", err)
+	}
+	return stage, ageBand, milkCohort
+}
+
 // TestRelocateGoatsToShedInTxCrossShedPartitionMove: Castro Part 1 -> Gandhi Part 3, same park.
 func TestRelocateGoatsToShedInTxCrossShedPartitionMove(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)

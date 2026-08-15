@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
@@ -330,6 +331,11 @@ inperiod AS (
 period_weights AS (
   SELECT wcs.location_id, wcs.display_name AS shed_name,
          COALESCE(wcs.partition_label, '') AS partition_label,
+         -- The park's SHORT CODE (CBE, CPT) falling back to its full name, which is the
+         -- convention the shed-weights rows on this same page already use -- so both series
+         -- of the gain chart name a park the same way. 39 shed names exist in BOTH parks, so
+         -- an unqualified row on this chart is genuinely ambiguous.
+         COALESCE(NULLIF(pk.location_code, ''), pk.name, '') AS park_name,
          wo.weight_kg::float8 AS weight_kg,
          lower(btrim(wo.scanned_identifier)) AS animal_key
   FROM weighing_observations wo
@@ -337,6 +343,8 @@ period_weights AS (
     ON wcs.campaign_shed_id = wo.campaign_shed_id AND wcs.tenant_id = wo.tenant_id
   JOIN weighing_campaigns wc
     ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wo.tenant_id
+  LEFT JOIN locations pk
+    ON pk.tenant_id = wc.tenant_id AND pk.location_id = wc.park_id
   WHERE wo.tenant_id = $1::uuid
     AND wc.park_id = ANY($2::uuid[])
     AND wo.verification_status <> 'rejected'
@@ -344,7 +352,7 @@ period_weights AS (
     AND wo.accepted_at < $4::timestamptz
 ),
 shed_weight AS (
-  SELECT location_id, partition_label, MAX(shed_name) AS shed_name,
+  SELECT location_id, partition_label, MAX(shed_name) AS shed_name, MAX(park_name) AS park_name,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY weight_kg) AS median_weight_kg,
          COUNT(DISTINCT animal_key) AS n
   FROM period_weights
@@ -357,7 +365,7 @@ shed_adg AS (
   FROM inperiod
   GROUP BY location_id, partition_label
 )
-SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.n, sw.median_weight_kg,
+SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.park_name, sw.n, sw.median_weight_kg,
        COALESCE(sa.median_adg, 0), COALESCE(sa.pair_count, 0)
 FROM shed_weight sw
 LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
@@ -370,15 +378,26 @@ ORDER BY sw.shed_name, sw.partition_label`
 	out := []domain.GrowthShedLeaderboardRow{}
 	for rows.Next() {
 		var row domain.GrowthShedLeaderboardRow
-		if err := rows.Scan(&row.LocationID, &row.DisplayName, &row.PartitionLabel, &row.AnimalCount, &row.MedianWeightKg,
+		if err := rows.Scan(&row.LocationID, &row.DisplayName, &row.PartitionLabel, &row.ParkName, &row.AnimalCount, &row.MedianWeightKg,
 			&row.MedianADGGPerDay, &row.ADGPairCount); err != nil {
 			return nil, err
 		}
-		row.OperationalLocationDisplay = (oploc.OperationalLocation{
-			ShedID:         row.LocationID,
-			ShedName:       row.DisplayName,
-			PartitionLabel: row.PartitionLabel,
-		}).Display()
+		// COMPOSE ONLY WHEN THE NAME DOES NOT ALREADY CARRY THE PEN. A weighing bucket is often a
+		// SYNTHETIC per-partition location whose own name is already "Mandela 1 - Part 5", and
+		// oploc.Display() appends unconditionally (correctly -- it is given a shed name and a
+		// partition). Feeding it a name that already ends in the partition produced
+		// "Mandela 1 - Part 5 - Part 5". The field was never read by a screen until the gain chart
+		// started using it, so the doubling sat here unseen; the same guard is used by the sibling
+		// composer in growthdirector's operationalLabel.
+		if row.PartitionLabel != "" && strings.HasSuffix(row.DisplayName, row.PartitionLabel) {
+			row.OperationalLocationDisplay = row.DisplayName
+		} else {
+			row.OperationalLocationDisplay = (oploc.OperationalLocation{
+				ShedID:         row.LocationID,
+				ShedName:       row.DisplayName,
+				PartitionLabel: row.PartitionLabel,
+			}).Display()
+		}
 		out = append(out, row)
 	}
 	return out, rows.Err()

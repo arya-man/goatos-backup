@@ -562,8 +562,13 @@
      grid and a six-column table, and squeezing those into a record-sized panel is what made the
      numbers unreadable in the first place. */
   aside.drawer.vr-analytics-drawer{width:min(940px,96vw)}
-  .vr-analytics-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
-  .vr-analytics-btn .ic{width:16px;height:16px}
+  /* Analytics and Video Log are a matched PAIR in the page header (maintainer, 2026-08-15): same
+     primary treatment, same size, side by side. Styled through one selector rather than two copies
+     of the same values, so a later tweak to one cannot silently leave the other behind. */
+  .vr-analytics-btn,
+  .vr-videolog-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
+  .vr-analytics-btn .ic,
+  .vr-videolog-btn .ic{width:16px;height:16px}
   .vr-oversight{margin:0}
   /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
      viewport media query would keep five columns in a 900px panel. */
@@ -631,6 +636,56 @@
      in verification-review-page.tsx). Applied only to a still-pending row's age span. */
   .vr-age-amber{color:var(--amber);font-weight:650}
   .vr-age-red{color:var(--danger);font-weight:650}
+
+  /* ===== Video Log (maintainer decision 2026-08-14): one business day, per shed, when each proof
+     arrived. Sibling drawer to the analytics panel, gated on a different capability. ===== */
+  /* Narrower than the analytics drawer (940px): this is a three-column table, not a KPI strip plus
+     a module grid, and a 940px panel would leave the arrival times floating far from their work. */
+  aside.drawer.vr-videolog-drawer{width:min(720px,96vw)}
+  /* Ghost, not primary: Analytics already owns the header's one primary action, and two competing
+     primaries side by side read as a toolbar rather than a hierarchy. */
+  .vr-videolog{margin:0}
+  /* The day picker is a control, not a value, so this row aligns on CENTER rather than the baseline
+     the static date line used — a baseline-aligned calendar button sits visibly low against its
+     label. */
+  .vr-videolog .vl-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line2)}
+  .vr-videolog .vl-head .lab{font-size:11px;font-weight:700;color:var(--muted);flex:none}
+  .vr-videolog .vl-head .val{font-size:14px;font-weight:650;color:var(--ink)}
+  .vr-videolog .vl-crumb{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+  .vr-videolog .vl-crumb .val{font-size:13px;font-weight:650;color:var(--ink)}
+  .vr-videolog .vl-empty{padding:22px 2px}
+  .vr-videolog .vl-note{margin-top:12px}
+  /* Same header treatment as .vr-table: `.screen th` is declared later with equal specificity and
+     would otherwise win, forcing 11px uppercase headers onto this table too. */
+  .screen .vl-tbl th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .vr-videolog .vl-tbl{width:100%;border-collapse:collapse}
+  .vr-videolog .vl-tbl td{font-size:11.5px;padding:10px;border-bottom:1px solid var(--line2);vertical-align:top}
+  .vr-videolog .vl-tbl tr:last-child td{border-bottom:0}
+  /* Arrival times are read down the column and compared, so they need tabular figures — otherwise
+     06:12 and 15:04 do not line up and the eye cannot scan the day. */
+  .vr-videolog .vl-tbl .val{font-variant-numeric:tabular-nums;font-weight:650;color:var(--ink)}
+  /* A work cell spans its proofs' rows, so its top border must read as the group boundary. */
+  .vr-videolog .vl-tbl td[rowspan]{border-right:1px solid var(--line2);padding-right:14px}
+  .vr-videolog .vl-tbl .warn{color:var(--amber);font-weight:650}
+  /* The drill-down affordance on a summary row. It must LOOK reachable before the pointer is on it
+     — the shed name alone read as a label and the per-video times were undiscoverable. */
+  .vr-videolog .vl-drill{display:inline-block;margin-top:5px;color:var(--brand-d);font-weight:700;letter-spacing:.02em;text-decoration:none;opacity:.85}
+  .vr-videolog .vl-drill:hover{opacity:1;text-decoration:underline}
+  .vr-videolog .vl-csv-wrap{display:flex;align-items:center;gap:10px;flex:none}
+  .vr-videolog .vl-csv-btn{gap:7px;flex:none}
+  .vr-videolog .vl-csv-btn .ic{width:15px;height:15px}
+  /* The whole-day export is a real request over every shed, so the button has to say it is working
+     — a silent button on a slow day reads as a dead control and gets clicked again. */
+  .vr-videolog .vl-csv-spin{animation:vl-csv-spin 900ms linear infinite}
+  @keyframes vl-csv-spin{to{transform:rotate(360deg)}}
+  .vr-videolog .vl-csv-note{max-width:260px;line-height:1.35}
+  /* Panel filter row. Wraps rather than clipping: the drawer is 720px and three controls plus two
+     buttons do not fit on one line at every zoom level. */
+  .vr-videolog .vl-frow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin-bottom:14px}
+  .vr-videolog .vl-frow .vr-fld{min-width:150px}
+  .vr-videolog .vl-frow .vl-search{flex:1 1 190px}
+  .vr-videolog .vl-frow .vl-fbtns{display:flex;gap:8px;flex:0 0 auto}
+  .vr-videolog .vl-frow .btn{flex:0 0 auto}
 
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
@@ -2398,6 +2453,81 @@ select:disabled { opacity: .45; }
 .wtable table.tbl td:first-child{padding-left:16px}
 .wtable table.tbl th:last-child,
 .wtable table.tbl td:last-child{padding-right:16px}
+/* THE TABLE OWNS ITS HORIZONTAL SCROLL. `.tablewrap` had no rule at all on this page — it was a
+   class name the markup used and the stylesheet never defined — so every table here was
+   `overflow-x:visible` inside a card that clips, and the columns past the card's right edge were
+   simply GONE: not scrollable, not reachable by keyboard, no scrollbar to say anything was missing.
+   The Slow-growth watchlist is the worst case because it sits in the two-up `.g2` row: its table is
+   1023px wide in a 558px cell at 1440, so 465px vanished — the median gain, the week-on-week delta
+   and the status chip, which are the only three columns the card exists to show. Weight by shed and
+   Feed given vs growth lost ~150px each at 1024.
+   Deliberately the same shape as the two sibling wrappers that were done right (`.cfgtablewrap`
+   above, `.lt-tablewrap` below), including `scrollbar-gutter:stable` so the last column does not
+   twitch as the scrollbar appears. Scoped to this page rather than made global: `.tablewrap` is a
+   bare name and a global overflow rule would silently change any future page that reuses it. */
+.weights-page .tablewrap{
+  min-width:0;
+  max-width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-gutter:stable;
+}
+
+/* ---- Fair fight: the cohort standings board -------------------------------------------------
+   Full width since the Slow-growth watchlist was removed from its right half. Cohorts sit in an
+   auto-fitting grid rather than one long column: a farm with a dozen breed x sex cohorts would
+   otherwise scroll for a screen and a half, and two boards side by side is what makes them
+   comparable at a glance. 320px is the point below which a shed name starts truncating. */
+/* `align-items:start` so a 2-shed cohort is a 2-shed-tall card. Grid stretches items to the row
+   by default, which gave a five-row board a half-card of empty space under it whenever its
+   neighbour held seven — the spread line floated away from the standings it summarises. */
+.ffboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:12px;align-items:start}
+/* Each cohort is its own bounded surface so two adjacent boards cannot be misread as one list. */
+.ffmatch{border:1px solid var(--line);border-radius:var(--r2);padding:12px 12px 10px;background:var(--panel-2);min-width:0}
+.ffhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.ffcohort{font-size:13px}
+.ffstand{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+/* TWO LINES PER ROW, and the split is what makes this readable rather than clever. A shed's
+   identity is "park · shed · pen" — 30-plus characters — so putting it in a column beside a bar
+   truncated it to "Channapatna ·", naming the park and hiding the shed. Line one is therefore
+   name + number (the two facts you read down the board); line two is the bar + its n and the
+   standing chip. The rank spans both, so it reads as one entry.
+   `minmax(0,1fr)` on the name column is load-bearing: without it a long name widens the grid
+   past the card instead of truncating — the same overflow defect the tables above just had. */
+.ffrow{
+  display:grid;
+  grid-template-columns:22px minmax(0,1fr) auto;
+  grid-template-rows:auto auto;
+  align-items:center;
+  column-gap:8px;
+  row-gap:3px;
+  padding:4px 0;
+}
+.ffrank{grid-row:1 / span 2;align-self:center;font-variant-numeric:tabular-nums;font-size:12px;color:var(--faint);text-align:right}
+.ffshed{grid-column:2;grid-row:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ffval{grid-column:3;grid-row:1;font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right;white-space:nowrap;font-weight:600}
+.ffval.neg{color:var(--danger)}
+.fftrack{grid-column:2;grid-row:2;position:relative;height:8px;border-radius:999px;background:var(--line2);overflow:hidden}
+.fftrack > i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+.fftrack > i.neg{background:var(--danger)}
+/* n and the chip share ONE cell on the bar line. Giving the chip its own column would steal the
+   width of "Behind" from every name on every row, including the middle rows that never show one. */
+.ffmeta{grid-column:3;grid-row:2;display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
+.ffn{font-size:11px}
+/* The leader is marked by weight and a brand tint, never by colour alone — the chip carries the
+   word. A shed at the top of a cohort everyone is losing weight in is still the leader, so this
+   deliberately says nothing about whether the number is good. */
+.ffrow.ffwin .ffshed{font-weight:650}
+.ffrow.ffwin .ffrank{color:var(--brand);font-weight:700}
+.ffspread{margin:10px 0 0;padding-top:8px;border-top:1px dashed var(--line)}
+@media(max-width:600px){
+  /* On a phone the name WRAPS instead of truncating. A shed is "park · shed · pen" and the tail
+     is the pen — the half that says which door to walk to — so an ellipsis here removes exactly
+     the part an operator came for. Two lines of name cost less than a name that cannot be read.
+     Measured at 480px: 28 of 34 names truncated before this. */
+  .ffshed{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
+  .ffrow{column-gap:6px}
+}
 
 /* ============================================================================
    /vaccination/live-tracker — ported verbatim from

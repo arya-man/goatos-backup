@@ -2260,6 +2260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workforce coverage rows for leadership roster coverage questions. */
+        get: operations["adminRosterCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/vaccination/obligations/{obligation_id}/reschedule": {
         parameters: {
             query?: never;
@@ -2667,6 +2684,29 @@ export interface paths {
          * @description Server-computed aggregates rendered ABOVE the /verify queue table when the caller's page contract carries the oversight_analytics control: a KPI strip (videos waiting, oldest pending age, review speed, estimated days to clear the backlog, per-module median review latency, reject rate), pending backlog by module, and per-verifier last-14-day activity plus a watch-integrity aggregate. Gated on permissions.VerificationOversee -- the SAME capability as the oversight_analytics/oversight_filters page-contract controls, never a role string. A verifier who holds verification.review/verdict but not verification.oversee receives 403 here even though she can read the plain queue. All numbers are bounded, tenant-scoped aggregate reads, never a client-side mega-fetch or per-verifier fan-out.
          */
         get: operations["getVerificationOversightAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/video-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-shed video arrival log for one business day.
+         * @description For ONE Asia/Kolkata business day, which sheds had proof arrive and at what time each proof was uploaded -- feed distribution's three captures, feed packing's one, feed transport's one, and the vaccination, weighing, birth, death and shifting proofs beside them. Maintainer decision 2026-08-14.
+         *     Gated on permissions.verification.evidence_timeline, which is a DIFFERENT capability from verification.oversee: the VERIFIER holds this one and not that one, so she sees the video log while the module chips, the capture-date range picker and the oversight analytics stay leadership-only. The log is cross-module for every caller who holds the capability, because the question is "what arrived from this shed today" and a shed's day spans modules. It grants no verdict authority and reshapes no queue. A caller whose grant is park-scoped is clamped to their parks, exactly as on the queue read.
+         *     TWO LEVELS, both bounded. Without shed_id the response carries the day's per-shed summary (counts, first and last arrival, which modules contributed) and an empty rows array. With shed_id it additionally carries that one location's work in full. A flat list of every proof for a day is deliberately not offered: a vaccination drive raises one item per animal, so a park-day can hold several hundred items before any feed work is counted.
+         *     Times are when the SERVER accepted the upload (proof_artifacts.uploaded_at), not a device capture time -- no per-proof capture timestamp exists in the schema, and inventing one from the registration time would present a guess as a fact. registered_at is exposed alongside so a reader can see real upload lag.
+         */
+        get: operations["getVerificationVideoLog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7600,6 +7640,8 @@ export interface components {
         GrowthDirectorFeedVsGrowthShed: {
             /** Format: uuid */
             location_id: string;
+            /** @description The PEN within location_id, blank for an undivided shed. Half of this row's identity, not decoration: the row grain is one pen, so a partitioned shed returns up to ten rows under ONE location_id and location_id alone identifies none of them. */
+            partition_label: string;
             shed_display_name: string;
             /** Format: double */
             feed_g_per_head_per_day: number | null;
@@ -8086,6 +8128,8 @@ export interface components {
             display_name: string;
             partition_label?: string;
             operational_location_display: string;
+            /** @description The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name -- the same convention the shed-weights rows use, so both series of the gain chart name a park identically. Required rather than optional: 39 shed names exist in BOTH parks, so a row without it names two different sheds at once. */
+            park_name: string;
             /** @description Animal count. */
             n: number;
             median_weight_kg: number;
@@ -8468,6 +8512,27 @@ export interface components {
         };
         MyCoverageResponse: {
             coverage: components["schemas"]["MyCoverage"];
+            trace_id: string;
+        };
+        Coverage: {
+            /** Format: uuid */
+            position_id: string;
+            covered_position_code: string;
+            covered_position_title?: string | null;
+            /** Format: uuid */
+            covering_member_id?: string | null;
+            covering_member_name?: string | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            /** @enum {string} */
+            source: "leave" | "week_off" | "escalation";
+            escalation_state?: string | null;
+            status: string;
+        };
+        CoverageListResponse: {
+            items: components["schemas"]["Coverage"][];
             trace_id: string;
         };
         RescheduleObligationRequest: {
@@ -9255,6 +9320,122 @@ export interface components {
             watched_to_end_count: number;
             /** @description Items this verifier decided with no video_play telemetry event beforehand. */
             verdict_without_play_count: number;
+        };
+        VerificationVideoLogResponse: {
+            /**
+             * Format: date
+             * @description The Asia/Kolkata day this log covers.
+             */
+            business_date: string;
+            /** @description One row per operational location that had proof arrive on the day, ordered by park then shed then partition. Always present, including when it is empty. */
+            sheds: components["schemas"]["VerificationVideoLogShed"][];
+            /** @description Echoes the requested shed_id. Absent when no shed was selected. */
+            selected_shed_id?: string;
+            /** @description Work in full, ordered by shed then earliest arrival. Populated for a selected shed, or for the whole day when all_sheds is set. EMPTY for the ordinary summary read -- that level deliberately does not carry every row. */
+            rows: components["schemas"]["VerificationVideoLogRow"][];
+            /** @description True when the selected shed held more work than limit allowed, so a partial day is never presented as a complete one. */
+            rows_truncated: boolean;
+            trace_id: string;
+        };
+        VerificationVideoLogShed: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Composite "<shed_uuid>#<normalized partition>" identity for this location. Send it back as shed_id to open the detail; a bare shed uuid cannot distinguish partitions. */
+            shed_key: string;
+            /** @description Raw shed name. Carried for filtering; never rendered on its own. */
+            shed_label?: string;
+            /** @description Raw partition label ("Part 3"). Absent for a non-partitioned shed AND for weighing, shifting, birth and death items, whose producers do not record it. Never rendered on its own -- use operational_location_display. */
+            partition_label?: string;
+            /** @description The ONLY location string a screen may render, composed backend-side by oploc.Display() ("Godel 1 - Part 3", or "Yashoda" when unpartitioned). */
+            operational_location_display: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_label?: string;
+            /** @description Every proof that arrived for this location on the day, across all modules. */
+            proof_count: number;
+            /** @description How many pieces of work those proofs belong to. Always <= proof_count; the gap is the multi-proof categories (feed distribution's three, death's two). */
+            item_count: number;
+            /** @description Proofs registered but not yet received. Included IN proof_count, not counted beside it. */
+            awaiting_upload_count: number;
+            /**
+             * Format: date-time
+             * @description Earliest arrival for this location on the day. Absent when nothing has landed.
+             */
+            first_upload_at?: string;
+            /**
+             * Format: date-time
+             * @description Latest arrival for this location on the day. Absent when nothing has landed.
+             */
+            last_upload_at?: string;
+            /** @description Backend-owned display labels of the modules that contributed ("Feed", "Vaccination"), sorted. A module the registry does not know is omitted rather than shown as a raw code. */
+            modules: string[];
+        };
+        VerificationVideoLogRow: {
+            /** Format: uuid */
+            item_id: string;
+            /** @description Raw source module code ("feed"). Carried for links only; never rendered as copy. */
+            module: string;
+            /** @description Backend-owned display label for module ("Feed"). */
+            module_label?: string;
+            /** @description The queue's own module-filter key for this module ("feed_direction" where module is "feed"), so a row can link back to the queue filtered to its module. */
+            nav_module?: string;
+            /** @description Raw category code ("feed_packing"). Never rendered as copy. */
+            category: string;
+            /** @description Backend-owned display label for category ("Feed packing"). */
+            category_label?: string;
+            /**
+             * @description Whether this work was about specific ANIMALS (vaccination's per-goat clip, weighing's individual observation, a birth/death workflow, a shed move) or about a LOCATION (feed distribution, packing, transport, a lump-sum weigh). Derived backend-side from the producer's declared source_ref_type, never parsed out of the label. A client uses it to decide which column an identity belongs in and must not re-derive it.
+             * @enum {string}
+             */
+            grain: "animal" | "shed";
+            /**
+             * Format: uuid
+             * @description The shed this work happened in.
+             */
+            shed_id?: string;
+            /** @description Raw shed name. Never rendered on its own. */
+            shed_label?: string;
+            /** @description Raw partition label. Never rendered on its own. */
+            partition_label?: string;
+            /** @description Backend-composed location for THIS row. Redundant while one shed's detail is on screen, and essential in the whole-day export, where a row could otherwise not say which shed its video came from. */
+            operational_location_display?: string;
+            /** @description Disambiguates the location in the whole-day export: shed NAMES repeat across parks, so a file carrying only the shed display renders two different sheds identically. */
+            park_label?: string;
+            /** @description The producing module's own composed description of the work ("Session 1 · Castro - 2", "Godel 1 · Goat 4821 · PPR"). Rendered VERBATIM. Legitimately ABSENT for feed transport, whose producer writes no label because the shed header already names it -- render nothing there, not a placeholder. */
+            subject_label?: string;
+            /** @description The item's verdict state, so the log can show that an arrival was later rejected. The video log offers no verdict control; it is a read. */
+            status: string;
+            /** @description Backend-resolved display name of whoever captured the work. Absent when the id resolves to no active roster member; an unresolved id is dropped, never rendered raw. */
+            operator_name?: string;
+            /**
+             * Format: date-time
+             * @description The producing module's own anchor for the work, and what the business day is cut on. NOT the upload time. Approximate for shifting, birth and death, whose producers stamp the enqueue instant.
+             */
+            captured_at: string;
+            proofs: components["schemas"]["VerificationVideoLogProof"][];
+        };
+        VerificationVideoLogProof: {
+            /** Format: uuid */
+            proof_id: string;
+            /** @description 1-based position in the producing item's declared proof order. Feed distribution writes [weight photo, distribution video, water video] and the labels are positional against it. */
+            ordinal: number;
+            /** @description Backend-owned header for this proof ("Water distribution video"), resolved from the artifact's own metadata first and the category registry second. Never composed by a client. */
+            label?: string;
+            /**
+             * @description Feed distribution is the one category that mixes photo and video, so a screen must not call every proof on this log a video.
+             * @enum {string}
+             */
+            media_kind: "photo" | "video" | "attachment";
+            /**
+             * Format: date-time
+             * @description When the server accepted the bytes. ABSENT for a proof registered but never finished uploading -- a real state the log shows rather than hiding. Deliberately not a device capture time; no such column exists.
+             */
+            uploaded_at?: string;
+            /**
+             * Format: date-time
+             * @description When the client took an upload URL. On mobile the outbox registers at capture and retries the upload later, so the gap to uploaded_at is real upload lag.
+             */
+            registered_at: string;
         };
         VerificationCloseSubmissionResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
@@ -14237,6 +14418,35 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    adminRosterCoverage: {
+        parameters: {
+            query?: {
+                scope_type?: string;
+                scope_id?: string;
+                active?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workforce coverage rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverageListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appRescheduleObligation: {
         parameters: {
             query?: never;
@@ -14952,6 +15162,41 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationVideoLog: {
+        parameters: {
+            query?: {
+                /** @description Asia/Kolkata calendar day, YYYY-MM-DD. Defaults to today. A future date is rejected (422 future_business_date) rather than returning an empty log that reads as "nothing was filmed". */
+                business_date?: string;
+                /** @description Optional park filter, applied ON TOP of the caller's authorized park scope. */
+                park_id?: string;
+                /** @description Selects one operational location for the detail level. Carries the composite "<shed_uuid>#<normalized partition>" form the queue's shed filter uses -- a bare shed uuid cannot tell Castro - 1 from Castro - 2, and is accepted as "any partition of this shed". Use the shed_key returned on each summary row. */
+                shed_id?: string;
+                /** @description Whole-day EXPORT: returns rows for every shed in scope, each carrying its own location, instead of only the selected shed. Ignores shed_id. This is the one caller allowed to read the day at row grain and is intended for a CSV download, never for rendering a screen -- the panel stays two-level because a park-day can carry several hundred items. Bounded at 20000 rows, with rows_truncated set if the day exceeds that. */
+                all_sheds?: boolean;
+                /** @description Bounds the row read (default 200, maximum 500; for all_sheds the default and maximum are both 20000). When more work exists than the limit allows, rows_truncated is true so a partial day is never presented as a whole one. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The day's per-shed arrival summary, plus one shed's detail when requested. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationVideoLogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
