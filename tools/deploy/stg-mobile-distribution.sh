@@ -24,15 +24,16 @@ slack_webhook_url() {
 notify_slack() {
   local status="$1"
   local text="$2"
+  local include_panel="${3:-0}"
   local webhook
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$status" "$text" "$commit_sha" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$status" "$text" "$commit_sha" "$build_id" "$triggered_by" "$include_panel" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
 
-status, text, sha, build_id, triggered_by = sys.argv[1:]
+status, text, sha, build_id, triggered_by, include_panel = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
 build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
 payload = {
@@ -51,7 +52,7 @@ payload = {
         ],
     }]
 }
-if status in {"SUCCEEDED", "FAILED"}:
+if include_panel == "1":
     payload["blocks"] = [
         {"type": "divider"},
         {
@@ -115,7 +116,7 @@ post_deploy_panel() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass."
+    notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass." 1
   fi
 }
 trap on_exit EXIT
@@ -223,7 +224,11 @@ mirror_sha="$(shasum -a 256 .local/verify-latest-app.apk | awk '{print $1}')"
 curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/latest/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 
-notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+if [[ "${DEPLOY_STG:-false}" == "true" ]]; then
+  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+else
+  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}." 1
+fi
 trap - EXIT
 
 echo "MOBILE_DISTRIBUTED ${commit_sha} ${ANDROID_VERSION_NAME} ${ANDROID_VERSION_CODE}"

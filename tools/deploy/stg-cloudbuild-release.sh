@@ -31,16 +31,17 @@ slack_webhook_url() {
 notify_slack() {
   local status="$1"
   local text="$2"
+  local include_panel="${3:-0}"
   local webhook
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$status" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$status" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" "$include_panel" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import os
 import sys
 
-status, text, sha, release, build_id, triggered_by = sys.argv[1:]
+status, text, sha, release, build_id, triggered_by, include_panel = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
 build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
 deploy_url = "https://console.cloud.google.com/deploy/delivery-pipelines/asia-south1/goatos-stg/releases?project=goatos-stg"
@@ -60,7 +61,7 @@ payload = {
         ],
     }]
 }
-if status in {"SUCCEEDED", "FAILED"}:
+if include_panel == "1":
     payload["blocks"] = [
         {"type": "divider"},
         {
@@ -141,14 +142,14 @@ already_deployed() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Cloud Build failed before STG rollout completed."
+    notify_slack "FAILED" "Cloud Build failed before STG rollout completed." 1
   fi
 }
 
 trap on_exit EXIT
 
 if already_deployed; then
-  notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
+  notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.' 1
   trap - EXIT
   echo "ALREADY_DEPLOYED ${commit_sha} on goatos-stg"
   exit 0
@@ -165,7 +166,6 @@ notify_slack "STARTED" "Building images and creating Cloud Deploy release for ST
 
 tools/deploy/stg-clouddeploy-release.sh
 
-notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified."
 trap - EXIT
 
 echo "DEPLOYED ${commit_sha} to goatos-stg"
