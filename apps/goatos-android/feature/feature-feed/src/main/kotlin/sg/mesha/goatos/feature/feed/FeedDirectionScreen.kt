@@ -265,32 +265,27 @@ fun FeedDirectionScreen(
                     // Past-day rows are view-only. Today's in-review/submitted rows remain tappable
                     // so operators get feedback instead of reopening capture.
                     FeedDirectionRowCard(row, canCapture = state.canCapture && canOpenRows) {
-                        if (row.canOpenCapture && !locallySubmitted) {
-                            onEvent(
-                                FeedDirectionEvent.OpenRow(
-                                    parkId = row.parkId,
-                                    parkLabel = row.parkLabel,
-                                    shedId = row.shedId,
-                                    sessionNo = row.sessionNo,
-                                    workflow = row.workflow,
-                                    shedLabel = row.shedLabel,
-                                    sessionLabel = row.sessionLabel,
-                                    partitionLabel = row.partitionLabel,
-                                    lifecycleStatus = row.lifecycleStatus,
-                                ),
-                            )
-                        } else {
-                            onEvent(
-                                FeedDirectionEvent.AlreadySubmittedRow(
-                                    parkId = row.parkId,
-                                    shedId = row.shedId,
-                                    sessionNo = row.sessionNo,
-                                    workflow = row.workflow,
-                                    lifecycleStatus = if (locallySubmitted) FeedStatus.AWAITING else row.lifecycleStatus,
-                                ),
-                            )
-                            Toast.makeText(context, alreadySubmittedText, Toast.LENGTH_SHORT).show()
-                        }
+                        // Submitted/in-review rows OPEN too: the shared session stays visible to
+                        // every operator (proof thumbnails + attribution, read-only). The detail
+                        // screen locks itself from the row hint AND the authoritative open-time
+                        // captures answer, so opening is always safe. The toast-only dead tap this
+                        // replaces hid a teammate's submitted work (contract:
+                        // docs/product/feed-proof-collaboration.md).
+                        onEvent(
+                            FeedDirectionEvent.OpenRow(
+                                parkId = row.parkId,
+                                parkLabel = row.parkLabel,
+                                shedId = row.shedId,
+                                sessionNo = row.sessionNo,
+                                workflow = row.workflow,
+                                shedLabel = row.shedLabel,
+                                sessionLabel = row.sessionLabel,
+                                partitionLabel = row.partitionLabel,
+                                // A locally-submitted row may still read "pending" from a stale
+                                // server page; hint the detail locked so it never opens editable.
+                                lifecycleStatus = if (!row.canOpenCapture || locallySubmitted) FeedStatus.AWAITING else row.lifecycleStatus,
+                            ),
+                        )
                     }
                 }
             }
