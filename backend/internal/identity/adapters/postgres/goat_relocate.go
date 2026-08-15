@@ -267,27 +267,17 @@ ORDER BY stage_code LIMIT 1`, cmd.TenantID, stage).Scan(&canonical, &ageBand)
 	return resolved, nil
 }
 
-// clinicalStageKey normalizes a free-text management_stage for comparison against the canonical
-// clinical vocabulary: lowercase, trimmed, and inner whitespace collapsed to single underscores so
-// "Under Treatment", "under treatment", and "under_treatment" all match.
-func clinicalStageKey(stage string) string {
-	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(stage))), "_")
-}
-
 // isClinicalDestinationStage reports whether a resolved destination tag names a clinical state -- the
 // canonical protocol/domain.MandatoryClinicalDeferStates (sick, under_treatment, recovering,
 // quarantine, icu), reused rather than re-hardcoded per the clinical-defer safety rule.
+//
+// The normalization and the comparison BOTH moved to protocol/domain (2026-08-15) so this guard and
+// the counts raise-time resolver share one implementation. They used to answer the same question in
+// two places: this one collapsed inner whitespace, the shifting resolver did not consult the set at
+// all, so a pen tagged with a clinical state resolved cleanly at raise and then failed HERE -- at the
+// second gate, after the operator had shot the completion video and the park head had approved.
 func isClinicalDestinationStage(stage string) bool {
-	key := clinicalStageKey(stage)
-	if key == "" {
-		return false
-	}
-	for _, clinical := range protocoldomain.MandatoryClinicalDeferStates {
-		if key == clinicalStageKey(clinical) {
-			return true
-		}
-	}
-	return false
+	return protocoldomain.IsClinicalManagementStage(stage)
 }
 
 // insertRelocationIdentityEvents takes the row locks and writes the canonical per-animal

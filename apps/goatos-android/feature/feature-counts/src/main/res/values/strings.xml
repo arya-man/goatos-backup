@@ -115,6 +115,14 @@
     <string name="counts_group_recording_death_for">RECORDING DEATH FOR</string>
     <string name="counts_group_to">MOVE TO</string>
     <string name="counts_group_current_location">CURRENT LOCATION</string>
+    <!--
+      The shifting raise form's tag toggle. Farm words only: an operator reads "tag", never
+      "management stage" or "cohort". The pen's own tag and the reason it cannot be used are
+      backend-composed and rendered verbatim, so they are deliberately NOT string resources here.
+    -->
+    <string name="counts_group_stage_mode">TAG FOR THIS ANIMAL</string>
+    <string name="counts_stage_mode_keep_current">Keep current tag</string>
+    <string name="counts_stage_mode_destination">Use destination tag</string>
     <string name="counts_group_priority">PRIORITY</string>
     <string name="counts_group_category">CATEGORY</string>
     <string name="counts_group_comment">COMMENT</string>
