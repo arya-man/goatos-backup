@@ -31,7 +31,10 @@ import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -176,9 +179,10 @@ class MilkFeedingViewModel @Inject constructor(
 ) : ViewModel() {
     private val taskId = saved.get<String>(ARG_TASK_ID).orEmpty()
     private val feedingDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
-    // NON-CANONICAL proof/draft key building: see
-    // sg.mesha.goatos.core.data.capture.NON_CANONICAL_PROOF_KEY_FLOWS ("milk_feeding") for why this
-    // ViewModel does NOT route through ProofIdentity.storageKey()/idempotencyKey().
+    // Proof/draft field-key building now routes through the canonical ProofIdentity/EvidenceSlot
+    // model (see evidenceSlot() below). identity.taskId is set to the EXISTING groupKey() literal
+    // and fieldKey to the EXISTING "milk_feeding_$code" literal, so the strings written to
+    // Room/outbox are byte-for-byte unchanged — only the plumbing carrying them is canonical now.
     private val submitKey = DraftIdempotencyKey(saved, "milkFeeding.submitKey.$taskId", "milk-feeding-submit")
     private val proofKeys = listOf("clean_bottles", "mixing_and_filling").associateWith { DraftIdempotencyKey(saved, "milkFeeding.proofKey.$taskId.$it", "milk-feeding-$it") }
     private val submitOutboxItemId = DraftOutboxItemId(saved, "milkFeeding.submitOutboxItemId.$taskId")
@@ -289,9 +293,10 @@ class MilkFeedingViewModel @Inject constructor(
             draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
             return@launch
         }
+        val slot = evidenceSlot(code)
         when (val result = proofCaptureRepository.capture(
-            taskId = groupKey(),
-            fieldKey = "milk_feeding_$code",
+            taskId = slot.identity.taskId,
+            fieldKey = slot.fieldKey,
             subject = ProofSubject.PARK,
             subjectId = current.parkId,
             localUri = video.localUri,
@@ -352,9 +357,10 @@ class MilkFeedingViewModel @Inject constructor(
             draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
             return@launch
         }
+        val slot = evidenceSlot(code)
         when (val result = proofCaptureRepository.capture(
-            taskId = groupKey(),
-            fieldKey = "milk_feeding_$code",
+            taskId = slot.identity.taskId,
+            fieldKey = slot.fieldKey,
             subject = ProofSubject.PARK,
             subjectId = current.parkId,
             localUri = video.localUri,
@@ -427,6 +433,19 @@ class MilkFeedingViewModel @Inject constructor(
     }
 
     private fun groupKey() = "milk-feeding:${state.value.parkId}:$feedingDate:${state.value.sessionNo}"
+
+    /** Canonical slot grain for a milk-feeding proof capture. identity.taskId/fieldKey resolve to
+     *  the SAME strings [groupKey] / the raw `"milk_feeding_$code"` literal already produced, so
+     *  routing captures through this slot changes no on-disk value. */
+    private fun evidenceSlot(code: String): EvidenceSlot = EvidenceSlot(
+        identity = ProofIdentity(
+            flow = ProofFlow.MILK_FEEDING,
+            taskId = groupKey(),
+            partitionKey = "whole",
+            subjectKey = taskId,
+        ),
+        fieldKey = "milk_feeding_$code",
+    )
 
     /**
      * Observes the submit outbox item's status to detect when submission completes or fails,
