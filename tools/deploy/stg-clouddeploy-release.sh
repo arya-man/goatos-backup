@@ -20,10 +20,15 @@ die() {
 [[ "$PROJECT_NUMBER" == "514832198871" ]] || die "PROJECT_NUMBER must be 514832198871, got $PROJECT_NUMBER"
 [[ "$REGION" == "asia-south1" ]] || die "REGION must be asia-south1, got $REGION"
 
-repo_root="$(git rev-parse --show-toplevel)"
+if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  has_git_checkout=1
+else
+  has_git_checkout=0
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
 cd "$repo_root"
 
-if [[ "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
+if [[ "$has_git_checkout" == "1" && "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
   origin_url="$(git remote get-url origin 2>/dev/null || true)"
   [[ "$origin_url" == "git@github.com:vgoats/goatos.git" || "$origin_url" == "ssh://git@github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos" ]] \
     || die "staging releases must run from vgoats/goatos; got origin=$origin_url"
@@ -38,7 +43,7 @@ if [[ "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
   fi
 fi
 
-if [[ "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
+if [[ "$has_git_checkout" == "1" && "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
   git diff --quiet || die "working tree has unstaged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
   git diff --cached --quiet || die "working tree has staged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
 fi
@@ -65,7 +70,13 @@ done
 [[ "$account_allowed" == "1" ]] || die "active gcloud account must be one of: ${STG_DEPLOY_ACCOUNTS[*]}; got $active_account"
 [[ "$active_project" == "$PROJECT_ID" ]] || die "active gcloud project must be $PROJECT_ID, got $active_project"
 
-commit_sha="$(git rev-parse --short=12 HEAD)"
+if [[ -n "${COMMIT_SHA:-}" ]]; then
+  commit_sha="$(printf '%s' "$COMMIT_SHA" | cut -c1-12)"
+elif [[ "$has_git_checkout" == "1" ]]; then
+  commit_sha="$(git rev-parse --short=12 HEAD)"
+else
+  die "COMMIT_SHA is required when running from a source archive without .git"
+fi
 registry="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}"
 backend_image="${registry}/backend:${commit_sha}"
 migration_image="${registry}/migrate:${commit_sha}"
