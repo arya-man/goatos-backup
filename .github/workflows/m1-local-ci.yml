@@ -32,7 +32,7 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Toolchain
@@ -54,7 +54,7 @@ jobs:
     env:
       GOATOS_RUN_POSTGRES_TESTS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true && '1' || '0' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Run scoped local CI
