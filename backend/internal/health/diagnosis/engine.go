@@ -73,19 +73,28 @@ var stickyIDs = map[string]bool{
 	"PPR": true, "POX": true, "ORF": true, "MILK_FEVER": true, "PINKEYE": true,
 	"ACIDOSIS": true, "FRACTURE": true, "MASTITIS": true, "WOUNDS": true,
 	"FEVER": true, "NEURO": true, "PREG_TOX": true, "UNDIFFERENTIATED": true,
+	// Kid courses. A floppy kid that stands up today is not cured -- it is a
+	// floppy kid on bicarbonate that is working -- and stopping there is how it
+	// relapses overnight.
+	IDFloppyKid: true, IDHypothermia: true, IDNavelIll: true,
 }
 
-// namedProblems are the register ids that count as a specific diagnosis. If none
-// of these is live, an off-feed animal falls to Undifferentiated rather than
-// being called healthy.
-var namedProblems = map[string]bool{
-	"BLOAT": true, "ACIDOSIS": true, "DIARRHEA": true, "MASTITIS": true,
-	"UDDER_EDEMA": true, "ANEMIA": true, "JAUNDICE": true, "CALCULI": true,
-	"RED_URINE": true, "PREG_TOX": true, "MILK_FEVER": true, "METRITIS": true,
-	"PROLAPSE": true, "PPR": true, "POX": true, "ORF": true, "PINKEYE": true,
-	"TETANUS": true, "NEURO": true, "FOOT_ROT": true, "FRACTURE": true,
-	"LAMINITIS": true, "ARTHRITIS": true, "SKIN": true, "FLYSTRIKE": true,
-	"LUMPS": true, "WOUNDS": true, "BODY_EDEMA": true, "FEVER": true,
+// isNamedProblem reports whether an id is a specific diagnosis from THIS
+// register. If none is live, an off-feed animal falls to Undifferentiated rather
+// than being called healthy.
+//
+// Derived from the loaded register rather than listed here. The list used to be
+// a hardcoded set of adult ids, which was invisible while adult was the only
+// class and wrong the moment a second register arrived: a kid whose only
+// diagnosis was HYPOTHERMIA or FLOPPY_KID -- ids no adult table contains -- was
+// treated as having nothing named and collected a spurious Undifferentiated
+// beside its real one.
+func (r *Register) isNamedProblem(id string) bool {
+	if id == IDUndifferentiated {
+		return false
+	}
+	rule := r.Rule(id)
+	return rule != nil && rule.Kind == KindProblem
 }
 
 // IDUndifferentiated is not a register rule. It is the safety net's own label
@@ -164,7 +173,7 @@ type Housing struct {
 func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
 	p := Proposal{
 		Valid:           true,
-		Scope:           ScopeAdult,
+		Scope:           animal.class(),
 		RegisterVersion: r.Version,
 		Tiers:           map[string]Tier{},
 		SOP:             map[string]string{},
@@ -176,23 +185,25 @@ func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
 		},
 	}
 
+	// A register may only diagnose the class it was bound to. This is the last
+	// line of defence for the spec's loudest never -- do not load adult YAML for
+	// a milk kid -- and it fails CLOSED: refusing to diagnose is recoverable,
+	// while diagnosing a kid off the adult table produces a confident, wrong,
+	// durable medical record.
+	if r.boundClass != "" && r.boundClass != animal.class() {
+		p.Valid = false
+		p.RejectReason = RejectRegisterClassMismatch
+		return p
+	}
+
 	if reason := validateForm(animal, f); reason != "" {
 		p.Valid = false
 		p.RejectReason = reason
 		return p
 	}
 
-	d := deriveTokens(f)
+	d := deriveTokens(animal, f)
 	p.Emergencies = detectEmergencies(animal, f, d)
-
-	// Scope gates DIAGNOSIS only. The emergencies above have already been
-	// emitted for a kid, and that is the point of the ordering.
-	if animal.class() != ScopeAdult {
-		p.Scope = ScopeOutOfScope
-		r.applyDirectorAlways(&p, animal, f, ctx)
-		p.DirectorFlags = dedupe(p.DirectorFlags)
-		return p
-	}
 
 	evidence := buildEvidence(animal, f, d)
 	matched := r.evaluateRegister(animal, evidence)
@@ -211,7 +222,7 @@ func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
 	abnormal := hasAbnormal(f, d, matched)
 
 	problems, covered = r.reconcile(&p, problems, covered, f, d, ctx)
-	problems = r.applyUndifferentiated(problems, f, d)
+	problems = r.applyUndifferentiated(problems, animal, f, d)
 	problems, covered = r.applyCovers(problems, covered)
 
 	// NAD: nothing abnormal, nothing fired, and no follow-up action to take.
@@ -226,6 +237,11 @@ func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
 		}
 		p.Housing.Acuity = AcuityHome
 		r.applyDirectorAlways(&p, animal, f, ctx)
+		// The kid compiler runs even here. A K1 kid that missed ONE bar session
+		// is NAD -- that miss is training, not disease -- and is still offered
+		// oral salts. Skipping the compiler on this path would send a kid that
+		// is starting to fall behind away with no instruction at all.
+		r.applyKidCompiler(&p, newKidState(animal, f, &p), f)
 		p.DirectorFlags = dedupe(p.DirectorFlags)
 		return p
 	}
@@ -243,13 +259,18 @@ func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
 	r.applyDirectorAlways(&p, animal, f, ctx)
 	r.applyShedPass(&p, ctx)
 
-	p.Housing = r.decideHousing(p.Problems, f, d, p.Emergencies)
+	kid := newKidState(animal, f, &p)
+
+	p.Housing = r.decideHousing(p.Problems, animal, f, d, p.Emergencies)
 	if len(p.FieldActions) > 0 && len(p.Problems) == 0 && len(p.Rechecks) == 0 {
 		p.Housing.Acuity = AcuityField
 	}
+	r.applyKidHousing(&p, kid, f, d)
 	r.applyShiftLists(&p)
+	r.applyKidShifts(&p, kid)
 	r.applyDrugRules(&p, f, d, ctx)
-	r.applyCourseRefs(&p)
+	r.applyKidCompiler(&p, kid, f)
+	r.applyCourseRefs(&p, kid)
 
 	p.DirectorFlags = dedupe(p.DirectorFlags)
 	return p
@@ -262,7 +283,7 @@ func hasAbnormal(f Findings, d derived, matched matchResult) bool {
 	switch {
 	case d.any(),
 		len(matched.problems) > 0, len(matched.fieldActions) > 0, len(matched.rechecks) > 0,
-		f.Diarrhea, f.notEating(), f.Nasal, f.LockedJaw, f.Yellow, f.Flystrike,
+		f.Diarrhea.Set, f.notEating(), f.Nasal, f.LockedJaw, f.Yellow, f.Flystrike,
 		f.BodyEdema, f.Ticks, f.Competition, f.FrothyMouth, f.RedUrine,
 		f.EartagFlystrike, f.EartagWound:
 		return true
@@ -312,7 +333,10 @@ func (r *Register) reconcile(p *Proposal, problems, covered []string, f Findings
 		case open == "WOUNDS" && !woundsPresent:
 			p.ProposeClose = appendUnique(p.ProposeClose, "WOUNDS")
 			resolved = true
-		case open == "FEVER" && day >= 3 && f.temp() <= 103.5 && !eating.has("not_eating"):
+		// No longer FEBRILE, which is a class question rather than a number: a
+		// kid at 103.5degF still has a fever where an adult does not, so the
+		// derived token is asked instead of comparing the temperature here.
+		case open == "FEVER" && day >= 3 && !d.has("FEVER") && !eating.has("not_eating"):
 			p.ProposeClose = appendUnique(p.ProposeClose, "FEVER")
 			resolved = true
 		case open == "MASTITIS" && f.CMT == "neg":
@@ -323,6 +347,17 @@ func (r *Register) reconcile(p *Proposal, problems, covered []string, f Findings
 			} else if !contains(problems, open) {
 				problems = append(problems, open)
 			}
+		// A floppy kid that is back on its feet and responsive has answered the
+		// bicarbonate. The milk goes back ON -- it was taken away as treatment,
+		// and leaving it off is its own harm.
+		case open == IDFloppyKid && day >= 2 && f.Activity == "standing" &&
+			!isOneOf(f.Responsiveness, "dull", "unresponsive"):
+			p.ProposeClose = appendUnique(p.ProposeClose, IDFloppyKid)
+			p.DirectorFlags = append(p.DirectorFlags, FlagResumeMilk)
+			resolved = true
+		case open == IDHypothermia && !d.has("HYPOTHERMIA"):
+			p.ProposeClose = appendUnique(p.ProposeClose, IDHypothermia)
+			resolved = true
 		case stickyIDs[open] && !contains(problems, open) && !contains(covered, open):
 			problems = append(problems, open)
 		}
@@ -334,7 +369,7 @@ func (r *Register) reconcile(p *Proposal, problems, covered []string, f Findings
 	// Still febrile on day 3 restarts the course rather than adding silent extra
 	// days, so the record shows an extension the Director agreed to.
 	if contains(ctx.Open, "FEVER") && contains(problems, "FEVER") && day >= 3 &&
-		!contains(p.ProposeClose, "FEVER") && f.temp() > 103.5 {
+		!contains(p.ProposeClose, "FEVER") && d.has("FEVER") {
 		p.ProposeExtend = appendUnique(p.ProposeExtend, "FEVER")
 	}
 
@@ -353,11 +388,15 @@ func (r *Register) reconcile(p *Proposal, problems, covered []string, f Findings
 // applyUndifferentiated is the safety net for an animal that is clearly unwell
 // with nothing specific to name. "Not eating" is not a disease, and calling it
 // one would be worse than admitting the register has no label for this.
-func (r *Register) applyUndifferentiated(problems []string, f Findings, d derived) []string {
+func (r *Register) applyUndifferentiated(problems []string, animal Animal, f Findings, d derived) []string {
 	if contains(problems, IDUndifferentiated) {
 		return problems
 	}
-	crashing := f.notEating() || d.has("HYPOTHERMIA") || f.RumenMovement == "not_felt" || f.down()
+	// A kid that has stopped drinking is off feed even when the FEED row says
+	// nothing: on the milk slices the bar IS the diet. Reading only f.notEating
+	// here would let a kid that refused every bottle come back as healthy.
+	crashing := f.notEating() || d.has("HYPOTHERMIA") || f.RumenMovement == "not_felt" || f.down() ||
+		milkProblem(animal, f)
 	if !crashing {
 		return problems
 	}
@@ -365,7 +404,7 @@ func (r *Register) applyUndifferentiated(problems []string, f Findings, d derive
 		return problems
 	}
 	for _, id := range problems {
-		if namedProblems[id] {
+		if r.isNamedProblem(id) {
 			return problems
 		}
 	}
@@ -556,7 +595,7 @@ func (r *Register) applyShedPass(p *Proposal, ctx Context) {
 // The overlay exists because EATING IS THE POINT: a fractured or off-feed animal
 // loses at the trough. Fracture plus pinkeye is ward and low-competition, not
 // quarantine — stacking independent axes rather than escalating one.
-func (r *Register) decideHousing(problems []string, f Findings, d derived, emergencies []string) Housing {
+func (r *Register) decideHousing(problems []string, animal Animal, f Findings, d derived, emergencies []string) Housing {
 	h := Housing{Acuity: AcuityHome, Containment: ContainmentHome, NoDueOvernight: true}
 
 	crashing := f.down() || d.has("HYPOTHERMIA") || d.has("HIGH_FEVER") || d.correctedTent == "gt4"
@@ -687,12 +726,17 @@ func (r *Register) applyDrugRules(p *Proposal, f Findings, d derived, ctx Contex
 
 // applyCourseRefs resolves each problem to the SOP card the manager treats from.
 // The manager never picks the disease; they work the card.
-func (r *Register) applyCourseRefs(p *Proposal) {
+func (r *Register) applyCourseRefs(p *Proposal, s kidState) {
 	for _, id := range p.Problems {
 		rule := r.Rule(id)
 		switch {
-		case id == IDUndifferentiated || (rule != nil && rule.ExitType == "Supportive"):
-			// Supportive is daily and ongoing, NOT the 3-day Fever recipe.
+		case id == IDUndifferentiated:
+			// Supportive is daily and ongoing, NOT the 3-day Fever recipe. A kid
+			// that has stopped drinking is worked from the refusal ladder
+			// instead, which has rungs Supportive does not.
+			p.SOP[id] = kidUndifferentiatedSOP(s)
+			p.CourseType[id] = "Supportive"
+		case rule != nil && rule.ExitType == "Supportive":
 			p.SOP[id] = "Supportive"
 			p.CourseType[id] = "Supportive"
 		case rule != nil:

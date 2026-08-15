@@ -1,0 +1,2111 @@
+{
+  "catalog_version": "kid-milk-7",
+  "count": 46,
+  "stories": [
+    {
+      "id": "K001",
+      "title": "K1 standing, lands well, drinking \u2192 NAD",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID"
+        ],
+        "hd_has": [
+          "nad"
+        ],
+        "not_emergencies": [
+          "acidosis_now",
+          "floppy_now"
+        ]
+      }
+    },
+    {
+      "id": "K002",
+      "title": "K1 down, dull, 103\u00b0F, landing na \u2192 refusal emergency, not floppy",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "na"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "ACIDOSIS",
+          "HYPOTHERMIA",
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "acidosis_now",
+          "rl_sq"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "milk_off",
+          "bicarb",
+          "force_milk"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "course_type": {
+          "UNDIFFERENTIATED": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "K003",
+      "title": "K2 down, dull \u2192 refusal emergency, not floppy",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "na"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "ACIDOSIS",
+          "HYPOTHERMIA",
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "acidosis_now",
+          "rl_sq"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "milk_off",
+          "bicarb",
+          "force_milk"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "course_type": {
+          "UNDIFFERENTIATED": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "K004",
+      "title": "K0 98\u00b0F weak \u2192 hypothermia, not floppy",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K0",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 98.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "weak",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "HYPOTHERMIA"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "emergencies_has": [
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "rl_sq"
+        ],
+        "acuity": "icu",
+        "no_meloxicam": true,
+        "hd_not": [
+          "offer_milk"
+        ],
+        "sop": {
+          "HYPOTHERMIA": "Hypothermia"
+        }
+      }
+    },
+    {
+      "id": "K005",
+      "title": "K0 down, cold, no suckle \u2192 warm, no oral milk",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K0",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 98.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "absent",
+        "navel": "normal",
+        "landing": "na"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "HYPOTHERMIA"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "emergencies_has": [
+          "warm",
+          "down",
+          "ip_dextrose",
+          "rl_sq"
+        ],
+        "not_emergencies": [
+          "floppy_now"
+        ],
+        "hd_has": [
+          "no_oral_milk",
+          "no_force_feed_down"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "milk_off"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "K006",
+      "title": "K1 1\u2717 (drank first two, missed the third) \u2192 NAD, offer ORS",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 1,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [],
+        "not_hits": [
+          "UNDIFFERENTIATED",
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "hd_has": [
+          "nad",
+          "offer_ors"
+        ],
+        "acuity": "home"
+      }
+    },
+    {
+      "id": "K007",
+      "title": "K2 not at the bar, standing, dull \u2192 Milk refusal (K2 already proved free-choice)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "not_field": [
+          "MILK_TRAINING"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "session_bottle",
+          "offer_milk",
+          "check_until_drinking",
+          "both_shifts",
+          "k2_refusal"
+        ],
+        "hd_not": [
+          "no_evening_ward",
+          "force_milk",
+          "offer_ors",
+          "rl_sq"
+        ]
+      }
+    },
+    {
+      "id": "K008",
+      "title": "Navel swollen, drinking normally \u2192 navel ill only",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "swollen",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "NAVEL_ILL"
+        ],
+        "not_hits": [
+          "FEVER",
+          "FLOPPY_KID"
+        ],
+        "acuity": "ward",
+        "sop": {
+          "NAVEL_ILL": "Navel ill"
+        },
+        "tier": {
+          "NAVEL_ILL": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "K009",
+      "title": "Navel swollen + fever + not drinking \u2192 navel covers fever",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 105.2,
+        "milk_intake": "not_drinking",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "swollen",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "NAVEL_ILL"
+        ],
+        "covered_has": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FEVER",
+          "FLOPPY_KID"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "K010",
+      "title": "Diarrhea, drinking, standing \u2192 Diarrhea, not coccidia",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "DIARRHEA"
+        ],
+        "not_hits": [
+          "COCCIDIOSIS"
+        ],
+        "acuity": "ward",
+        "sop": {
+          "DIARRHEA": "Diarrhea"
+        }
+      }
+    },
+    {
+      "id": "K011",
+      "title": "Bloody diarrhea \u2192 still Diarrhea, not coccidia",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "diarrhea": "bloody"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "DIARRHEA"
+        ],
+        "not_hits": [
+          "COCCIDIOSIS"
+        ]
+      }
+    },
+    {
+      "id": "K012",
+      "title": "Hot + down + navel ok \u2192 Fever, not floppy",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 105.2,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "na"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "rl_sq"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "milk_off",
+          "bicarb"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "K013",
+      "title": "Floppy D2, standing, responsive \u2192 propose close, resume milk",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {
+        "open": [
+          "FLOPPY_KID"
+        ],
+        "day": 2
+      },
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [],
+        "propose_close": [
+          "FLOPPY_KID"
+        ],
+        "hd_has": [
+          "resume_milk"
+        ]
+      }
+    },
+    {
+      "id": "K014",
+      "title": "Seizure, standing \u2192 Neuro, thiamine today (not the dextrose crash)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "neuro": "seizure"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "NEURO"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "HYPOTHERMIA"
+        ],
+        "not_emergencies": [
+          "ip_dextrose"
+        ],
+        "hd_has": [
+          "thiamine",
+          "same_day_neuro",
+          "no_handle_mouth"
+        ],
+        "acuity": "icu",
+        "sop": {
+          "NEURO": "Neuro"
+        },
+        "tier": {
+          "NEURO": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "K015",
+      "title": "K1 1\u2717 at session 1 \u2192 NAD, offer ORS (one miss is not a crisis)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 1,
+        "session": 1,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [],
+        "not_hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "hd_has": [
+          "nad",
+          "offer_ors"
+        ],
+        "acuity": "home"
+      }
+    },
+    {
+      "id": "K016",
+      "title": "Blown belly / frothy milk kid \u2192 tube, bloat",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "left_stomach": "bloating",
+        "frothy_mouth": true
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "BLOAT"
+        ],
+        "emergencies_has": [
+          "tube"
+        ],
+        "acuity": "icu",
+        "sop": {
+          "BLOAT": "Bloat"
+        }
+      }
+    },
+    {
+      "id": "K017",
+      "title": "Kid PPR picture \u2192 PPR quarantine Supportive",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 105.2,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "PPR"
+        ],
+        "not_hits": [
+          "ORF",
+          "DIARRHEA",
+          "FEVER"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "PPR": "Supportive"
+        },
+        "course_type": {
+          "PPR": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "K019",
+      "title": "K1 down dull 103, landing na \u2192 refusal emergency, no acidosis",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "na"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "ACIDOSIS",
+          "HYPOTHERMIA",
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "acidosis_now",
+          "rl_sq"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "milk_off",
+          "bicarb",
+          "force_milk"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "course_type": {
+          "UNDIFFERENTIATED": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "K020",
+      "title": "K0 104.0 standing drinking \u2192 Fever (same 103.5 cut as adults)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K0",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 104.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "K021",
+      "title": "K1 3\u2717 standing, alert, suckle+ \u2192 force milk, hospital",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 3,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "icu",
+        "low_comp": true,
+        "hd_has": [
+          "force_milk",
+          "rl_sq",
+          "check_until_drinking",
+          "both_shifts"
+        ],
+        "hd_not": [
+          "offer_ors",
+          "milk_off"
+        ]
+      }
+    },
+    {
+      "id": "K023",
+      "title": "Navel wet singleton \u2192 navel ill",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K0",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "wet",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "NAVEL_ILL"
+        ],
+        "tier": {
+          "NAVEL_ILL": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "K024",
+      "title": "Swollen joint, not fracture \u2192 arthritis (same as adult)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "leg": "arthritis"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "ARTHRITIS"
+        ],
+        "not_hits": [
+          "NAVEL_ILL",
+          "FRACTURE"
+        ],
+        "hd_has": [
+          "cull_arthritis"
+        ],
+        "tier": {
+          "ARTHRITIS": "CONFIRMED"
+        },
+        "sop": {
+          "ARTHRITIS": "Arthritis"
+        }
+      }
+    },
+    {
+      "id": "K025",
+      "title": "Suckle absent, K2 not at the bar \u2192 session bottles, no oral milk until suckle",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "absent",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_field": [
+          "MILK_TRAINING"
+        ],
+        "hd_has": [
+          "no_oral_milk",
+          "check_until_drinking",
+          "session_bottle",
+          "k2_refusal"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "force_milk",
+          "offer_ors",
+          "rl_sq"
+        ],
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true
+      }
+    },
+    {
+      "id": "K026",
+      "title": "Milk kid 107\u00b0F standing \u2192 cool, ICU, Fever",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 107.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FEVER"
+        ],
+        "emergencies_has": [
+          "cool"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "K027",
+      "title": "ORF + 105.2, no diarrhea \u2192 ORF and Fever",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 105.2,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "mouth": "orf_scabs"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits_has": [
+          "ORF",
+          "FEVER"
+        ],
+        "not_hits": [
+          "PPR"
+        ],
+        "containment": "quarantine",
+        "club": true
+      }
+    },
+    {
+      "id": "K028",
+      "title": "Diarrhea + tent >4s \u2192 Diarrhea, fluids, ICU",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "diarrhea": true,
+        "skin_tent": "gt4"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "DIARRHEA"
+        ],
+        "emergencies_has": [
+          "fluids"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "K029",
+      "title": "Down, unresponsive, suckle still present \u2192 dextrose, do not force feed",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "unresponsive",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "na"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "force_milk",
+          "milk_off"
+        ],
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "rl_sq"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "K030",
+      "title": "Sheep kid standing, lands barely \u2192 floppy same as goat",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "sheep",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Deccani",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "barely"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FLOPPY_KID"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "HYPOTHERMIA",
+          "FEVER",
+          "COPPER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "floppy_now"
+        ],
+        "not_emergencies": [
+          "acidosis_now",
+          "ip_dextrose"
+        ],
+        "hd_has": [
+          "milk_off",
+          "bicarb"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "concentrate_off",
+          "force_milk"
+        ],
+        "sop": {
+          "FLOPPY_KID": "Floppy kid"
+        },
+        "course_type": {
+          "FLOPPY_KID": "F"
+        },
+        "tier": {
+          "FLOPPY_KID": "PROBABLE"
+        },
+        "scope": "kid_milk"
+      }
+    },
+    {
+      "id": "K031",
+      "title": "K1 standing, lands barely, alert, 103\u00b0F \u2192 floppy (drop test)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "barely"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FLOPPY_KID"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "HYPOTHERMIA",
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "floppy_now"
+        ],
+        "not_emergencies": [
+          "down",
+          "acidosis_now",
+          "ip_dextrose"
+        ],
+        "hd_has": [
+          "milk_off",
+          "bicarb"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "concentrate_off",
+          "force_milk"
+        ],
+        "sop": {
+          "FLOPPY_KID": "Floppy kid"
+        },
+        "course_type": {
+          "FLOPPY_KID": "F"
+        },
+        "tier": {
+          "FLOPPY_KID": "PROBABLE"
+        },
+        "scope": "kid_milk"
+      }
+    },
+    {
+      "id": "K032",
+      "title": "K2 standing, Spider-Man, dull, not at the bar \u2192 Supportive, not floppy",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "dull",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "not_emergencies": [
+          "floppy_now"
+        ],
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "session_bottle",
+          "offer_milk",
+          "check_until_drinking",
+          "k2_refusal"
+        ],
+        "hd_not": [
+          "force_milk",
+          "offer_ors",
+          "rl_sq"
+        ]
+      }
+    },
+    {
+      "id": "K033",
+      "title": "Standing, falls the drop, alert \u2192 floppy Confirmed",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "falls"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FLOPPY_KID"
+        ],
+        "tier": {
+          "FLOPPY_KID": "CONFIRMED"
+        },
+        "emergencies_has": [
+          "floppy_now"
+        ],
+        "not_emergencies": [
+          "down"
+        ],
+        "acuity": "icu",
+        "hd_has": [
+          "milk_off",
+          "bicarb"
+        ]
+      }
+    },
+    {
+      "id": "K034",
+      "title": "Standing with no landing tick \u2192 reject",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": null
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "landing_required"
+      }
+    },
+    {
+      "id": "K035",
+      "title": "Down but landing spiderman \u2192 reject (do not drop a recumbent kid)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "down",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "landing_when_down"
+      }
+    },
+    {
+      "id": "K036",
+      "title": "K1 barely landing + not drinking, alert \u2192 floppy not milk training",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "barely"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FLOPPY_KID"
+        ],
+        "not_field": [
+          "MILK_TRAINING"
+        ],
+        "hd_has": [
+          "milk_off"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "force_milk"
+        ]
+      }
+    },
+    {
+      "id": "K037",
+      "title": "K1 103.5 standing drinking \u2192 Fever (\u2265103.5)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.5,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "K038",
+      "title": "K2 not at the bar, alert, suckle+ \u2192 Milk refusal, bottles until suckle, then back to the bar",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "not_field": [
+          "MILK_TRAINING"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "session_bottle",
+          "offer_milk",
+          "check_until_drinking",
+          "both_shifts",
+          "k2_refusal"
+        ],
+        "hd_not": [
+          "force_milk",
+          "offer_ors",
+          "rl_sq"
+        ]
+      }
+    },
+    {
+      "id": "K039",
+      "title": "K2 not at the bar, overlay 1\u2717 \u2192 Milk refusal, offer milk (K2 is the bar, not a bottle program)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 1,
+        "session": 2,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "offer_milk",
+          "session_bottle",
+          "check_until_drinking",
+          "k2_refusal",
+          "both_shifts"
+        ],
+        "hd_not": [
+          "nad",
+          "force_milk",
+          "rl_sq",
+          "offer_ors"
+        ]
+      }
+    },
+    {
+      "id": "K040",
+      "title": "K2 not-drinking overlay, 3\u2717, suckle+ \u2192 force milk, hospital",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 3,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "icu",
+        "low_comp": true,
+        "hd_has": [
+          "force_milk",
+          "rl_sq",
+          "check_until_drinking",
+          "session_bottle",
+          "k2_refusal"
+        ],
+        "hd_not": [
+          "offer_ors",
+          "milk_off"
+        ]
+      }
+    },
+    {
+      "id": "K041",
+      "title": "K1 2\u2717 standing, lands well \u2192 Milk refusal, RL + ORS, ward both shifts",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 2,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "rl_sq",
+          "offer_ors",
+          "check_until_drinking",
+          "both_shifts"
+        ],
+        "hd_not": [
+          "nad",
+          "force_milk",
+          "milk_off",
+          "k2_refusal",
+          "session_bottle"
+        ]
+      }
+    },
+    {
+      "id": "K042",
+      "title": "K2 drinking at the bar \u2192 omit session sheet, NAD",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [],
+        "not_hits": [
+          "UNDIFFERENTIATED",
+          "FLOPPY_KID",
+          "ACIDOSIS"
+        ],
+        "hd_has": [
+          "nad"
+        ],
+        "hd_not": [
+          "k2_refusal",
+          "session_bottle",
+          "offer_ors",
+          "offer_milk"
+        ],
+        "not_emergencies": [
+          "acidosis_now",
+          "floppy_now"
+        ]
+      }
+    },
+    {
+      "id": "K043",
+      "title": "K2 not-drinking overlay, 2\u2717 \u2192 Milk refusal (same SOP as K1 2\u2717)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "not_drinking",
+        "refusals_today": 2,
+        "session": 2,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Milk refusal"
+        },
+        "acuity": "ward",
+        "low_comp": true,
+        "evening_walk": true,
+        "hd_has": [
+          "rl_sq",
+          "offer_ors",
+          "session_bottle",
+          "check_until_drinking",
+          "k2_refusal",
+          "both_shifts"
+        ],
+        "hd_not": [
+          "nad",
+          "force_milk",
+          "milk_off"
+        ]
+      }
+    },
+    {
+      "id": "K044",
+      "title": "Standing, lands barely, 104\u00b0F \u2192 Fever, not floppy",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 104.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "barely"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "ip_dextrose"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "K045",
+      "title": "K1 male straining, standing, drinking \u2192 Calculi (rare; same adult lock)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [
+          "CALCULI"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID",
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "no_meloxicam": true,
+        "sop": {
+          "CALCULI": "Calculi"
+        },
+        "tier": {
+          "CALCULI": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "K046",
+      "title": "K1 female straining \u2192 reject",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "female_straining"
+      }
+    },
+    {
+      "id": "K047",
+      "title": "K1 water-sound leak still not Acidosis",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K1",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "refusals_today": 0,
+        "session": 3,
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "spiderman",
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_milk",
+        "hits": [],
+        "not_hits": [
+          "ACIDOSIS"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "nad"
+        ]
+      }
+    },
+    {
+      "id": "K048",
+      "title": "K2 standing, lands barely, alert \u2192 floppy (same as K1; milk off is remove the bar)",
+      "animal": {
+        "klass": "kid_milk",
+        "stage": "K2",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Nursery-1"
+      },
+      "findings": {
+        "temp": 103.0,
+        "milk_intake": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "navel": "normal",
+        "landing": "barely"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FLOPPY_KID"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "HYPOTHERMIA",
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "floppy_now"
+        ],
+        "not_emergencies": [
+          "down",
+          "acidosis_now",
+          "ip_dextrose"
+        ],
+        "hd_has": [
+          "milk_off",
+          "bicarb"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "force_milk",
+          "session_bottle",
+          "k2_refusal"
+        ],
+        "sop": {
+          "FLOPPY_KID": "Floppy kid"
+        },
+        "course_type": {
+          "FLOPPY_KID": "F"
+        },
+        "tier": {
+          "FLOPPY_KID": "PROBABLE"
+        },
+        "scope": "kid_milk"
+      }
+    }
+  ]
+}

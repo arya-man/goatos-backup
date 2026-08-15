@@ -554,6 +554,11 @@ func (r *DiagnosisRepository) replayConfirmation(
 	if confirmationFingerprint == nil || *confirmationFingerprint != in.RequestFingerprint {
 		return domain.ConfirmDiagnosisResult{}, false, ports.ErrConflict
 	}
+	// projection-review: membership=health_cases for this run; group_key=(tenant_id, health_case_id); join_cardinality=sessions counted in a CORRELATED SUBQUERY, never joined, so the 1:N session side cannot duplicate a case row; pagination=none, one run opens a handful of cases; scope=tenant_id and health_diagnosis_run_id
+	//
+	// The session count is per CASE. Joining health_treatment_sessions instead
+	// would multiply each case by its own session count and report a replayed
+	// confirmation as having opened several courses where it opened one.
 	rows, err := tx.Query(ctx, `
 SELECT health_case_id::text, disease_key, exit_type, duration_days,
        (SELECT count(*) FROM health_treatment_sessions s WHERE s.health_case_id = c.health_case_id)
@@ -653,7 +658,7 @@ func confirmedIDs(plan domain.ConfirmationPlan) []string {
 // ListDiagnosisRuns serves the Director's queue: one keyset page of assessments,
 // newest first.
 //
-// projection-review:
+// projection-review: membership=health_diagnosis_runs; group_key=(tenant_id, health_diagnosis_run_id); join_cardinality=goats 1:1 on (tenant_id, goat_id), location resolved separately in Go; pagination=keyset on (observed_at, health_diagnosis_run_id) DESC, never OFFSET; scope=tenant_id always, optional goat_id, optional status
 //
 //	producer  health_diagnosis_runs, unique on (tenant_id, health_diagnosis_run_id)
 //	consumer  one row per health_diagnosis_run_id; no GROUP BY, no aggregate

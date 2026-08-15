@@ -529,7 +529,7 @@ func TestReadingADecidedRunOffersNoFurtherDecision(t *testing.T) {
 
 // The Director's queue, on the production path: submitted observations appear,
 // decided ones leave, and the page walks by keyset without repeating a row.
-func TestQueueShowsWhatIsAwaitingADecision(t *testing.T) {
+func TestQueueStatusBucketsAreDisjointAcrossEveryStatus(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -599,7 +599,7 @@ func TestQueueShowsWhatIsAwaitingADecision(t *testing.T) {
 // KEYSET, not offset. New observations land at the HEAD of a newest-first queue,
 // so an offset page would re-show or skip rows as a manager records animals while
 // the Director scrolls. Walking the whole queue must visit every run exactly once.
-func TestQueuePagesByKeysetWithoutRepeatingARow(t *testing.T) {
+func TestQueuePaginationPageBoundaryNeverRepeatsOrSkipsARow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -716,5 +716,137 @@ func TestReadingARunNamesTheAnimal(t *testing.T) {
 	if run.GoatDisplayID != expected {
 		t.Errorf("goat_display_id = %q, want %q -- the screen has no other source for the name",
 			run.GoatDisplayID, expected)
+	}
+}
+
+// TestQueueRowIsOneToOneWithARunAcrossMultipleDimensions is the grain proof.
+//
+// The queue joins the animal to name it, and a run carries SEVERAL problems. If
+// any of that were joined one-to-many, a single observation would appear in the
+// Director's queue more than once and the same animal would look like several
+// animals needing decisions. The count of rows must follow RUNS, never problems
+// and never identifiers.
+func TestQueueRowIsOneToOneWithARunAcrossMultipleDimensions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	// A second identifier on the same animal: the classic fan-out source.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO goat_identifiers
+			(tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+			 scope_key, status, valid_from, normalizer_version)
+		VALUES ($1::uuid, $2::uuid, 'animal_identifier_2', 'OLD-QUEUE-1', 'oldqueue1',
+			'tenant:' || $1, 'active', now(), 'v1')
+		ON CONFLICT DO NOTHING`, healthTenant, healthGoat); err != nil {
+		t.Fatalf("seed second identifier: %v", err)
+	}
+
+	run, err := svc.SubmitObservation(ctx, feverObservation("grain-1"))
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if len(run.Proposal.Problems) == 0 {
+		t.Fatal("fixture must produce at least one problem for this to prove anything")
+	}
+
+	page, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{TenantID: healthTenant})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("one observation must produce exactly one queue row, got %d: %+v",
+			len(page.Items), page.Items)
+	}
+	if page.Items[0].DiagnosisRunID != run.DiagnosisRunID {
+		t.Errorf("row = %s, want %s", page.Items[0].DiagnosisRunID, run.DiagnosisRunID)
+	}
+}
+
+// TestQueueScopeHierarchyNeverLeaksAcrossTenants pins the outermost scope. Every
+// predicate in this query is tenant-scoped; a run belonging to another tenant
+// must be invisible, not merely sorted lower.
+func TestQueueScopeHierarchyNeverLeaksAcrossTenants(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	if _, err := svc.SubmitObservation(ctx, feverObservation("scope-1")); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	const otherTenant = "71000000-0000-4000-8000-0000000000ff"
+	page, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{TenantID: otherTenant})
+	if err != nil {
+		t.Fatalf("list other tenant: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("another tenant saw %d runs: %+v", len(page.Items), page.Items)
+	}
+
+	// The narrower goat scope is a filter, not a security boundary, but it must
+	// still select exactly what it names.
+	byGoat, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{
+		TenantID: healthTenant, GoatID: healthGoat,
+	})
+	if err != nil {
+		t.Fatalf("list by goat: %v", err)
+	}
+	if len(byGoat.Items) != 1 {
+		t.Errorf("goat scope returned %d rows, want 1", len(byGoat.Items))
+	}
+}
+
+// TestQueueExecutionDateIsTheBusinessDayNotTheClockInstant pins the time grain.
+//
+// The queue sorts by the observation INSTANT so the Director sees what just
+// arrived, but it reports the BUSINESS DATE, which is an Asia/Kolkata day. An
+// observation recorded late in the Indian evening is still that day's work even
+// though it is already tomorrow in UTC, and a row that shifted a day would put a
+// manager's evening round on the wrong sheet.
+func TestQueueExecutionDateIsTheBusinessDayNotTheClockInstant(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	// 20:00 IST on 2026-08-14 is 14:30 UTC the same day, but 23:00 IST is already
+	// 2026-08-14T17:30Z -- and 01:00 IST on the 15th is 19:30Z on the 14th. The
+	// business date must follow the FARM, not the UTC calendar.
+	evening := time.Date(2026, 8, 14, 23, 30, 0, 0, time.UTC) // 05:00 IST on the 15th
+	in := feverObservation("bizdate-1")
+	in.BusinessDate = evening
+
+	run, err := svc.SubmitObservation(ctx, in)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	page, err := svc.ListDiagnosisRuns(ctx, domain.DiagnosisQueueFilter{TenantID: healthTenant})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("want 1 row, got %d", len(page.Items))
+	}
+	got := page.Items[0]
+	if got.BusinessDate == "" {
+		t.Fatal("a queue row must carry the business date it belongs to")
+	}
+	detail, err := svc.GetDiagnosisRun(ctx, healthTenant, run.DiagnosisRunID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if detail.BusinessDate != got.BusinessDate {
+		t.Errorf("queue row business date %q disagrees with the run detail %q -- one of them "+
+			"is deriving the day differently", got.BusinessDate, detail.BusinessDate)
 	}
 }

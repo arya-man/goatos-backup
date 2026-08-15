@@ -926,9 +926,12 @@ class SyncEngine(
     private suspend fun projectDiagnosisProposal(item: OutboxEntity) {
         val dao = healthDiagnosisRunDao ?: return
         val resultJson = item.resultJson ?: return
+        // exception:exempt local cache projection; an undecodable payload leaves the row
+        // unwritten and the screen's refresh-on-open re-fetches it from the server.
         val payload = runCatching {
             syncJson.decodeFromString<HealthObservationSubmitPayload>(item.payloadJson)
         }.getOrNull() ?: return
+        // exception:exempt same cache projection; see above.
         val response = runCatching {
             syncJson.decodeFromString<HealthDiagnosisProposalResponseDto>(resultJson)
         }.getOrNull() ?: return
@@ -958,9 +961,12 @@ class SyncEngine(
      */
     private suspend fun projectDiagnosisDecision(item: OutboxEntity) {
         val dao = healthDiagnosisRunDao ?: return
+        // exception:exempt local cache projection; an undecodable payload leaves the cached
+        // status stale and the queue's refresh-on-open corrects it from the server.
         val payload = runCatching {
             syncJson.decodeFromString<HealthDiagnosisConfirmPayload>(item.payloadJson)
         }.getOrNull() ?: return
+        // exception:exempt same cache projection; see above.
         val response = runCatching {
             syncJson.decodeFromString<ConfirmHealthDiagnosisResponseDto>(item.resultJson ?: return)
         }.getOrNull() ?: return
