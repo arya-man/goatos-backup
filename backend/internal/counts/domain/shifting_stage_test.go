@@ -49,16 +49,44 @@ func TestResolveShiftingDestinationStageTreatsCaseVariantsAsOneCohort(t *testing
 	}
 }
 
-func TestResolveShiftingDestinationStageKeepsCurrentForFlushing(t *testing.T) {
-	// The maintainer's explicit exception. Asserted with Flushing PRESENT in the writable
-	// vocabulary, so this proves the named rule rather than the accident that Flushing happens to
-	// be missing from animal_stage_lookup today.
+func TestResolveShiftingDestinationStageAdoptsFlushing(t *testing.T) {
+	// REVERSAL, maintainer decision 2026-08-15. Flushing used to be the one named exception a
+	// movement could never adopt, on the grounds that a placement decision must not silently become
+	// a feeding decision. The maintainer was shown that exact consequence -- flushing ration plus a
+	// re-keyed vaccination schedule -- and chose to adopt it anyway.
+	//
+	// Asserted with Flushing PRESENT in the writable vocabulary (migration 000169 lists it), so this
+	// proves the rule rather than the accident of what the seed happens to carry. Case-insensitively,
+	// and returning the vocabulary's canonical casing, like every other cohort.
 	vocabWithFlushing := append(append([]string{}, writableVocabulary...), FlushingStageName)
-	if got := ResolveShiftingDestinationStage([]string{"Flushing"}, vocabWithFlushing); got != "" {
-		t.Fatalf("flushing destination resolved to %q, want keep-current", got)
+	for _, resident := range []string{"Flushing", "flushing", " FLUSHING "} {
+		if got := ResolveShiftingDestinationStage([]string{resident}, vocabWithFlushing); got != FlushingStageName {
+			t.Fatalf("flushing destination %q resolved to %q, want %q", resident, got, FlushingStageName)
+		}
 	}
-	if got := ResolveShiftingDestinationStage([]string{"flushing"}, vocabWithFlushing); got != "" {
-		t.Fatalf("lowercase flushing resolved to %q, want keep-current", got)
+	// Still keep-current when the tenant has NOT listed Flushing as writable: the vocabulary check
+	// is what governs the tag now that nothing special-cases the string.
+	if got := ResolveShiftingDestinationStage([]string{"Flushing"}, writableVocabulary); got != "" {
+		t.Fatalf("unlisted flushing resolved to %q, want keep-current", got)
+	}
+}
+
+// TestResolveShiftingDestinationStageRefusesClinicalResidents pins that a shed whose residents all
+// carry a bare clinical STATE never stamps it, even when the tenant lists that state as writable.
+//
+// Without this the vocabulary check alone would resolve it, and the movement would then be rejected
+// by identity/adapters/postgres.resolveDestinationTag at the SECOND GATE -- after the operator has
+// shot the completion video and the park head has approved.
+func TestResolveShiftingDestinationStageRefusesClinicalResidents(t *testing.T) {
+	vocabWithClinical := append(append([]string{}, writableVocabulary...), "ICU", "Quarantine")
+	for _, clinical := range []string{"ICU", "icu", "Quarantine", "Under Treatment"} {
+		got := ResolveShiftingDestinationStageDetailed([]string{clinical}, vocabWithClinical)
+		if got.Stage != "" {
+			t.Fatalf("clinical resident cohort %q resolved to %q, want keep-current", clinical, got.Stage)
+		}
+		if got.Reason != StageReasonNotApplicable {
+			t.Fatalf("clinical resident cohort %q reason = %q, want %q", clinical, got.Reason, StageReasonNotApplicable)
+		}
 	}
 }
 

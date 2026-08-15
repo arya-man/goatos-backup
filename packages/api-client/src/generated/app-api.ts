@@ -9411,6 +9411,10 @@ export interface components {
             operational_location_display?: string;
             /** @description Live animal count for this operational location option (shed or partition), used to render dropdown option counts. */
             animal_count?: number;
+            /** @description The tag a movement into this pen would stamp when the raiser picks the "use pen's tag" side of the raise form's tag toggle. Empty when the pen cannot supply one - then destination_stage_reason says why. Backend-resolved: the client must NOT derive this from management_stages, which is the residents' raw list rather than the resolved answer. */
+            destination_stage?: string;
+            /** @description Farm-worded reason the "use pen's tag" option is unavailable for this pen, rendered VERBATIM under the greyed-out option. Empty when destination_stage is set; exactly one of the two is ever non-empty. One of "This pen has no tag set" (nothing authored, nothing living in it), "This pen holds a mix of tags" (several cohorts, no single answer), or "This pen's tag can only be set by the health team" (a clinical state such as ICU or Quarantine, which a movement may never assert). */
+            destination_stage_reason?: string;
         };
         RecordShiftingEventRequest: {
             /**
@@ -9447,6 +9451,11 @@ export interface components {
              * @enum {string}
              */
             category?: "growth" | "health" | "breeding" | "delivery";
+            /**
+             * @description The raiser's tag toggle. 'destination_stage' makes the animals adopt the destination pen's tag; 'keep_current' leaves each animal on the tag it already carries. OMIT to accept the default, 'destination_stage', which is what every client sent implicitly before this field existed - so an older build keeps its current behaviour. A present but unrecognized value is rejected with invalid_stage_mode, never rewritten to the default, because silently defaulting would stamp the pen's tag on a movement whose raiser asked for the opposite. The client sends only the MODE: the server still resolves the actual tag itself from the destination catalog, so a client can never name a cohort of its own (target_management_stage remains rejected as an unknown field). When the chosen pen cannot supply a tag, 'destination_stage' falls back to keep-current rather than failing the raise - see ShiftingDestinationShed.destination_stage_reason, which the form uses to grey the option out up front.
+             * @enum {string}
+             */
+            stage_mode?: "destination_stage" | "keep_current";
             /** @description Optional free-text note from the operator raising the movement, explaining why the animals are being shifted. Shown to the park head deciding the approval and to the verifier reviewing the evidence. Blank or whitespace-only input normalizes to absent. A value longer than maxLength is rejected with comment_too_long, never truncated. */
             comment?: string;
             /** @description Optional reference to captured proof media for this movement. */

@@ -48,24 +48,91 @@ func TestPenStageFallsBackToResidentsWhenNothingIsConfigured(t *testing.T) {
 	}
 }
 
-// TestPenStageKeepsCurrentForFlushingAndUnwritableTags pins that the two safety fallbacks apply to
-// the pen's own tag exactly as they applied to a resident-derived one.
+// TestPenStageAdoptsFlushingAndRefusesClinicalStates pins the 2026-08-15 split between the two tags
+// that used to be treated alike.
 //
-// Flushing is a nutrition cohort owned by its own workflow. An unwritable tag (ICU-Kid, Quarantine
-// kids -- real sheds carry these) must not be snapshotted at raise time only to fail at the SECOND
-// gate, after the operator has shot the completion video and the park head has approved.
-func TestPenStageKeepsCurrentForFlushingAndUnwritableTags(t *testing.T) {
-	if got := ResolveShiftingDestinationPenStage(FlushingStageName, nil, penWritable); got != "" {
-		t.Fatalf("got %q, want keep-current for a flushing pen", got)
+// FLUSHING IS NOW ADOPTED. The maintainer reversed the nutrition-cohort carve-out having been shown
+// the consequence: a move into a flushing pen puts that animal on flushing ration and re-keys her
+// vaccination schedule. Asserted with Flushing in the writable vocabulary (migration 000169 lists
+// it), so this pins the RULE rather than the accident of whether the seed happens to carry it.
+//
+// A CLINICAL STATE IS STILL REFUSED. An animal in ICU or Quarantine has her vaccinations postponed,
+// so a placement action must never assert one. Refused at RAISE time here -- not only at the second
+// gate in identity/adapters/postgres.resolveDestinationTag -- so the form can grey the option out
+// instead of the movement dying after the operator has already shot the completion video.
+func TestPenStageAdoptsFlushingAndRefusesClinicalStates(t *testing.T) {
+	vocabWithFlushing := append(append([]string{}, penWritable...), FlushingStageName)
+	if got := ResolveShiftingDestinationPenStage(FlushingStageName, nil, vocabWithFlushing); got != FlushingStageName {
+		t.Fatalf("got %q, want a flushing pen to stamp %q", got, FlushingStageName)
 	}
-	if got := ResolveShiftingDestinationPenStage("ICU-Kid", nil, penWritable); got != "" {
-		t.Fatalf("got %q, want keep-current for a tag the relocation cannot write", got)
+	// The clinical KID pens are PEN names, not states, and migration 000167 lists them as writable
+	// -- so the vocabulary has to carry them here for this to model the real tenant.
+	vocabWithKidPens := append(append([]string{}, penWritable...), "ICU-Kid", "Quarantine kids")
+	for _, penTag := range []string{"ICU-Kid", "Quarantine kids"} {
+		if got := ResolveShiftingDestinationPenStage(penTag, nil, vocabWithKidPens); got != penTag {
+			t.Fatalf("got %q, want the %q pen tag to be stamped", got, penTag)
+		}
 	}
-	// An unwritable pen tag must not silently fall through to a writable resident cohort either:
-	// the pen was configured for something the relocation cannot apply, and quietly substituting a
-	// different cohort is exactly the kind of guess this rule refuses to make.
-	if got := ResolveShiftingDestinationPenStage("ICU-Kid", []string{"K2"}, penWritable); got != "K2" {
-		t.Fatalf("got %q -- documenting current behaviour: an unwritable tag falls back to residents", got)
+	// Bare ICU is a clinical STATE. Refused even when the tenant lists it as a writable stage --
+	// which a tenant really can (migrations/postgres/stage_age_band_test.go seeds exactly ICU and
+	// Quarantine), so the vocabulary check alone would have let it through to the second gate.
+	vocabWithClinical := append(append([]string{}, penWritable...), "ICU", "Quarantine")
+	for _, clinical := range []string{"ICU", "icu", "Quarantine", "Under Treatment"} {
+		if got := ResolveShiftingDestinationPenStage(clinical, nil, vocabWithClinical); got != "" {
+			t.Fatalf("clinical pen tag %q resolved to %q, want keep-current", clinical, got)
+		}
+	}
+	// A refused pen tag must not silently fall through to a writable resident cohort: the pen was
+	// configured for something the relocation cannot apply, and quietly substituting a different
+	// cohort is exactly the kind of guess this rule refuses to make.
+	if got := ResolveShiftingDestinationPenStage("ICU", []string{"K2"}, vocabWithClinical); got != "" {
+		t.Fatalf("got %q, want a refused pen tag to keep current rather than adopt a resident cohort", got)
+	}
+}
+
+// TestPenStageReasonsAreFarmWordedAndExclusive pins the contract the raise form's greyed-out toggle
+// depends on: a keep-current answer always carries a reason, a resolved one never does, and the
+// reason describes the PEN'S OWN tag rather than its residents.
+func TestPenStageReasonsAreFarmWordedAndExclusive(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured string
+		residents  []string
+		wantStage  string
+		wantReason string
+	}{
+		{name: "authored tag resolves with no reason", configured: "Mother", wantStage: "Mother"},
+		{name: "unconfigured empty pen", wantReason: StageReasonNoTag},
+		{name: "unconfigured mixed pen", residents: []string{"K2", "Mother"}, wantReason: StageReasonMixed},
+		{
+			name:      "unconfigured single-cohort pen resolves from residents",
+			residents: []string{"K2"}, wantStage: "K2",
+		},
+		{
+			// The reason must be about the pen's OWN tag. Reporting the residents' reason here would
+			// tell the operator "This destination has no tag set" about a pen that visibly has one.
+			name:       "clinical authored tag reports the clinical reason, not the residents'",
+			configured: "ICU", residents: nil, wantReason: StageReasonNotApplicable,
+		},
+	}
+	vocab := append(append([]string{}, penWritable...), "ICU")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveShiftingDestinationPenStageDetailed(tc.configured, tc.residents, vocab)
+			if got.Stage != tc.wantStage {
+				t.Fatalf("stage = %q, want %q", got.Stage, tc.wantStage)
+			}
+			if got.Reason != tc.wantReason {
+				t.Fatalf("reason = %q, want %q", got.Reason, tc.wantReason)
+			}
+			// The exclusivity invariant the client keys its greyed-out state on.
+			if (got.Stage != "") == (got.Reason != "") {
+				t.Fatalf("stage %q and reason %q must be mutually exclusive", got.Stage, got.Reason)
+			}
+			if got.Resolved() != (got.Stage != "") {
+				t.Fatalf("Resolved() disagrees with Stage %q", got.Stage)
+			}
+		})
 	}
 }
 

@@ -93,11 +93,34 @@ all share so a tab badge cannot advertise work the tab hides.
 - Missing high-priority feed config blocks the task. The app echoes a semantic config fingerprint;
   completion re-resolves it while holding the shifting row lock and rejects changed config with
   `409 feed_config_changed`. No feed type or quantity is guessed.
-- The raiser does not choose a management stage (maintainer decision 2026-08-03, superseding the
-  `keep_current` / `select_stage` / `destination_stage` chooser). A movement ADOPTS THE DESTINATION
-  LOCATION's cohort, resolved server-side at raise time and snapshotted on the shifting event, so
-  the park head approves the same stage the completion applies. Clients send neither
-  `management_stage_mode` nor `target_management_stage`; both are rejected as unknown fields.
+- **THE RAISER PICKS BETWEEN TWO BACKEND-OWNED ANSWERS** (maintainer decision 2026-08-15,
+  superseding the 2026-08-03 no-chooser rule on WHO decides). The raise form shows a two-position
+  toggle — `keep_current` (the animals keep the tag they carry) or `destination_stage` (they adopt
+  the destination pen's tag, the DEFAULT) — sent as `stage_mode`. Absent means `destination_stage`,
+  so a client predating the toggle is unchanged; a present-but-invalid value is rejected with
+  `invalid_stage_mode` rather than rewritten to the default.
+
+  The safety property of the superseded rule is INTACT: `target_management_stage` is still rejected
+  as an unknown field. The client sends a MODE and the server still resolves which tag that means,
+  from the same catalog the form renders — so a phone cannot invent a cohort, cannot name one the
+  relocation would refuse at the second gate, and cannot disagree with what the park head approved.
+  The resolution still happens at raise time and is snapshotted on the shifting event, so the park
+  head approves the same stage the completion applies. Do not widen the toggle back into a stage
+  picker; that is the retired 2026-07-29 chooser.
+
+  An unavailable option is GREYED OUT WITH A REASON. `GET /app/counts/shifting/destinations` carries
+  `destination_stage` and `destination_stage_reason` per pen (exactly one non-empty), both
+  backend-owned farm copy rendered verbatim. The catalog and the raise share one resolver, so the
+  tag the toggle advertises is the tag the raise stamps.
+
+  **FLUSHING IS ADOPTED; A CLINICAL STATE IS NOT.** The flushing carve-out is retired — the
+  maintainer accepted that a move into a flushing pen puts the animal on flushing ration and re-keys
+  her vaccination schedule (migration `000169` lists Flushing as writable). Bare `ICU` / `Quarantine`
+  / `sick` / `under_treatment` / `recovering` remain refused, and are now refused at RAISE time via
+  `protocol/domain.IsClinicalManagementStage` rather than only at the second gate — a tenant can
+  legitimately list `ICU` in `animal_stage_lookup`, and resolving it at raise would kill the movement
+  after the operator's video and the park head's approval. The clinical PEN names `ICU-Kid` /
+  `Quarantine kids` are not states and stay writable (migration 000167).
 
   **THE DESTINATION IS A PEN, AND THE PEN'S OWN TAG IS THE COHORT** (maintainer decision
   2026-08-14, superseding the resident-derived rule for every movement). Animals never move into a
