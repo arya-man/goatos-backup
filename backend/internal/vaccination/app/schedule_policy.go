@@ -248,12 +248,32 @@ func kidFinishWeeks(proc genProcurementPolicy) int {
 	return int(kidWeeks) + 4
 }
 
+// isKidManagementStage reports whether a management_stage names a KID cohort, which is what routes
+// an animal onto the kid course rather than the adult one.
+//
+// The "K" prefix covers the milk/weaning ladder (K0-K3). The second test covers a CLINICAL KID pen
+// tag -- 'ICU-Kid', 'Quarantine kids' -- which a shifting may stamp since 000167.
+//
+// Without it those animals route ADULT, and that is a dosing error, not a pause. "ICU-Kid" upper-
+// cases to "ICU-KID", which does not start with K, so it failed this test and fell through to
+// schedulePathAdultProcurement below: a kid in ICU would be scheduled on the adult course. It bites
+// hardest exactly where this herd is weakest -- the path picker tries DOB first, so an animal with
+// no reliable DOB depends entirely on this answer.
+//
+// Being off the schedule WHILE SICK is a different mechanism and already works: the clinical defer
+// set (protocol/domain.MandatoryClinicalDeferStates) holds the animal's vaccination work off
+// health_status = 'icu'/'quarantine', and it DEFERS for recovery rather than cancelling. This
+// function only decides WHICH course the animal resumes on afterwards.
+//
+// "KID" is safe as a substring across the whole live vocabulary: K0-K3, F2-Male, F2-Female, Buck,
+// Mother, Milking, M0, Pregnant, Non-Pregnant, Warmup, ICU, ICU-Kid, ICU-Non-Pregnant, Quarantine
+// kids. Only genuine kid tags contain it -- "Milking" contains "KI" and stops there.
 func isKidManagementStage(stage string) bool {
 	stage = strings.ToUpper(strings.TrimSpace(stage))
 	if len(stage) >= 2 && strings.HasPrefix(stage, "K") {
 		return true
 	}
-	return false
+	return strings.Contains(stage, "KID")
 }
 
 // hasKidCourseHistory reports whether the goat has any accepted administration
