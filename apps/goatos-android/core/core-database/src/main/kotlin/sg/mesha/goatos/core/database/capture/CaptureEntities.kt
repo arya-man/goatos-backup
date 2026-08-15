@@ -48,6 +48,10 @@ data class ScannedGoatEntity(
     val obligationId: String?,
     val capturedAtMs: Long,
     val syncStatus: String = CaptureSyncStatus.PENDING.name,
+    /** obligation_instances.row_version from the backend at the time the scan was captured —
+     *  the server-issued cycle discriminator that distinguishes "never submitted" (same row_version
+     *  as capture time) from "submitted then reopened" (row_version incremented since capture). */
+    val obligationRowVersion: Int = 0,
 )
 
 /**
@@ -125,9 +129,9 @@ interface ScannedGoatDao {
 
     @Query(
         "UPDATE scanned_goat_capture SET goatId = :goatId, obligationId = :obligationId, " +
-            "capturedAtMs = :capturedAtMs, syncStatus = :syncStatus WHERE id = :id",
+            "capturedAtMs = :capturedAtMs, syncStatus = :syncStatus, obligationRowVersion = :obligationRowVersion WHERE id = :id",
     )
-    suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String)
+    suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String, obligationRowVersion: Int = 0)
 
     /**
      * Writes [entity] as durable local evidence, distinguishing a TRUE repeat (same tag, same
@@ -200,6 +204,7 @@ interface ScannedGoatDao {
             obligationId = entity.obligationId,
             capturedAtMs = entity.capturedAtMs,
             syncStatus = entity.syncStatus,
+            obligationRowVersion = entity.obligationRowVersion,
         )
         return ScanUpsertResult.REPLACED
     }
