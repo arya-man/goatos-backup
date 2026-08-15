@@ -212,6 +212,12 @@ items AS (
     AND (NOT $3::boolean OR vi.park_id = ANY($4::uuid[]))
     AND ($5 = '' OR vi.park_id = $5::uuid)
 ),
+valid_refs AS (
+  SELECT i.item_id, ref.proof_id, ref.ord
+  FROM items i
+  JOIN LATERAL jsonb_array_elements_text(i.media_refs) WITH ORDINALITY AS ref(proof_id, ord) ON true
+  WHERE ref.proof_id ~ $9
+),
 proofs AS (
   SELECT i.item_id,
          ref.ord,
@@ -221,11 +227,10 @@ proofs AS (
          pa.uploaded_at,
          pa.created_at
   FROM items i
-  JOIN LATERAL jsonb_array_elements_text(i.media_refs) WITH ORDINALITY AS ref(proof_id, ord) ON true
+  JOIN valid_refs ref ON ref.item_id = i.item_id
   JOIN proof_artifacts pa
     ON pa.tenant_id = $1::uuid
    AND pa.proof_id = ref.proof_id::uuid
-  WHERE ref.proof_id ~ $9
 )
 SELECT i.item_id::text,
        i.module,

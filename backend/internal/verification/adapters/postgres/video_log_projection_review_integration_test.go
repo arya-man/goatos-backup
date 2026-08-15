@@ -205,6 +205,39 @@ func TestVideoLogPageBoundaryReportsTruncationInsteadOfAPartialDay(t *testing.T)
 	}
 }
 
+func TestVideoLogDetailDropsMalformedMediaRefsBeforeUUIDCast(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVideoLogTenant(t, ctx, pool)
+	item := seedVideoLogItem(t, ctx, pool, "feed", "feed_packing", "pending", videoLogTestParkA, videoLogTestShedA, "1")
+	seedVideoLogProof(t, ctx, pool, item, 1, "video", "06:12")
+	if _, err := pool.Exec(ctx, `
+		UPDATE verification_items
+		SET media_refs = media_refs || to_jsonb('not-a-uuid'::text)
+		WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		videoLogTestTenantID, item); err != nil {
+		t.Fatalf("append malformed media_ref: %v", err)
+	}
+
+	repo := NewRepository(pool, 10*time.Second)
+	rows, truncated, err := repo.VideoLogShedRows(ctx, ports.VideoLogParams{
+		TenantID: videoLogTestTenantID, BusinessDate: videoLogDay,
+		ShedID: videoLogTestShedA + "#1", Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("VideoLogShedRows must ignore malformed media_refs before casting: %v", err)
+	}
+	if truncated {
+		t.Fatal("one item must not report truncation")
+	}
+	if len(rows) != 1 || len(rows[0].Proofs) != 1 {
+		t.Fatalf("rows/proofs = %d/%d, want one row with the valid proof only", len(rows), len(rows[0].Proofs))
+	}
+}
+
 func TestVideoLogStatusMatrixKeepsDecidedArrivalsAndDropsWithdrawn(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
