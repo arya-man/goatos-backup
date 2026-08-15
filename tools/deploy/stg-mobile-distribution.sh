@@ -13,6 +13,7 @@ cd "$repo_root"
 
 commit_sha="$(git rev-parse --short=12 HEAD)"
 build_id="${BUILD_ID:-local}"
+triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -27,13 +28,13 @@ notify_slack() {
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$status" "$text" "$commit_sha" "$build_id" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$status" "$text" "$commit_sha" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
 
-status, text, sha, build_id = sys.argv[1:]
+status, text, sha, build_id, triggered_by = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
-build_url = f"https://console.cloud.google.com/cloud-build/builds/{build_id}?project=goatos-stg"
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
 payload = {
     "attachments": [{
         "color": color,
@@ -42,6 +43,7 @@ payload = {
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
             {"title": "Channels", "value": "Firebase App Distribution, Play Internal, mesha.sg/app.apk", "short": False},
+            {"title": "Triggered by", "value": triggered_by, "short": False},
         ],
         "actions": [
             {"type": "button", "text": "Cloud Build logs", "url": build_url},
