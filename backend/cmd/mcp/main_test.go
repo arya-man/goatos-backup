@@ -482,6 +482,60 @@ func TestAskRejectsEmailOutsideAllowlistBeforeUpstream(t *testing.T) {
 	}
 }
 
+func TestAskRoutesNaturalVaccinationScheduleQuestionToTypedScheduleTool(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/vaccination/drive-assignments":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"source": "api",
+				"rows": []map[string]any{{
+					"plannedDate":    time.Now().In(time.FixedZone("IST", 5*60*60+30*60)).Format("2006-01-02"),
+					"operatorName":   "Sagar Mahoor",
+					"parkName":       "Channapatna",
+					"physicalShed":   "Yashoda",
+					"partitionLabel": "Part 4",
+					"animals":        3,
+					"dueAnimals":     3,
+					"doneAnimals":    0,
+					"vaccineNames":   []string{"Sheep Pox adult course dose 1"},
+					"totalDoses":     3,
+				}},
+			})
+		case "/vaccination/live-tracker":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"business_date": time.Now().In(time.FixedZone("IST", 5*60*60+30*60)).Format("2006-01-02"),
+				"kpis":          map[string]any{},
+			})
+		default:
+			t.Fatalf("ask_goatos schedule router should not call %s", r.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"ask_goatos","arguments":{"question":"What vaccination is scheduled today?"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"Vaccination scheduled today", "Sagar Mahoor", "3 animals scheduled", "GET /vaccination/drive-assignments"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in body=%s", want, body)
+		}
+	}
+}
+
 func TestVaccinationTodayCallsLiveTrackerAndReturnsStructuredContent(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer user-token" {
