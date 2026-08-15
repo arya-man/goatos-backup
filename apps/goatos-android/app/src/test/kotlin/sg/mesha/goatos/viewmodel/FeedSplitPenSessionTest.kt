@@ -1,6 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
+import sg.mesha.goatos.core.data.FeedPenSessionCaptures
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
@@ -24,6 +25,7 @@ import sg.mesha.goatos.core.data.FeedPackingQuery
  */
 class FakeSplitFeedRepository(
     var slots: List<FeedDistributionCapturedSlotDto>,
+    var sessionStatus: String? = null,
 ) : FeedRepository {
     var queries: MutableList<FeedPenSessionCaptureQuery> = mutableListOf()
         private set
@@ -33,13 +35,13 @@ class FakeSplitFeedRepository(
 
     override suspend fun penSessionCaptures(
         query: FeedPenSessionCaptureQuery,
-    ): List<FeedDistributionCapturedSlotDto>? {
+    ): FeedPenSessionCaptures? {
         queries += query
         if (failuresBeforeSuccess > 0) {
             failuresBeforeSuccess--
             return null
         }
-        return slots
+        return FeedPenSessionCaptures(slots = slots, sessionStatus = sessionStatus)
     }
 
     override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean = true

@@ -81,6 +81,35 @@ class FeedDistributionCompleteLiveStatusTest {
             savedStateHandle = savedState(lifecycleStatus),
         )
 
+    /**
+     * INVARIANT regression (field bug 2026-08-15): slots + session status arrive in ONE open-time
+     * captures answer. A submitted session must be read-only immediately after open — BEFORE any
+     * 30s live-status poll tick — even when the stale list-row nav-arg hint said "open".
+     */
+    @Test
+    fun `submitted session locks at open from the captures answer before any poll`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        feedRepository.penSessionStatus = "pending_verification"
+        val viewModel = buildViewModel(feedRepository, lifecycleStatus = "open")
+        // Unconfined dispatcher: the open-time fetch already ran. No poll interval advanced.
+        assertTrue(
+            "submitted session must be read-only from the open-time captures answer",
+            viewModel.state.value.alreadySubmitted,
+        )
+        assertFalse(viewModel.state.value.submitEnabled)
+    }
+
+    @Test
+    fun `absent open status leaves a live session editable`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        feedRepository.penSessionStatus = null
+        val viewModel = buildViewModel(feedRepository, lifecycleStatus = "open")
+        assertFalse(
+            "no status answer must never lock a live session",
+            viewModel.state.value.alreadySubmitted,
+        )
+    }
+
     /** REINSTALL CASE — see FeedPackingCompleteLiveStatusTest's identical-shaped test. */
     @Test
     fun `stale open nav-arg hint is overridden by an already-submitted live status`() = runTest(dispatcher) {

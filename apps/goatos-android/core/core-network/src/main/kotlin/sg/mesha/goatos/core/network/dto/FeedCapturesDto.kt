@@ -17,6 +17,13 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class FeedDistributionCapturesDto(
     @SerialName("items") val items: List<FeedDistributionCapturedSlotDto> = emptyList(),
+    /**
+     * The pen-session's completion status ("pending_verification", "completed", "rework"),
+     * empty/absent when nothing was submitted yet. Travels WITH the slots so the proof screen's
+     * read-only gate and the slot list paint from ONE consistent server answer — a stale
+     * list-row hint must never decide editability (field bug 2026-08-15).
+     */
+    @SerialName("session_status") val sessionStatus: String = "",
 )
 
 @Serializable
