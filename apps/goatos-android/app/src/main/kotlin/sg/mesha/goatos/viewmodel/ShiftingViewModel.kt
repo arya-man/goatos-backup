@@ -32,6 +32,8 @@ import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_GROWTH
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
 import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_HIGH
 import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_LOW
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
@@ -92,6 +94,7 @@ class ShiftingViewModel @Inject constructor(
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
+            is ShiftingEvent.SelectStageMode -> onSelectStageMode(event.stageMode)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
             is ShiftingEvent.EditComment -> onEditComment(event.value)
@@ -142,6 +145,13 @@ class ShiftingViewModel @Inject constructor(
                         },
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
+                        // A refresh can also change a pen's TAG -- someone re-tags it in the
+                        // Counts Breakdown, or a second animal arrives and makes a
+                        // single-cohort pen mixed. Re-resolve the toggle against the refreshed
+                        // catalog for the same reason the ids above are re-validated: a mode the
+                        // destination no longer supports is as stale as a shed that no longer
+                        // exists.
+                        .withStageModeValidForDestination()
                 }
                 recomputeSubmitGate()
             }
@@ -302,6 +312,12 @@ class ShiftingViewModel @Inject constructor(
             }
             if (belongsToPark) {
                 current.copy(destinationShedId = shedId, destinationPartitionLabel = partitionLabel)
+                    // Changing the pen changes which tags are on offer, so the toggle is
+                    // re-resolved against the NEW pen. Without this, picking a tagged pen, choosing
+                    // "use destination tag", then switching to an untagged pen would leave the form
+                    // showing a mode that pen cannot honour -- the raise would fall back to
+                    // keep-current and the operator would never be told.
+                    .withStageModeValidForDestination()
             } else {
                 current
             }
@@ -309,6 +325,28 @@ class ShiftingViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
+
+    /**
+     * Flips the tag toggle.
+     *
+     * Asking for the destination pen's tag when that pen cannot supply one is IGNORED rather than
+     * accepted-and-quietly-downgraded. The option is greyed out for exactly those pens, so reaching
+     * here means a stale composition or a race with a catalog refresh — and storing a mode the
+     * destination does not support would make the form claim a tag the raise then would not apply.
+     */
+    private fun onSelectStageMode(stageMode: String) {
+        if (!beginEdit()) return
+        if (stageMode !in ALLOWED_STAGE_MODES) return
+        _state.update { current ->
+            if (stageMode == SHIFTING_STAGE_MODE_DESTINATION && !current.canUseDestinationStage) {
+                current
+            } else {
+                current.copy(stageMode = stageMode)
+            }
+        }
+        // Deliberately no recomputeSubmitGate(): the toggle can never make a movement submittable
+        // or block one. Both positions are valid for every movement.
+    }
 
     private fun onSelectPriority(priority: String) {
         if (!beginEdit()) return
@@ -383,12 +421,41 @@ class ShiftingViewModel @Inject constructor(
      * recording time itself. Source park/shed are likewise absent — the server reads the source
      * from the animal, which is the only place it was ever authoritative.
      */
+    /**
+     * Re-resolves the tag toggle against the CURRENTLY selected destination, snapping it back to
+     * keep-current whenever that pen cannot supply a tag.
+     *
+     * Called from every place the destination or the catalog can change, so the invariant is
+     * "[ShiftingUiState.stageMode] is always a mode the selected pen supports" rather than a rule
+     * each call site has to remember. Snapping DOWN to keep-current only — it never silently
+     * promotes a keep-current choice back to the pen's tag, because that is the operator's decision
+     * and re-making it for them would override a deliberate choice on a catalog refresh.
+     */
+    private fun ShiftingUiState.withStageModeValidForDestination(): ShiftingUiState = when {
+        // NO DESTINATION CHOSEN YET -- leave the mode alone. A mode is only invalid RELATIVE to a
+        // pen, and there is no pen here to judge it against.
+        //
+        // This branch is load-bearing, not defensive. The destination catalog lands while the form
+        // is still empty (it is fetched on open, before the operator has looked an animal up), so
+        // without it the very first refresh would see "no destination, so the pen's tag is
+        // unavailable", snap the mode to keep-current, and -- because this helper only ever snaps
+        // DOWN -- leave it there for the rest of the form. The default would be unreachable.
+        selectedDestination == null -> this
+        stageMode == SHIFTING_STAGE_MODE_DESTINATION && !canUseDestinationStage ->
+            copy(stageMode = SHIFTING_STAGE_MODE_KEEP_CURRENT)
+        else -> this
+    }
+
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
         destinationPartitionLabel = destinationPartitionLabel,
         priority = priority,
         category = category,
+        // Sent EXPLICITLY, like priority/category, because the screen shows the choice visibly. A
+        // form that displays a selected toggle must send what it displays rather than lean on a
+        // server default.
+        stageMode = stageMode,
         // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
         // and sending "" for one of them would change the request fingerprint of an otherwise
         // identical resubmission.
@@ -504,6 +571,12 @@ class ShiftingViewModel @Inject constructor(
             SHIFTING_CATEGORY_BREEDING,
             SHIFTING_CATEGORY_DELIVERY,
         )
+
+        /** The tag toggle's two positions; a value outside it is never stored. */
+        val ALLOWED_STAGE_MODES = setOf(
+            SHIFTING_STAGE_MODE_DESTINATION,
+            SHIFTING_STAGE_MODE_KEEP_CURRENT,
+        )
     }
 }
 
@@ -560,6 +633,12 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
             name = it.operationalLocationDisplay.ifBlank { it.name },
             partitionLabel = it.partitionLabel,
             operationalLocationDisplay = it.operationalLocationDisplay,
+            // Both carried verbatim for the tag toggle. Exactly one is non-blank on a response
+            // from a current backend; both blank means an older backend that predates the toggle,
+            // which reads as "this pen offers no tag" and leaves the form on keep-current -- the
+            // safe direction, since that build's server would ignore the mode anyway.
+            destinationStage = it.destinationStage,
+            destinationStageReason = it.destinationStageReason,
         )
     },
 )

@@ -325,8 +325,8 @@ type seedAnimalStage struct {
 	AgeBand string
 }
 
-func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) error {
-	stages := []seedAnimalStage{
+func seedAnimalStages() []seedAnimalStage {
+	return []seedAnimalStage{
 		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0, AgeBand: "kid"},
 		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10, AgeBand: "kid"},
 		{Code: "K2", Name: "Milk drinking", MinAgeDay: int32Ptr(8), MaxAgeDay: int32Ptr(42), SortOrder: 20, AgeBand: "kid"},
@@ -354,7 +354,15 @@ func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) erro
 		// existing kid/adult band survives the move untouched.
 		{Code: "ICU-Kid", Name: "ICU kid", SortOrder: 121},
 		{Code: "Quarantine kids", Name: "Quarantine kids", SortOrder: 131},
+		// Flushing is a writable feeding pen tag by maintainer decision 2026-08-15, but a movement
+		// into it must not also rewrite the kid/adult band as a side effect. Migration 000171
+		// backfills existing tenants; the seed keeps fresh tenants on the same rule.
+		{Code: "Flushing", Name: "Flushing", SortOrder: 132},
 	}
+}
+
+func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	stages := seedAnimalStages()
 	for _, stage := range stages {
 		if _, err := tx.Exec(ctx, `
 INSERT INTO animal_stage_lookup (

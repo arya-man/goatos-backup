@@ -117,10 +117,26 @@ data class ShiftingShedUi(
      * still renders something sensible instead of a blank row.
      */
     val operationalLocationDisplay: String = "",
+    /**
+     * The tag a movement into this pen would stamp, for the TAG TOGGLE. Blank when the pen cannot
+     * supply one — [destinationStageReason] then says why, in the backend's own words.
+     *
+     * Backend-resolved. Never derive it from the pen's residents on-device: the rules behind the
+     * answer (the pen's authored tag first, blank for a mixed or empty pen, never a clinical state)
+     * live on the server, and a second implementation here would drift from the tag the raise
+     * actually stamps.
+     */
+    val destinationStage: String = "",
+    /** Farm-worded reason the pen's tag is unavailable, rendered verbatim. Blank when one exists. */
+    val destinationStageReason: String = "",
 ) {
     /** What the operator should read for this option. */
     val displayLabel: String
         get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, partitionLabel) }
+
+    /** Whether the "use destination tag" side of the toggle is offerable for this pen. */
+    val offersDestinationStage: Boolean
+        get() = destinationStage.isNotBlank()
 
     /** Stable dropdown-option key: shed alone is not unique once a shed has partitions. */
     val optionKey: String
@@ -155,6 +171,19 @@ data class ShiftingUiState(
     val destinationPartitionLabel: String? = null,
     /** Set when the catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
+
+    // --- 3b. tag toggle ----------------------------------------------------------------------
+    /**
+     * Which tag the moved animal ends up carrying: [SHIFTING_STAGE_MODE_DESTINATION] (adopt the
+     * destination pen's tag) or [SHIFTING_STAGE_MODE_KEEP_CURRENT] (keep the one it has).
+     *
+     * Defaults to the destination pen's tag, which is what a movement did before the toggle
+     * existed, so an operator who ignores the control gets exactly today's behaviour.
+     *
+     * The ViewModel forces this back to keep-current whenever the selected pen cannot supply a tag,
+     * so this field can never claim a mode the destination does not support.
+     */
+    val stageMode: String = SHIFTING_STAGE_MODE_DESTINATION,
 
     // --- 4/5. classification -----------------------------------------------------------------
     val priority: String = SHIFTING_PRIORITY_LOW,
@@ -192,6 +221,25 @@ data class ShiftingUiState(
         get() = shedsForSelectedPark.firstOrNull {
             it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel
         }
+
+    /**
+     * Whether the "use destination tag" side of the toggle may be tapped. False until a destination is
+     * chosen (there is no pen to take a tag from yet) and false for a pen that cannot supply one.
+     */
+    val canUseDestinationStage: Boolean
+        get() = selectedDestination?.offersDestinationStage == true
+
+    /**
+     * The reason to show under the disabled option, straight from the backend. Null when the option
+     * is available, or when no destination is selected yet — an operator who has not picked a pen
+     * is not owed an explanation for a choice they have not reached.
+     */
+    val destinationStageReason: String?
+        get() = selectedDestination?.destinationStageReason?.takeIf { it.isNotBlank() }
+
+    /** The pen's tag itself, for the option's supporting line. Null when there is none. */
+    val destinationStageLabel: String?
+        get() = selectedDestination?.destinationStage?.takeIf { it.isNotBlank() }
 }
 
 /**
@@ -206,6 +254,15 @@ const val SHIFTING_PRIORITY_LOW = "low"
  * sick, treated, quarantined, or ICU animals remain shiftable. Lifecycle status is independent;
  * dead/transferred/sold animals are terminal and are rejected.
  */
+/**
+ * The two positions of the raise form's TAG TOGGLE, matching the backend's `stage_mode` vocabulary.
+ *
+ * [SHIFTING_STAGE_MODE_DESTINATION] is the default and the pre-toggle behaviour. The client sends
+ * only the mode; the server resolves which tag that actually means.
+ */
+const val SHIFTING_STAGE_MODE_DESTINATION = "destination_stage"
+const val SHIFTING_STAGE_MODE_KEEP_CURRENT = "keep_current"
+
 const val SHIFTING_CATEGORY_GROWTH = "growth"
 const val SHIFTING_CATEGORY_HEALTH = "health"
 const val SHIFTING_CATEGORY_BREEDING = "breeding"
@@ -221,6 +278,9 @@ sealed interface ShiftingEvent {
     /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
     data class SelectDestinationShed(val shedId: String, val partitionLabel: String? = null) : ShiftingEvent
+
+    /** Flips the tag toggle. Ignored by the ViewModel when the pen cannot supply a tag. */
+    data class SelectStageMode(val stageMode: String) : ShiftingEvent
 
     data class SelectPriority(val priority: String) : ShiftingEvent
     data class SelectCategory(val category: String) : ShiftingEvent
@@ -359,6 +419,44 @@ fun ShiftingScreen(
             state.destinationsMessage?.let { message ->
                 item(key = "destinations-message") {
                     Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                }
+            }
+
+            // --- 3b. Tag toggle --------------------------------------------------------------
+            // Which tag the animal ends up carrying. Sits directly under the destination picker
+            // because it is a question ABOUT the chosen pen, and its answer changes as the pen
+            // changes.
+            //
+            // The pen's-tag option stays VISIBLE even when unavailable, dimmed, with the backend's
+            // reason underneath — an operator who cannot use it is owed the reason, and a control
+            // that changes shape between pens is harder to trust than one that explains itself.
+            item(key = "stage-mode") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CountsFieldGroupTitle(text = stringResource(R.string.counts_group_stage_mode))
+                    CountsSegmented(
+                        options = listOf(
+                            SHIFTING_STAGE_MODE_KEEP_CURRENT to
+                                stringResource(R.string.counts_stage_mode_keep_current),
+                            SHIFTING_STAGE_MODE_DESTINATION to
+                                stringResource(R.string.counts_stage_mode_destination),
+                        ),
+                        selectedKey = state.stageMode,
+                        onSelect = { onEvent(ShiftingEvent.SelectStageMode(it)) },
+                        disabledKeys = if (state.canUseDestinationStage) {
+                            emptySet()
+                        } else {
+                            setOf(SHIFTING_STAGE_MODE_DESTINATION)
+                        },
+                    )
+                    // Exactly one of these ever shows: the pen's tag when it has one, else the
+                    // backend's reason it has none. Both are backend-owned strings rendered
+                    // verbatim — the phone never composes either.
+                    state.destinationStageLabel?.let { tag ->
+                        Text(text = tag, color = MeshaColors.Muted, fontSize = 12.sp)
+                    }
+                    state.destinationStageReason?.let { reason ->
+                        Text(text = reason, color = MeshaColors.Muted, fontSize = 12.sp)
+                    }
                 }
             }
 

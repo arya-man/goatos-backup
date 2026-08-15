@@ -690,3 +690,7 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-08-15: seed import and runtime generation share SchedulePathForGoat.
 // No raw fixture bytes or HRMS rows change; the fixture contract records that kid/adult path
 // selection is derived once from reviewed DOB/stage/history evidence through that shared policy.
+// Coupling review 2026-08-16: Flushing is now seeded as an active animal_stage_lookup row with NULL
+// age_band (migration 000171 parity for fresh tenants). This fixture library still has no
+// stage-catalog input: committed HRMS/vaccination source bytes, hashes, rows, SOP proof grain,
+// operator capacity, and validation semantics are unchanged.

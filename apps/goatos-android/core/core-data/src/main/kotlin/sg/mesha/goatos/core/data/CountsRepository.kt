@@ -55,7 +55,13 @@ const val COUNTS_ANIMAL_LOOKUP_PAGE_SIZE = 20
  * The shifting destination catalog's single cache key. There is exactly one catalog per caller
  * scope, so unlike the filter-scoped caches this table holds one row.
  */
-private const val SHIFTING_DESTINATIONS_CACHE_KEY = "shifting-destinations"
+// NAMESPACE BUMPED for the raise form's tag toggle (2026-08-15). A row cached by an earlier build
+// carries no destination_stage / destination_stage_reason, and because both fields default to "" it
+// would deserialize WITHOUT ERROR into a catalog whose every pen looks unable to supply a tag — so
+// the toggle would sit greyed out with no reason under it until the operator happened to refresh.
+// Changing the key discards those rows instead of quietly rendering them wrong; the catalog is
+// bounded config that re-fetches on the next screen open, so the cost is one request.
+private const val SHIFTING_DESTINATIONS_CACHE_KEY = "shifting-destinations-tag-v2"
 
 /**
  * Reserved cache key for the birth form's breed vocabulary inside the breakdown-meta blob table.
