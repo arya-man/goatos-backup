@@ -677,6 +677,16 @@ private class FakeShedsPinVmExecutionRepository(
     ): List<StatusCount> = emptyList()
 
     override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> = emptyList()
+
+    override suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
 }
 
 private class FakeShedsPinVmBootstrapRepository : BootstrapRepository {

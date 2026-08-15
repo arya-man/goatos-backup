@@ -1948,6 +1948,19 @@ private class FakeScanExecutionRepository(
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
         rows.value.effectiveStatusCountsByGoat()
 
+    // Debug-fixture support overrides (sg.mesha.goatos.rfid.DebugSampleTagAliaser). This single-scope
+    // fake has no real multi-partition/multi-shed roster, so these mirror the still-open subset of the
+    // in-memory rows; tests that exercise the aliaser directly build their own richer fake (see
+    // ScannedTagResolverTest).
+    override suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String?): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        rows.value.filter { fakeScanStatusOf(it.status) == ScanStatus.PENDING }
+
+    override suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String?): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        emptyList()
+
     private fun List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>.effectiveStatusCountsByGoat(): List<sg.mesha.goatos.core.data.cache.StatusCount> =
         groupBy { it.goatId }
             .filterKeys { it.isNotBlank() }
