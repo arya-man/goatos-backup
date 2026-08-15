@@ -1169,3 +1169,14 @@ val MIGRATION_43_44: Migration = object : Migration(43, 44) {
         db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+val MIGRATION_44_45: Migration = object : Migration(44, 45) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // R50-060: Persist scopeType and scopeId on ProofCaptureEntity for correct recovery
+        // of weighing free-flow proofs (subject_type="other") on app restart.
+        // Weighing proofs cannot re-derive scope from subjectId (null), so scope MUST be
+        // persisted to prevent backend validation failure on re-registration.
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeType` TEXT NOT NULL DEFAULT 'shed'")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeId` TEXT NOT NULL DEFAULT ''")
+    }
+}

@@ -737,6 +737,12 @@ class DefaultProofCaptureRepository(
             // R50-027 SSOT: persist capture_source with the durable row so the startup-recovery
             // re-registration path re-sends the ORIGINAL source, not a Default fallback.
             captureSource = proofPolicy.captureSource,
+            // R50-060: Persist original scopeType and scopeId for correct recovery on app restart.
+            // Critical for weighing free-flow proofs (subject_type="other") where scope cannot
+            // be re-derived from subjectId (null). Backend validation fails if scope differs
+            // between initial attempt and recovery.
+            scopeType = scopeType,
+            scopeId = scopeId,
             originalUri = localUri,
             durationMs = (capturedEndMs - capturedStartMs).coerceAtLeast(0),
             locationStatus = location.locationStatus,
@@ -1484,20 +1490,21 @@ class DefaultProofCaptureRepository(
         enqueueRegistrationNow(recovered, scopeType, scopeId)
     }
 
-    /** F1a: Derives the scope (scope_type and scope_id) from the persisted proof entity,
-     *  matching the live capture path exactly. Shed-level proofs and "other" subject proofs
-     *  (e.g. weighing free-flow) that were originally captured with "shed" scope use that scope
-     *  on recovery; all others fall back to "task" scope.
-     *  R50-060: Free-flow weighing proofs (subject_type="other") MUST use their ORIGINAL
-     *  scope_type ("shed") and scope_id (expectedLocationId), not a derived fallback, because
-     *  the backend /app/proofs/uploads validateCreate requires a valid UUID scope_id. */
+    /** F1a: Uses the PERSISTED scope (scope_type and scope_id) from the entity for correct
+     *  re-registration on app restart. R50-060: Free-flow weighing proofs (subject_type="other")
+     *  have scope_id=null and cannot re-derive scope from subjectId. The persisted scope_type and
+     *  scope_id MUST match the original capture, or backend /app/proofs/uploads validateCreate
+     *  will reject the re-registration with invalid_proof.
+     *
+     *  Fallback derivation is LEGACY and only used for rows migrated before R50-060 (scope fields
+     *  were not yet persisted). New captures always persist scope.
+     */
     private fun recoveryScope(entity: ProofCaptureEntity): Pair<String, String> {
-        // Free-flow weighing proofs carry their original shed scope in the rfidTag metadata field;
-        // the subject_id field is null-by-design for "other" subjects, so we cannot derive scope from it.
-        // IMPORTANT: The durable scope MUST be persisted so recovery can re-use it on app restart.
-        // For now, fall back to task scope for free-flow; the fix is to persist scope in entity.
-        // TODO(R50-060): Add scope_type and scope_id fields to ProofCaptureEntity to persist
-        // the ORIGINAL capture scope, so recovery re-registers with the exact same scope.
+        // R50-060: Use persisted scope. Fallback only for legacy entities.
+        if (entity.scopeType.isNotBlank() && entity.scopeId.isNotBlank()) {
+            return entity.scopeType to entity.scopeId
+        }
+        // LEGACY FALLBACK: For rows migrated from v44. Shed-level proofs can re-derive.
         val shedId = entity.subjectId
         return if (entity.proofSubject.equals("shed", ignoreCase = true) && !shedId.isNullOrBlank()) {
             "shed" to shedId

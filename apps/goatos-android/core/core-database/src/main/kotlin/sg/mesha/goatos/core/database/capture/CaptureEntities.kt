@@ -453,6 +453,15 @@ data class ProofCaptureEntity(
      *  `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource` (cross-module const cannot
      *  be shared, so both default to [DEFAULT_CAPTURE_SOURCE]). */
     val captureSource: String = DEFAULT_CAPTURE_SOURCE,
+    /** Original scope_type for this proof capture (e.g. "shed", "task"), persisted so recovery
+     *  re-registers with the EXACT scope used at capture time. R50-060: Weighing free-flow proofs
+     *  (subject_type="other") cannot re-derive scope from subject_id (null), so scope MUST be
+     *  persisted. Falls back to "shed" for compatibility. */
+    val scopeType: String = "shed",
+    /** Original scope_id (e.g. shed UUID, task UUID), persisted for proof re-registration on
+     *  app restart. R50-060: Weighing free-flow proofs must use original shed scope_id, not
+     *  derived "task" scope. */
+    val scopeId: String = "",
     val featureSurface: String? = null,
     val proofMode: String? = null,
     val slotIndex: Int? = null,
