@@ -631,6 +631,31 @@ class DefaultProofCaptureRepository(
     private val gallerySaveLocks = ConcurrentHashMap<String, Mutex>()
     private val slotReplaceLocks = ConcurrentHashMap<String, Mutex>()
 
+    /** P1 fix: retirement of a captureReplacingLatest slot's superseded occupant(s), keyed by the
+     *  NEW row's id, fired synchronously from inside the SAME already-running status-transition
+     *  handler that lands the row on SYNCED — [followOutboxItem], [reconcileOutboxTerminalState],
+     *  and [recoverMissingProofUploadDriver]'s already-synced branch. Deliberately NOT a second,
+     *  independently-launched Flow collector: a detached collector watching [observeProofs] would
+     *  keep running for the lifetime of the repository even when the row never reaches a terminal
+     *  state (e.g. a test that never drives its outbox item to completion), leaking a Room Flow
+     *  subscription per replace and throwing once the underlying DB closes. Hooking the SAME
+     *  per-row status pipeline every registration already runs makes retirement a one-shot,
+     *  self-cleaning action with no independent lifecycle to leak. */
+    private val pendingSlotRetirement = ConcurrentHashMap<String, suspend () -> Set<String>>()
+
+    /** Fires and removes [rowId]'s pending slot-retirement action, if [captureReplacingLatest]
+     *  registered one, returning the ids it actually removed (empty when there was no pending
+     *  action, or it removed nothing). Safe to call for any row id — a plain registration (not a
+     *  replace) simply has no entry and this is a no-op map lookup.
+     *
+     *  Callers that build an [observeProofs] emission from a `rows` snapshot taken BEFORE this
+     *  call MUST subtract the returned ids from that snapshot: the retirement's `dao.delete` is a
+     *  side effect on rows already fetched, and Room's invalidation-triggered re-emission (which
+     *  would otherwise pick up the delete) arrives on a LATER emission — a `.first()` caller only
+     *  sees the FIRST one and would otherwise get a stale row back in the very call that removed it. */
+    private suspend fun fireSlotRetirementIfPending(rowId: String): Set<String> =
+        pendingSlotRetirement.remove(rowId)?.invoke() ?: emptySet()
+
     init {
         // R50-028: never block DI construction on a Room read — launch on the app-lifetime scope
         // so a slow/large recovery walk cannot delay first frame or any other DI consumer of this
@@ -646,10 +671,37 @@ class DefaultProofCaptureRepository(
     override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
         dao.observeForTaskPartition(taskId, executionPartitionKey(partitionLabel))
             .map { rows ->
-                reconcileOutboxTerminalState(rows)
-                rows.map { it.toRow() }
+                val retiredByReconcile = reconcileOutboxTerminalState(rows)
+                // P1 fix: reconcileOutboxTerminalState's own SUCCEEDED branch only fires slot
+                // retirement for a row it JUST transitioned to SYNCED — its outer filter skips a
+                // row that was already SYNCED by the time this query ran (e.g. followOutboxItem's
+                // detached collector wrote SYNCED first). Catch that case here too, so retirement
+                // is guaranteed to fire the first time ANY caller observes a synced row with a
+                // still-pending action, regardless of which path landed the SYNCED write.
+                val retiredAlreadySynced = fireAnyPendingRetirementsFor(rows)
+                // A row retirement just removed may still be sitting in THIS `rows` snapshot (it
+                // was fetched before the removal) — Room's own re-emission for the delete lands on
+                // a LATER collection, which a `.first()` caller never sees. Filter it out here so
+                // this emission is never stale-by-one-delete.
+                val retired = retiredByReconcile + retiredAlreadySynced
+                rows.filter { it.id !in retired }.map { it.toRow() }
             }
             .flowOn(dispatchers.io)
+
+    /** Fires [fireSlotRetirementIfPending] for every already-[CaptureSyncStatus.SYNCED] row in
+     *  [rows] that still has a pending action registered, returning every id removed. Cheap no-op
+     *  when [pendingSlotRetirement] is empty (the common case: most rows are never part of a
+     *  captureReplacingLatest replace). */
+    private suspend fun fireAnyPendingRetirementsFor(rows: List<ProofCaptureEntity>): Set<String> {
+        if (pendingSlotRetirement.isEmpty()) return emptySet()
+        val retired = mutableSetOf<String>()
+        rows.forEach { row ->
+            if (row.syncStatus == EntitySyncStatus.SYNCED.name && !row.serverProofId.isNullOrBlank()) {
+                retired += fireSlotRetirementIfPending(row.id)
+            }
+        }
+        return retired
+    }
 
     override suspend fun capture(
         taskId: String,
@@ -970,69 +1022,57 @@ class DefaultProofCaptureRepository(
             if (result is AppResult.Ok) {
                 val newId = result.value.id
                 val newSubjectId = result.value.subjectId
-                // P1 fix (disappearing-proof loop moved into this helper): do NOT retire the old
-                // occupant(s) synchronously here. The old row may already be server-SYNCED valid
-                // evidence; if the NEW upload later dead-letters or its processed artifact turns
-                // out bad, an immediate remove() would have destroyed the only proof the slot had.
-                // Old rows stay ACTIVE/visible until the NEW row reaches SYNCED with a
-                // serverProofId; a terminal FAILED new row leaves old rows untouched.
-                retireSupersededOccupantsOnceSynced(taskId, partitionLabel, slot.fieldKey, newId, newSubjectId)
+                // P1 fix: do NOT retire the old occupant(s) synchronously here. The old row may
+                // already be server-SYNCED valid evidence; if the NEW upload later dead-letters or
+                // its processed artifact turns out bad, an immediate remove() would have destroyed
+                // the only proof the slot had. Register a one-shot retirement action, keyed by the
+                // NEW row's id, that [fireSlotRetirementIfPending] invokes from inside the SAME
+                // status-transition handler ([followOutboxItem] / [reconcileOutboxTerminalState] /
+                // [recoverMissingProofUploadDriver]) the instant this row actually reaches SYNCED
+                // with a serverProofId — never a separately-launched, independently-lived collector.
+                // A terminal FAILED new row instead drops the action (see those call sites), so old
+                // rows stay untouched.
+                pendingSlotRetirement[newId] = retireSlotAction(taskId, partitionLabel, slot.fieldKey, newId, newSubjectId)
+                // Safety for an outbox/dispatcher fast enough to reach SYNCED before the line above
+                // ran (e.g. a synchronous test double): fire immediately rather than waiting for a
+                // status transition that already happened.
+                val current = dao.findById(newId)
+                if (current != null &&
+                    current.syncStatus == EntitySyncStatus.SYNCED.name &&
+                    !current.serverProofId.isNullOrBlank()
+                ) {
+                    fireSlotRetirementIfPending(newId)
+                }
             }
             result
         }
     }
 
-    /** Watches the just-captured [newId] row to ITS terminal outcome, then — ONLY if it reaches
-     *  [CaptureSyncStatus.SYNCED] with a server proof id — removes every other active row of
-     *  [newSubjectId] held by [fieldKey] (ITEM 7 same-subject scoping, unchanged). If [newId]
-     *  instead reaches a terminal [CaptureSyncStatus.FAILED] (dead-lettered upload / bad
-     *  processed artifact), this is a no-op: whatever occupied the slot before this replace was
-     *  never touched and remains the slot's valid, visible evidence — see
-     *  [captureReplacingLatest]'s kdoc for the contract this restores.
-     *
-     *  Runs detached from the caller (and its per-slot [slotReplaceLocks] Mutex) on [appScope] so
-     *  a slow/offline upload never blocks the operator's next capture; the per-slot Mutex still
-     *  serializes concurrent NEW captures (ITEM 7), not this after-the-fact retirement. */
-    private fun retireSupersededOccupantsOnceSynced(
+    /** Builds the one-shot action [pendingSlotRetirement] holds for [newId]: re-reads ALL active
+     *  rows for the slot (not just a stored `previous`) and removes every other active row of
+     *  [newSubjectId] held by [fieldKey] — same ITEM 7 reasoning as before (two concurrent
+     *  replaces for the same subject must still converge to exactly one active row). */
+    private fun retireSlotAction(
         taskId: String,
         partitionLabel: String?,
         fieldKey: String,
         newId: String,
         newSubjectId: String?,
-    ) {
-        appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            try {
-                observeProofs(taskId, partitionLabel)
-                    .map { rows -> rows.firstOrNull { it.id == newId } }
-                    .filterNotNull()
-                    .distinctUntilChanged { old, new ->
-                        old.syncStatus == new.syncStatus && old.serverProofId == new.serverProofId
-                    }
-                    .transformWhile { row ->
-                        emit(row)
-                        row.syncStatus != CaptureSyncStatus.SYNCED && row.syncStatus != CaptureSyncStatus.FAILED
-                    }
-                    .collect { row ->
-                        if (row.syncStatus == CaptureSyncStatus.SYNCED && !row.serverProofId.isNullOrBlank()) {
-                            // Re-read ALL active rows for the slot (not just a stored `previous`),
-                            // same reasoning as the original ITEM 7 fix: concurrent replaces must
-                            // still converge to exactly one active row per subject.
-                            val allActive = observeProofs(taskId, partitionLabel).first()
-                                .filter { it.fieldKey == fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
-                            allActive.forEach { r ->
-                                if (r.id != newId && r.subjectId == newSubjectId) {
-                                    remove(taskId, r.id)
-                                }
-                            }
-                        }
-                        // else: terminal FAILED — leave every prior occupant of this subject alone.
-                    }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: SQLException) {
-                if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
+    ): suspend () -> Set<String> = {
+        // Deliberately a plain suspend DAO read, NOT observeProofs(...).first(): this action can
+        // fire from inside reconcileOutboxTerminalState, which itself runs inside observeProofs()'s
+        // OWN map operator — re-entering that same Flow's query here raced/stalled against the
+        // outer collection in practice. A direct DAO read has no such reentrancy.
+        val partitionKey = executionPartitionKey(partitionLabel)
+        val allActive = dao.listForTask(taskId)
+            .filter { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.syncStatus != EntitySyncStatus.FAILED.name }
+        val removedIds = mutableSetOf<String>()
+        allActive.forEach { r ->
+            if (r.id != newId && r.subjectId == newSubjectId) {
+                if (remove(taskId, r.id) is AppResult.Ok) removedIds += r.id
             }
         }
+        removedIds
     }
 
     /** Startup/process-recreation recovery for the two proof/outbox crash gaps:
@@ -1562,10 +1602,29 @@ class DefaultProofCaptureRepository(
                                     // succeeds. Explicit remove()/clearForTask() reclaim them; the
                                     // separate Android Gallery artifact is never touched here.
                                     dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
+                                    // P1 fix: deliberately NOT firing slot retirement from here. This
+                                    // collector runs detached on [appScope] — a caller has no handle
+                                    // to await it, so any occupant it removes races the NEXT reader of
+                                    // [observeProofs] instead of being ordered before it (proven by a
+                                    // Room-executor-hop race: Room's suspend DAO calls dispatch onto
+                                    // Room's OWN query executor, not this collector's dispatcher, so
+                                    // "detached collector already wrote SYNCED" does not mean "detached
+                                    // collector already finished retiring the old row" by the time a
+                                    // caller's subsequent observeProofs().first() runs). Retirement
+                                    // instead fires from [reconcileOutboxTerminalState], which runs
+                                    // SYNCHRONOUSLY inside observeProofs()'s own map operator — so ANY
+                                    // caller that awaits observeProofs() (a live UI collector, or a test
+                                    // driving sync to completion then reading) deterministically
+                                    // observes retirement as part of that SAME awaited call, in Room's
+                                    // actual write order, with nothing left to race.
                                 }
                             }
-                            item.isDeadLetter || item.conflict ->
+                            item.isDeadLetter || item.conflict -> {
                                 dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
+                                // P1 fix: a terminal FAILED new row must leave the old occupant(s)
+                                // untouched — drop the pending action rather than ever firing it.
+                                pendingSlotRetirement.remove(rowId)
+                            }
                             else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
                         }
                     }
@@ -1577,19 +1636,20 @@ class DefaultProofCaptureRepository(
         }
     }
 
-    private suspend fun recoverMissingProofUploadDriver(entity: ProofCaptureEntity) {
+    private suspend fun recoverMissingProofUploadDriver(entity: ProofCaptureEntity): Set<String> {
         if (!entity.serverProofId.isNullOrBlank()) {
             if (entity.syncStatus != EntitySyncStatus.SYNCED.name || entity.lastError != null) {
                 dao.updateStatus(entity.id, EntitySyncStatus.SYNCED.name, entity.serverProofId, null)
             }
-            return
+            return fireSlotRetirementIfPending(entity.id)
         }
-        if (!entity.isRecoverableUploadState()) return
+        if (!entity.isRecoverableUploadState()) return emptySet()
         dao.setOutboxItemId(entity.id, null)
         dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
         val recovered = (dao.findById(entity.id) ?: entity.copy(outboxItemId = null, syncStatus = EntitySyncStatus.PENDING.name))
         val (scopeType, scopeId) = recoveryScope(recovered)
         enqueueRegistrationNow(recovered, scopeType, scopeId)
+        return emptySet()
     }
 
     /** F1a: Uses the PERSISTED scope (scope_type and scope_id) from the entity for correct
@@ -1620,13 +1680,14 @@ class DefaultProofCaptureRepository(
      *  proof_capture from the persisted outbox result before readiness is calculated.
      *  F4: Guard each updateStatus call so it only fires when values actually differ,
      *  preventing redundant re-emission churn. */
-    private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>) {
+    private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>): Set<String> {
+        val retired = mutableSetOf<String>()
         rows.asSequence()
             .filter { it.syncStatus != EntitySyncStatus.SYNCED.name }
             .forEach { row ->
                 val outboxItemId = row.outboxItemId?.takeIf(String::isNotBlank)
                 if (outboxItemId == null) {
-                    if (row.isRecoverableUploadState()) recoverMissingProofUploadDriver(row)
+                    if (row.isRecoverableUploadState()) retired += recoverMissingProofUploadDriver(row)
                     return@forEach
                 }
                 when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {
@@ -1634,7 +1695,7 @@ class DefaultProofCaptureRepository(
                     is AppResult.Ok -> {
                         val item = recovered.value
                         if (item == null) {
-                            recoverMissingProofUploadDriver(row)
+                            retired += recoverMissingProofUploadDriver(row)
                             return@forEach
                         }
                         when {
@@ -1650,6 +1711,7 @@ class DefaultProofCaptureRepository(
                                     if (row.syncStatus != newStatus || row.serverProofId != proofId || row.lastError != null) {
                                         dao.updateStatus(row.id, newStatus, proofId, null)
                                     }
+                                    retired += fireSlotRetirementIfPending(row.id)
                                 }
                             }
                             item.status == SyncItemStatus.IN_FLIGHT && row.syncStatus != EntitySyncStatus.IN_FLIGHT.name -> {
@@ -1663,11 +1725,13 @@ class DefaultProofCaptureRepository(
                                 if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != item.lastError) {
                                     dao.updateStatus(row.id, newStatus, null, item.lastError)
                                 }
+                                pendingSlotRetirement.remove(row.id)
                             }
                         }
                     }
                 }
             }
+        return retired
     }
 }
 

@@ -450,6 +450,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             repeat(5) { index ->
@@ -619,6 +620,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             val captured = (
                 repo.capture(
@@ -664,6 +666,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -775,6 +778,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -829,6 +833,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             // Drive reconciliation explicitly (awaited) rather than racing the fire-and-forget init.
             repo.reconcileRecoverableUploadsNow()
@@ -863,6 +868,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             repo.observeProofs("task-live-orphan").first()
@@ -1203,7 +1209,11 @@ class CaptureRepositoryTest {
             assertTrue("Retry succeeds", retryResult is AppResult.Ok)
 
             val row = db.proofCaptureDao().findById(captured.id)
-            assertEquals("Processed artifact wins, not the raw original", ProofProcessingState.PROCESSED.name, row?.processingState)
+            // enqueueRegistrationNow's Ok branch advances processingState to REGISTERING_UPLOAD once
+            // the outbox write is queued (same as any other successful registration) -- the row
+            // still carries the PROCESSED (overlay-burned) artifact's localUri/uploadOriginal, not
+            // the raw original's.
+            assertEquals("Registration succeeded with the processed artifact, not the raw original", ProofProcessingState.REGISTERING_UPLOAD.name, row?.processingState)
             assertEquals("uploadOriginal must be false for the processed artifact", false, row?.uploadOriginal)
             assertEquals("file://processed-proof.mp4", row?.localUri)
             assertEquals(1, sync.enqueueCalls.size)
@@ -1292,6 +1302,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             repo.reconcileRecoverableUploadsNow()
 
@@ -1413,6 +1424,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -1464,6 +1476,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -1520,6 +1533,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             val captured = (
                 repo.capture(
@@ -1560,6 +1574,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -1725,6 +1740,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             // Capture a shed proof (scope_type="shed", scope_id=<shedId>)
@@ -1802,6 +1818,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             repo.reconcileRecoverableUploadsNow()
 
@@ -1826,6 +1843,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             // Capture a proof
@@ -1898,6 +1916,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             // Capture a proof with its outbox item
@@ -2146,6 +2165,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val slot = EvidenceSlot(
@@ -2203,12 +2223,13 @@ class CaptureRepositoryTest {
             assertTrue("Old row still present pre-sync", beforeSync.any { it.id == firstId })
 
             sync.completeUpload(db, secondId, "server-proof-second")
+            advanceUntilIdle()
 
             // Verify exactly one row remains: the new one, now that it reached SYNCED
             val remaining = proofs.observeProofs(taskId).first()
             assertEquals("Exactly one proof remains once the replacement is confirmed SYNCED", 1, remaining.size)
             assertEquals("Remaining proof is the new one", secondId, remaining[0].id)
-            assertEquals("New proof path is second", "file:///second.mp4", remaining[0].localUri)
+            assertEquals("New proof path is second (processed)", "file:///second.mp4.processed", remaining[0].localUri)
         } finally {
             db.close()
         }
@@ -2228,6 +2249,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val slot = EvidenceSlot(
@@ -2309,12 +2331,13 @@ class CaptureRepositoryTest {
             assertEquals("All three rows present pre-sync (both old + new)", 3, beforeSync.size)
 
             sync.completeUpload(db, newId, "server-proof-new-3")
+            advanceUntilIdle()
 
             // Verify exactly one row remains: the new one, once SYNCED
             val afterReplace = proofs.observeProofs(taskId).first()
             assertEquals("Exactly one proof remains after replace (both old removed)", 1, afterReplace.size)
             assertEquals("Remaining proof is the new one", newId, afterReplace[0].id)
-            assertEquals("New proof path is the new capture", "file:///new-3.mp4", afterReplace[0].localUri)
+            assertEquals("New proof path is the new capture (processed)", "file:///new-3.mp4.processed", afterReplace[0].localUri)
             assertTrue("New ID is different from both old IDs", newId != oldId1 && newId != oldId2)
         } finally {
             db.close()
@@ -2415,6 +2438,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val slot = EvidenceSlot(
@@ -2487,13 +2511,14 @@ class CaptureRepositoryTest {
             assertEquals("All three replaces stay active pre-sync", 3, beforeSync.size)
 
             sync.completeUpload(db, thirdId, "server-proof-third")
+            advanceUntilIdle()
 
             // Once the third is confirmed SYNCED, it retires every other same-subject occupant —
             // exactly one active row should remain: the third.
             val remaining = proofs.observeProofs(taskId).first()
             assertEquals("Exactly one proof after concurrent replaces", 1, remaining.size)
             assertEquals("The most recent proof is active", thirdId, remaining[0].id)
-            assertEquals("Newest proof path is third", "file:///third.mp4", remaining[0].localUri)
+            assertEquals("Newest proof path is third (processed)", "file:///third.mp4.processed", remaining[0].localUri)
         } finally {
             db.close()
         }
@@ -2517,6 +2542,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val slot = EvidenceSlot(
@@ -2595,6 +2621,7 @@ class CaptureRepositoryTest {
             assertTrue("Old A row still present pre-sync", allRows.any { it.id == aFirstId })
 
             sync.completeUpload(db, aSecondId, "server-proof-a-second")
+            advanceUntilIdle()
 
             // Once the new A capture is confirmed SYNCED: ITEM 7 — only A's old row is removed, B's row untouched
             allRows = proofs.observeProofs(taskId).first()
@@ -2622,6 +2649,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val slot = EvidenceSlot(
@@ -2711,15 +2739,17 @@ class CaptureRepositoryTest {
             assertEquals("Four rows pre-sync: old X, old Y, new X, new Y", 4, allRows.size)
 
             sync.completeUpload(db, xReplaceId, "server-proof-x-replace")
+            advanceUntilIdle()
             sync.completeUpload(db, yReplaceId, "server-proof-y-replace")
+            advanceUntilIdle()
 
             // ITEM 7: Both replaces succeeded without one blocking the other. Final state, once both
             // are confirmed SYNCED: two active rows.
             allRows = proofs.observeProofs(taskId).first()
             assertEquals("Two active proofs after concurrent replaces", 2, allRows.size)
             val rowsBySubject = allRows.associateBy { it.subjectId }
-            assertEquals("X proof path is replace", "file:///x-replace.mp4", rowsBySubject["goat-x"]?.localUri)
-            assertEquals("Y proof path is replace", "file:///y-replace.mp4", rowsBySubject["goat-y"]?.localUri)
+            assertEquals("X proof path is replace (processed)", "file:///x-replace.mp4.processed", rowsBySubject["goat-x"]?.localUri)
+            assertEquals("Y proof path is replace (processed)", "file:///y-replace.mp4.processed", rowsBySubject["goat-y"]?.localUri)
         } finally {
             db.close()
         }
@@ -2742,6 +2772,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val slot = EvidenceSlot(
@@ -2797,6 +2828,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = true,  // Recovery path runs reconciliation
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             advanceUntilIdle()
 
@@ -3049,6 +3081,26 @@ private class SometimesFailingProofMediaProcessor(
         if (invocations <= failFirst) error("processor failed (attempt $invocations)")
         return successResult
     }
+}
+
+/** Test default "processing succeeds" double for tests that only care about the row reaching a
+ *  registered/enqueued/removable state, not about media-processing behavior itself. Distinct from
+ *  [ProofMediaProcessor.Noop] (the production constructor default), which deliberately THROWS to
+ *  catch un-wired DI — these tests previously relied on Noop's throw plus the OLD
+ *  processing-failure fallback (uploadOriginal=true, auto-enqueue) to reach an enqueued row at
+ *  all. That fallback no longer exists (P1 fix: a processing failure now leaves the row
+ *  PROCESSING_FAILED_AWAITING_RETRY and enqueues nothing), so tests exercising unrelated behavior
+ *  (remove, retryUpload, reconcile, replace ordering) need an explicit processor that actually
+ *  succeeds. The output URI is deterministically derived from the original so assertions can
+ *  compute the expected processed path without a processor-per-test convention. */
+private class IdentityProofMediaProcessor : ProofMediaProcessor {
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
+        ProofMediaProcessingResult(
+            outputUri = "${request.originalUri}.processed",
+            outputMimeType = request.mimeType,
+            originalBytes = 2_000_000L,
+            processedBytes = 1_000_000L,
+        )
 }
 
 private class RecordingGalleryProofSaver : GalleryProofSaver {
