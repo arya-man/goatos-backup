@@ -38,13 +38,12 @@ ALTER TABLE public.goats
 ALTER TABLE public.goats
   DROP CONSTRAINT IF EXISTS goats_milk_cohort_check;
 
--- NOT VALID + VALIDATE keeps the existing-row check off the ACCESS EXCLUSIVE lock.
+-- NOT VALID keeps the existing-row check off the ACCESS EXCLUSIVE lock. Validation is split into
+-- 000169 so the table scan does not run while this DDL transaction still holds the add-constraint
+-- lock.
 ALTER TABLE public.goats
   ADD CONSTRAINT goats_milk_cohort_check
   CHECK (milk_cohort IS NULL OR milk_cohort IN ('K1', 'K2', 'K3')) NOT VALID;
-
-ALTER TABLE public.goats
-  VALIDATE CONSTRAINT goats_milk_cohort_check;
 
 -- Backfill from stage history.
 --
