@@ -19,7 +19,9 @@ import (
 // row, never fragmented by encoding.
 //
 // projection-review: membership=goats, unique on (tenant_id,goat_id), filtered to live unmerged
-// animals in management_stage K1/K2/K3; group_key=(park_id, shed_id, management_stage,
+// animals whose EFFECTIVE milk band (milkCohortExpr) is K1/K2/K3 -- their own management_stage when
+// that is a milk band, otherwise the band recovered onto milk_cohort for a clinically-housed kid
+// (000166); group_key=(park_id, shed_id, management_stage,
 // partition_key) for page rows read directly off this CTE at full OperationalLocation grain,
 // re-rolled to (park_id, shed_id, management_stage) in grouped_by_shed for cohort summary and
 // farm_tasks BEFORE aggregating, so those whole-scope numbers are byte-identical to the
@@ -34,7 +36,42 @@ import (
 // clamped park filter so page and summary share one scope
 //
 // Numerator and denominator for every quantity both range over those same K1/K2/K3 live-goat rows.
-const milkPreparationGroupedCTE = `
+//
+// milkCohortExpr is the animal's EFFECTIVE milk band, and it is the ONLY place the milk ladder is
+// resolved on this path. An animal answers from its own management_stage whenever that is a milk
+// band; a clinically-housed kid (ICU / quarantine), whose management_stage no longer carries a
+// band, answers from milk_cohort -- the band recovered from its stage history by 000166. Current
+// stage always wins, so the two can never both apply, and a clinical kid whose band could not be
+// recovered is NULL here and drops out of the filter entirely rather than being fed a guess.
+//
+// It is aliased as management_stage so every consumer below -- grouped_by_shed, the per-band ml
+// arithmetic, farm_tasks, the summary, and domain.BuildMilkPreparationRow on the Go side -- keeps
+// reading one column and needs no change. For this screen the two ARE the same thing: the column
+// answers "which milk does this animal get", which is what every reader downstream asks it.
+const milkCohortExpr = `CASE
+      WHEN g.management_stage IN ('K1', 'K2', 'K3') THEN g.management_stage
+      ELSE g.milk_cohort
+    END`
+
+// k3WindowPredicate keeps a K3 animal in milk preparation only inside its SEVEN DAY weaning window
+// (000168). K1 and K2 are unbounded here and pass it unconditionally.
+//
+// The window is INCLUSIVE of both ends: entry day is day 1, so the animal is prepared for on
+// started_on through started_on + 6 -- seven feed days, then nothing. $3 is the preparation date
+// the caller already binds, so the window is evaluated against the day being prepared rather than
+// against wall-clock now, and asking for an earlier date re-derives that day's honest answer.
+//
+// A NULL clock means NO MILK, deliberately: it identifies an animal that never entered K3 through
+// this system -- the population already sitting in K3 when 000168 landed, which the maintainer's
+// rule counts as having already had its week. It is also the safe direction for any future write
+// path that sets K3 without a clock.
+var k3WindowPredicate = fmt.Sprintf(`(
+      %s <> 'K3'
+      OR (g.k3_milk_started_on IS NOT NULL
+          AND $3::date BETWEEN g.k3_milk_started_on AND g.k3_milk_started_on + %d)
+    )`, milkCohortExpr, domain.MilkK3WindowDays-1)
+
+var milkPreparationGroupedCTE = `
 WITH grouped AS MATERIALIZED (
   SELECT
 	 g.park_id AS park_uuid,
@@ -43,7 +80,7 @@ WITH grouped AS MATERIALIZED (
     g.shed_id AS shed_uuid,
     COALESCE(g.shed_id::text, '') AS shed_id,
     COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
-    g.management_stage,
+    ` + milkCohortExpr + ` AS management_stage,
     ` + partitionKeyExpr + ` AS partition_key,
     -- Raw label as stored (or NULL for non-partitioned), kept alongside the normalized key so the
     -- display preserves each shed's own 'N' vs 'Part N' convention. min() picks a deterministic
@@ -59,13 +96,25 @@ WITH grouped AS MATERIALIZED (
   -- with no row here is not partitioned and normalizes to 'whole'.
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  -- projection-review: membership=goats, unique on (tenant_id,goat_id), filtered to live unmerged
+  -- animals whose EFFECTIVE milk band (own management_stage, else recovered milk_cohort) is one of
+  -- K1/K2/K3 -- the two sources are mutually exclusive by construction, so an animal is counted
+  -- once and priced at one band; group_key=(park_id, shed_id, effective milk band, partition_key),
+  -- which is exactly the page row grain, re-rolled to (park_id, shed_id, band) in grouped_by_shed
+  -- for whole-scope consumers; join_cardinality=both locations joins are 1:0..1 label lookups on
+  -- (tenant_id, location_id) and goat_shed_partitions is 1:{0,1} on its (tenant_id, goat_id) PK, so
+  -- no join can multiply a goat; pagination=OFFSET walks only the GROUPED set (sheds x bands x
+  -- partitions), never goats, and every summary is a whole-filter aggregate over grouped_by_shed;
+  -- scope=park, applied here from the caller's clamped filter so page and summary share one scope
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND g.lifecycle_status = 'alive'
-    AND g.management_stage IN ('K1', 'K2', 'K3')
+    -- Its own band, or a recovered one. A clinically-housed kid with neither is excluded here.
+    AND (g.management_stage IN ('K1', 'K2', 'K3') OR g.milk_cohort IS NOT NULL)
+    AND ` + k3WindowPredicate + `
     AND ($2 = '' OR g.park_id = NULLIF($2, '')::uuid)
   GROUP BY g.park_id, park.location_code, park.name,
-           g.shed_id, shed.name, shed.location_code, g.management_stage,
+           g.shed_id, shed.name, shed.location_code, ` + milkCohortExpr + `,
            ` + partitionKeyExpr + `
 ),
 -- grouped_by_shed re-rolls the partition grain back up to the pre-partition (shed, stage) grain.
@@ -88,7 +137,7 @@ grouped_by_shed AS (
 // cohorts. OFFSET walks only this grouped set (not goats), is handler-capped, and the query asks for
 // limit+1 solely to produce has_more.
 // scale-guard:ignore: bounded physical-shed x three-cohort worklist; offset is capped at 5000
-const milkPreparationPageSQL = milkPreparationGroupedCTE + `,
+var milkPreparationPageSQL = milkPreparationGroupedCTE + `,
 farm_verification AS MATERIALIZED (
   SELECT farms.park_uuid,
          COALESCE(c.status, 'not_submitted') AS verification_status,

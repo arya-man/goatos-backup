@@ -89,13 +89,18 @@ type GrowthTrendPoint struct {
 
 // GrowthShedLeaderboardRow is one shed's ADG/weight summary for the period.
 type GrowthShedLeaderboardRow struct {
-	LocationID                 string  `json:"location_id"`
-	DisplayName                string  `json:"display_name"`
-	PartitionLabel             string  `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string  `json:"operational_location_display"`
-	AnimalCount                int     `json:"n"`
-	MedianWeightKg             float64 `json:"median_weight_kg"`
-	MedianADGGPerDay           float64 `json:"median_adg_g_per_day"`
+	LocationID                 string `json:"location_id"`
+	DisplayName                string `json:"display_name"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// ParkName is the park's SHORT CODE (CBE, CPT) when it has one, falling back to its full
+	// name -- the same convention ShedWeightsRow uses, so the two series sharing the gain chart
+	// name a park identically. REQUIRED, not decorative: 39 shed names exist in BOTH parks, so a
+	// row without it names two different sheds at once.
+	ParkName         string  `json:"park_name"`
+	AnimalCount      int     `json:"n"`
+	MedianWeightKg   float64 `json:"median_weight_kg"`
+	MedianADGGPerDay float64 `json:"median_adg_g_per_day"`
 	// ADGPairCount is how many qualifying ADG pairs this shed's median is based on. Can be
 	// less than AnimalCount -- a shed can have animals weighed once (no pair yet).
 	ADGPairCount int `json:"adg_pair_count"`

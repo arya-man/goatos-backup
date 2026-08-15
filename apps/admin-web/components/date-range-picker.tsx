@@ -108,6 +108,7 @@ export function DateRangePicker({
   to,
   today,
   busy = false,
+  singleDayOnly = false,
   onChange,
 }: {
   labels: DateRangePickerLabels;
@@ -118,12 +119,21 @@ export function DateRangePicker({
   today: string;
   /** True while the host's navigation is in flight; announced on the popover. */
   busy?: boolean;
+  /**
+   * Hides the single/range tabs and pins the calendar to ONE day.
+   *
+   * For a host that genuinely cannot express a span — the Video Log answers "what arrived on this
+   * day", so a range would make every arrival time ambiguous about which day it belongs to. Without
+   * this the tabs were still offered and a picked range silently collapsed to its start, which is a
+   * control that does not do what it says.
+   */
+  singleDayOnly?: boolean;
   onChange: (from: string, to: string) => void;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  const [mode, setMode] = useState<"single" | "range">(() => (from === to ? "single" : "range"));
+  const [mode, setMode] = useState<"single" | "range">(() => (singleDayOnly || from === to ? "single" : "range"));
   // The first click of a two-click range selection. Null means "no range in progress".
   const [rangeStart, setRangeStart] = useState<string | null>(null);
   // Opens on the month of the LATER end, not the earlier one. A default window of "the 30 days
@@ -219,6 +229,7 @@ export function DateRangePicker({
         <ChevronDown className="ic date-scope-chevron" aria-hidden="true" />
       </summary>
       <div ref={popoverRef} className="top-date-popover" role="group" aria-label={labels.aria} aria-busy={busy}>
+        {singleDayOnly ? null : (
         <div className="top-date-modes" role="tablist">
           <button
             type="button"
@@ -239,6 +250,7 @@ export function DateRangePicker({
             {labels.range}
           </button>
         </div>
+        )}
 
         <div className="top-date-head">
           <button

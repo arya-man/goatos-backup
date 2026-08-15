@@ -272,6 +272,59 @@ func TestVerifyPageOversightFiltersControlIsCapabilityGated(t *testing.T) {
 // (permissions.VerificationOversee) for the /verify oversight analytics section as
 // TestVerifyPageOversightFiltersControlIsCapabilityGated pins for the filter chrome: CEO/directors
 // who hold VerificationOversee get "oversight_analytics" enabled, the verifier does not.
+// TestVerifyPageVideoLogControlIsCapabilityGated pins that the video_log control follows
+// permissions.VerificationEvidenceTimeline and NOT VerificationOversee.
+//
+// The verifier row is the load-bearing one: she must get video_log ENABLED and oversight_analytics
+// DISABLED from the same compile. Asserting both in one case is what stops a later change from
+// collapsing the two controls back together in either direction.
+func TestVerifyPageVideoLogControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		role             string
+		videoLogEnabled  bool
+		oversightEnabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true, true},
+		{"pc_director", permissions.RolePCDirector, true, true},
+		// The whole point of the separate capability.
+		{"verifier", permissions.RoleVerifier, true, false},
+		// Holds neither: no verification.review, so it cannot open /verify at all.
+		{"growth_director", permissions.RoleGrowthDirector, false, false},
+		{"operator", permissions.RoleOperator, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			controls := pageByRouteID(t, resp.Pages, "verification-review").Controls
+
+			videoLog := controlByID(t, controls, "video_log")
+			if videoLog.Enabled != tc.videoLogEnabled {
+				t.Fatalf("%s video_log.enabled = %v want %v (%#v)", tc.name, videoLog.Enabled, tc.videoLogEnabled, videoLog)
+			}
+			if !tc.videoLogEnabled && videoLog.DisabledReason == "" {
+				t.Fatalf("%s: disabled video_log control must carry a backend disabled reason", tc.name)
+			}
+			// The endpoint the panel reads must be declared on the control, so the contract states
+			// which read this visibility gate is standing in front of.
+			if videoLog.Action != "GET /verification/video-log" {
+				t.Fatalf("%s video_log.action = %q want the video-log read", tc.name, videoLog.Action)
+			}
+
+			oversight := controlByID(t, controls, "oversight_analytics")
+			if oversight.Enabled != tc.oversightEnabled {
+				t.Fatalf("%s oversight_analytics.enabled = %v want %v — the video log must not widen a caller into the oversight chrome",
+					tc.name, oversight.Enabled, tc.oversightEnabled)
+			}
+		})
+	}
+}
+
 func TestVerifyPageOversightAnalyticsControlIsCapabilityGated(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

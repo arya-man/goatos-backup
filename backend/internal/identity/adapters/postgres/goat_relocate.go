@@ -530,6 +530,41 @@ moved AS (
         -- classified ($20), so a keep-current move and an unclassified/clinical tag both leave the
         -- animal's existing band untouched rather than blanking it.
         age_band            = CASE WHEN $16::text = '' OR $20::text = '' THEN g.age_band ELSE $20::text END,
+        -- Stamping a clinical KID pen tag (ICU-Kid, Quarantine kids -- writable since 000167)
+        -- OVERWRITES the milk band the animal was on, and a kid in ICU still drinks milk. Save the
+        -- band here, in the same statement that destroys it, so it can never be lost: there is no
+        -- window where management_stage says ICU-Kid and nothing remembers the animal was a K2.
+        -- Milk Preparation reads milk_cohort as its fallback band (000166).
+        --
+        -- The reverse leg clears it: a move back onto a real milk band means the band is live in
+        -- management_stage again, and a stale milk_cohort would outlive its own truth. Every other
+        -- destination -- keep-current, or a weaned/adult cohort -- leaves the column untouched,
+        -- because moving a K3 kid to F2-Male takes it OFF milk rather than hiding its band.
+        milk_cohort         = CASE
+            WHEN $16::text = '' THEN g.milk_cohort
+            WHEN $16::text IN ('K1', 'K2', 'K3') THEN NULL
+            WHEN upper(regexp_replace(btrim($16::text), '[^A-Za-z0-9]+', '', 'g'))
+                 IN ('ICUKID', 'QUARANTINEKIDS', 'QUARANTINEKID', 'QUARANTINEMILKKID')
+                 AND g.management_stage IN ('K1', 'K2', 'K3')
+                THEN g.management_stage
+            ELSE g.milk_cohort
+        END,
+        -- K3 is a SEVEN DAY weaning window (000168), and this is where its clock starts: an animal
+        -- shifted INTO K3 draws milk for 7 days from today, then stops.
+        --
+        -- Guarded on the animal not ALREADY being K3, so a within-K3 move (a partition change, a
+        -- move to another K3 pen) does not restart a week the animal is halfway through. Leaving K3
+        -- clears it, so a later return starts a fresh week instead of inheriting a spent one.
+        --
+        -- The date is the business day in Asia/Kolkata, not the UTC calendar day: a feed day is a
+        -- farm day, and an 02:00 IST move belongs to that day rather than the one before.
+        k3_milk_started_on  = CASE
+            WHEN $16::text = '' THEN g.k3_milk_started_on
+            WHEN $16::text = 'K3' AND g.management_stage IS DISTINCT FROM 'K3'
+                THEN ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+            WHEN $16::text = 'K3' THEN g.k3_milk_started_on
+            ELSE NULL
+        END,
         updated_at          = $4::timestamptz,
         row_version         = row_version + 1
     FROM identified i

@@ -45,7 +45,7 @@ func TestToolsList(t *testing.T) {
 		names[tool.Name] = true
 		requiredByTool[tool.Name] = tool.InputSchema.Required
 	}
-	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_work_items", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
+	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_today", "get_health_work_items", "get_milk_feeding_today", "get_workforce_coverage", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %+v", want, names)
 		}
@@ -223,6 +223,30 @@ func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
 			},
 			response: map[string]any{"items": []map[string]any{{"disease_key": "fever", "status": "due"}}},
 		},
+		{
+			name:     "workforce coverage",
+			tool:     "get_workforce_coverage",
+			args:     `{"scope_type":"shed","scope_id":"10000000-0000-4000-8000-000000000001","limit":20}`,
+			wantPath: "/admin/roster/coverage",
+			wantQuery: map[string]string{
+				"scope_type": "shed",
+				"scope_id":   "10000000-0000-4000-8000-000000000001",
+				"limit":      "20",
+			},
+			response: map[string]any{"items": []map[string]any{{"scope_type": "shed", "backup_status": "missing"}}},
+		},
+		{
+			name:     "milk feeding today",
+			tool:     "get_milk_feeding_today",
+			args:     `{"feeding_date":"2026-08-16","session_no":2,"limit":20}`,
+			wantPath: "/app/counts/milk-feeding/tasks",
+			wantQuery: map[string]string{
+				"feeding_date": "2026-08-16",
+				"session_no":   "2",
+				"limit":        "20",
+			},
+			response: map[string]any{"items": []map[string]any{{"verification_status": "not_submitted", "head_count": 58}}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -267,6 +291,54 @@ func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
 				t.Fatalf("body missing source/structured content: %s", body)
 			}
 		})
+	}
+}
+
+func TestHealthTodayCombinesAdultKidAndMilkFeeding(t *testing.T) {
+	seen := map[string]bool{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app/health/work-items":
+			ageBand := r.URL.Query().Get("age_band")
+			seen[ageBand] = true
+			if r.URL.Query().Get("date") != "2026-08-16" {
+				t.Fatalf("date=%q", r.URL.Query().Get("date"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"age_band": ageBand}}})
+		case "/app/counts/milk-feeding/tasks":
+			seen["milk_feeding"] = true
+			if r.URL.Query().Get("feeding_date") != "2026-08-16" {
+				t.Fatalf("feeding_date=%q", r.URL.Query().Get("feeding_date"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"verification_status": "not_submitted", "head_count": 58}}})
+		default:
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"api","method":"tools/call","params":{"name":"get_health_today","arguments":{"date":"2026-08-16","limit":20}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !seen["adult"] || !seen["kid"] || !seen["milk_feeding"] {
+		t.Fatalf("seen age bands=%v", seen)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"adult"`) || !strings.Contains(body, `"kid"`) || !strings.Contains(body, `"milk_feeding"`) || !strings.Contains(body, `"structuredContent"`) {
+		t.Fatalf("body=%s", body)
 	}
 }
 

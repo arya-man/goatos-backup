@@ -94,6 +94,8 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
 | func:GetOversightAnalytics (verification oversight endpoint aggregate) | api + view:verification_queue_status | Oversight Analytics tenant-scoped KPIs: videos waiting, oldest pending age, verdict throughput per active day, per-module median review latency, reject rate over 30 days, pending backlog by module, per-verifier 14-day activity (verdicts/approved/rejected/busiest day), and per-verifier watch integrity (items tracked, watched-to-end, verdict-without-play). Verifier-level activity resolves names from `workforce_members` for display. All aggregates pre-collapse at their grain (module, verifier) before returning, with no per-item or per-actor fan-out. |
 | func:OversightAnalytics (domain struct) | EXCLUDED | Container struct for oversight analytics return; not a read surface itself but carries the aggregated results. |
+| GET /verification/video-log (func:GetVideoLog, func:VideoLog) | api + view:verification_queue_status | The VIDEO LOG (maintainer decision 2026-08-14): for ONE Asia/Kolkata business day, per operational location (shed + partition), the time each proof was UPLOADED — feed distribution's three captures, feed packing's one, feed transport's one, and the vaccination, weighing, birth, death and shifting proofs beside them. Two grains, both bounded: a per-shed day summary (proof count, item count, awaiting-upload count, first/last arrival, contributing module labels) and, for one selected shed, its work in full with each proof's own arrival time. Answers a DIFFERENT question from the two rows above it: `/vaccination/verification-queue` and `func:GetOversightAnalytics` answer "what is waiting" and "how is the backlog trending", whereas this answers "what arrived from this shed today, and when" — arrival timing, not backlog state, and it includes already-decided items because a rejected proof arrived just as much as a pending one. Time is server-accepted upload time (`proof_artifacts.uploaded_at`); there is no per-proof device capture timestamp in the schema, and `registered_at` is carried alongside so upload lag stays visible rather than inferred. Gated on `permissions.VerificationEvidenceTimeline` (CEO, PC Director AND the verifier — deliberately not `verification.oversee`), park-clamped for a park-scoped caller. No new Cube metric, `ceo_ai.*` view or Toolbox tool: leadership verification facts stay on `view:verification_queue_status`, which this neither widens nor re-grains. |
+| func:VideoLogShedSummary, func:VideoLogShedRows (verification postgres adapter) | EXCLUDED | The two bounded reads behind `GET /verification/video-log` above, not separate leadership surfaces. `VideoLogShedSummary` aggregates one day to one row per (shed, normalized partition); `VideoLogShedRows` returns one shed's items — or, for the CSV export only (`all_sheds`), the day's items across every shed in scope, capped with an explicit truncation flag. Both are day-bounded, tenant-scoped and park-clamped, and neither adds a read API, Cube metric, `ceo_ai.*` view or MCP Toolbox tool of its own. |
 | func:WatchStates (review-event watch aggregate) | EXCLUDED | Internal verifier-queue helper that batches watch-state lookups for a page of items. It returns aggregated watch percentage per item (max position / max duration across all events, all actors for that item); it adds no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Leadership visibility stays on the existing `GET /vaccination/verification-queue` and `/weighing/campaigns` oversight surfaces. |
 | GET /weighing/campaigns, GET /weighing/process-state | api + external MCP:get_weighing_progress + external MCP:get_weighing_process_state | Leadership source planning/monitoring read for manually authored kids weighing campaigns; aggregate/capture surface only. Shared task reads own app-visible owner/clock/contact state after cutover. External MCP clients must use the typed `get_weighing_progress` tool for weighing progress questions, `get_weighing_process_state` for calendar/control-tower weighing gaps, and keep pending verification weight separate from verified/closed weight. |
 | GET /app/weighing/campaigns | EXCLUDED | Operator execution list; leadership uses `/weighing/campaigns`. |
@@ -163,7 +165,7 @@ proof.
 | GET /procurement/source-entry/loads/{load_id} | api + view:source_entry_health_status | Load drilldown |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
 | GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail. Repo read `GetPositionByID` backs this single-seat drawer only; leadership capacity/coverage answers aggregate through `GET /admin/roster/positions` + `view:workforce_coverage_status`, never a named individual seat. |
-| GET /admin/roster/coverage | api + view:workforce_coverage_status | Coverage matrix; API tier executor wired (admin_roster_coverage tool) |
+| GET /admin/roster/coverage | api + view:workforce_coverage_status + external MCP:get_workforce_coverage | Coverage matrix; API tier executor wired (admin_roster_coverage tool). External MCP clients must use the typed `get_workforce_coverage` tool for uncovered/weakly covered shed, role, and backup-manager questions; do not answer these from Action Center rows. Golden eval question: `workforce-coverage` (`tools/ceo-ai/eval/golden/ops-workforce.json`). |
 | GET /admin/roster/leave | api + view:workforce_coverage_status | Absence exposure |
 | GET /admin/roster/leave/{absence_id} | EXCLUDED | Single-record detail |
 | POST /admin/roster/leave/{absence_id}/resolve-coverage | EXCLUDED | Single-absence coverage mutation (`ResolveLeaveCoverage`), not a leadership read. It is a vaccination-planning-effective transition: it enqueues `vaccination.leave.changed` in the same transaction so the operator-config replan consumer releases/re-plans that park's future drives. Leadership sees the RESULT through `view:workforce_coverage_status` and the vaccination operator/date surfaces, never this write. |
@@ -1115,11 +1117,16 @@ are the leadership-relevant ones — how many animals are under treatment, for w
 diseases, in which parks, how long courses run, and how much medicine is being
 administered.
 
-`GET /app/health/work-items` is now externally reachable through
-`external MCP:get_health_work_items` at treatment-session grain for CEO/CXO
-questions about open/due/in-progress/completed/held/canceled-death work items.
-The guardrail is strict: open sick/treatment work is not a mortality event unless
-the health workflow explicitly reports an approved death state.
+`GET /app/health/work-items` and `GET /app/counts/milk-feeding/tasks` are now externally reachable through
+`external MCP:get_health_today` and `external MCP:get_health_work_items` at
+treatment-session grain for CEO/CXO questions about
+open/due/in-progress/completed/held/canceled-death work items. Broad health
+questions must use `get_health_today`, which combines adult health, kids health,
+and kid milk-feeding tasks instead of returning a partial age-band answer.
+`external MCP:get_milk_feeding_today` is also available as a typed tool for Milk
+Feeding farm-session work. The guardrail is strict: open sick/treatment work is
+not a mortality event unless the health workflow explicitly reports an approved
+death state.
 
 The richer clinical analytics gap remains for tables such as `health_cases`,
 `health_session_steps`, and `health_medicine_administrations`: there is still no

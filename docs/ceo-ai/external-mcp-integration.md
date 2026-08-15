@@ -160,7 +160,8 @@ Current external typed tool catalog:
 | Feed needed/blocked today | `get_feed_today` | `GET /feed-direction/preview` | Issued feed sheet grain. Blocked/null quantity is a config gap, not zero feed. |
 | Procurement source-entry pipeline | `get_procurement_pipeline` | `GET /procurement/source-entry/loads` | Load grain. Keep expected, received, accepted, rejected, and holding distinct. |
 | Herd/census counts | `get_counts_summary` | `GET /counts/breakdown` | Aggregate census grain. Keep lifecycle status explicit. |
-| Health work/cases | `get_health_work_items` | `GET /app/health/work-items` | Treatment-session grain. Open sick work is not a death event unless health state says so. |
+| Health work/cases | `get_health_today`, `get_health_work_items`, `get_milk_feeding_today` | `GET /app/health/work-items`, `GET /app/counts/milk-feeding/tasks` | Treatment-session plus kid milk-feeding task grain. Use `get_health_today` for broad questions so adult health, kids health, and kid milk-feeding work are all included. Open sick work is not a death event unless health state says so. |
+| Workforce/backup coverage | `get_workforce_coverage` | `GET /admin/roster/coverage` | Roster coverage grain. Use for uncovered/weakly covered sheds, roles, and backup-manager seats. Do not substitute Action Center obligations. |
 | Weighing campaign progress | `get_weighing_progress` | `GET /weighing/campaigns` | Campaign/shed progress grain. Pending verification weight is not verified weight. |
 | Weighing growth/ADG trend | `get_weighing_growth_adg` | `GET /weighing/leadership/growth` | Growth aggregate grain. Use for "are weights improving" and ADG questions. |
 | Weighing shed lag/coverage | `get_weighing_shed_weights` | `GET /weighing/shed-weights` | Shed KPI row grain. Use for lagging sheds and latest shed weights. |

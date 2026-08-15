@@ -540,6 +540,13 @@ var protectedRoutes = []Route{
 	// A verifier holds verification.review/verdict but NOT verification.oversee, so this route
 	// 403s for her even though she can read the plain queue. See permissions.VerificationOversee.
 	{OperationID: "getVerificationOversightAnalytics", Method: "GET", Pattern: "/verification/oversight-analytics", Permissions: []string{VerificationOversee}},
+	// The VIDEO LOG: one business day, per shed, the time each proof was uploaded. Gated on
+	// verification.evidence_timeline -- a DIFFERENT capability from verification.oversee above, and
+	// deliberately so: the verifier holds this one and not that one. See
+	// permissions.VerificationEvidenceTimeline for why the two are separate and what each does not
+	// carry. The read is additionally park-clamped for a caller whose grant is park-scoped, exactly
+	// like the queue read.
+	{OperationID: "getVerificationVideoLog", Method: "GET", Pattern: "/verification/video-log", Permissions: []string{VerificationEvidenceTimeline}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.

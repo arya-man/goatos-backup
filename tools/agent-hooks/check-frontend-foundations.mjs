@@ -171,7 +171,10 @@ function actionFindings(file, source) {
     findings.push(finding(file, "Server Action file has no explicit input validation boundary"));
   }
   const replayProtected = /idempotency|row_version|rowVersion|expected_row_version|stableMutationKey|randomUUID|createHash/.test(source);
-  if (!replayProtected && !replayBaseline.has(file)) {
+  const readOnlyAction = /server-action-read-only/.test(source) &&
+    /\bget[A-Z]\w*\s*\(/.test(source) &&
+    !/\b(?:create|update|delete|mutate|record|submit|approve|reject|verdict)[A-Z]\w*\s*\(/.test(source);
+  if (!replayProtected && !readOnlyAction && !replayBaseline.has(file)) {
     findings.push(finding(file, "Server Action mutation has no stable idempotency key or optimistic-concurrency replay protection"));
   }
   return findings;
@@ -317,8 +320,12 @@ function selfTest() {
   assert.ok(boundaryFindings(`${adminRoot}/lib/api/new-server.ts`, "export const x = 1;\n").length > 0);
 
   const goodAction = '"use server";\nimport { mutate } from "@/lib/api/server";\nexport async function save(v: string) { if (!v.trim()) throw new Error(); return mutate(v, { row_version: 1 }); }\n';
+  const goodReadOnlyAction = '"use server";\nimport { getReport } from "@/lib/api/server";\n// server-action-read-only: GET-backed export; no mutation replay key required.\nexport async function exportReport(v: string) { if (!v.trim()) throw new Error(); return getReport({ id: v.trim() }); }\n';
+  const badReadOnlyMarkerMutation = '"use server";\nimport { submitReport } from "@/lib/api/server";\n// server-action-read-only: forged marker.\nexport async function save(v: string) { if (!v.trim()) throw new Error(); return submitReport(v); }\n';
   const badAction = '"use server";\nexport async function save(v) { return fetch(v); }\n';
   assert.equal(actionFindings(`${adminRoot}/features/good/actions.ts`, goodAction).length, 0);
+  assert.equal(actionFindings(`${adminRoot}/features/good-export/actions.ts`, goodReadOnlyAction).length, 0);
+  assert.ok(actionFindings(`${adminRoot}/features/bad-export/actions.ts`, badReadOnlyMarkerMutation).some((item) => item.includes("replay protection")));
   assert.ok(actionFindings(`${adminRoot}/features/bad/actions.ts`, badAction).length >= 3);
   assert.equal(fixedWaitFindings("old.mjs", "await page.waitForTimeout(10);", new Map([["old.mjs", 1]])).length, 0);
   assert.ok(fixedWaitFindings("new.mjs", "await page.waitForTimeout(10);", new Map()).length > 0);
