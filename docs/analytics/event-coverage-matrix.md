@@ -1,5 +1,27 @@
 # Analytics Event Coverage Matrix
 
+## Corrections (2026-08-16, post external review — supersedes stale statements below)
+
+- **Milk analytics are REAL and use dedicated event names** — `MILK_PREPARATION_OPENED /
+  _PROOF_CAPTURE_ATTEMPT / _PROOF_CAPTURE_SUCCESS / _PROOF_CAPTURE_FAILURE / _SUBMITTED /
+  _FAILURE` and the `MILK_FEEDING_*` equivalents, emitted from the real ViewModels (injected
+  AnalyticsPort) and asserted by real-ViewModel tests. Any statement below that milk reuses
+  `WEIGHING_*` names or has no proof-capture analytics is STALE.
+- **Durable backend events (`BackendAnalyticsAdapter.CRITICAL_EVENT_ALLOWLIST`)** are exactly:
+  `proof_processing_failed`, `SYNC_WRITE_DEAD`, `FEED_DISTRIBUTION_LIVE_STATUS_CHANGED`,
+  `FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ`, **`FEED_DISTRIBUTION_SUBMIT_SOURCES`** (the only
+  full record of feed_weight/feed_video/water_video source — Firebase drops two of the three
+  under the 25-param cap), `WEIGHING_CAPTURE_FAILURE`, `WEIGHING_WEIGHT_CAPTURE_FAILURE`,
+  `WEIGHING_PROOF_CAPTURE_FAILURE`. Failed sends queue durably; drains fire on connectivity
+  return, app start, and any later send; resends reuse the ORIGINAL `client_event_id`
+  (first-class DTO field, backend UNIQUE (tenant_id, client_event_id) + ON CONFLICT DO NOTHING).
+- **Architecture status: RATCHETED WITH KNOWN EXCEPTIONS**, not complete. Non-canonical
+  proof-key flows are exactly `milk_preparation`, `milk_feeding`, `workflow_detail`
+  (CaptureModels.NON_CANONICAL_PROOF_KEY_FLOWS); the CI guard
+  (`check-feed-proof-collaboration-guard.mjs` non-canonical ratchet) FAILS the build if this
+  list grows or changes. Their migration is the standing architecture task.
+
+
 This matrix documents proof-flow analytics coverage across all features, identifying event emissions and known gaps. Columns represent event lifecycle stages; rows represent workflows. Cell values are event names or "GAP" where tracking is absent.
 
 ## Coverage Matrix
@@ -21,7 +43,7 @@ This matrix documents proof-flow analytics coverage across all features, identif
 | **Health** | HEALTH_VIEWED | WORKFLOW_VIDEO_CAPTURED | WORKFLOW_VIDEO_CAPTURED | GAP | GAP | GAP | GAP | GAP | HEALTH_CASE_SUBMITTED | HEALTH_WRITE_FAILURE | SYNC_WRITE_DEAD | GAP | GAP |
 | **Generic Workflow** | WORKFLOW_LIST_VIEWED | WORKFLOW_VIDEO_CAPTURED | WORKFLOW_VIDEO_CAPTURED | GAP | GAP | GAP | GAP | GAP | WORKFLOW_ACTION_COMPLETED | SYNC_WRITE_DEAD | SYNC_WRITE_DEAD | GAP | GAP |
 
-*Milk events use WEIGHING_* event names with kind="milk_*" prefix for now; dedicated milk_* event names may be added in future iterations.
+*STALE — see Corrections above: dedicated MILK_* event names shipped.*
 
 ## Summary of Coverage
 
