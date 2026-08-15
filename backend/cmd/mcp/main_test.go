@@ -39,7 +39,7 @@ func TestToolsList(t *testing.T) {
 	for _, tool := range got.Result.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_work_items", "get_weighing_progress", "list_goatos_capabilities", "goatos_mcp_health"} {
+	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_work_items", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %+v", want, names)
 		}
@@ -117,6 +117,52 @@ func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
 				"limit":   "3",
 			},
 			response: map[string]any{"campaigns": []map[string]any{{"name": "week 1"}}},
+		},
+		{
+			name:     "weighing growth",
+			tool:     "get_weighing_growth_adg",
+			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","from":"2026-08-01","to":"2026-08-15"}`,
+			wantPath: "/weighing/leadership/growth",
+			wantQuery: map[string]string{
+				"park_id": "10000000-0000-4000-8000-000000000001",
+				"from":    "2026-08-01",
+				"to":      "2026-08-15",
+			},
+			response: map[string]any{"summary": map[string]any{"average_daily_gain_g": 92}},
+		},
+		{
+			name:     "weighing shed weights",
+			tool:     "get_weighing_shed_weights",
+			args:     `{"from":"2026-08-01","to":"2026-08-15"}`,
+			wantPath: "/weighing/shed-weights",
+			wantQuery: map[string]string{
+				"from": "2026-08-01",
+				"to":   "2026-08-15",
+			},
+			response: map[string]any{"rows": []map[string]any{{"shed": "Yashoda", "latest_average_weight_kg": 22.4}}},
+		},
+		{
+			name:     "weighing process state",
+			tool:     "get_weighing_process_state",
+			args:     `{"campaign_id":"10000000-0000-4000-8000-000000000001","from":"2026-08-01","to":"2026-08-15"}`,
+			wantPath: "/weighing/process-state",
+			wantQuery: map[string]string{
+				"campaign_id": "10000000-0000-4000-8000-000000000001",
+				"from":        "2026-08-01",
+				"to":          "2026-08-15",
+			},
+			response: map[string]any{"items": []map[string]any{{"state": "pending_verification"}}},
+		},
+		{
+			name:     "weighing demographics",
+			tool:     "get_weighing_weight_demographics",
+			args:     `{"from":"2026-08-01","to":"2026-08-15"}`,
+			wantPath: "/weighing/weight-demographics",
+			wantQuery: map[string]string{
+				"from": "2026-08-01",
+				"to":   "2026-08-15",
+			},
+			response: map[string]any{"buckets": []map[string]any{{"breed": "Sirohi", "count": 12}}},
 		},
 		{
 			name:     "counts summary",

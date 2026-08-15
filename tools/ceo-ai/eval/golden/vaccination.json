@@ -10,7 +10,7 @@
       "tiers_any_of": [
         "api"
       ],
-      "route_any_of": [
+      "external_mcp_tools_any_of": [
         "get_vaccination_today",
         "GET /vaccination/live-tracker"
       ]

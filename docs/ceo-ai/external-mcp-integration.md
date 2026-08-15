@@ -162,6 +162,10 @@ Current external typed tool catalog:
 | Herd/census counts | `get_counts_summary` | `GET /counts/breakdown` | Aggregate census grain. Keep lifecycle status explicit. |
 | Health work/cases | `get_health_work_items` | `GET /app/health/work-items` | Treatment-session grain. Open sick work is not a death event unless health state says so. |
 | Weighing campaign progress | `get_weighing_progress` | `GET /weighing/campaigns` | Campaign/shed progress grain. Pending verification weight is not verified weight. |
+| Weighing growth/ADG trend | `get_weighing_growth_adg` | `GET /weighing/leadership/growth` | Growth aggregate grain. Use for "are weights improving" and ADG questions. |
+| Weighing shed lag/coverage | `get_weighing_shed_weights` | `GET /weighing/shed-weights` | Shed KPI row grain. Use for lagging sheds and latest shed weights. |
+| Weighing process gaps | `get_weighing_process_state` | `GET /weighing/process-state` | Calendar/control-tower process grain. Use for overdue, pending proof/review, and process health. |
+| Weighing demographics | `get_weighing_weight_demographics` | `GET /weighing/weight-demographics` | Breed/sex/stage demographic grain. Use for group comparisons. |
 
 When a user asks a question in one of these classes, Claude, Codex, or ChatGPT
 should call the typed tool directly. `ask_goatos` remains a read-only fallback
