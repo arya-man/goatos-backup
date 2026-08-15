@@ -1285,6 +1285,57 @@ func pageSpecificCopy(id string) map[string]string {
 			"oversight_analytics.tracked":                 "tracked",
 			"oversight_analytics.watched_full":            "watched in full",
 			"oversight_analytics.no_play":                 "decided without playing",
+
+			// VIDEO LOG copy (permissions.VerificationEvidenceTimeline, maintainer decision
+			// 2026-08-14). Farm-plain throughout: this is read by a verifier and by leadership, and
+			// the copy firewall bans implementation words on both surfaces. "Arrived" rather than
+			// "uploaded" in the reading copy, because what the farm cares about is that the video
+			// reached the office -- the column header still says Uploaded, which is the operator's
+			// own word for the act.
+			"video_log.open":                "Video Log",
+			"video_log.close":               "Close video log",
+			"video_log.title":               "Video Log",
+			"video_log.hint":                "When each video arrived, shed by shed",
+			"video_log.disabled_no_access":  "The video log is limited to the verification team and leadership.",
+			"video_log.unavailable":         "The video log is unavailable right now.",
+			"video_log.day":                 "Day",
+			"video_log.all_sheds":           "All sheds",
+			"video_log.back_to_sheds":       "Back to all sheds",
+			"video_log.empty_day":           "No videos arrived on this day.",
+			"video_log.empty_shed":          "No videos arrived from this shed on this day.",
+			"video_log.filter.park":         "Park",
+			"video_log.filter.shed":         "Shed",
+			"video_log.filter.search":       "Search",
+			"video_log.filter.search_hint":  "Shed, work, person or video",
+			"video_log.filter.all_parks":    "All parks",
+			"video_log.filter.all_sheds":    "All sheds",
+			"video_log.filter.apply":        "Apply",
+			"video_log.filter.clear":        "Clear",
+			"video_log.no_match":            "Nothing on this day matches those filters.",
+			"video_log.col.park":            "Park",
+			"video_log.col.shed":            "Shed",
+			"video_log.col.work":            "Work",
+			"video_log.col.video":           "Video",
+			"video_log.col.uploaded":        "Uploaded",
+			"video_log.col.first_last":      "First and last",
+			"video_log.col.videos":          "Videos",
+			"video_log.videos_count":        "videos",
+			"video_log.items_count":         "pieces of work",
+			"video_log.awaiting_upload":     "not arrived yet",
+			"video_log.awaiting_upload_one": "Not arrived yet",
+			// Shown when a proof was filmed on the day but only reached the office on a later one.
+			// Without it a reader sees a time with no date and assumes same-day.
+			"video_log.arrived_later":    "arrived",
+			"video_log.captured_label":   "Recorded",
+			"video_log.truncated":        "This shed has more work than fits here. Narrow the day or the park to see the rest.",
+			"video_log.grain.animal":     "Animal",
+			"video_log.grain.shed":       "Shed",
+			"video_log.open_in_queue":    "Open this queue",
+			"video_log.download":         "Download CSV",
+			"video_log.export_truncated": "This day had more videos than one file holds. Narrow the park and download again.",
+			// Shown on each summary row so the per-video drill-down is discoverable: the shed name
+			// alone read as a plain label and the maintainer could not find the video times.
+			"video_log.view_videos": "View videos",
 		}
 	case "calendar":
 		return map[string]string{

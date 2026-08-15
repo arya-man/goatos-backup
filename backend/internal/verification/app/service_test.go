@@ -22,6 +22,13 @@ type fakeRepo struct {
 	seq             int
 	verdictErr      error
 	lastQueueParams ports.ListQueueParams
+
+	videoLogSheds     []domain.VideoLogShed
+	videoLogRows      []domain.VideoLogRow
+	videoLogTruncated bool
+	videoLogErr       error
+	videoLogParams    ports.VideoLogParams
+	videoLogRowParams ports.VideoLogParams
 }
 
 func newFakeRepo() *fakeRepo {
@@ -317,6 +324,19 @@ func (r *fakeRepo) WithdrawItemsBySource(_ context.Context, tenantID, sourceModu
 
 func (r *fakeRepo) OversightAnalytics(_ context.Context, _ string) (domain.OversightAnalytics, error) {
 	return domain.OversightAnalytics{}, nil
+}
+
+// videoLogSheds/videoLogRows/videoLogTruncated let a test drive the video log without a database,
+// and videoLogParams captures what the service actually asked the repository for -- which is where
+// the day normalization, the park clamp and the limit are proved.
+func (r *fakeRepo) VideoLogShedSummary(_ context.Context, params ports.VideoLogParams) ([]domain.VideoLogShed, error) {
+	r.videoLogParams = params
+	return r.videoLogSheds, r.videoLogErr
+}
+
+func (r *fakeRepo) VideoLogShedRows(_ context.Context, params ports.VideoLogParams) ([]domain.VideoLogRow, bool, error) {
+	r.videoLogRowParams = params
+	return r.videoLogRows, r.videoLogTruncated, r.videoLogErr
 }
 
 var _ ports.Repository = (*fakeRepo)(nil)

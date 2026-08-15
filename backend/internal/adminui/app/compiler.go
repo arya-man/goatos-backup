@@ -985,13 +985,34 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 	// capability as oversight_filters (permissions.VerificationOversee) -- it is a second, distinct
 	// control rather than the renderer reusing oversight_filters for two different pieces of
 	// chrome, so a future change to one visibility rule cannot silently move the other.
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "oversight_analytics",
 		Label:          controlCopy(copy, "oversight_analytics.title", "Verification oversight"),
 		Kind:           "visibility",
 		Enabled:        mayOversee,
 		DisabledReason: oversightReason,
 		Action:         "GET /verification/oversight-analytics",
+	})
+	// video_log gates the VIDEO LOG panel on /verify: one business day, per shed, the time each
+	// proof was uploaded (maintainer decision 2026-08-14).
+	//
+	// It follows permissions.VerificationEvidenceTimeline, NOT VerificationOversee, and that is the
+	// entire point of it being a separate control: the VERIFIER holds this capability and does not
+	// hold oversight, so she gets the Video Log button and still gets no module chips, no
+	// capture-date range picker and no analytics drawer. Reusing oversight_analytics here would
+	// have handed her all three, which is the 2026-08-12 STG incident again.
+	mayReadTimeline := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationEvidenceTimeline})
+	timelineReason := ""
+	if !mayReadTimeline {
+		timelineReason = controlCopy(copy, "video_log.disabled_no_access", "The video log is limited to the verification team and leadership.")
+	}
+	return upsertControl(out, domain.Control{
+		ID:             "video_log",
+		Label:          controlCopy(copy, "video_log.open", "Video Log"),
+		Kind:           "visibility",
+		Enabled:        mayReadTimeline,
+		DisabledReason: timelineReason,
+		Action:         "GET /verification/video-log",
 	})
 }
 
