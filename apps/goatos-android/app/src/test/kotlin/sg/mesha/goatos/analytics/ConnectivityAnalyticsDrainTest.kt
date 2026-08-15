@@ -4,8 +4,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 /**
  * Verifies that the connectivity gate triggers a durable analytics queue drain
@@ -43,7 +43,7 @@ class ConnectivityAnalyticsDrainTest {
 
         // In a real implementation, this would trigger adapter.drainQueue()
         // The test verifies the wiring exists and the callback pattern is correct
-        assertEquals(0, drainCallCount, "drain should be wired to connectivity, not auto-called in this test scope")
+        assertEquals("drain should be wired to connectivity, not auto-called in this test scope", 0, drainCallCount)
     }
 
     @Test

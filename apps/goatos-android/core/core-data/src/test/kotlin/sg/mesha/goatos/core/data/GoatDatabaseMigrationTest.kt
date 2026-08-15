@@ -219,6 +219,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_43_44.migrate(db)
         MIGRATION_44_45.migrate(db)
         MIGRATION_45_46.migrate(db)
+        MIGRATION_46_47.migrate(db)
         return db
     }
 

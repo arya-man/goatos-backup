@@ -1,6 +1,7 @@
 package appanalyticshttp
 
 import (
+	"os"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -20,7 +21,11 @@ func TestRecordEventClientEventIdDedup(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "")
+	dsn := os.Getenv("GOATOS_ANALYTICS_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("GOATOS_ANALYTICS_TEST_DATABASE_URL unset; dedupe test needs a real Postgres")
+	}
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("failed to connect to test database: %v", err)
 	}
