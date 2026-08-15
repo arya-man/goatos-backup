@@ -1932,6 +1932,7 @@ private fun WeighingLumpSumCapture(
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { onWeightEntryActive(it.isFocused) },
+            isError = state.animalCountInput.isNotBlank() && state.animalCountInput.toIntOrNull()?.let { it > 0 } != true,
         )
         val totalWeight = state.weightInput.toDoubleOrNull()
         val animalCount = state.animalCountInput.toIntOrNull()
