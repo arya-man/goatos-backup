@@ -1684,6 +1684,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/source-entry/loads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List procurement source-entry loads.
+         * @description One bounded page of source-entry loads for leadership and operator follow-up. This is the read side for supplier warmup, source health, pre-dispatch, in-transit, arrival review, accepted intake, rejected, deferred, and blocked load states. `expected_count` is the planned animals on each load; do not treat a single page as a company total when `next_cursor` is present.
+         */
+        get: operations["listProcurementSourceEntryLoads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/vendors": {
         parameters: {
             query?: never;
@@ -13083,6 +13103,63 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listProcurementSourceEntryLoads: {
+        parameters: {
+            query?: {
+                /** @description Optional load status filter. */
+                status?: string;
+                /** @description Opaque keyset cursor from a previous response. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of source-entry loads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            load_id: string;
+                            tenant_id: string;
+                            source_party_id: string;
+                            source_party_name?: string;
+                            source_location_id?: string | null;
+                            source_location_code?: string | null;
+                            source_location_name?: string | null;
+                            expected_count: number;
+                            /** Format: date-time */
+                            purchase_date?: string | null;
+                            /** Format: date-time */
+                            planned_dispatch_at?: string | null;
+                            status: string;
+                            notes?: string;
+                            context?: {
+                                [key: string]: unknown;
+                            };
+                            /** Format: date-time */
+                            created_at: string;
+                            /** Format: date-time */
+                            updated_at: string;
+                            row_version: number;
+                        }[];
+                        next_cursor?: string | null;
+                        trace_id: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

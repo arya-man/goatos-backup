@@ -13,6 +13,7 @@ cd "$repo_root"
 
 commit_sha="$(git rev-parse --short=12 HEAD)"
 build_id="${BUILD_ID:-local}"
+triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -23,17 +24,18 @@ slack_webhook_url() {
 notify_slack() {
   local status="$1"
   local text="$2"
+  local include_panel="${3:-0}"
   local webhook
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$status" "$text" "$commit_sha" "$build_id" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$status" "$text" "$commit_sha" "$build_id" "$triggered_by" "$include_panel" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
 
-status, text, sha, build_id = sys.argv[1:]
+status, text, sha, build_id, triggered_by, include_panel = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
-build_url = f"https://console.cloud.google.com/cloud-build/builds/{build_id}?project=goatos-stg"
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
 payload = {
     "attachments": [{
         "color": color,
@@ -42,6 +44,7 @@ payload = {
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
             {"title": "Channels", "value": "Firebase App Distribution, Play Internal, mesha.sg/app.apk", "short": False},
+            {"title": "Triggered by", "value": triggered_by, "short": False},
         ],
         "actions": [
             {"type": "button", "text": "Cloud Build logs", "url": build_url},
@@ -49,6 +52,51 @@ payload = {
         ],
     }]
 }
+if include_panel == "1":
+    payload["blocks"] = [
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": "deploy_options",
+            "elements": [{
+                "type": "checkboxes",
+                "action_id": "deploy_options",
+                "options": [{
+                    "text": {"type": "plain_text", "text": "Also distribute Android mobile"},
+                    "description": {
+                        "type": "plain_text",
+                        "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+                    },
+                    "value": "mobile_distribution",
+                }],
+            }],
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Deploy main to STG"},
+                    "style": "primary",
+                    "action_id": "deploy_goatos_stg_main",
+                    "value": "main",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Distribute Android only"},
+                    "action_id": "deploy_goatos_mobile_only",
+                    "value": "mobile",
+                },
+            ],
+        },
+    ]
 print(json.dumps(payload))
 PY
 }
@@ -68,8 +116,7 @@ post_deploy_panel() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass."
-    post_deploy_panel
+    notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass." 1
   fi
 }
 trap on_exit EXIT
@@ -177,8 +224,11 @@ mirror_sha="$(shasum -a 256 .local/verify-latest-app.apk | awk '{print $1}')"
 curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/latest/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 
-notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
-post_deploy_panel
+if [[ "${DEPLOY_STG:-false}" == "true" ]]; then
+  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+else
+  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}." 1
+fi
 trap - EXIT
 
 echo "MOBILE_DISTRIBUTED ${commit_sha} ${ANDROID_VERSION_NAME} ${ANDROID_VERSION_CODE}"
