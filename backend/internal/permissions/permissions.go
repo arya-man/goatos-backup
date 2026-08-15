@@ -524,6 +524,32 @@ const (
 	// module's queue, oversight watches ALL of them) and never inferred from a role string --
 	// callers must be checked for this permission, not for RoleCEOInternal/RolePCDirector by name.
 	VerificationOversee = "verification.oversee"
+	// VerificationEvidenceTimeline gates the VIDEO LOG on /verify: for ONE business day, per shed,
+	// the time each proof was uploaded (feed distribution's three, feed packing's one, feed
+	// transport's one, and the vaccination/weighing/birth/death/shifting proofs beside them).
+	// Maintainer decision 2026-08-14.
+	//
+	// It is a SEPARATE capability from VerificationOversee, and the difference is the whole point.
+	// Oversight is the cross-module BACKLOG chrome -- module chips, a historical capture-date range,
+	// the analytics aggregate -- which the 2026-08-12 STG incident deliberately took away from the
+	// verifier because it was confusing furniture on her working queue. This is one day's arrival
+	// times for a shed. Granting it does NOT hand a caller the module chips, the date-range picker,
+	// or the analytics drawer; those stay on VerificationOversee.
+	//
+	// Granted to RoleVerifier ALONGSIDE RoleCEOInternal and the four directors. That is deliberate
+	// and it is the one place this constant departs from VerificationOversee's "the verifier works
+	// ONE module's queue, oversight watches ALL of them" line: the video log is CROSS-MODULE for
+	// her too, because the question it answers is "what arrived from this shed today", and a shed's
+	// day is feed AND vaccination AND a death together. That line governs VERDICT authority and
+	// queue chrome; this grants neither -- it is a read-only arrival log with no verdict entry
+	// point, no filter that reshapes her queue, and no act/close capability. A verifier still
+	// cannot decide an item outside her duty modules, because VerificationVerdict is unchanged.
+	//
+	// Never confuse this with VerificationReview: review is the QUEUE (items, media, verdicts) and
+	// is what a caller needs to open /verify at all. A principal could hold this and not review, in
+	// which case they see arrival times and can open nothing -- so it is always granted with review,
+	// never instead of it.
+	VerificationEvidenceTimeline = "verification.evidence_timeline"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -551,6 +577,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// work it checks.
 		VerificationReview:  {},
 		VerificationVerdict: {},
+		// The VIDEO LOG (maintainer decision 2026-08-14): one day, per shed, when each proof
+		// arrived. Deliberately granted to the verifier even though VerificationOversee is not --
+		// see that constant and VerificationEvidenceTimeline for why the two are separate. This
+		// adds no verdict authority and no queue-reshaping filter.
+		VerificationEvidenceTimeline: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
@@ -607,6 +638,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// capability instead of an inference over grant shape. See VerificationOversee's doc
 		// comment.
 		VerificationOversee: {},
+		// The VIDEO LOG (maintainer decision 2026-08-14): one day, per shed, when each proof
+		// arrived. See VerificationEvidenceTimeline -- a separate capability from the oversight
+		// chrome above, held here because leadership must see every built surface.
+		VerificationEvidenceTimeline: {},
 		// Clinical authority over the configured disease course (maintainer decision 2026-07-30);
 		// raising a report is HealthReport, which every field tier holds.
 		HealthRead: {}, HealthReport: {}, HealthDiagnose: {},
@@ -877,7 +912,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// receives the unrestricted, cross-category branch of resolveVerifierCategories. See
 		// VerificationOversee's doc comment.
 		VerificationOversee: {},
-		HealthRead:          {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		// The VIDEO LOG on /verify (maintainer decision 2026-08-14), same founder/builder
+		// visibility invariant. See VerificationEvidenceTimeline: a separate capability from the
+		// oversight chrome above, and the verifier holds it too.
+		VerificationEvidenceTimeline: {},
+		HealthRead:                   {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
 		// invariant above: the platform-owner cohort holds the grants for every built visible
 		// module, so a founder is never locked out of a screen they are expected to operate.

@@ -562,8 +562,13 @@
      grid and a six-column table, and squeezing those into a record-sized panel is what made the
      numbers unreadable in the first place. */
   aside.drawer.vr-analytics-drawer{width:min(940px,96vw)}
-  .vr-analytics-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
-  .vr-analytics-btn .ic{width:16px;height:16px}
+  /* Analytics and Video Log are a matched PAIR in the page header (maintainer, 2026-08-15): same
+     primary treatment, same size, side by side. Styled through one selector rather than two copies
+     of the same values, so a later tweak to one cannot silently leave the other behind. */
+  .vr-analytics-btn,
+  .vr-videolog-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
+  .vr-analytics-btn .ic,
+  .vr-videolog-btn .ic{width:16px;height:16px}
   .vr-oversight{margin:0}
   /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
      viewport media query would keep five columns in a 900px panel. */
@@ -631,6 +636,56 @@
      in verification-review-page.tsx). Applied only to a still-pending row's age span. */
   .vr-age-amber{color:var(--amber);font-weight:650}
   .vr-age-red{color:var(--danger);font-weight:650}
+
+  /* ===== Video Log (maintainer decision 2026-08-14): one business day, per shed, when each proof
+     arrived. Sibling drawer to the analytics panel, gated on a different capability. ===== */
+  /* Narrower than the analytics drawer (940px): this is a three-column table, not a KPI strip plus
+     a module grid, and a 940px panel would leave the arrival times floating far from their work. */
+  aside.drawer.vr-videolog-drawer{width:min(720px,96vw)}
+  /* Ghost, not primary: Analytics already owns the header's one primary action, and two competing
+     primaries side by side read as a toolbar rather than a hierarchy. */
+  .vr-videolog{margin:0}
+  /* The day picker is a control, not a value, so this row aligns on CENTER rather than the baseline
+     the static date line used — a baseline-aligned calendar button sits visibly low against its
+     label. */
+  .vr-videolog .vl-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line2)}
+  .vr-videolog .vl-head .lab{font-size:11px;font-weight:700;color:var(--muted);flex:none}
+  .vr-videolog .vl-head .val{font-size:14px;font-weight:650;color:var(--ink)}
+  .vr-videolog .vl-crumb{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+  .vr-videolog .vl-crumb .val{font-size:13px;font-weight:650;color:var(--ink)}
+  .vr-videolog .vl-empty{padding:22px 2px}
+  .vr-videolog .vl-note{margin-top:12px}
+  /* Same header treatment as .vr-table: `.screen th` is declared later with equal specificity and
+     would otherwise win, forcing 11px uppercase headers onto this table too. */
+  .screen .vl-tbl th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .vr-videolog .vl-tbl{width:100%;border-collapse:collapse}
+  .vr-videolog .vl-tbl td{font-size:11.5px;padding:10px;border-bottom:1px solid var(--line2);vertical-align:top}
+  .vr-videolog .vl-tbl tr:last-child td{border-bottom:0}
+  /* Arrival times are read down the column and compared, so they need tabular figures — otherwise
+     06:12 and 15:04 do not line up and the eye cannot scan the day. */
+  .vr-videolog .vl-tbl .val{font-variant-numeric:tabular-nums;font-weight:650;color:var(--ink)}
+  /* A work cell spans its proofs' rows, so its top border must read as the group boundary. */
+  .vr-videolog .vl-tbl td[rowspan]{border-right:1px solid var(--line2);padding-right:14px}
+  .vr-videolog .vl-tbl .warn{color:var(--amber);font-weight:650}
+  /* The drill-down affordance on a summary row. It must LOOK reachable before the pointer is on it
+     — the shed name alone read as a label and the per-video times were undiscoverable. */
+  .vr-videolog .vl-drill{display:inline-block;margin-top:5px;color:var(--brand-d);font-weight:700;letter-spacing:.02em;text-decoration:none;opacity:.85}
+  .vr-videolog .vl-drill:hover{opacity:1;text-decoration:underline}
+  .vr-videolog .vl-csv-wrap{display:flex;align-items:center;gap:10px;flex:none}
+  .vr-videolog .vl-csv-btn{gap:7px;flex:none}
+  .vr-videolog .vl-csv-btn .ic{width:15px;height:15px}
+  /* The whole-day export is a real request over every shed, so the button has to say it is working
+     — a silent button on a slow day reads as a dead control and gets clicked again. */
+  .vr-videolog .vl-csv-spin{animation:vl-csv-spin 900ms linear infinite}
+  @keyframes vl-csv-spin{to{transform:rotate(360deg)}}
+  .vr-videolog .vl-csv-note{max-width:260px;line-height:1.35}
+  /* Panel filter row. Wraps rather than clipping: the drawer is 720px and three controls plus two
+     buttons do not fit on one line at every zoom level. */
+  .vr-videolog .vl-frow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin-bottom:14px}
+  .vr-videolog .vl-frow .vr-fld{min-width:150px}
+  .vr-videolog .vl-frow .vl-search{flex:1 1 190px}
+  .vr-videolog .vl-frow .vl-fbtns{display:flex;gap:8px;flex:0 0 auto}
+  .vr-videolog .vl-frow .btn{flex:0 0 auto}
 
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */

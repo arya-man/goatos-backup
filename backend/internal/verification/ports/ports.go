@@ -158,6 +158,44 @@ type Repository interface {
 	// backlog by module, per-verifier last-14-day activity). Bounded, tenant-scoped aggregate SQL
 	// only -- see domain.OversightAnalytics's doc comment.
 	OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error)
+	// VideoLogShedSummary lists one row per operational location that had proof arrive on the
+	// requested business day. Bounded by the day; see domain.VideoLog for why the log is two levels.
+	VideoLogShedSummary(ctx context.Context, params VideoLogParams) ([]domain.VideoLogShed, error)
+	// VideoLogShedRows returns ONE operational location's work for that day with every proof and its
+	// arrival time. The bool reports TRUNCATION -- more work existed than Limit allowed -- so a
+	// caller never presents a partial day as a complete one.
+	VideoLogShedRows(ctx context.Context, params VideoLogParams) ([]domain.VideoLogRow, bool, error)
+}
+
+// VideoLogParams scopes a video-log read. Both levels take the same params so the summary and the
+// detail can never disagree about which day, park, or authorization scope they describe.
+type VideoLogParams struct {
+	TenantID string
+	// BusinessDate is YYYY-MM-DD in Asia/Kolkata, already validated by the app layer. It is bound
+	// as ::date and the repository cuts the half-open instant range from it.
+	BusinessDate string
+	// ScopeRestricted/ParkIDs are the AUTHORIZATION clamp, exactly as ListQueueParams uses them: a
+	// caller whose verification.evidence_timeline grant is park-scoped sees only those parks. This
+	// is separate from ParkID below, which is the caller's own chosen filter -- conflating the two
+	// would let a filter widen a scope.
+	ScopeRestricted bool
+	ParkIDs         []string
+	// ParkID is the caller's optional park filter.
+	ParkID string
+	// ShedID selects the operational location for the DETAIL level. It carries the same composite
+	// "<shed_uuid>#<normalized partition>" form the queue's shed filter uses, so the video log and
+	// the page's existing shed dropdown speak one vocabulary. Empty means summary only.
+	ShedID string
+	// AllSheds asks for the whole day's work across EVERY shed in scope, for the CSV export.
+	//
+	// It is the one caller allowed to read the day at row grain, and it is never used to render a
+	// screen -- the panel stays two-level precisely because a park-day can carry several hundred
+	// items. When set, ShedID is ignored and each row carries its own shed identity, or a line in
+	// the file could not say where its video came from.
+	AllSheds bool
+	// Limit bounds the row read. A vaccination drive raises one item per animal, so neither a
+	// shed's day nor a park's day is inherently small.
+	Limit int
 }
 
 // ReviewEventRepository is the video-review-analytics ingest + read boundary
