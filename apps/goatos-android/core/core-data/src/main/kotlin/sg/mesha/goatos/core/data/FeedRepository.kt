@@ -221,6 +221,13 @@ interface FeedRepository {
      * Returns null on any error (offline, timeout, proof not found, etc.).
      */
     suspend fun fetchProofDownloadUrl(proofId: String): String?
+
+    /**
+     * True when the Feed Direction summary endpoint answered for this scope right now — a live
+     * reachability probe for the manual-refresh affordance. Distinct from cache reads: a fresh
+     * cache can serve without network, so "no timestamp movement" must never be read as offline.
+     */
+    suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean
 }
 
 /** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
@@ -441,6 +448,27 @@ class DefaultFeedRepository(
             // anything" and leaving the screen stale until the operator taps Sync.
             null
         }
+
+    override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean {
+        return try {
+            api.getFeedDirectionPreview(
+                parkId = query.parkId,
+                targetDate = query.targetDate,
+                shedId = query.shedId,
+                partitionLabel = null,
+                session = query.session,
+                workflow = query.workflow,
+                status = query.status,
+                limit = 1,
+                offset = 0,
+            )
+            true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     override suspend fun fetchProofDownloadUrl(proofId: String): String? { // offline-first-guard:ignore: signed URL is single-use and time-limited by the server; caching it in Room would serve an expired/invalid link instead of failing honestly
         if (proofId.isBlank()) return null
