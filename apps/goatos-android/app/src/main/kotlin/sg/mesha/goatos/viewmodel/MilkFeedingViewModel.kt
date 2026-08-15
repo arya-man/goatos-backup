@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.buildMilkFeedingEvidenceSlot
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofFlow
@@ -294,9 +295,8 @@ class MilkFeedingViewModel @Inject constructor(
             return@launch
         }
         val slot = evidenceSlot(code)
-        when (val result = proofCaptureRepository.capture(
-            taskId = slot.identity.taskId,
-            fieldKey = slot.fieldKey,
+        when (val result = proofCaptureRepository.captureReplacingLatest(
+            slot = slot,
             subject = ProofSubject.PARK,
             subjectId = current.parkId,
             localUri = video.localUri,
@@ -358,9 +358,8 @@ class MilkFeedingViewModel @Inject constructor(
             return@launch
         }
         val slot = evidenceSlot(code)
-        when (val result = proofCaptureRepository.capture(
-            taskId = slot.identity.taskId,
-            fieldKey = slot.fieldKey,
+        when (val result = proofCaptureRepository.captureReplacingLatest(
+            slot = slot,
             subject = ProofSubject.PARK,
             subjectId = current.parkId,
             localUri = video.localUri,
@@ -432,20 +431,13 @@ class MilkFeedingViewModel @Inject constructor(
         }
     }
 
-    private fun groupKey() = "milk-feeding:${state.value.parkId}:$feedingDate:${state.value.sessionNo}"
+    internal fun groupKey() = "milk-feeding:${state.value.parkId}:$feedingDate:${state.value.sessionNo}"
 
     /** Canonical slot grain for a milk-feeding proof capture. identity.taskId/fieldKey resolve to
      *  the SAME strings [groupKey] / the raw `"milk_feeding_$code"` literal already produced, so
      *  routing captures through this slot changes no on-disk value. */
-    private fun evidenceSlot(code: String): EvidenceSlot = EvidenceSlot(
-        identity = ProofIdentity(
-            flow = ProofFlow.MILK_FEEDING,
-            taskId = groupKey(),
-            partitionKey = "whole",
-            subjectKey = taskId,
-        ),
-        fieldKey = "milk_feeding_$code",
-    )
+    internal fun evidenceSlot(code: String): EvidenceSlot =
+        buildMilkFeedingEvidenceSlot(state.value.parkId, feedingDate, state.value.sessionNo, taskId, code)
 
     /**
      * Observes the submit outbox item's status to detect when submission completes or fails,

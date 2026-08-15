@@ -19,6 +19,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.WorkflowVideoDraft
+import sg.mesha.goatos.core.data.capture.buildWorkflowEvidenceSlot
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofFlow
@@ -79,15 +80,8 @@ class WorkflowDetailViewModel @Inject constructor(
      *  to the SAME strings ([workflowId] passthrough / the existing [workflowProofFieldKey]
      *  literal) already produced, so routing captures through this slot changes no on-disk value
      *  while keying these rows into the shared retirement/recovery/referee machinery. */
-    private fun workflowEvidenceSlot(actionId: String, goatId: String): EvidenceSlot = EvidenceSlot(
-        identity = ProofIdentity(
-            flow = ProofFlow.WORKFLOW_DETAIL,
-            taskId = workflowId,
-            partitionKey = "whole",
-            subjectKey = goatId,
-        ),
-        fieldKey = workflowProofFieldKey(actionId),
-    )
+    internal fun workflowEvidenceSlot(actionId: String, goatId: String): EvidenceSlot =
+        buildWorkflowEvidenceSlot(workflowId, goatId, actionId)
 
     /**
      * The lens this drill-in was opened through, supplied by the route.
@@ -310,9 +304,8 @@ class WorkflowDetailViewModel @Inject constructor(
                 return@launch
             }
             val slot = workflowEvidenceSlot(actionId, goatId)
-            val proofResult = proofCaptureRepository.capture(
-                taskId = slot.identity.taskId,
-                fieldKey = slot.fieldKey,
+            val proofResult = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
                 subject = ProofSubject.GOAT,
                 subjectId = goatId,
                 localUri = captured.localUri,
@@ -394,9 +387,8 @@ class WorkflowDetailViewModel @Inject constructor(
             for (action in actions) {
                 val draft = drafts.getValue(action.actionId)
                 val slot = workflowEvidenceSlot(action.actionId, draft.subjectGoatId)
-                val proof = proofCaptureRepository.capture(
-                    taskId = slot.identity.taskId,
-                    fieldKey = slot.fieldKey,
+                val proof = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.GOAT,
                     subjectId = draft.subjectGoatId,
                     localUri = draft.localUri,

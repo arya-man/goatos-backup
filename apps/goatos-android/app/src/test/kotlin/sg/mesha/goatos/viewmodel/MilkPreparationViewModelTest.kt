@@ -206,10 +206,10 @@ class MilkPreparationViewModelTest {
             2,
             proofCaptureRepository.captureCalls.size,
         )
-        // Milk flows remove the OLD proof from the upload path via sync.deleteOutboxItem
-        // (asserted below); the local capture-history row is not the dedupe ledger here.
+        // Manohar ordering (captureReplacingLatest): new proof is stored first, then the old one
+        // is removed from the repository. Only the latest proof survives in Room storage.
         val survivingRows = proofCaptureRepository.allRows()
-        assertEquals("both captures leave history rows", 2, survivingRows.size)
+        assertEquals("only the new proof remains after successful re-capture", 1, survivingRows.size)
         assertEquals("/proof/goat-milk-qty-2.mp4", survivingRows.last().localUri)
         assertEquals(
             "the old proof outbox item must be deleted from sync",
