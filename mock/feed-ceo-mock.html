@@ -1,0 +1,729 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Mesha Feed — CEO View</title></head><body>
+<style>
+  :root{
+    --page-bg:#0A0F0C; --page-ink:#ECF4EE; --page-muted:#8FA497; --page-line:#1C2620; --card:#101711;
+    --brand:#8AD457; --brand-2:#5FB531; --brand-d:#B7EA8C;
+    --grad:linear-gradient(135deg,#93DA5E 0%,#5FB531 100%);
+    --bg:#0B100D; --surf:#131A15; --surf2:#1A241D; --surf3:#222E25; --hair:#28352B;
+    --ink:#ECF4EE; --muted:#8FA497; --faint:#5F7367;
+    --ok:#8AD457; --okx:rgba(138,212,87,.16); --warn:#F0B54B; --warnx:rgba(240,181,75,.15);
+    --danger:#FB6F63; --dangerx:rgba(251,111,99,.15); --teal:#57C9B0; --tealx:rgba(87,201,176,.15);
+    --purple:#A78BF5; --purplex:rgba(167,139,245,.15);
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --glow:0 8px 26px rgba(95,181,49,.30);
+  }
+  @media (prefers-color-scheme:light){ :root:not([data-theme="dark"]){ --page-bg:#EDF1EA; --page-ink:#141C17; --page-muted:#54655B; --page-line:#D6DED1; --card:#fff; } }
+  :root[data-theme="light"]{ --page-bg:#EDF1EA; --page-ink:#141C17; --page-muted:#54655B; --page-line:#D6DED1; --card:#fff; }
+
+  *{box-sizing:border-box}
+  body{font-family:var(--f);background:var(--page-bg);color:var(--page-ink);margin:0;padding:0 clamp(12px,4vw,32px) 60px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .in{max-width:1180px;margin:0 auto}
+  .ic{width:18px;height:18px;display:inline-block;vertical-align:middle;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+  header.hd{padding:34px 0 6px;text-align:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--brand-2);margin-bottom:12px}
+  .eyebrow .dot{width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px rgba(138,212,87,.18)}
+  header.hd h1{font-size:clamp(24px,4vw,36px);font-weight:820;letter-spacing:-.025em;margin:0}
+  header.hd h1 .g{color:var(--brand-2)}
+  header.hd p{color:var(--page-muted);font-size:14.5px;max-width:70ch;margin:12px auto 0}
+
+  .layout{display:flex;gap:clamp(16px,3vw,40px);align-items:flex-start;justify-content:center;flex-wrap:wrap;margin-top:18px}
+  .notes{flex:1 1 340px;max-width:460px;min-width:300px}
+  .note{background:var(--card);border:1px solid var(--page-line);border-radius:16px;padding:16px 18px;margin-bottom:12px}
+  .note h4{margin:0 0 8px;font-size:13px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--brand-2);display:flex;align-items:center;gap:8px}
+  .note p{margin:0 0 8px;font-size:13.5px;color:var(--page-muted)}
+  .note ul{margin:0;padding-left:18px;font-size:13.5px;color:var(--page-muted)}
+  .note li{margin-bottom:6px}
+  .note b{color:var(--page-ink);font-weight:700}
+  .note code{font-family:var(--mono);font-size:12px;background:var(--surf2);color:var(--brand-d);padding:1px 5px;border-radius:5px}
+  .kill{border-left:3px solid var(--danger)}
+  .kill h4{color:var(--danger)}
+  .gap{border-left:3px solid var(--warn)}
+  .gap h4{color:var(--warn)}
+
+  /* device */
+  .stage{flex:0 0 auto;display:flex;justify-content:center;padding:0}
+  .device{width:min(94vw,384px);height:812px;border-radius:46px;background:#04060580;border:1px solid #1c2620;padding:8px;box-shadow:0 3px 6px rgba(0,0,0,.3),0 30px 70px rgba(0,0,0,.5);position:relative;flex:none}
+  .scr{position:relative;width:100%;height:100%;border-radius:39px;overflow:hidden;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;font-size:13.5px;-webkit-user-select:none;user-select:none}
+  .notch{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:96px;height:26px;background:#040605;border-radius:16px;z-index:60}
+  .sbar{display:flex;align-items:center;justify-content:space-between;padding:12px 22px 4px;font-size:12px;font-weight:700;flex:none;z-index:5;color:var(--ink)}
+  .sbar .r{display:flex;gap:6px;align-items:center;color:var(--muted)} .sbar .r .ic{width:15px;height:15px}
+  .screen{flex:1;position:relative;min-height:0}
+  .home{height:5px;width:120px;background:var(--faint);opacity:.5;border-radius:3px;margin:6px auto 9px;flex:none;position:relative;z-index:5}
+
+  .view{position:absolute;inset:0;display:none;flex-direction:column;min-height:0}
+  .view.on{display:flex;animation:vin .2s ease}
+  @keyframes vin{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+  .vscroll{flex:1;overflow-y:auto;min-height:0;padding-bottom:14px}
+  .vscroll::-webkit-scrollbar{width:0}
+
+  .vhead{display:flex;align-items:center;gap:11px;padding:6px 16px 10px;flex:none}
+  .vhead .bk,.vhead .ib{width:36px;height:36px;border-radius:12px;background:var(--surf2);display:grid;place-items:center;color:var(--muted);flex:none;cursor:pointer;border:0;font:inherit}
+  .vhead .eb{font-size:10px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .vhead h3{font-size:17px;font-weight:790;letter-spacing:-.02em;margin:1px 0 0}
+  .vhead .sp{flex:1}
+  .avatar{width:36px;height:36px;border-radius:12px;background:var(--grad);color:#08130B;display:grid;place-items:center;font-weight:800;font-size:13px;flex:none;box-shadow:var(--glow)}
+  .tap{cursor:pointer} .tap:active{filter:brightness(1.25)}
+
+  /* scope bar: date + session + park — the only 3 filters a CEO turns */
+  .scope{display:flex;gap:7px;padding:0 16px 10px;flex:none}
+  .scope .sel{flex:1;background:var(--surf);border:1px solid var(--hair);border-radius:12px;padding:8px 10px;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:650;cursor:pointer;min-width:0}
+  .scope .sel .lb{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:750;display:block}
+  .scope .sel .vl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .scope .sel .ic{width:13px;height:13px;color:var(--faint);margin-left:auto}
+
+  /* chain strip — the spine of the whole feature */
+  .chain{display:flex;align-items:stretch;gap:0;margin:0 16px 12px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;overflow:hidden;flex:none}
+  .chain .lk{flex:1;padding:9px 8px;text-align:center;position:relative;cursor:pointer}
+  .chain .lk+.lk{border-left:1px solid var(--hair)}
+  .chain .lk .nm{font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:750;color:var(--faint)}
+  .chain .lk .tm{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:3px;display:flex;align-items:center;justify-content:center;gap:4px}
+  .chain .lk .dl{font-size:9.5px;color:var(--faint);margin-top:1px;font-variant-numeric:tabular-nums}
+  .chain .lk.ok .tm{color:var(--brand-d)} .chain .lk.warn .tm{color:var(--warn)} .chain .lk.bad .tm{color:var(--danger)}
+  .chain .lk.on{background:var(--surf2)}
+
+  /* verdict banner — one sentence a CEO can act on */
+  .verdict{margin:0 16px 12px;border-radius:17px;padding:14px 15px;border:1px solid transparent;flex:none}
+  .verdict.ok{background:var(--okx);border-color:rgba(138,212,87,.25)}
+  .verdict.warn{background:var(--warnx);border-color:rgba(240,181,75,.28)}
+  .verdict.bad{background:var(--dangerx);border-color:rgba(251,111,99,.28)}
+  .verdict .t{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;letter-spacing:-.015em}
+  .verdict.ok .t{color:var(--brand-d)} .verdict.warn .t{color:var(--warn)} .verdict.bad .t{color:var(--danger)}
+  .verdict .s{font-size:12.5px;color:var(--ink);opacity:.85;margin-top:6px}
+  .verdict .s b{font-variant-numeric:tabular-nums}
+
+  .dl-h{font-size:10.5px;font-weight:780;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:12px 16px 6px;display:flex;align-items:center;gap:7px}
+  .dl-h .sp{flex:1} .dl-h .cnt{color:var(--faint);letter-spacing:0;text-transform:none;font-weight:700}
+
+  .card{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:17px;padding:14px 15px}
+  .card .ttl{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:760}
+  .card .ttl .sp{flex:1}
+  .card .sub{font-size:11.5px;color:var(--muted);margin-top:4px}
+
+  /* water clock: the CSV the CEO used to get, as one picture */
+  .clock{position:relative;height:74px;margin-top:14px}
+  .clock .track{position:absolute;left:0;right:0;top:26px;height:6px;border-radius:3px;background:var(--surf3)}
+  .clock .fill{position:absolute;top:26px;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--teal),var(--brand))}
+  .clock .tick{position:absolute;top:14px;width:2px;height:18px;border-radius:2px;background:var(--brand);opacity:.55;transform:translateX(-1px)}
+  .clock .tick.cpt{background:var(--teal)}
+  .clock .tick.miss{background:var(--danger);opacity:1;height:30px;top:8px;width:3px}
+  .clock .dead{position:absolute;top:4px;bottom:20px;width:2px;background:var(--danger);transform:translateX(-1px)}
+  .clock .dead::after{content:"12:30 deadline";position:absolute;top:-2px;right:6px;font-size:9.5px;font-weight:750;color:var(--danger);white-space:nowrap}
+  .clock .lab{position:absolute;bottom:0;font-size:9.5px;color:var(--faint);font-variant-numeric:tabular-nums;font-weight:700}
+  .clock .lab.l{left:0} .clock .lab.r{right:0}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--muted);margin-top:2px;flex-wrap:wrap}
+  .legend i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px}
+
+  .nums{display:flex;margin-top:13px;background:var(--surf2);border-radius:12px;overflow:hidden}
+  .nums>div{flex:1;text-align:center;padding:9px 3px} .nums>div+div{border-left:1px solid var(--hair)}
+  .nums b{color:var(--ink);font-weight:800;font-size:15px;display:block;font-variant-numeric:tabular-nums}
+  .nums b.warn{color:var(--warn)} .nums b.bad{color:var(--danger)} .nums b.ok{color:var(--brand-d)}
+  .nums span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:700;display:block;margin-top:2px}
+
+  /* 7-day buffer trend — is the margin shrinking? */
+  .spark{display:flex;align-items:flex-end;gap:6px;height:66px;margin-top:12px}
+  .spark .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;cursor:pointer}
+  .spark .b .bar{width:100%;border-radius:5px 5px 0 0;background:var(--brand);opacity:.8;min-height:3px}
+  .spark .b.late .bar{background:var(--danger);opacity:1}
+  .spark .b.tight .bar{background:var(--warn)}
+  .spark .b .dy{font-size:9px;color:var(--faint);margin-top:5px;font-weight:700}
+  .spark .b.today .dy{color:var(--brand-2)}
+  .spark .b .vl{font-size:9.5px;font-weight:780;font-variant-numeric:tabular-nums;color:var(--muted);margin-bottom:3px}
+  .spark .b.late .vl{color:var(--danger)} .spark .b.tight .vl{color:var(--warn)}
+
+  /* exception rows — the only list a CEO scrolls */
+  .exc{margin:0 16px 8px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;padding:12px 14px;display:flex;align-items:flex-start;gap:11px;cursor:pointer;border-left:3px solid var(--hair)}
+  .exc.bad{border-left-color:var(--danger)} .exc.warn{border-left-color:var(--warn)} .exc.info{border-left-color:var(--teal)} .exc.ok{border-left-color:var(--brand)}
+  .exc .ix{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex:none;background:var(--surf3);color:var(--muted)}
+  .exc.bad .ix{background:var(--dangerx);color:var(--danger)} .exc.warn .ix{background:var(--warnx);color:var(--warn)} .exc.info .ix{background:var(--tealx);color:var(--teal)}
+  .exc .bd{flex:1;min-width:0}
+  .exc .h{font-size:13.5px;font-weight:760;letter-spacing:-.01em;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .exc .m{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .exc .m b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+  .exc .who{font-size:11px;color:var(--faint);margin-top:5px;display:flex;align-items:center;gap:5px}
+  .exc .go{color:var(--faint);flex:none;align-self:center}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:750;padding:3px 9px;border-radius:999px;white-space:nowrap;flex:none}
+  .pill.ok{background:var(--okx);color:var(--brand-d)} .pill.warn{background:var(--warnx);color:var(--warn)}
+  .pill.dng{background:var(--dangerx);color:var(--danger)} .pill.mut{background:var(--surf3);color:var(--muted)}
+  .pill.teal{background:var(--tealx);color:var(--teal)} .pill.pur{background:var(--purplex);color:var(--purple)}
+
+  /* shed rollup row — partitions collapse to a span, never 8 rows */
+  .shrow{margin:0 16px 7px;background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px;cursor:pointer}
+  .shrow .nm{font-size:13.5px;font-weight:750;min-width:0}
+  .shrow .nm span{display:block;font-size:11px;color:var(--muted);font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+  .shrow .sp{flex:1}
+  .shrow .sp2{width:8px;flex:none}
+  .shrow .rt{text-align:right;flex:none}
+  .shrow .rt b{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;display:block}
+  .shrow .rt span{font-size:10px;color:var(--faint);font-weight:700;text-transform:uppercase}
+  .shrow.bad .rt b{color:var(--danger)} .shrow.warn .rt b{color:var(--warn)} .shrow.ok .rt b{color:var(--brand-d)}
+
+  /* disabled-with-reason — never a dead number */
+  .blocked{margin:0 16px 10px;background:var(--surf);border:1px dashed var(--hair);border-radius:15px;padding:12px 14px;opacity:.72}
+  .blocked .h{font-size:12.5px;font-weight:750;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .blocked .r{font-size:11px;color:var(--faint);margin-top:5px}
+
+  /* bottom bar */
+  .tabs{display:flex;border-top:1px solid var(--hair);background:var(--surf);flex:none}
+  .tabs button{flex:1;border:0;background:transparent;font:inherit;padding:9px 2px 5px;color:var(--faint);display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;position:relative}
+  .tabs button .ib{width:52px;height:28px;border-radius:14px;display:grid;place-items:center}
+  .tabs button.on{color:var(--brand-d)} .tabs button.on .ib{background:rgba(138,212,87,.16)}
+  .tabs button span{font-size:9.5px;font-weight:750}
+  .tabs button .bdg{position:absolute;top:5px;right:calc(50% - 22px);min-width:16px;height:16px;border-radius:8px;background:var(--danger);color:#1a0605;font-size:9.5px;font-weight:850;display:grid;place-items:center;padding:0 4px}
+
+  /* drilldown table */
+  .ptab{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;overflow:hidden}
+  .ptab .r{display:flex;align-items:center;gap:10px;padding:10px 13px;font-size:12.5px}
+  .ptab .r+.r{border-top:1px solid var(--hair)}
+  .ptab .r .p{font-weight:700;flex:1}
+  .ptab .r .t{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .ptab .r .st{width:18px;text-align:center}
+  .ptab .r.miss{background:var(--dangerx)} .ptab .r.miss .p{color:var(--danger)} .ptab .r.miss .t{color:var(--danger)}
+  .proofstrip{display:flex;gap:7px;margin:0 16px 10px}
+  .proofstrip .p{flex:1;background:var(--surf);border:1px solid var(--hair);border-radius:13px;padding:10px;text-align:center}
+  .proofstrip .p .th{height:46px;border-radius:9px;background:var(--surf3);display:grid;place-items:center;color:var(--faint);margin-bottom:7px}
+  .proofstrip .p.ok .th{background:rgba(138,212,87,.13);color:var(--brand)}
+  .proofstrip .p .lb{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  .proofstrip .p .tm{font-size:11.5px;font-weight:780;font-variant-numeric:tabular-nums;margin-top:3px}
+
+  .kv{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;overflow:hidden}
+  .kv .r{display:flex;padding:10px 13px;font-size:12.5px;gap:10px}
+  .kv .r+.r{border-top:1px solid var(--hair)}
+  .kv .r .k{color:var(--muted);flex:1}
+  .kv .r .v{font-weight:750;font-variant-numeric:tabular-nums;text-align:right}
+  .kv .r .v.bad{color:var(--danger)} .kv .r .v.warn{color:var(--warn)} .kv .r .v.ok{color:var(--brand-d)}
+
+  .footnote{font-size:11px;color:var(--faint);padding:2px 16px 16px;line-height:1.5}
+</style>
+
+<svg style="display:none">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7s6 6.4 6 10.3a6 6 0 0 1-12 0C6 9.1 12 2.7 12 2.7z"/></symbol>
+  <symbol id="i-bowl" viewBox="0 0 24 24"><path d="M3 11h18M4 11a8 8 0 0 0 16 0M2 20h20"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M1 6h13v11H1zM14 10h4l3 3v4h-7"/><circle cx="6" cy="19" r="2"/><circle cx="17" cy="19" r="2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7zM1 5h15v14H1z"/></symbol>
+  <symbol id="i-pic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 2v6h-6M3 22v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L21 8M21 15a9 9 0 0 1-14.9 3.4L3 16"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M7 7l-4 8h8zM17 7l-4 8h8z"/></symbol>
+</svg>
+
+<div class="in">
+<header class="hd">
+  <div class="eyebrow"><span class="dot"></span>Mesha · Feed · Leadership</div>
+  <h1>Feed — <span class="g">CEO View</span></h1>
+  <p>Same three tabs the operator sees, aimed at a different question. The operator asks <i>“what do I do next?”</i> and needs 74 shed-session rows. The CEO asks <i>“did today’s chain hold, and who broke it?”</i> and needs one verdict, one clock, and the exceptions. Seeded with the real 15 Aug morning water-timing sheet.</p>
+</header>
+
+<div class="layout">
+
+  <div class="stage">
+  <div class="device"><div class="notch"></div><div class="scr">
+    <div class="sbar"><span>2:46</span><div class="r"><span>CPT + CBE</span><svg class="ic"><use href="#i-refresh"/></svg></div></div>
+    <div class="screen">
+
+      <!-- ============ TAB 1 : FEEDING ============ -->
+      <section class="view on" id="v-feed">
+        <div class="vhead">
+          <div class="avatar">RT</div>
+          <div><div class="eb">Feed · Leadership</div><h3>Feeding</h3></div>
+          <div class="sp"></div>
+          <button class="ib tap"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="vscroll">
+          <div class="scope">
+            <div class="sel tap"><div><span class="lb">Date</span><span class="vl">Sat, 15 Aug</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+            <div class="sel tap"><div><span class="lb">Session</span><span class="vl">Morning</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+            <div class="sel tap"><div><span class="lb">Park</span><span class="vl">All</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+          </div>
+
+          <div class="chain">
+            <div class="lk ok tap" onclick="go('v-pack')"><div class="nm">Packed</div><div class="tm">14:52</div><div class="dl">by 15:00 · Fri</div></div>
+            <div class="lk bad tap" onclick="go('v-trans')"><div class="nm">Staged</div><div class="tm">15:41</div><div class="dl">by 15:00 · 1 late</div></div>
+            <div class="lk warn on"><div class="nm">Water</div><div class="tm">12:26</div><div class="dl">by 12:30 · today</div></div>
+          </div>
+
+          <div class="verdict warn">
+            <div class="t"><svg class="ic"><use href="#i-clock"/></svg>Morning water closed 12:26 — 3 min 57 s of margin</div>
+            <div class="s">35 sheds · 74 pens watered · <b>3 pens have no water proof at all</b>. Buffer has shrunk every day this week; 13 Aug already breached.</div>
+          </div>
+
+          <div class="dl-h">Water clock <span class="sp"></span><span class="cnt">09:00:34 → 12:26:03</span></div>
+          <div class="card">
+            <div class="ttl"><svg class="ic" style="color:var(--teal)"><use href="#i-drop"/></svg>When each pen actually got water<span class="sp"></span><span class="pill mut">74 ticks</span></div>
+            <div class="sub">Every tick is one recorded water proof. The sheet you used to get by message, as one picture.</div>
+            <div class="clock" id="clock"></div>
+            <div class="legend"><span><i style="background:var(--brand)"></i>CBE</span><span><i style="background:var(--teal)"></i>CPT</span><span><i style="background:var(--danger)"></i>no proof</span></div>
+            <div class="nums">
+              <div><b class="ok">35</b><span>Sheds</span></div>
+              <div><b class="ok">74</b><span>Pens done</span></div>
+              <div><b class="bad">3</b><span>No proof</span></div>
+              <div><b class="warn">3h 25m</b><span>First→last</span></div>
+            </div>
+          </div>
+
+          <div class="dl-h">Margin to deadline <span class="sp"></span><span class="cnt">last 7 mornings</span></div>
+          <div class="card">
+            <div class="ttl"><svg class="ic" style="color:var(--warn)"><use href="#i-alert"/></svg>The margin is collapsing<span class="sp"></span></div>
+            <div class="sub">Minutes between the last pen watered and the 12:30 deadline. Two of the last seven mornings finished inside 5 minutes; one breached.</div>
+            <div class="spark" id="spark"></div>
+          </div>
+
+          <div class="dl-h">Needs a decision <span class="sp"></span><span class="cnt">4 items</span></div>
+
+          <div class="exc bad tap" onclick="go('v-shed')">
+            <div class="ix"><svg class="ic"><use href="#i-alert"/></svg></div>
+            <div class="bd">
+              <div class="h">3 pens fed, never watered <span class="pill dng">No proof</span></div>
+              <div class="m">Sumathi 2 · Part 3 · CBE — Mandela 1 · Part 2 &amp; Part 8 · CBE</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>Ramesh K. (CBE morning crew) · both sheds</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc warn tap">
+            <div class="ix"><svg class="ic"><use href="#i-clock"/></svg></div>
+            <div class="bd">
+              <div class="h">CBE crew idle 55 min mid-round</div>
+              <div class="m">Ho Chi Minh 1 at <b>10:48</b> → Mandela 1 at <b>11:43</b>. That gap is the whole margin: without it the round closes at <b>11:31</b>.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>CBE morning crew · 22 sheds</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc warn tap">
+            <div class="ix"><svg class="ic"><use href="#i-eye"/></svg></div>
+            <div class="bd">
+              <div class="h">9 sessions waiting on a verifier <span class="pill warn">&gt; 3 h</span></div>
+              <div class="m">Filmed and submitted, but not yet approved — so they are <b>not counted fed</b> anywhere downstream. Oldest waiting <b>4 h 12 m</b>.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>Verifier queue · Anitha S. on duty</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc info tap">
+            <div class="ix"><svg class="ic"><use href="#i-link"/></svg></div>
+            <div class="bd">
+              <div class="h">Yesterday’s late load landed here</div>
+              <div class="m">CPT Gandhi 3 staged <b>15:41</b> (41 min late). Its shed started water at <b>11:32</b> — 2 h 31 m after the round began.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-truck"/></svg>Traced through Transport → Feeding</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="dl-h">Slowest sheds today <span class="sp"></span><span class="cnt">start → last pen</span></div>
+          <div class="shrow bad tap" onclick="go('v-shed')"><div class="nm">CBE Godel 1<span>8 pens · 12:23:06 → 12:26:03</span></div><div class="sp"></div><div class="rt"><b>+3h 25m</b><span>after first</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow warn tap"><div class="nm">CBE Castro 1<span>1 pen · 12:19:39</span></div><div class="sp"></div><div class="rt"><b>+3h 19m</b><span>after first</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow warn tap"><div class="nm">CBE Castro 2<span>1 pen · 12:15:55</span></div><div class="sp"></div><div class="rt"><b>+3h 15m</b><span>after first</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow warn tap"><div class="nm">CPT Gandhi 1<span>1 pen · 11:59:09</span></div><div class="sp"></div><div class="rt"><b>+2h 58m</b><span>after first</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+
+          <div class="blocked">
+            <div class="h"><svg class="ic"><use href="#i-lock"/></svg>Ration delivered vs planned (kg)</div>
+            <div class="r">Disabled — the weight proof is a photo of the scale, not a machine reading. A number here would be a guess. Needs either a connected scale or verifier-entered kg on the weight photo.</div>
+          </div>
+
+          <div class="footnote">Water proofs are shown at the moment recording started, which is what the old sheet reported. A session counts as fed only after a verifier approves all three proofs (weight photo → feed video → water video).</div>
+        </div>
+        <div class="tabs" id="tabs"></div>
+      </section>
+
+      <!-- ============ TAB 2 : PACKING ============ -->
+      <section class="view" id="v-pack">
+        <div class="vhead">
+          <div class="avatar">RT</div>
+          <div><div class="eb">Feed · Leadership</div><h3>Packing</h3></div>
+          <div class="sp"></div>
+          <button class="ib tap"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="vscroll">
+          <div class="scope">
+            <div class="sel tap"><div><span class="lb">Date</span><span class="vl">Fri, 14 Aug</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+            <div class="sel tap"><div><span class="lb">Session</span><span class="vl">Both</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+            <div class="sel tap"><div><span class="lb">Park</span><span class="vl">All</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+          </div>
+
+          <div class="chain">
+            <div class="lk ok on"><div class="nm">Packed</div><div class="tm">14:52</div><div class="dl">by 15:00</div></div>
+            <div class="lk bad tap" onclick="go('v-trans')"><div class="nm">Staged</div><div class="tm">15:41</div><div class="dl">1 late</div></div>
+            <div class="lk warn tap" onclick="go('v-feed')"><div class="nm">Water</div><div class="tm">12:26</div><div class="dl">next day</div></div>
+          </div>
+
+          <div class="verdict ok">
+            <div class="t"><svg class="ic"><use href="#i-check"/></svg>All 148 bags packed — last one closed 14:52</div>
+            <div class="s">74 pens × 2 sessions. <b>8 min</b> before the 15:00 staging cutoff. One shed missed the 13:30 diff cutoff and was packed on the old count.</div>
+          </div>
+
+          <div class="dl-h">Bags <span class="sp"></span><span class="cnt">one video per bag</span></div>
+          <div class="card">
+            <div class="ttl"><svg class="ic" style="color:var(--brand)"><use href="#i-box"/></svg>Coverage<span class="sp"></span><span class="pill ok">100%</span></div>
+            <div class="sub">A bag is a pen’s share for one session. Morning and evening are packed separately and filmed separately — one clip cannot prove two bags.</div>
+            <div class="nums">
+              <div><b class="ok">148</b><span>Planned</span></div>
+              <div><b class="ok">148</b><span>Filmed</span></div>
+              <div><b class="warn">17</b><span>Unverified</span></div>
+              <div><b class="bad">2</b><span>Rejected</span></div>
+            </div>
+          </div>
+
+          <div class="dl-h">Needs a decision <span class="sp"></span><span class="cnt">3 items</span></div>
+
+          <div class="exc bad tap">
+            <div class="ix"><svg class="ic"><use href="#i-alert"/></svg></div>
+            <div class="bd">
+              <div class="h">Packed on a stale count <span class="pill dng">Diff missed</span></div>
+              <div class="m">CBE Sumathi 2 shifted <b>18 animals</b> out at 13:47, after the 13:30 diff cutoff. Bags were weighed for the old head count — <b>~11 kg</b> over.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>Shifting logged by Suresh M. · packing by CBE line 2</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc warn tap">
+            <div class="ix"><svg class="ic"><use href="#i-eye"/></svg></div>
+            <div class="bd">
+              <div class="h">17 bags filmed but not verified</div>
+              <div class="m">Packing clips sat in the queue overnight; the feed still went out. Verification is proving <b>yesterday’s</b> work, not gating today’s.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-clock"/></svg>Oldest waiting <b>19 h</b></div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc bad tap">
+            <div class="ix"><svg class="ic"><use href="#i-cam"/></svg></div>
+            <div class="bd">
+              <div class="h">2 bags rejected, re-shot, still not approved</div>
+              <div class="m">CPT Castro 2 · Evening — rejected twice for <i>“scale not readable”</i>. Third attempt pending since <b>08:10</b>.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>Packer: Lakshmi D. · Verifier: Anitha S.</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="dl-h">Where the partitions are <span class="sp"></span><span class="cnt">rolled up · tap to expand</span></div>
+          <div class="shrow ok tap" onclick="go('v-shed')"><div class="nm">CBE Godel 1<span>8 pens × 2 · 13:41 → 14:52</span></div><div class="sp"></div><div class="rt"><b>16/16</b><span>bags</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow warn tap"><div class="nm">CBE Sumathi 2<span>8 pens × 2 · stale count</span></div><div class="sp"></div><div class="rt"><b>16/16</b><span>bags</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow ok tap"><div class="nm">CBE Mandela 2<span>8 pens × 2 · 13:02 → 13:58</span></div><div class="sp"></div><div class="rt"><b>16/16</b><span>bags</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow ok tap"><div class="nm">CPT Old Yashoda<span>5 sheds · 12:40 → 13:10</span></div><div class="sp"></div><div class="rt"><b>10/10</b><span>bags</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+
+          <div class="blocked">
+            <div class="h"><svg class="ic"><use href="#i-lock"/></svg>Feed stock burn &amp; shortage risk</div>
+            <div class="r">Disabled — packing does not read an inventory ledger today, so “short by X kg of mineral mix” cannot be stated. Needs the Feed store issue/receipt ledger wired to the ration plan.</div>
+          </div>
+
+          <div class="footnote">A packing bag is completed only when a verifier approves its video. Unverified bags are shown separately from unpacked ones — they are very different failures.</div>
+        </div>
+        <div class="tabs"></div>
+      </section>
+
+      <!-- ============ TAB 3 : TRANSPORT ============ -->
+      <section class="view" id="v-trans">
+        <div class="vhead">
+          <div class="avatar">RT</div>
+          <div><div class="eb">Feed · Leadership</div><h3>Transport</h3></div>
+          <div class="sp"></div>
+          <button class="ib tap"><svg class="ic"><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="vscroll">
+          <div class="scope">
+            <div class="sel tap"><div><span class="lb">Date</span><span class="vl">Fri, 14 Aug</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+            <div class="sel tap"><div><span class="lb">Status</span><span class="vl">All</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+            <div class="sel tap"><div><span class="lb">Park</span><span class="vl">All</span></div><svg class="ic"><use href="#i-down"/></svg></div>
+          </div>
+
+          <div class="chain">
+            <div class="lk ok tap" onclick="go('v-pack')"><div class="nm">Packed</div><div class="tm">14:52</div><div class="dl">by 15:00</div></div>
+            <div class="lk bad on"><div class="nm">Staged</div><div class="tm">15:41</div><div class="dl">by 15:00</div></div>
+            <div class="lk warn tap" onclick="go('v-feed')"><div class="nm">Water</div><div class="tm">12:26</div><div class="dl">next day</div></div>
+          </div>
+
+          <div class="verdict bad">
+            <div class="t"><svg class="ic"><use href="#i-alert"/></svg>34 of 35 loads staged by 15:00 — one 41 min late</div>
+            <div class="s">There is <b>no grace</b> on this deadline. The late load is CPT Gandhi 3, and that shed was also the slowest to be watered this morning.</div>
+          </div>
+
+          <div class="dl-h">Loads <span class="sp"></span><span class="cnt">one video per shed, whole load</span></div>
+          <div class="card">
+            <div class="ttl"><svg class="ic" style="color:var(--teal)"><use href="#i-truck"/></svg>Staging<span class="sp"></span><span class="pill warn">97%</span></div>
+            <div class="sub">One task and one clip per shed, even for an 8-pen shed — the bags are separate but the trip is one. Partitions are never separate loads here.</div>
+            <div class="nums">
+              <div><b class="ok">35</b><span>Loads due</span></div>
+              <div><b class="ok">34</b><span>On time</span></div>
+              <div><b class="bad">1</b><span>Late</span></div>
+              <div><b class="warn">2</b><span>Re-shot</span></div>
+            </div>
+          </div>
+
+          <div class="dl-h">Needs a decision <span class="sp"></span><span class="cnt">3 items</span></div>
+
+          <div class="exc bad tap">
+            <div class="ix"><svg class="ic"><use href="#i-truck"/></svg></div>
+            <div class="bd">
+              <div class="h">CPT Gandhi 3 staged 15:41 <span class="pill dng">41 min late</span></div>
+              <div class="m">Third breach for this shed in 7 days. Every one of them fell on the same trip pairing with CPT Castro.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>Driver: Naveen P. · Park head: Suresh M.</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc warn tap">
+            <div class="ix"><svg class="ic"><use href="#i-cam"/></svg></div>
+            <div class="bd">
+              <div class="h">2 loads sent back for a re-shoot</div>
+              <div class="m">Rejected as <i>“shed not identifiable in frame”</i>. Both re-filmed the same evening; both approved. Costs ~<b>25 min</b> per bounce.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-user"/></svg>CBE Yashoda 6 &amp; 9</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="exc info tap" onclick="go('v-feed')">
+            <div class="ix"><svg class="ic"><use href="#i-link"/></svg></div>
+            <div class="bd">
+              <div class="h">Late staging → late water, 3 days running</div>
+              <div class="m">Sheds staged after 15:00 started water on average <b>68 min</b> later the next morning than sheds staged on time.</div>
+              <div class="who"><svg class="ic" style="width:13px;height:13px"><use href="#i-link"/></svg>Open the Feeding tab</div>
+            </div>
+            <svg class="ic go"><use href="#i-chev"/></svg>
+          </div>
+
+          <div class="dl-h">Repeat breaches <span class="sp"></span><span class="cnt">last 7 days</span></div>
+          <div class="shrow bad tap"><div class="nm">CPT Gandhi 3<span>15:41 · 15:22 · 15:58</span></div><div class="sp"></div><div class="rt"><b>3</b><span>late</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow warn tap"><div class="nm">CPT Castro 2<span>15:19 · 15:11</span></div><div class="sp"></div><div class="rt"><b>2</b><span>late</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+          <div class="shrow ok tap"><div class="nm">All CBE sheds<span>22 sheds · no breach</span></div><div class="sp"></div><div class="rt"><b>0</b><span>late</span></div><div class="sp2"></div><svg class="ic go" style="color:var(--faint)"><use href="#i-chev"/></svg></div>
+
+          <div class="blocked">
+            <div class="h"><svg class="ic"><use href="#i-lock"/></svg>Vehicle, route and trip cost</div>
+            <div class="r">Disabled — a transport task carries a shed, an operator and a video, not a vehicle or a route. “Which trip pairing is slow” is inferred from timing order here, not recorded. Needs a vehicle/route field on the task.</div>
+          </div>
+
+          <div class="footnote">Transport is shed-grain by decision: a partitioned shed such as Castro is one load and one clip, never three.</div>
+        </div>
+        <div class="tabs"></div>
+      </section>
+
+      <!-- ============ DRILLDOWN : SHED ============ -->
+      <section class="view" id="v-shed">
+        <div class="vhead">
+          <button class="bk tap" onclick="go(BACK)"><svg class="ic"><use href="#i-back"/></svg></button>
+          <div><div class="eb">CBE · Morning · 15 Aug</div><h3>Godel 1</h3></div>
+          <div class="sp"></div>
+          <span class="pill warn">Verified 6/8</span>
+        </div>
+        <div class="vscroll">
+          <div class="verdict warn">
+            <div class="t"><svg class="ic"><use href="#i-clock"/></svg>Last shed of the round — closed 12:26:03</div>
+            <div class="s">8 pens watered in <b>2 m 57 s</b>. The shed is not slow; it is simply last, <b>3 h 25 m</b> behind the first pen of the day.</div>
+          </div>
+
+          <div class="dl-h">Water proof per pen</div>
+          <div class="ptab">
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 1</span><span class="t">12:23:06</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 2</span><span class="t">12:23:31</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 3</span><span class="t">12:24:00</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 4</span><span class="t">12:24:20</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 5</span><span class="t">12:24:40</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 6</span><span class="t">12:25:12</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 7</span><span class="t">12:25:36</span></div>
+            <div class="r"><span class="st" style="color:var(--brand)">●</span><span class="p">Part 8</span><span class="t">12:26:03</span></div>
+          </div>
+
+          <div class="dl-h">The three proofs · Part 8</div>
+          <div class="proofstrip">
+            <div class="p ok"><div class="th"><svg class="ic"><use href="#i-scale"/></svg></div><div class="lb">Weight</div><div class="tm">12:21:40</div></div>
+            <div class="p ok"><div class="th"><svg class="ic"><use href="#i-cam"/></svg></div><div class="lb">Feed</div><div class="tm">12:24:11</div></div>
+            <div class="p ok"><div class="th"><svg class="ic"><use href="#i-drop"/></svg></div><div class="lb">Water</div><div class="tm">12:26:03</div></div>
+          </div>
+
+          <div class="kv">
+            <div class="r"><span class="k">Fed by</span><span class="v">Ramesh K.</span></div>
+            <div class="r"><span class="k">Verified by</span><span class="v">Anitha S. · 13:04</span></div>
+            <div class="r"><span class="k">Submit → approve lag</span><span class="v warn">38 min</span></div>
+            <div class="r"><span class="k">Yesterday’s load staged</span><span class="v ok">14:38</span></div>
+            <div class="r"><span class="k">Pens still unverified</span><span class="v warn">2 of 8</span></div>
+          </div>
+
+          <div class="dl-h">Same shed, this week</div>
+          <div class="card">
+            <div class="sub">Closing time of the last pen, against the 12:30 deadline.</div>
+            <div class="spark" id="spark2"></div>
+          </div>
+
+          <div class="footnote">Times are when recording started, matching the water-timing sheet. A pen without a water proof is treated as not watered, regardless of the feed video.</div>
+        </div>
+        <div class="tabs"></div>
+      </section>
+
+    </div>
+    <div class="home"></div>
+  </div></div>
+  </div>
+
+  <div class="notes">
+    <div class="note kill">
+      <h4><svg class="ic"><use href="#i-alert"/></svg>What is removed for the CEO</h4>
+      <ul>
+        <li><b>The 74-row shed-session list.</b> Pending / Experiment chips are a worklist. A CEO cannot act on “Castro 1 · Morning · Pending” seventy times.</li>
+        <li><b>Partition rows.</b> <code>Sumathi 1 – Part 1…8</code> becomes one shed row with a time span. 74 rows → 35, and the default view shows 4.</li>
+        <li><b>Filter panel.</b> Five dropdowns become three: date, session, park. Feed type and status are answers, not inputs.</li>
+        <li><b>“Confirm each shed-session was fed.”</b> That is the operator’s instruction. The CEO is not confirming anything.</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <h4><svg class="ic"><use href="#i-drop"/></svg>Tab 1 · Feeding — water timing is the number</h4>
+      <p>The sheet you were sent by hand is a list of 74 start times. Rendered as a clock it answers in one glance what the list never did:</p>
+      <ul>
+        <li><b>Did the round close before the deadline, and by how much?</b> 12:26:03 against 12:30 — under 4 minutes of margin.</li>
+        <li><b>Is the margin trending to zero?</b> Seven-day bars. 13 Aug already breached; nothing in the old sheet showed that.</li>
+        <li><b>Who waited longest?</b> Godel 1 drank 3 h 25 m after Gandhi 1. Same ration, very different day for the animal.</li>
+        <li><b>Where did the time go?</b> A 55-minute hole between Ho Chi Minh and Mandela is the entire margin.</li>
+        <li><b>Who is missing entirely?</b> 3 pens in the sheet have no water line at all — invisible in a list, red on a clock.</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <h4><svg class="ic"><use href="#i-box"/></svg>Tab 2 · Packing — was the right quantity packed, in time</h4>
+      <p>Packing is one video per bag, per pen, per session — so raw coverage is a big number that is always near 100% and tells the CEO nothing. What matters:</p>
+      <ul>
+        <li><b>Packed on a stale count.</b> Animals shifted after the 13:30 diff cutoff means bags weighed for a head count that no longer exists. That is real feed lost, and it is the only packing number with money attached.</li>
+        <li><b>Filmed but unverified.</b> Different failure from unpacked. Feed already went out; the proof is just unjudged.</li>
+        <li><b>Re-shoot loops.</b> A bag rejected twice is a training problem, not a packing problem.</li>
+        <li><b>Cutoff margin</b>, not a completion tick: 14:52 against a 15:00 staging cutoff.</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <h4><svg class="ic"><use href="#i-truck"/></svg>Tab 3 · Transport — one clip per shed, no grace</h4>
+      <p>Only 35 loads exist, so a list is survivable — but still the wrong frame. The CEO frame is breach and repeat:</p>
+      <ul>
+        <li><b>Loads staged by 15:00</b>, with the late ones named, timed, and attributed.</li>
+        <li><b>Repeat breaches over 7 days.</b> One shed three times is a route problem; three sheds once each is weather.</li>
+        <li><b>The downstream link.</b> Late staging on Day N shows up as late water on Day N+1 — sheds staged late started 68 min later. This is the single most useful thing the three tabs can say together, and neither tab can say it alone.</li>
+      </ul>
+    </div>
+
+    <div class="note gap">
+      <h4><svg class="ic"><use href="#i-lock"/></svg>Shown as disabled, with the reason</h4>
+      <ul>
+        <li><b>Delivered kg vs planned kg.</b> The weight proof is a photo of a scale. Nothing reads the number, so a variance figure would be invented. Needs a connected scale or a verifier-entered reading.</li>
+        <li><b>Feed stock burn and shortage risk.</b> Packing does not read an inventory ledger.</li>
+        <li><b>Vehicle, route, trip cost.</b> A transport task carries shed + operator + video. No vehicle, no route.</li>
+      </ul>
+      <p>Each is drawn as a dashed, dimmed card stating what is missing — never a plausible-looking number with no source behind it.</p>
+    </div>
+
+    <div class="note">
+      <h4><svg class="ic"><use href="#i-link"/></svg>The chain strip</h4>
+      <p>Present on all three tabs: <b>Packed → Staged → Water</b>, each with its actual time and its deadline. Feed is one chain across two days; the tabs are three windows onto it. The strip is also the navigation — tapping a link opens that tab already scoped to the same date and park.</p>
+    </div>
+
+    <div class="note gap">
+      <h4><svg class="ic"><use href="#i-alert"/></svg>Seed data &amp; honesty notes</h4>
+      <ul>
+        <li>Water times, shed names and partitions are the real 15 Aug morning sheet: 74 rows, 35 sheds, 09:00:34 → 12:26:03.</li>
+        <li>The 3 missing pens are literally absent from that sheet (Sumathi 2 Part 3, Mandela 1 Parts 2 and 8). Whether they are unwatered or simply not on the roster cannot be told from the sheet alone — the screen states it as “no proof”, which is what is actually known.</li>
+        <li>Packing, transport, operator names, verifier lags and 7-day trends are <b>illustrative</b>. The shapes are backed by existing tables (completions, attempts, verification verdicts, timestamps); the values are not a real query.</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function(){
+  // ---- real 15 Aug morning water sheet ----
+  var SHEET = [
+    ["CBE Gandhi - 1","09:00:34"],["CBE Gandhi - 2","09:13:07"],["CBE Gandhi - 3","09:25:27"],
+    ["CBE Yashoda - 10","09:36:13"],["CBE Yashoda - 9","09:36:56"],["CBE Yashoda - 8","09:37:19"],
+    ["CBE Yashoda - 7","09:37:51"],["CBE Yashoda - 6","09:38:14"],["CBE Yashoda - 4","09:38:51"],
+    ["CBE Yashoda - 3","09:39:16"],["CBE Yashoda - 2","09:39:39"],["CBE Yashoda - 1","09:40:16"],
+    ["CBE Sumathi 1 - Part 1","09:57:10"],["CBE Sumathi 1 - Part 2","09:57:50"],["CBE Sumathi 1 - Part 3","09:58:26"],
+    ["CBE Sumathi 1 - Part 4","09:58:56"],["CBE Sumathi 1 - Part 5","09:59:33"],["CBE Sumathi 1 - Part 6","10:00:23"],
+    ["CBE Sumathi 1 - Part 7","10:01:03"],["CBE Sumathi 1 - Part 8","10:01:35"],
+    ["CBE Sumathi 2 - Part 1","10:07:31"],["CBE Sumathi 2 - Part 2","10:08:07"],["CBE Sumathi 2 - Part 4","10:09:28"],
+    ["CBE Sumathi 2 - Part 5","10:10:02"],["CBE Sumathi 2 - Part 6","10:10:36"],["CBE Sumathi 2 - Part 7","10:11:13"],
+    ["CBE Sumathi 2 - Part 8","10:11:52"],
+    ["CBE Godel 2 - Part 8","10:13:34"],["CBE Godel 2 - Part 7","10:14:17"],["CBE Godel 2 - Part 6","10:15:08"],
+    ["CBE Godel 2 - Part 5","10:15:47"],["CBE Godel 2 - Part 4","10:16:27"],["CBE Godel 2 - Part 3","10:17:07"],
+    ["CBE Godel 2 - Part 2","10:17:47"],["CBE Godel 2 - Part 1","10:18:33"],
+    ["CPT Yashoda - 2","10:38:42"],["CPT Yashoda - 4","10:43:59"],
+    ["CPT Old Yashoda - 5","10:46:42"],["CPT Old Yashoda - 4","10:47:24"],["CPT Old Yashoda - 2","10:47:48"],
+    ["CPT Old Yashoda - 1","10:48:24"],["CBE Ho Chi Minh - 1","10:48:54"],["CPT Old Yashoda - 3","10:49:01"],
+    ["CPT Yashoda - 1","10:52:28"],["CPT Castro - 1","11:09:29"],["CPT Castro - 2","11:19:23"],
+    ["CPT Gandhi - 3","11:32:13"],
+    ["CBE Mandela 1 - Part 1","11:43:20"],["CBE Mandela 1 - Part 3","11:44:06"],["CBE Mandela 1 - Part 4","11:44:34"],
+    ["CBE Mandela 1 - Part 5","11:44:58"],["CBE Mandela 1 - Part 6","11:45:24"],["CBE Mandela 1 - Part 7","11:45:52"],
+    ["CBE Mandela 2 - Part 1","11:47:16"],["CBE Mandela 2 - Part 2","11:47:40"],["CPT Gandhi - 2","11:48:07"],
+    ["CBE Mandela 2 - Part 3","11:49:06"],["CBE Mandela 2 - Part 4","11:49:54"],["CBE Mandela 2 - Part 5","11:50:24"],
+    ["CBE Mandela 2 - Part 6","11:50:52"],["CBE Mandela 2 - Part 7","11:51:22"],["CBE Mandela 2 - Part 8","11:51:47"],
+    ["CPT Gandhi - 1","11:59:09"],
+    ["CBE Castro - 3","12:01:08"],["CBE Castro - 2","12:15:55"],["CBE Castro - 1","12:19:39"],
+    ["CBE Godel 1 - Part 1","12:23:06"],["CBE Godel 1 - Part 2","12:23:31"],["CBE Godel 1 - Part 3","12:24:00"],
+    ["CBE Godel 1 - Part 4","12:24:20"],["CBE Godel 1 - Part 5","12:24:40"],["CBE Godel 1 - Part 6","12:25:12"],
+    ["CBE Godel 1 - Part 7","12:25:36"],["CBE Godel 1 - Part 8","12:26:03"]
+  ];
+  // pens present in the roster but with NO water line in the sheet
+  var MISSING = [["CBE Sumathi 2 - Part 3",10.15],["CBE Mandela 1 - Part 2",11.735],["CBE Mandela 1 - Part 8",11.77]];
+
+  function hrs(t){var p=t.split(":");return +p[0]+ (+p[1])/60 + (+p[2])/3600;}
+  var T0=9.0, T1=12.6; // 09:00 -> 12:36 window (deadline 12:30 sits inside)
+  function pct(h){return Math.max(0,Math.min(100,(h-T0)/(T1-T0)*100));}
+
+  var c=document.getElementById('clock');
+  var html='<div class="track"></div><div class="fill" style="left:'+pct(hrs("09:00:34"))+'%;right:'+(100-pct(hrs("12:26:03")))+'%"></div>';
+  SHEET.forEach(function(r){
+    var cls = r[0].indexOf('CPT')===0 ? 'tick cpt' : 'tick';
+    html += '<div class="'+cls+'" style="left:'+pct(hrs(r[1]))+'%" title="'+r[0]+' · '+r[1]+'"></div>';
+  });
+  MISSING.forEach(function(m){ html += '<div class="tick miss" style="left:'+pct(m[1])+'%" title="'+m[0]+' · no water proof"></div>'; });
+  html += '<div class="dead" style="left:'+pct(12.5)+'%"></div>';
+  html += '<div class="lab l">09:00</div><div class="lab r">12:36</div>';
+  c.innerHTML = html;
+
+  // 7-day margin-to-deadline, in minutes (negative = breached)
+  var WEEK=[["Sat",-12,"09 Aug"],["Sun",34,"10 Aug"],["Mon",21,"11 Aug"],["Tue",17,"12 Aug"],["Wed",-6,"13 Aug"],["Thu",9,"14 Aug"],["Fri",4,"15 Aug"]];
+  function drawSpark(el,data,todayIdx){
+    var max=40;
+    el.innerHTML = data.map(function(d,i){
+      var v=d[1], h=Math.max(4,Math.min(100,Math.abs(v)/max*100));
+      var cls = v<0?'late':(v<8?'tight':'');
+      return '<div class="b '+cls+(i===todayIdx?' today':'')+'" title="'+d[2]+'">'
+        + '<div class="vl">'+(v<0?v:'+'+v)+'</div>'
+        + '<div class="bar" style="height:'+h+'%"></div>'
+        + '<div class="dy">'+d[0]+'</div></div>';
+    }).join('');
+  }
+  drawSpark(document.getElementById('spark'),WEEK,6);
+  drawSpark(document.getElementById('spark2'),[["Sat",-3,""],["Sun",26,""],["Mon",14,""],["Tue",11,""],["Wed",-9,""],["Thu",6,""],["Fri",4,""]],6);
+
+  // tabs
+  var TABS=[["v-feed","Feeding","i-bowl",4],["v-pack","Packing","i-box",3],["v-trans","Transport","i-truck",1]];
+  window.BACK='v-feed';
+  function paintTabs(active){
+    document.querySelectorAll('.tabs').forEach(function(bar){
+      bar.innerHTML = TABS.map(function(t){
+        return '<button onclick="go(\''+t[0]+'\')" class="'+(t[0]===active?'on':'')+'">'
+          + (t[3]?'<i class="bdg">'+t[3]+'</i>':'')
+          + '<span class="ib"><svg class="ic"><use href="#'+t[2]+'"/></svg></span><span>'+t[1]+'</span></button>';
+      }).join('');
+    });
+  }
+  window.go=function(id){
+    if(id!=='v-shed'){ window.BACK=id; }
+    document.querySelectorAll('.view').forEach(function(v){v.classList.toggle('on',v.id===id);});
+    paintTabs(id==='v-shed'?window.BACK:id);
+    var s=document.querySelector('#'+id+' .vscroll'); if(s) s.scrollTop=0;
+  };
+  paintTabs('v-feed');
+})();
+</script>
+</body></html>
