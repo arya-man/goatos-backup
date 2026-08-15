@@ -75,16 +75,19 @@ data class FeedDistributionUiState(
     val feedWeightPhotoMessage: String? = null,
     val feedWeightPhotoPreviewPath: String? = null,
     val feedWeightPhotoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val feedWeightPhotoRemoteUrl: String? = null,
     val isCapturingVideo: Boolean = false,
     val videoCaptured: Boolean = false,
     val videoMessage: String? = null,
     val videoPreviewPath: String? = null,
     val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val videoRemoteUrl: String? = null,
     val isCapturingWaterVideo: Boolean = false,
     val waterVideoCaptured: Boolean = false,
     val waterVideoMessage: String? = null,
     val waterVideoPreviewPath: String? = null,
     val waterVideoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val waterVideoRemoteUrl: String? = null,
     val canComplete: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedDistributionResultUi? = null,
@@ -200,6 +203,7 @@ fun FeedDistributionCompleteScreen(
                     enabled = state.feedWeightPhotoCaptureEnabled,
                     message = state.feedWeightPhotoMessage,
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
+                    remotePreviewUrl = state.feedWeightPhotoRemoteUrl,
                 )
             }
             item {
@@ -219,6 +223,7 @@ fun FeedDistributionCompleteScreen(
                     enabled = !state.isCapturingVideo && !committed,
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
+                    remotePreviewUrl = state.videoRemoteUrl,
                 )
             }
             item {
@@ -238,6 +243,7 @@ fun FeedDistributionCompleteScreen(
                     enabled = state.waterVideoCaptureEnabled,
                     message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
+                    remotePreviewUrl = state.waterVideoRemoteUrl,
                 )
             }
         }
@@ -311,6 +317,7 @@ internal fun FeedDistProofAction(
     enabled: Boolean,
     message: String?,
     onClick: () -> Unit,
+    remotePreviewUrl: String? = null,
 ) {
     val failed = status == FeedDistributionProofStatus.FAILED
     val synced = status == FeedDistributionProofStatus.SYNCED
@@ -363,8 +370,9 @@ internal fun FeedDistProofAction(
                 style = MeshaType.cardTitle,
             )
             Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
-            if (!previewPath.isNullOrBlank()) {
-                FeedDistPreview(path = previewPath, kind = previewKind)
+            val previewToShow = previewPath ?: remotePreviewUrl
+            if (!previewToShow.isNullOrBlank()) {
+                FeedDistPreview(path = previewToShow, kind = previewKind)
                 FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
             } else if (!uploading) {
                 FeedDistRetryButton(label = if (captured || failed) replaceLabel else title, enabled = enabled, onClick = onClick)

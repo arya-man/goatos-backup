@@ -70,6 +70,7 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ProofDownloadUrlResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -470,6 +471,11 @@ interface AppApiService {
         @Query("field_key") fieldKey: String?,
         @Query("limit") limit: Int?,
     ): UploadedProofListResponseDto
+
+    @GET("app/proofs/{proof_id}/download")
+    suspend fun getProofDownloadUrl(
+        @Path("proof_id") proofId: String,
+    ): ProofDownloadUrlResponseDto
 
     @DELETE("app/proofs/{proof_id}")
     suspend fun deleteProof(@Path("proof_id") proofId: String)
@@ -1119,6 +1125,9 @@ class RetrofitAppApi(
         fieldKey: String?,
         limit: Int?,
     ): UploadedProofListResponseDto = service.listUploadedProofs(scopeType, scopeId, clientTaskKey, fieldKey, limit)
+
+    override suspend fun getProofDownloadUrl(proofId: String): String =
+        service.getProofDownloadUrl(proofId).downloadUrl
 
     override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 

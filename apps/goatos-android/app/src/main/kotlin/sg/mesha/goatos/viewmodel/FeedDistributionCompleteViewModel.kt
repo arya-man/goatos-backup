@@ -149,7 +149,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         recomputeCanComplete()
         observeSyncStatus()
         observeDurableProofs()
-        refreshTeammateCaptures()
+        refreshTeammateCaptures(source = "open")
         outboxItemId.value?.let(::observeOutboxItem)
         feedWeightPhotoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, it) }
         videoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_VIDEO, it) }
@@ -163,17 +163,34 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private fun observeLiveLifecycleStatus() {
         viewModelScope.launch {
             feedRepository.observeDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo)
-                .collect { liveStatus -> applyLiveStatus(liveStatus) }
+                .collect { liveStatus -> applyLiveStatus(liveStatus, source = "room") }
         }
         startServerStatusPolling()
     }
 
     /** Shared by the Room-backed observer above and the SERVER poll below — both feed the same
      *  read-only gate. `null` (no answer yet / poll failed) is ignored: this must never flip
-     *  editable -> locked on a guess, and never flips locked -> editable at all. */
-    private fun applyLiveStatus(liveStatus: String?) {
+     *  editable -> locked on a guess, and never flips locked -> editable at all.
+     *
+     *  [source] names the trigger (`room`/`server_poll`/`sync_tap`) for
+     *  [AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED], fired only on an actual
+     *  editable<->readonly flip. */
+    private fun applyLiveStatus(liveStatus: String?, source: String) {
         if (liveStatus == null) return
-        _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+        val previouslyReadOnly = _state.value.alreadySubmitted
+        val nowReadOnly = !feedSessionCanCapture(liveStatus, isToday = true)
+        _state.update { it.copy(alreadySubmitted = nowReadOnly) }
+        if (previouslyReadOnly != nowReadOnly) {
+            analytics.track(
+                AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED,
+                mapOf(
+                    AnalyticsEvents.Params.SOURCE to source,
+                    AnalyticsEvents.Params.PREVIOUS to if (previouslyReadOnly) "readonly" else "editable",
+                    AnalyticsEvents.Params.NEXT to if (nowReadOnly) "readonly" else "editable",
+                    AnalyticsEvents.Params.STATUS to liveStatus,
+                ),
+            )
+        }
     }
 
     /**
@@ -196,19 +213,23 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         viewModelScope.launch {
             repeat(MAX_SERVER_STATUS_POLLS) {
                 delay(SERVER_STATUS_POLL_INTERVAL_MS)
-                pollServerStatusOnce()
+                pollServerStatusOnce(source = "server_poll")
+                // A teammate can upload a slot WHILE this screen sits open; without this the
+                // screen only learns on reopen/Sync (field bug 2026-08-15: X5 uploaded the weight
+                // photo, the other phones' open screens stayed blank until re-entry).
+                refreshTeammateCaptures(source = "server_poll")
             }
         }
     }
 
     /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was — see
      *  [applyLiveStatus]'s null-is-unknown contract. */
-    private suspend fun pollServerStatusOnce() {
+    private suspend fun pollServerStatusOnce(source: String) {
         if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
         val status = runCatching {
             feedRepository.fetchDirectionSessionStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
         }.getOrNull()
-        applyLiveStatus(status)
+        applyLiveStatus(status, source)
     }
 
     fun onEvent(event: FeedDistributionEvent) {
@@ -538,6 +559,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     "water_video_status" to current.waterVideoStatus.name.lowercase(Locale.ROOT),
                 ),
             )
+            trackSubmitSources(
+                result = "blocked",
+                feedWeightItem = feedWeightPhotoItem,
+                feedWeightRemote = feedWeightRemote,
+                videoItem = videoItem,
+                videoRemote = videoRemote,
+                waterVideoItem = waterVideoItem,
+                waterVideoRemote = waterVideoRemote,
+            )
             _state.update { it.copy(canComplete = false) }
             return
         }
@@ -576,6 +606,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     outboxItemId.value = result.value
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
+                    trackSubmitSources(
+                        result = "submitted",
+                        feedWeightItem = feedWeightPhotoItem,
+                        feedWeightRemote = feedWeightRemote,
+                        videoItem = videoItem,
+                        videoRemote = videoRemote,
+                        waterVideoItem = waterVideoItem,
+                        waterVideoRemote = waterVideoRemote,
+                    )
                     completeEnqueueInFlight = false
                     _state.update { it.copy(canComplete = false) }
                 }
@@ -594,6 +633,32 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
+    private fun slotSourceLabel(localItem: String?, remoteRef: String?): String = when {
+        !localItem.isNullOrBlank() -> "local_outbox"
+        !remoteRef.isNullOrBlank() -> "server_ref"
+        else -> "missing"
+    }
+
+    private fun trackSubmitSources(
+        result: String,
+        feedWeightItem: String?,
+        feedWeightRemote: String?,
+        videoItem: String?,
+        videoRemote: String?,
+        waterVideoItem: String?,
+        waterVideoRemote: String?,
+    ) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES,
+            mapOf(
+                AnalyticsEvents.Params.FEED_WEIGHT_SOURCE to slotSourceLabel(feedWeightItem, feedWeightRemote),
+                AnalyticsEvents.Params.FEED_VIDEO_SOURCE to slotSourceLabel(videoItem, videoRemote),
+                AnalyticsEvents.Params.WATER_VIDEO_SOURCE to slotSourceLabel(waterVideoItem, waterVideoRemote),
+                AnalyticsEvents.Params.RESULT to result,
+            ),
+        )
+    }
+
     private fun syncNow() {
         analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED)
         viewModelScope.launch {
@@ -601,11 +666,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             // Manual sync must also re-fetch teammate/server proof slots: another operator may
             // have uploaded the missing captures while this screen is open, and draining the
             // local outbox alone leaves the slot display stale until back/reopen.
-            refreshTeammateCaptures()
+            refreshTeammateCaptures(source = "sync_tap")
             // And re-check the session's lifecycle status directly from the server, so a manual
             // Sync tap gets the same "did a teammate already submit this" answer the periodic poll
             // provides, without waiting for the next tick.
-            pollServerStatusOnce()
+            pollServerStatusOnce(source = "sync_tap")
         }
     }
 
@@ -708,9 +773,16 @@ class FeedDistributionCompleteViewModel @Inject constructor(
      * it did before this read existed. A slot this phone recorded ITSELF always wins -- local capture
      * state is never overwritten by the shared read.
      */
-    private fun refreshTeammateCaptures() {
+    /** Single-flight: the internal retry ladder can run ~17s, and the 30s poll re-invokes this —
+     *  overlapping runs would stack retries against the same slots for no benefit. */
+    private var teammateRefreshInFlight = false
+
+    private fun refreshTeammateCaptures(source: String) {
         if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
+        if (teammateRefreshInFlight) return
+        teammateRefreshInFlight = true
         viewModelScope.launch {
+            try {
             // A failed read (null) and an empty read are different answers. Empty is final: the
             // server confirmed no teammate proof exists. Null means offline/timeout/5xx — retry,
             // because concluding "slot free" from a network blip leaves this phone stale even
@@ -726,24 +798,79 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 workflow = workflow,
             )
             var slots: List<FeedDistributionCapturedSlotDto>? = feedRepository.penSessionCaptures(query)
+            var retryCount = 0
             for (delayMs in TEAMMATE_CAPTURE_RETRY_DELAYS_MS) {
                 if (slots != null) break
                 delay(delayMs)
+                retryCount += 1
                 slots = feedRepository.penSessionCaptures(query)
             }
-            if (slots.isNullOrEmpty()) return@launch
+            if (slots == null) {
+                trackTeammateCapturesRead(
+                    result = if (retryCount >= TEAMMATE_CAPTURE_RETRY_DELAYS_MS.size) "retry_exhausted" else "failed",
+                    slotMask = "none",
+                    retryCount = retryCount,
+                    source = source,
+                )
+                return@launch
+            }
+            if (slots.isEmpty()) {
+                trackTeammateCapturesRead(result = "success_empty", slotMask = "none", retryCount = retryCount, source = source)
+                return@launch
+            }
+            var sawWeight = false
+            var sawFeed = false
+            var sawWater = false
             slots.forEach { slot ->
                 when (slot.fieldKey) {
-                    FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO ->
+                    FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO -> {
+                        sawWeight = true
                         adoptTeammateCapture(ProofSlot.FEED_WEIGHT_PHOTO, feedWeightRemoteRef, slot.proofRef)
-                    FIELD_FEED_DISTRIBUTION_VIDEO ->
+                    }
+                    FIELD_FEED_DISTRIBUTION_VIDEO -> {
+                        sawFeed = true
                         adoptTeammateCapture(ProofSlot.FEED_VIDEO, videoRemoteRef, slot.proofRef)
-                    FIELD_FEED_DISTRIBUTION_WATER_VIDEO ->
+                    }
+                    FIELD_FEED_DISTRIBUTION_WATER_VIDEO -> {
+                        sawWater = true
                         adoptTeammateCapture(ProofSlot.WATER_VIDEO, waterVideoRemoteRef, slot.proofRef)
+                    }
                 }
             }
+            trackTeammateCapturesRead(
+                result = "success_slots",
+                slotMask = slotMaskLabel(sawWeight, sawFeed, sawWater),
+                retryCount = retryCount,
+                source = source,
+            )
             recomputeCanComplete()
+            } finally {
+                teammateRefreshInFlight = false
+            }
         }
+    }
+
+    private fun slotMaskLabel(weight: Boolean, feed: Boolean, water: Boolean): String = when {
+        weight && feed && water -> "all"
+        weight && feed -> "weight_feed"
+        weight && water -> "weight_water"
+        feed && water -> "feed_water"
+        weight -> "weight"
+        feed -> "feed"
+        water -> "water"
+        else -> "none"
+    }
+
+    private fun trackTeammateCapturesRead(result: String, slotMask: String, retryCount: Int, source: String) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ,
+            mapOf(
+                AnalyticsEvents.Params.RESULT to result,
+                AnalyticsEvents.Params.SLOT_MASK to slotMask,
+                AnalyticsEvents.Params.RETRY_COUNT to retryCount.coerceAtMost(TEAMMATE_CAPTURE_RETRY_DELAYS_MS.size).toString(),
+                AnalyticsEvents.Params.SOURCE to source,
+            ),
+        )
     }
 
     /**
@@ -752,8 +879,12 @@ class FeedDistributionCompleteViewModel @Inject constructor(
      * Skipped entirely when this phone holds its OWN proof for the slot: the operator's own capture
      * is the one they can re-record, and replacing it with a teammate's reference would silently
      * discard their work. The status is SYNCED because the proof is already durable server-side --
-     * that is exactly what makes it submittable -- and there is no preview, because this screen
-     * deliberately never shows another operator's media.
+     * that is exactly what makes it submittable.
+     *
+     * Fetches the remote preview URL so teammates' proofs render a thumbnail like local captures.
+     * When a teammate re-captures a slot, the newer proofRef arrives on the next read; this
+     * function overwrites the previous ref (re-capture detection) unless THIS phone holds its
+     * own proof for that slot.
      */
     private fun adoptTeammateCapture(slot: ProofSlot, remoteRef: DraftOutboxItemId, proofRef: String) {
         if (proofRef.isBlank()) return
@@ -762,8 +893,31 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             ProofSlot.FEED_VIDEO -> videoProofItemId.value != null
             ProofSlot.WATER_VIDEO -> waterVideoProofItemId.value != null
         }
+        // OVERWRITE check: a teammate may re-capture a slot. Only local captures resist overwrite.
+        val wasAlreadyAdopted = remoteRef.value != null
+        val isDifferent = remoteRef.value != proofRef
         if (locallyCaptured) return
+        val previewUrlMissing = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> _state.value.feedWeightPhotoRemoteUrl == null
+            ProofSlot.FEED_VIDEO -> _state.value.videoRemoteUrl == null
+            ProofSlot.WATER_VIDEO -> _state.value.waterVideoRemoteUrl == null
+        }
+        // Same-ref repeats are only a no-op when nothing is left to do; if the preview URL fetch
+        // failed earlier, a repeat read is exactly the retry opportunity (a failed fetch must not
+        // permanently strand the slot without its thumbnail).
+        if (wasAlreadyAdopted && !isDifferent && !previewUrlMissing) return
+        // Accept the proof ref (new or updated) and flip the slot state SYNCHRONOUSLY — adoption
+        // must never depend on the preview-URL fetch succeeding (offline/timeout would otherwise
+        // leave the slot stuck un-adopted while the ref was already recorded).
         remoteRef.value = proofRef
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to slot.analyticsKind(),
+                AnalyticsEvents.Params.SOURCE to "server_teammate_ref",
+                AnalyticsEvents.Params.LOCAL_SLOT_STATE to "empty",
+            ),
+        )
         _state.update {
             when (slot) {
                 ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
@@ -783,6 +937,27 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 )
             }
         }
+        // Preview URL is an ENRICHMENT: fetched async, best effort, re-attempted on the next
+        // captures read (open/Sync/30s poll) via previewUrlMissing above.
+        viewModelScope.launch {
+            val url = fetchProofPreviewUrl(proofRef) ?: return@launch
+            _state.update {
+                when (slot) {
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = url)
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = url)
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetches the signed download URL for a proof so its preview can be rendered.
+     * Best effort: a failure returns null (no thumbnail yet; retried on the next captures read).
+     */
+    private suspend fun fetchProofPreviewUrl(proofId: String): String? {
+        if (proofId.isBlank()) return null
+        return feedRepository.fetchProofDownloadUrl(proofId)
     }
 
     private fun clearProofRowId(slot: ProofSlot) {

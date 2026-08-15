@@ -211,6 +211,12 @@ interface FeedRepository {
      * rather than conclude the slots are free.
      */
     suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): List<FeedDistributionCapturedSlotDto>?
+
+    /**
+     * Fetches the download URL for a proof so its media can be previewed.
+     * Returns null on any error (offline, timeout, proof not found, etc.).
+     */
+    suspend fun fetchProofDownloadUrl(proofId: String): String?
 }
 
 /** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
@@ -397,6 +403,18 @@ class DefaultFeedRepository(
             // anything" and leaving the screen stale until the operator taps Sync.
             null
         }
+
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? {
+        if (proofId.isBlank()) return null
+        return try {
+            api.getProofDownloadUrl(proofId)
+        } catch (cancellation: CancellationException) {
+            // Cancellation must unwind, never be absorbed into a fake "no URL" answer.
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+    }
 }
 
 /**
