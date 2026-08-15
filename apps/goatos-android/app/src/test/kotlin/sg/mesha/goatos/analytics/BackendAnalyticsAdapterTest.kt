@@ -38,7 +38,7 @@ class BackendAnalyticsAdapterTest {
 
     /** Fake [AppApi] whose `recordAnalyticsEvent` can be toggled to fail every call, and records
      *  every request it ever received (successful or not) for assertion. */
-    private class FakeAppApi(@Volatile var shouldFail: Boolean) : AppApi {
+    private class FakeAppApi(@Volatile var shouldFail: Boolean) : AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
         val received = mutableListOf<AppAnalyticsEventRequestDto>()
 
         override suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto {
@@ -91,6 +91,8 @@ class BackendAnalyticsAdapterTest {
         backend.track(AnalyticsEvents.WEIGHING_CAPTURE_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "no_video"))
         advanceUntilIdle()
         assertEquals(1, queue.size())
+        // The failed initial attempt is also recorded by the fake; only sends AFTER recovery count.
+        api.received.clear()
 
         // Backend becomes reachable again; the NEXT track() call (any event) opportunistically
         // drains the queued one before sending its own.

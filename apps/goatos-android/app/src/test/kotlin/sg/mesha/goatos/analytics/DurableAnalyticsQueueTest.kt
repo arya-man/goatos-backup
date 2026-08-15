@@ -83,7 +83,9 @@ class DurableAnalyticsQueueTest {
             queued.clientEventId == "e1"
         }
 
-        assertEquals(listOf("e1"), attempted)
+        // e1 succeeds; e2 is ATTEMPTED and fails (you cannot know it fails without trying);
+        // the drain stops there, never reaching e3.
+        assertEquals(listOf("e1", "e2"), attempted)
         assertEquals(2, queue.size())
 
         val secondAttempt = mutableListOf<String>()

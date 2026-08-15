@@ -30,6 +30,8 @@ import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
  */
 internal class FakeFeedRepository : FeedRepository {
     var penSessionStatus: String? = null
+    override suspend fun persistDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
+    override suspend fun persistPackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
     override suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): FeedPenSessionCaptures? = FeedPenSessionCaptures(emptyList(), penSessionStatus)
 
     private val packingStatus = MutableStateFlow<String?>(null)

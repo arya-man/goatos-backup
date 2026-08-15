@@ -33,6 +33,8 @@ class FakeSplitFeedRepository(
     /** Number of leading penSessionCaptures calls that fail (return null) before [slots] is served. */
     var failuresBeforeSuccess: Int = 0
 
+    override suspend fun persistDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
+    override suspend fun persistPackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
     override suspend fun penSessionCaptures(
         query: FeedPenSessionCaptureQuery,
     ): FeedPenSessionCaptures? {
