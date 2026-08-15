@@ -98,6 +98,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
             }
         }.getOrElse { error ->
             // B5: Probe threw (transient failure). Accept only if file has plausible size.
+            // exception:exempt malformed/non-file URI just falls through to the size-check branch below, which already handles a null file safely
             val file = runCatching { File(java.net.URI(localUri)) }.getOrNull()
             return if (file != null && file.exists() && file.length() >= minAcceptableSizeBytes) {
                 // File looks plausible despite probe exception → deliver, flag in logs, let server validate

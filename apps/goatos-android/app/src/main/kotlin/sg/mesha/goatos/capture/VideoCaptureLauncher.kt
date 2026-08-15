@@ -147,7 +147,7 @@ private fun copyPickedVideoToPrivateCache(
     nowMs: Long,
     // MEDIUM: Accept validator as dependency instead of constructing inline
     validator: ProofArtifactValidator = FileSystemProofArtifactValidator(),
-): CapturedVideo? = runCatching {
+): CapturedVideo? = runCatching { // exception:exempt best-effort local cache copy; null return already surfaces a retry-capable failure to the caller, nothing extra to record
     val dir = File(context.cacheDir, "proof-videos").apply { mkdirs() }
     val out = File(dir, "gallery-$nowMs.mp4")
     context.contentResolver.openInputStream(sourceUri)?.use { input ->

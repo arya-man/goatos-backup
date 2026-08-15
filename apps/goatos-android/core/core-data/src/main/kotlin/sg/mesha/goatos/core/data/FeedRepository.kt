@@ -351,7 +351,7 @@ class DefaultFeedRepository(
         workflow: String,
         sessionNo: Int,
         targetDate: String,
-    ): String? = runCatching {
+    ): String? = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
         api.getFeedDirectionPreview(
             parkId = parkId,
             targetDate = targetDate,
@@ -371,6 +371,7 @@ class DefaultFeedRepository(
         sessionNo: Int,
         targetDate: String,
     ): String? = runCatching {
+        // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
         // getFeedPackingWorklist has no shedId filter (it pages the whole park/session/workflow
         // scope by shed), so this narrows client-side. STATUS_POLL_PACKING_LIMIT is generous enough
         // to cover a normal park's shed count for one session; if a match still is not on the page,
