@@ -261,7 +261,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
     ],
-    version = 45,
+    version = 46,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -343,6 +343,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // for feed direction/packing items and taskId for feed transport scoped items.
     // v44 (see [MIGRATION_43_44]) persists obligation_instances.row_version on scanned_goat_capture
     // so reconciliation can distinguish "never submitted" from "submitted then reopened".
+    // v45 (see [MIGRATION_44_45]) persists scopeType/scopeId on proof_capture (R50-060) so
+    // startup recovery re-registers weighing free-flow proofs with their original scope.
+    // v46 (see [MIGRATION_45_46]) adds supersedesRowId to proof_capture — a durable
+    // captureReplacingLatest supersession marker (P1 fix) so the replaced row's retirement
+    // survives process death instead of living only in an in-memory ticket.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

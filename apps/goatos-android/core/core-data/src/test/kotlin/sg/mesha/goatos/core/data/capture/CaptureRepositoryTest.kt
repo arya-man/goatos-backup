@@ -2756,6 +2756,160 @@ class CaptureRepositoryTest {
     }
 
     // ============================================================================
+    // CRITICAL fix: captureReplacingLatest supersession must be DURABLE, not just an in-memory
+    // ticket. A process death between a successful replace and the new row reaching SYNCED must
+    // not lose the retirement intent -- that would leave BOTH rows ACTIVE forever and permanently
+    // block the slot's per-field capture cap with no operator escape.
+    // ============================================================================
+    @Test
+    fun `replace survives process death before the new row reaches SYNCED, retiring the old row from durable state alone`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-durable"
+            val taskId = "feed-dist:2026-08-15:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // "Process 1": captures the old and new (replace) rows.
+            val repo1 = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val oldCapture = repo1.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///old.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Old capture succeeds", oldCapture is AppResult.Ok)
+            val oldId = (oldCapture as AppResult.Ok).value.id
+            // Drive the old row to SYNCED too, matching the realistic case this bug report names:
+            // the OLD proof is already valid, server-confirmed evidence at the moment of replace.
+            sync.completeUpload(db, oldId, "server-proof-old")
+
+            val newCapture = repo1.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///new.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Replace capture succeeds", newCapture is AppResult.Ok)
+            val newId = (newCapture as AppResult.Ok).value.id
+
+            // The durable marker is written in the SAME insert as the new row -- verify directly,
+            // independent of any in-memory state.
+            assertEquals(
+                "New row's insert durably records the SINGLE row it supersedes",
+                oldId,
+                db.proofCaptureDao().findById(newId)?.supersedesRowId,
+            )
+
+            // "Process 2": simulate process death with a FRESH repository instance -- its
+            // pendingSlotRetirement map starts empty. It knows nothing about this replace except
+            // what is durably in Room (the assertion above already proved that record exists).
+            // The CRITICAL guarantee under test is that THIS instance -- ticket-less by
+            // construction -- can retire the old row from durable state alone; whether "process
+            // 1"'s own collector also happens to be reachable in-process is irrelevant to that.
+            val repo2 = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            // The new row's upload now completes -- with no live collector left to react to it.
+            sync.completeUpload(db, newId, "server-proof-new")
+
+            // The first observation from the fresh instance is what durably reconciles: it reads
+            // the outbox truth directly (reconcileOutboxTerminalState), lands the new row on
+            // SYNCED, and -- from the persisted supersedesRowId alone -- retires the old row. Its
+            // OWN emission is built from the pre-reconcile row snapshot (observeProofs' documented
+            // one-emission-behind status quirk — reconcile's dao.updateStatus is a side effect,
+            // not reflected in the `rows` this SAME map() call returns), so assert deletion here
+            // and re-observe for the now-fresh status, exactly like the F4 reconcile test does via
+            // a direct DAO read.
+            val firstRecoveryRead = repo2.observeProofs(taskId).first()
+            assertEquals(
+                "Exactly one active row after process-death recovery: old row retired from durable state",
+                1,
+                firstRecoveryRead.size,
+            )
+            assertEquals("Surviving row is the new one", newId, firstRecoveryRead[0].id)
+
+            val afterRecovery = repo2.observeProofs(taskId).first()
+            assertEquals("Still exactly one active row on re-observation", 1, afterRecovery.size)
+            assertEquals("Surviving row is the new (now SYNCED) one", newId, afterRecovery[0].id)
+            assertEquals(CaptureSyncStatus.SYNCED, afterRecovery[0].syncStatus)
+
+            // The escape-hatch this bug actually blocks: with the old row durably retired, the
+            // slot's ACTIVE (not-yet-delivered) row count is back down to just the new SYNCED row
+            // -- itself excluded by activeCountForField once serverProofId is set -- so a plain
+            // (non-replace) capture against a per-field cap of 1 must still succeed. Before this
+            // fix, the never-retired old row (no serverProofId yet reconciled) plus the new row
+            // would have pinned the slot at its cap with no operator escape ("Use re-capture to
+            // replace it" — which itself calls captureReplacingLatest and would recurse into the
+            // same stuck state).
+            val cappedPolicy = ProofPolicy(maximumCountPerField = 1)
+            val fourthCapture = repo2.capture(
+                taskId = taskId,
+                fieldKey = fieldKey,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///fourth.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 7_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = cappedPolicy,
+                partitionLabel = null,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue(
+                "Slot is not permanently capped after durable recovery",
+                fourthCapture is AppResult.Ok,
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
     // REGRESSION TEST (c): Offline-fail → retry → process-death-recovery → exactly one
     // ============================================================================
     // MOB-003 Proof-flow-integration: Offline failure must not leak duplicate outbox items

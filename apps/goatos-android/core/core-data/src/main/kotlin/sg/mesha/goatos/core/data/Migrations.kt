@@ -1180,3 +1180,20 @@ val MIGRATION_44_45: Migration = object : Migration(44, 45) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeId` TEXT NOT NULL DEFAULT ''")
     }
 }
+
+/**
+ * v45 -> v46: durable supersession marker for captureReplacingLatest (P1 fix, CRITICAL
+ * follow-up). `supersedesRowId` is set on a replacement row in the SAME insert as the row
+ * itself, naming the single active occupant it replaces. Previously this "retire the old row
+ * once the new one is SYNCED" intent lived ONLY in an in-memory map
+ * ([sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository.pendingSlotRetirement]) —
+ * process death between a successful replace and the new row reaching SYNCED lost that intent
+ * forever, leaving BOTH rows active and permanently blocking the slot's per-field capture cap
+ * with no operator escape. The column lets every reconcile pass re-derive retirement from
+ * durable state instead of a ticket that may never have existed in this process.
+ */
+val MIGRATION_45_46: Migration = object : Migration(45, 46) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `supersedesRowId` TEXT DEFAULT NULL")
+    }
+}
