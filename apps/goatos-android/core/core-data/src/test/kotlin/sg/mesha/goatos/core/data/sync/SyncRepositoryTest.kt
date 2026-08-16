@@ -8,6 +8,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
+import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.ScanCaptureDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
@@ -112,6 +116,94 @@ class SyncRepositoryTest {
         val secondId = (second as AppResult.Ok).value
         assertEquals(firstId, secondId)
         assertEquals(1, repo.observeStatus().value.items.size)
+    }
+
+    /**
+     * DEVICE-PROVEN DEFECT: a submit op whose only outbox row already reached a TERMINAL failure
+     * (dead-letter conflict OR attempt-exhausted) permanently blocked ALL future submits of the
+     * same task, because submit idempotency keys are stable per task ("milk-feeding-submit:
+     * <taskId>"-shaped) and the unique index on [sg.mesha.goatos.core.database.outbox.OutboxEntity.idempotencyKey]
+     * silently dropped a fresh enqueue under that key — no new row, no drain, no POST, no error
+     * surfaced. A fresh user tap must re-open the SAME row (same idempotencyKey, so server-side
+     * replay stays idempotent) back to PENDING with a reset attempt budget and the new payload, and
+     * the drain loop must actually pick it up and send it.
+     */
+    @Test
+    fun `re-enqueuing a key whose row is a terminal dead-letter reopens it and drains`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api)
+        val deadRow = OutboxEntity(
+            id = "row-1",
+            opType = OutboxOpType.SHED_SUBMIT.name,
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            payloadJson = "{}",
+            requestFingerprint = "stale-fingerprint",
+            status = OutboxStatus.FAILED.name,
+            attemptCount = DEFAULT_MAX_ATTEMPTS,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            conflict = false,
+            createdAt = 0L,
+            updatedAt = 0L,
+            nextAttemptAt = Long.MAX_VALUE,
+            lastError = "network unreachable",
+        )
+        store.insert(deadRow)
+
+        val result = repo.enqueueShedSubmit(
+            taskId = "task-1",
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            request = submitRequest("key-1"),
+        )
+
+        assertTrue("re-enqueue over a dead-letter row must succeed, not be silently dropped", result is AppResult.Ok)
+        assertEquals("row-1", (result as AppResult.Ok).value)
+        assertEquals("exactly one outbox row must exist — reopened in place, never a duplicate", 1, store.snapshot().size)
+        assertTrue(
+            "the actual network call must have fired: a reopened row must be drain-eligible",
+            api.submitCalls.any { it.first == "task-1" },
+        )
+        val status = repo.observeStatus().value
+        assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+    }
+
+    @Test
+    fun `re-enqueuing a dead-letter conflict row with a NEW payload reopens with the new payload`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api)
+        val deadRow = OutboxEntity(
+            id = "row-1",
+            opType = OutboxOpType.SHED_SUBMIT.name,
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            payloadJson = "{\"stale\":true}",
+            requestFingerprint = "stale-fingerprint",
+            status = OutboxStatus.FAILED.name,
+            attemptCount = 1,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            conflict = true, // definitive server rejection — never auto-retried, only a fresh submit re-arms it
+            createdAt = 0L,
+            updatedAt = 0L,
+            nextAttemptAt = Long.MAX_VALUE,
+            lastError = "422 validation failed",
+        )
+        store.insert(deadRow)
+
+        val result = repo.enqueueShedSubmit(
+            taskId = "task-1",
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            request = submitRequest("key-1-corrected"),
+        )
+
+        assertTrue("a corrected resubmit over a conflict row must succeed, never a stale IdempotencyKeyConflict", result is AppResult.Ok)
+        val reopened = store.snapshot().single()
+        assertEquals("key-1", reopened.idempotencyKey) // SAME key — server-side replay stays idempotent
+        assertTrue("the corrected payload must replace the stale one", reopened.payloadJson.contains("key-1-corrected"))
+        assertEquals(SyncItemStatus.SUCCEEDED, repo.observeStatus().value.items.first().status)
     }
 
     // ---------------------------------------------------------------------------------------

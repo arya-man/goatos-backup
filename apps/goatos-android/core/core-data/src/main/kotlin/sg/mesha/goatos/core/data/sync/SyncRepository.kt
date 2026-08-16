@@ -535,6 +535,13 @@ interface SyncRepository {
 
 private class IdempotencyKeyConflict : Exception("Idempotency key already belongs to a different queued write.")
 
+/** Mirrors the exact terminal guard in [sg.mesha.goatos.core.database.outbox.OutboxDao.reopenTerminalForRetry]:
+ *  a FAILED row the drain loop will never touch again on its own — either a definitive server
+ *  rejection ([OutboxEntity.conflict]) or one that spent its whole retry budget. A FAILED row
+ *  still inside its backoff window (drain-eligible later) is NOT terminal. */
+private fun OutboxEntity.isTerminalOutboxFailure(): Boolean =
+    status == OutboxStatus.FAILED.name && (conflict || attemptCount >= maxAttempts)
+
 class DefaultSyncRepository(
     private val store: OutboxStore,
     private val engine: SyncEngine,
@@ -1111,7 +1118,9 @@ class DefaultSyncRepository(
         payloadJson: String,
         fingerprint: String,
     ): String {
-        store.findByIdempotencyKey(idempotencyKey)?.let { return existingReplayIdOrThrow(it, opType, groupKey, payloadJson, fingerprint) }
+        store.findByIdempotencyKey(idempotencyKey)?.let {
+            return reopenOrReplayExistingRow(it, opType, groupKey, payloadJson, fingerprint)
+        }
         val now = clock()
         val id = UUID.randomUUID().toString()
         try {
@@ -1137,10 +1146,11 @@ class DefaultSyncRepository(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {
-            // A concurrent enqueue of the same key won the unique-index race. Return its row only
-            // for an exact replay; same-key/different-payload is still a conflict.
+            // A concurrent enqueue of the same key won the unique-index race. Route through the
+            // same reopen-or-replay decision a pre-existing row would have taken (the racing
+            // winner may itself already be a dead-letter row from a PRIOR attempt).
             return store.findByIdempotencyKey(idempotencyKey)?.let {
-                existingReplayIdOrThrow(it, opType, groupKey, payloadJson, fingerprint)
+                reopenOrReplayExistingRow(it, opType, groupKey, payloadJson, fingerprint)
             } ?: throw e
         }
         // Only a genuinely NEW row is announced. An idempotent replay returns above without
@@ -1159,6 +1169,71 @@ class DefaultSyncRepository(
         }
         return id
     }
+
+    /**
+     * DEVICE-PROVEN DEFECT FIX: a submit whose only outbox row already reached a TERMINAL
+     * failure (dead-letter conflict OR attempt-exhausted, [isTerminalOutboxFailure]) must not
+     * be treated as an idempotent replay of a dead row — that silently dropped every future
+     * submit under the same stable key ("milk-feeding-submit:<taskId>"-shaped), since the
+     * unique index on [OutboxEntity.idempotencyKey] rejected a fresh insert and the old
+     * [existingReplayIdOrThrow] path just handed back the SAME dead row's id (fingerprint
+     * match) or threw [IdempotencyKeyConflict] (fingerprint mismatch) — either way the row
+     * stayed FAILED/terminal forever and nothing was ever (re)sent.
+     *
+     * A terminal row is instead RE-OPENED in place via [OutboxStore.reopenTerminalForRetry]:
+     * SAME id + SAME idempotencyKey (server-side replay semantics untouched), fresh attempt
+     * budget, and the CALLER'S LATEST payload/fingerprint (a resubmit may carry corrected
+     * data) — always, regardless of whether the fingerprint matches, because a terminal row
+     * is dead and a brand-new user tap should never be rejected as a "conflict" against it.
+     *
+     * A non-terminal existing row (QUEUED, IN_FLIGHT, still-in-backoff FAILED, or SUCCEEDED)
+     * keeps the original replay/conflict semantics untouched via [existingReplayIdOrThrow].
+     */
+    private suspend fun reopenOrReplayExistingRow(
+        existing: OutboxEntity,
+        opType: OutboxOpType,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+    ): String {
+        if (!existing.isTerminalOutboxFailure()) {
+            return existingReplayIdOrThrow(existing, opType, groupKey, payloadJson, fingerprint)
+        }
+        val reopened = store.reopenTerminalForRetry(existing.id, payloadJson, fingerprint, clock())
+        if (!reopened) {
+            // Lost a race (e.g. a concurrent reopen/manual-retry already moved this row on) —
+            // re-read the current state and fall back to the normal decision against it.
+            val refreshed = store.findById(existing.id) ?: existing
+            return reopenOrReplayExistingRowOnce(refreshed, opType, groupKey, payloadJson, fingerprint)
+        }
+        // A reopen is a fresh, durably-queued write in every observable sense a caller cares
+        // about — the same signal a genuinely new row gets, so a UI/telemetry consumer cannot
+        // tell "dead row came back to life" apart from "brand-new write queued" by watching this
+        // seam, which is exactly the honesty this fix restores (previously: total silence).
+        runCatching {
+            telemetry.onOutboxWrite(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.ENQUEUED,
+                    opType = opType.name,
+                    itemId = existing.id,
+                    attempt = 0,
+                    maxAttempts = existing.maxAttempts,
+                ),
+            )
+        }
+        return existing.id
+    }
+
+    /** One non-recursive fallback decision after losing the reopen race — never re-enters the
+     *  reopen attempt a second time (a row that just lost that race is, by definition, no
+     *  longer terminal-and-untouched, so re-trying would either loop or mask a real bug). */
+    private suspend fun reopenOrReplayExistingRowOnce(
+        existing: OutboxEntity,
+        opType: OutboxOpType,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+    ): String = existingReplayIdOrThrow(existing, opType, groupKey, payloadJson, fingerprint)
 
     private fun existingReplayIdOrThrow(
         existing: OutboxEntity,
