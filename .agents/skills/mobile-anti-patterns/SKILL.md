@@ -244,6 +244,34 @@ workflow_detail onto ProofIdentity/EvidenceSlot).
 **Impact**: Failed proof indistinguishable. Funnel queries fail: "milk proofs failed at Park A" → bare events.
 **Fix**: All events carry identifying context: parkId/taskId/workflowId + stepCode/actionId + reason.
 
+### 6. Decision-from-rendered-subset
+**Pattern**: A screen/VM re-derives a business decision (blocked/enabled/ready/visible/complete/
+editable) by `.all{}`/`.any{}`/`.none{}`/`.count{}` over the ROWS IT RENDERS — a filtered, paged, or
+date-scoped SUBSET — instead of trusting an authoritative field the backend already computes (or
+should compute) over the kid's/goat's/shed's COMPLETE set.
+**Worked example (colostrum, fixed 2680ed615)**: `canRecordWorkflowVideo` ANDed
+`workflowPredecessorsReady`, computed over `mainActions` — the rows THIS SCREEN RENDERS. The
+Colostrum lens deliberately renders one business date, so `first_colostrum` (a `main`-section row
+due at birth time) is absent from every later day's row list. The predecessor lookup returned
+`false` for the whole day's feeds and the camera vanished, even though the backend's `blocked`
+field — computed against the kid's COMPLETE action set via `tasks/app.ColostrumDetail.Actions`
+(full) beside `.Visible` (the day) — correctly said `blocked=false`. Fix: drop the client-side AND,
+trust `blocked` verbatim (`apps/goatos-android/app/.../viewmodel/WorkflowDetailViewModel.kt`).
+**Detection**: grep the VM for `.all{}`/`.any{}`/`.none{}`/`.count{}` feeding an enable/block/status
+decision (not a plain UI counter). For each hit, ask: (a) does the backend response for this screen
+carry an authoritative field for the SAME decision? If yes and the client re-derives → VIOLATION,
+fix by trusting the field. (b) If the backend doesn't carry one and the client's row set is a
+subset — paged (~20 rows), date-filtered, status-filtered, cursor-incomplete — the derivation is
+wrong at scale even when it happens to be right on today's fixture data → flag HIGH as a
+CONTRACT-GAP with the exact truncation scenario; do not fabricate a client-side fix without the
+backend field.
+**Suspect shapes in this codebase**: shed/card status folded from a `group` of rows that may
+straddle an unfinished cursor page (`ShedsViewModel.shedStatusForRows`/`opensSubmittedRecordOnly`
+operate on `group`, itself built from `rowsForSelectedDay` which accumulates only the pages loaded
+so far — `pageComplete = nextCursor.isNullOrBlank()` already gates the day TOTALS but not the
+per-card status folds); any drive/workflow/verify-queue progress computed from a paged or
+lens-filtered list without checking for a parallel backend-owned total field first.
+
 ### Verification checklist
 - [ ] Canonical routing (slot, not raw uploads)
 - [ ] Slot consistency (same slotId for all operations)
