@@ -1899,6 +1899,286 @@ ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
 `
 
+const cardSummariesSQL = `
+WITH completion_candidates AS (
+  SELECT
+    obligation_id,
+    completion_id,
+    administered_at,
+    created_at,
+    CASE
+      WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $7::timestamptz THEN 'recorded'
+      ELSE status
+    END AS asof_status
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+    AND COALESCE(administered_at, created_at) <= $7::timestamptz
+  UNION ALL
+  SELECT
+    obligation_id,
+    completion_id,
+    administered_at,
+    original_created_at AS created_at,
+    CASE
+      WHEN rejected_at > $7::timestamptz THEN 'recorded'
+      ELSE 'rejected'
+    END AS asof_status
+  FROM vaccination_completion_rejections
+  WHERE tenant_id = $1::uuid
+    AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
+),
+completions AS MATERIALIZED (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC,
+      completion_id DESC))[1] AS effective_status,
+    (ARRAY_AGG(completion_id ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC,
+      completion_id DESC))[1] AS completion_id
+  FROM completion_candidates
+  GROUP BY obligation_id
+),
+operator_scope_member AS (
+  SELECT wm.workforce_member_id
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $15::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($15::text, '')::uuid
+      OR wm.user_id = NULLIF($15::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($15::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+),
+asof_terminal AS MATERIALIZED (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $7::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND event_type IN ('missed', 'waived', 'deferred')
+  GROUP BY obligation_id
+),
+-- Reuse the 'raw' and 'located' CTEs from vaccinationExecutionSQL to get all canonical rows
+raw AS (
+  SELECT
+    oi.obligation_id,
+    oi.target_type,
+    oi.target_id,
+    pr.dose_code,
+    pd.name AS protocol_name,
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
+    oi.batch_id,
+    oi.due_at,
+    oi.window_start,
+    oi.window_end,
+    oi.completed_at,
+    oi.status AS obligation_status,
+    te.asof_terminal_type,
+    te.has_terminal_event,
+    ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS batch_planned_at,
+    ob.status AS batch_status,
+    COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
+    COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
+    COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole') AS partition_label,
+    regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    st.state AS task_state,
+    st.task_id AS sop_task_id,
+    g.shed_id AS goat_shed_id,
+    c.effective_status AS completion_status,
+    CASE
+      WHEN g.shed_id IS NOT NULL THEN g.shed_id
+      WHEN oi.target_type = 'shed' THEN oi.target_id
+      WHEN oi.scope_type = 'shed' THEN oi.scope_id
+      ELSE NULL
+    END AS shed_uuid,
+    CASE
+      WHEN g.park_id IS NOT NULL THEN g.park_id
+      WHEN oi.target_type = 'park' THEN oi.target_id
+      WHEN oi.scope_type = 'park' THEN oi.scope_id
+      ELSE NULL
+    END AS direct_park_uuid
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN LATERAL (
+    SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
+    FROM protocol_rule_dimensions dim
+    WHERE dim.tenant_id = pr.tenant_id AND dim.rule_id = pr.rule_id
+  ) prd ON true
+  LEFT JOIN goats g
+    ON oi.target_type = 'goat' AND g.tenant_id = oi.tenant_id
+    AND g.goat_id = oi.target_id AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+  LEFT JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = oi.tenant_id AND m.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments assignment
+    ON assignment.tenant_id = m.tenant_id AND assignment.assignment_id = m.assignment_id
+    AND assignment.shed_id = CASE
+        WHEN g.shed_id IS NOT NULL THEN g.shed_id
+        WHEN oi.target_type = 'shed' THEN oi.target_id
+        WHEN oi.scope_type = 'shed' THEN oi.scope_id
+        ELSE NULL
+      END
+    AND (
+        assignment.partition_label = 'whole'
+        OR gsp.partition_label IS NULL
+        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
+  LEFT JOIN LATERAL (
+    SELECT
+      vda_guess.operator_id,
+      COALESCE(override.override_date, vda_guess.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at,
+      vda_guess.physical_shed,
+      vda_guess.partition_label
+    FROM vaccination_drive_assignments vda_guess
+    LEFT JOIN vaccination_drive_date_overrides override
+      ON override.tenant_id = vda_guess.tenant_id AND override.park_id = vda_guess.park_id
+      AND (override.original_drive_date = vda_guess.planned_date OR override.override_date = vda_guess.planned_date)
+      AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+      AND override.canceled_at IS NULL
+    WHERE vda_guess.tenant_id = oi.tenant_id AND vda_guess.batch_id = oi.batch_id
+      AND vda_guess.shed_id = CASE
+            WHEN g.shed_id IS NOT NULL THEN g.shed_id
+            WHEN oi.target_type = 'shed' THEN oi.target_id
+            WHEN oi.scope_type = 'shed' THEN oi.scope_id
+            ELSE NULL
+          END
+      AND (
+            vda_guess.partition_label = 'whole'
+            OR (gsp.partition_label IS NOT NULL
+             AND regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+            )
+          )
+    ORDER BY vda_guess.created_at DESC
+    LIMIT 1
+  ) vda_guess ON true
+  LEFT JOIN LATERAL (
+    SELECT
+      member_assignment.operator_id,
+      COALESCE(override.override_date, member_assignment.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at,
+      member_assignment.physical_shed,
+      member_assignment.partition_label
+    FROM vaccination_drive_assignments member_assignment
+    LEFT JOIN vaccination_drive_date_overrides override
+      ON override.tenant_id = member_assignment.tenant_id AND override.park_id = member_assignment.park_id
+      AND (override.original_drive_date = member_assignment.planned_date OR override.override_date = member_assignment.planned_date)
+      AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
+      AND override.canceled_at IS NULL
+    WHERE member_assignment.tenant_id = assignment.tenant_id AND member_assignment.assignment_id = assignment.assignment_id
+  ) vda_member ON assignment.assignment_id IS NOT NULL
+  LEFT JOIN sop_tasks st
+    ON st.tenant_id = oi.tenant_id AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
+  LEFT JOIN completions c
+    ON c.obligation_id = oi.obligation_id
+  LEFT JOIN asof_terminal te
+    ON te.obligation_id = oi.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
+    AND COALESCE(st.state, '') <> 'canceled'
+    AND ($15::text = '' OR COALESCE(vda_member.operator_id, vda_guess.operator_id) IS NOT NULL)
+    AND COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
+    AND (
+      oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      OR oi.due_at >= $8::timestamptz
+      OR (oi.status = 'completed' AND oi.completed_at > $7::timestamptz)
+    )
+),
+located AS (
+  SELECT
+    raw.*,
+    COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    CASE
+      WHEN raw.obligation_status = 'completed' THEN
+        CASE
+          WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
+          WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
+          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
+        END
+      WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
+        CASE
+          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
+          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
+          ELSE raw.obligation_status
+        END
+      WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
+      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
+    END AS eff_status
+  FROM raw
+  LEFT JOIN locations shed_loc
+    ON shed_loc.tenant_id = $1::uuid AND shed_loc.location_id = raw.shed_uuid AND shed_loc.location_type = 'shed'
+  WHERE raw.shed_uuid IS NOT NULL
+),
+filtered_by_state AS (
+  -- projection-review: predicate list (work_state, severity, open-only) mirrors vaccinationExecutionSQL's classified CTE filters; must remain synchronized to ensure card summaries always match the page's filtered set, not the whole card. This shared predicate protects against drift.
+  SELECT located.*
+  FROM located
+  WHERE
+    -- work_state filter: compute row-level state and match page query's work_state filter ($6)
+    ($6::text = '' OR located.eff_status = $6::text)
+    -- severity filter: map work_state to severity and match page query's severity filter ($9)
+    AND (
+      $9::text = '' OR (
+        CASE
+          WHEN located.eff_status = 'completed' THEN 'ok'
+          WHEN located.eff_status IN ('proof_pending', 'overdue', 'missed') THEN 'at_risk'
+          ELSE 'watch'
+        END
+      ) = $9::text
+    )
+    -- open-only filter: if $10 is true, only include non-completed/non-deferred/non-missed rows
+    AND (
+      NOT $10::boolean
+      OR (located.completion_status NOT IN ('recorded', 'accepted') AND located.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred'))
+    )
+)
+SELECT
+  filtered_by_state.shed_uuid,
+  filtered_by_state.partition_label,
+  filtered_by_state.sop_task_id,
+  filtered_by_state.batch_id,
+  NULL::uuid AS drive_id,
+  COUNT(*)::bigint AS obligation_count,
+  COALESCE(SUM(CASE WHEN filtered_by_state.completion_status IN ('recorded', 'accepted') OR filtered_by_state.eff_status = 'completed' THEN 1 ELSE 0 END), 0)::bigint AS done_count,
+  COALESCE(SUM(CASE WHEN filtered_by_state.completion_status NOT IN ('recorded', 'accepted') AND filtered_by_state.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
+  BOOL_OR(filtered_by_state.obligation_status = 'missed') AS has_missed,
+  BOOL_OR(filtered_by_state.obligation_status IN ('deferred', 'waived')) AS has_deferred,
+  BOOL_OR(filtered_by_state.eff_status = 'overdue') AS has_overdue,
+  BOOL_OR(filtered_by_state.completion_status = 'rejected') AS has_rejected,
+  ARRAY_AGG(DISTINCT filtered_by_state.protocol_name) FILTER (WHERE filtered_by_state.protocol_name IS NOT NULL) AS vaccine_labels
+FROM filtered_by_state
+WHERE filtered_by_state.park_uuid IS NOT NULL
+  AND ($2::text = '' OR filtered_by_state.park_uuid = $2::uuid)
+  AND ($3::text = '' OR filtered_by_state.shed_uuid = $3::uuid)
+  AND ($15::text = '' OR filtered_by_state.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member))
+  AND (
+    $16::text = ''
+    OR filtered_by_state.partition_key = regexp_replace(lower(btrim($16::text)), '^part[[:space:]]+', '')
+  )
+GROUP BY filtered_by_state.shed_uuid, filtered_by_state.partition_label, filtered_by_state.sop_task_id, filtered_by_state.batch_id
+ORDER BY filtered_by_state.shed_uuid, filtered_by_state.partition_label, filtered_by_state.sop_task_id, filtered_by_state.batch_id
+`
+
 // vaccinationOperationsSQL is point-in-time correct as of $2 (as_of). It does NOT bucket off the stored
 // obligation_instances.status (which is the state NOW); it reconstructs the state the obligation had AT
 // as_of so a transition recorded after as_of is not treated as already true:
@@ -4182,268 +4462,6 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 	// join_cardinality=same as vaccinationExecutionSQL (obligation 1:1 to completion history and batch/task/goat, pre-aggregated);
 	// pagination=NONE — card summaries are full-filter aggregates computed independently of the paginated row window;
 	// scope=same filter predicates as vaccinationExecutionSQL (park/shed/work_state/severity resolved via canonical tables).
-	const cardSummariesSQL = `
-WITH completion_candidates AS (
-  SELECT
-    obligation_id,
-    completion_id,
-    administered_at,
-    created_at,
-    CASE
-      WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $7::timestamptz THEN 'recorded'
-      ELSE status
-    END AS asof_status
-  FROM vaccination_completions
-  WHERE tenant_id = $1::uuid
-    AND COALESCE(administered_at, created_at) <= $7::timestamptz
-  UNION ALL
-  SELECT
-    obligation_id,
-    completion_id,
-    administered_at,
-    original_created_at AS created_at,
-    CASE
-      WHEN rejected_at > $7::timestamptz THEN 'recorded'
-      ELSE 'rejected'
-    END AS asof_status
-  FROM vaccination_completion_rejections
-  WHERE tenant_id = $1::uuid
-    AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
-),
-completions AS MATERIALIZED (
-  SELECT
-    obligation_id,
-    (ARRAY_AGG(asof_status ORDER BY
-      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
-      administered_at DESC,
-      created_at DESC,
-      completion_id DESC))[1] AS effective_status,
-    (ARRAY_AGG(completion_id ORDER BY
-      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
-      administered_at DESC,
-      created_at DESC,
-      completion_id DESC))[1] AS completion_id
-  FROM completion_candidates
-  GROUP BY obligation_id
-),
-operator_scope_member AS (
-  SELECT wm.workforce_member_id
-  FROM workforce_members wm
-  WHERE wm.tenant_id = $1::uuid
-    AND wm.status = 'active'
-    AND $15::text <> ''
-    AND (
-      wm.workforce_member_id = NULLIF($15::text, '')::uuid
-      OR wm.user_id = NULLIF($15::text, '')::uuid
-    )
-  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($15::text, '')::uuid THEN 0 ELSE 1 END,
-           wm.updated_at DESC,
-           wm.workforce_member_id DESC
-  LIMIT 1
-),
-asof_terminal AS MATERIALIZED (
-  SELECT
-    obligation_id,
-    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
-       FILTER (WHERE occurred_at <= $7::timestamptz))[1] AS asof_terminal_type,
-    true AS has_terminal_event
-  FROM obligation_status_events
-  WHERE tenant_id = $1::uuid
-    AND event_type IN ('missed', 'waived', 'deferred')
-  GROUP BY obligation_id
-),
--- Reuse the 'raw' and 'located' CTEs from vaccinationExecutionSQL to get all canonical rows
-raw AS (
-  SELECT
-    oi.obligation_id,
-    oi.target_type,
-    oi.target_id,
-    pr.dose_code,
-    pd.name AS protocol_name,
-    CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
-    oi.batch_id,
-    oi.due_at,
-    oi.window_start,
-    oi.window_end,
-    oi.completed_at,
-    oi.status AS obligation_status,
-    te.asof_terminal_type,
-    te.has_terminal_event,
-    ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS batch_planned_at,
-    ob.status AS batch_status,
-    COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
-    COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
-    COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole') AS partition_label,
-    regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '') AS partition_key,
-    st.state AS task_state,
-    st.task_id AS sop_task_id,
-    g.shed_id AS goat_shed_id,
-    c.effective_status AS completion_status,
-    CASE
-      WHEN g.shed_id IS NOT NULL THEN g.shed_id
-      WHEN oi.target_type = 'shed' THEN oi.target_id
-      WHEN oi.scope_type = 'shed' THEN oi.scope_id
-      ELSE NULL
-    END AS shed_uuid,
-    CASE
-      WHEN g.park_id IS NOT NULL THEN g.park_id
-      WHEN oi.target_type = 'park' THEN oi.target_id
-      WHEN oi.scope_type = 'park' THEN oi.scope_id
-      ELSE NULL
-    END AS direct_park_uuid
-  FROM obligation_instances oi
-  JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
-  JOIN protocol_rules pr
-    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-  LEFT JOIN LATERAL (
-    SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
-    FROM protocol_rule_dimensions dim
-    WHERE dim.tenant_id = pr.tenant_id AND dim.rule_id = pr.rule_id
-  ) prd ON true
-  LEFT JOIN goats g
-    ON oi.target_type = 'goat' AND g.tenant_id = oi.tenant_id
-    AND g.goat_id = oi.target_id AND g.merged_into_goat_id IS NULL
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
-  LEFT JOIN obligation_batches ob
-    ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
-  LEFT JOIN vaccination_drive_assignment_members m
-    ON m.tenant_id = oi.tenant_id AND m.obligation_id = oi.obligation_id
-  LEFT JOIN vaccination_drive_assignments assignment
-    ON assignment.tenant_id = m.tenant_id AND assignment.assignment_id = m.assignment_id
-    AND assignment.shed_id = CASE
-        WHEN g.shed_id IS NOT NULL THEN g.shed_id
-        WHEN oi.target_type = 'shed' THEN oi.target_id
-        WHEN oi.scope_type = 'shed' THEN oi.scope_id
-        ELSE NULL
-      END
-  LEFT JOIN LATERAL (
-    SELECT
-      vda_guess.operator_id,
-      COALESCE(override.override_date, vda_guess.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at,
-      vda_guess.physical_shed,
-      vda_guess.partition_label
-    FROM vaccination_drive_assignments vda_guess
-    LEFT JOIN vaccination_drive_date_overrides override
-      ON override.tenant_id = vda_guess.tenant_id AND override.park_id = vda_guess.park_id
-      AND (override.original_drive_date = vda_guess.planned_date OR override.override_date = vda_guess.planned_date)
-      AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
-      AND override.canceled_at IS NULL
-    WHERE vda_guess.tenant_id = oi.tenant_id AND vda_guess.batch_id = oi.batch_id
-      AND vda_guess.shed_id = CASE
-            WHEN g.shed_id IS NOT NULL THEN g.shed_id
-            WHEN oi.target_type = 'shed' THEN oi.target_id
-            WHEN oi.scope_type = 'shed' THEN oi.scope_id
-            ELSE NULL
-          END
-    ORDER BY vda_guess.created_at DESC
-    LIMIT 1
-  ) vda_guess ON true
-  LEFT JOIN LATERAL (
-    SELECT
-      member_assignment.operator_id,
-      COALESCE(override.override_date, member_assignment.planned_date)::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at,
-      member_assignment.physical_shed,
-      member_assignment.partition_label
-    FROM vaccination_drive_assignments member_assignment
-    LEFT JOIN vaccination_drive_date_overrides override
-      ON override.tenant_id = member_assignment.tenant_id AND override.park_id = member_assignment.park_id
-      AND (override.original_drive_date = member_assignment.planned_date OR override.override_date = member_assignment.planned_date)
-      AND lower(btrim(override.vaccine_code)) = lower(btrim(NULLIF(prd.vaccine_code, '')))
-      AND override.canceled_at IS NULL
-    WHERE member_assignment.tenant_id = assignment.tenant_id AND member_assignment.assignment_id = assignment.assignment_id
-  ) vda_member ON assignment.assignment_id IS NOT NULL
-  LEFT JOIN sop_tasks st
-    ON st.tenant_id = oi.tenant_id AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
-  LEFT JOIN completions c
-    ON c.obligation_id = oi.obligation_id
-  LEFT JOIN asof_terminal te
-    ON te.obligation_id = oi.obligation_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
-    AND COALESCE(st.state, '') <> 'canceled'
-    AND ($15::text = '' OR COALESCE(vda_member.operator_id, vda_guess.operator_id) IS NOT NULL)
-    AND COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
-    AND (
-      oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-      OR oi.due_at >= $8::timestamptz
-      OR (oi.status = 'completed' AND oi.completed_at > $7::timestamptz)
-    )
-),
-located AS (
-  SELECT
-    raw.*,
-    COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
-    CASE
-      WHEN raw.obligation_status = 'completed' THEN
-        CASE
-          WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
-          WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
-        END
-      WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
-        CASE
-          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
-          ELSE raw.obligation_status
-        END
-      WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
-    END AS eff_status
-  FROM raw
-  LEFT JOIN locations shed_loc
-    ON shed_loc.tenant_id = $1::uuid AND shed_loc.location_id = raw.shed_uuid AND shed_loc.location_type = 'shed'
-  WHERE raw.shed_uuid IS NOT NULL
-),
-filtered_by_state AS (
-  -- projection-review: predicate list (work_state, severity, open-only) mirrors vaccinationExecutionSQL's classified CTE filters; must remain synchronized to ensure card summaries always match the page's filtered set, not the whole card. This shared predicate protects against drift.
-  SELECT located.*
-  FROM located
-  WHERE
-    -- work_state filter: compute row-level state and match page query's work_state filter ($6)
-    ($6::text = '' OR located.eff_status = $6::text)
-    -- severity filter: map work_state to severity and match page query's severity filter ($9)
-    AND (
-      $9::text = '' OR (
-        CASE
-          WHEN located.eff_status = 'completed' THEN 'ok'
-          WHEN located.eff_status IN ('proof_pending', 'overdue', 'missed') THEN 'at_risk'
-          ELSE 'watch'
-        END
-      ) = $9::text
-    )
-    -- open-only filter: if $10 is true, only include non-completed/non-deferred/non-missed rows
-    AND (
-      NOT $10::boolean
-      OR (located.completion_status NOT IN ('recorded', 'accepted') AND located.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred'))
-    )
-)
-SELECT
-  filtered_by_state.shed_uuid,
-  filtered_by_state.partition_label,
-  filtered_by_state.sop_task_id,
-  filtered_by_state.batch_id,
-  NULL::uuid AS drive_id,
-  COUNT(*)::bigint AS obligation_count,
-  COALESCE(SUM(CASE WHEN filtered_by_state.completion_status IN ('recorded', 'accepted') OR filtered_by_state.eff_status = 'completed' THEN 1 ELSE 0 END), 0)::bigint AS done_count,
-  COALESCE(SUM(CASE WHEN filtered_by_state.completion_status NOT IN ('recorded', 'accepted') AND filtered_by_state.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
-  BOOL_OR(filtered_by_state.obligation_status = 'missed') AS has_missed,
-  BOOL_OR(filtered_by_state.obligation_status IN ('deferred', 'waived')) AS has_deferred,
-  BOOL_OR(filtered_by_state.eff_status = 'overdue') AS has_overdue,
-  BOOL_OR(filtered_by_state.completion_status = 'rejected') AS has_rejected,
-  ARRAY_AGG(DISTINCT filtered_by_state.protocol_name) FILTER (WHERE filtered_by_state.protocol_name IS NOT NULL) AS vaccine_labels
-FROM filtered_by_state
-WHERE filtered_by_state.park_uuid IS NOT NULL
-  AND ($2::text = '' OR filtered_by_state.park_uuid = $2::uuid)
-  AND ($3::text = '' OR filtered_by_state.shed_uuid = $3::uuid)
-  AND ($15::text = '' OR filtered_by_state.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member))
-GROUP BY filtered_by_state.shed_uuid, filtered_by_state.partition_label, filtered_by_state.sop_task_id, filtered_by_state.batch_id
-ORDER BY filtered_by_state.shed_uuid, filtered_by_state.partition_label, filtered_by_state.sop_task_id, filtered_by_state.batch_id
-`
 
 	// projection-review: summary counts now respect work_state, severity, and open-only filters (identical to page query predicate set) to prevent badge counts from misrepresenting the filtered page view.
 	rows, err := r.pool.Query(ctx, cardSummariesSQL,
