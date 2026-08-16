@@ -268,6 +268,12 @@ class MilkFeedingViewModel @Inject constructor(
             // Restore BEFORE the writer starts, or the empty initial state would immediately
             // overwrite the answers just read back.
             persistAnswers()
+            // Subscribe to durable proof state changes so the UI is always in sync with the
+            // authoritative Room observation, not a stale one-time init read. This fixes BUG C:
+            // capture succeeds but UI doesn't show "Recorded" due to race between the draft update
+            // and stale database emissions. With this subscription, the proof captured state is the
+            // SSOT from Room, preventing in-memory state from ever diverging from durable truth.
+            observeProofChanges()
             repo.refresh(feedingDate)
             // Restore the submit outbox item ID from the durable store so process death doesn't
             // lose the in-flight submission state. If one exists, observe it for status changes.
@@ -277,6 +283,24 @@ class MilkFeedingViewModel @Inject constructor(
             captureDraft.submitOutboxItemId?.let { submitOutboxItemId.value = it }
             submitOutboxItemId.value?.let(::observeOutboxItem)
         }
+    }
+
+    /**
+     * Subscribes to the durable capture draft's proof state changes so the UI proofs are always
+     * in sync with the Room observation (the SSOT). This prevents BUG C race: capture succeeds,
+     * but in-memory draft doesn't reflect it if stale Room emissions or timing issues delay the
+     * database write persisting. The proof captured flag is now always sourced from the durable
+     * store, never from a one-time init-block read.
+     */
+    private fun observeProofChanges() = viewModelScope.launch {
+        drafts.observe(CaptureFlow.MILK_FEEDING, taskId)
+            .distinctUntilChanged { old, new -> old.proofs == new.proofs }
+            .collect { newCaptureDraft ->
+                captureDraft = newCaptureDraft
+                draft.update { current ->
+                    current.copy(proofs = current.proofs.map { it.copy(captured = newCaptureDraft.hasProof(it.code)) })
+                }
+            }
     }
 
     /**
