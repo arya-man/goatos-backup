@@ -44,8 +44,20 @@ function validateCommitEmails(lines) {
 }
 
 function commitEmailLines() {
-  const base = process.env.GIT_IDENTITY_BASE || process.env.GOATOS_CI_BASE || "origin/main";
-  const ranges = [`${base}..HEAD`, "HEAD~1..HEAD"];
+  const isGitHubPR = process.env.GITHUB_EVENT_NAME === "pull_request";
+  let base = process.env.GIT_IDENTITY_BASE || process.env.GOATOS_CI_BASE || "origin/main";
+
+  // On GitHub Actions PR merge, HEAD is a synthetic merge commit. We need to inspect
+  // the actual PR commits, excluding the runner's synthetic merge commit.
+  // GitHub Actions sets GITHUB_BASE_REF to the target branch name.
+  if (isGitHubPR && process.env.GITHUB_BASE_REF) {
+    base = `origin/${process.env.GITHUB_BASE_REF}`;
+  }
+
+  const ranges = isGitHubPR
+    ? [`${base}..HEAD^2`, `${base}..HEAD~1`] // For merge commits: HEAD^2 is the PR tip, HEAD~1 is fallback
+    : [`${base}..HEAD`, "HEAD~1..HEAD"];
+
   for (const range of ranges) {
     try {
       const ref = range.split("..")[0];

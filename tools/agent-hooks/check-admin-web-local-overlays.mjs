@@ -4,7 +4,7 @@
 // overlay mounts, which creates flicker and double-click behavior under latency.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,47 @@ const routeDrivenVeilLink = /<Link\b(?:(?!\/>)[\s\S]){0,800}?className\s*=\s*["'
 const routeDrivenNamedOverlayLink = /<(?:Link|a)\b(?:(?!>)[\s\S]){0,500}?href\s*=\s*\{[^}\n]*(?:drawer|overlay)[^}\n]*\}(?:(?!>)[\s\S]){0,500}?>/gi;
 const routeDrivenScheduleOpen = /<a\b(?:(?!>)[\s\S]){0,500}?href\s*=\s*\{(?:shedDrawerHref|drawerPageHref)\([^}]*\}\s*(?:(?!>)[\s\S]){0,500}?>/g;
 const routeDrivenScheduleClose = /<ScheduleDrawerCloseForm\b(?:(?!>)[\s\S]){0,500}?href\s*=/g;
+
+// Detect ripgrep availability; fallback to pure-Node directory walk if not installed
+function rgAvailable() {
+  try {
+    execFileSync("rg", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Pure-Node recursive directory walker to find .tsx files (fallback for systems without ripgrep)
+function findTsxFilesNodeWalk(baseDir) {
+  const files = [];
+  const visited = new Set();
+
+  function walk(dir) {
+    const realPath = resolve(dir);
+    // Prevent infinite loops from symlinks
+    if (visited.has(realPath)) return;
+    visited.add(realPath);
+
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = resolve(dir, entry.name);
+        if (entry.isDirectory()) {
+          // Skip node_modules and .git
+          if (entry.name === "node_modules" || entry.name === ".git") continue;
+          walk(fullPath);
+        } else if (entry.isFile() && entry.name.endsWith(".tsx")) {
+          files.push(fullPath);
+        }
+      }
+    } catch {
+      // Skip directories we cannot read
+    }
+  }
+
+  walk(baseDir);
+  return files;
+}
 
 function routeDrivenOverlayFindings(files, readText) {
   const findings = [];
@@ -60,10 +101,24 @@ if (process.argv.includes("--self-test")) {
   process.exit(0);
 }
 
-const files = execFileSync("rg", ["--files", "apps/admin-web/features", "-g", "*.tsx"], { cwd: repo, encoding: "utf8" })
-  .split("\n")
-  .map((file) => file.trim())
-  .filter(Boolean);
+let files;
+const featuresDir = resolve(repo, "apps/admin-web/features");
+
+if (rgAvailable()) {
+  // Use ripgrep if available (faster, more reliable)
+  try {
+    files = execFileSync("rg", ["--files", "apps/admin-web/features", "-g", "*.tsx"], { cwd: repo, encoding: "utf8" })
+      .split("\n")
+      .map((file) => file.trim())
+      .filter(Boolean);
+  } catch {
+    // Fallback if rg command fails
+    files = findTsxFilesNodeWalk(featuresDir).map((file) => file.slice(repo.length + 1));
+  }
+} else {
+  // Fallback to pure-Node implementation on systems without ripgrep
+  files = findTsxFilesNodeWalk(featuresDir).map((file) => file.slice(repo.length + 1));
+}
 const findings = routeDrivenOverlayFindings(files, (file) => readFileSync(resolve(repo, file), "utf8"));
 
 const requiredWiring = [

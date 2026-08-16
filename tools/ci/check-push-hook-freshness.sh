@@ -30,6 +30,13 @@ set -uo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo"
 
+# Skip hook checks on CI runners where hooks are never installed.
+# This guard is only meaningful on developer machines with a local clone.
+if [ "${CI:-}" = "true" ] || [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_ENVIRONMENT:-}" != "" ]; then
+  echo "push-hook-freshness: skipping on CI runner (hook installation not required in CI)"
+  exit 0
+fi
+
 # Resolve the same hooks dir the installer resolves.
 hooks_path="$(git config --get core.hooksPath || true)"
 if [ -n "$hooks_path" ]; then
