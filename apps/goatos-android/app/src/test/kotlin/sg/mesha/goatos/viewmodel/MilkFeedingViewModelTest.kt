@@ -424,6 +424,65 @@ class MilkFeedingViewModelTest {
         )
     }
 
+    /** Judge interaction check: after the list screen's date-nav lands, a date flip must not be
+     *  able to resurrect a submitOutboxItemId latch that a FAILED terminal status already cleared.
+     *  The detail ViewModel is keyed by taskId (not by the list's selected date), so "navigate away
+     *  and back" is simulated the same way process-death is elsewhere in this file: a fresh instance
+     *  is recreated from the SAME durable draft store while the sync repo still reports FAILED. The
+     *  screen must come back editable, not stuck behind a resurrected latch. */
+    @Test
+    fun `a date flip does not resurrect a cleared submitOutboxItemId latch after FAILED`() = runTest(dispatcher) {
+        val syncRepository = FakeMilkFeedingSyncRepository()
+        val draftRepository = FakeMilkFeedingDraftRepository()
+        syncRepository.itemFlow.value = queueItem("outbox-milk-1", sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED, attempts = 8)
+
+        // First instance: process-death-restored latch observes the terminal FAILED status and
+        // clears submitOutboxItemId (existing #1 fix), so the durable draft's submitOutboxItemId
+        // must also be cleared.
+        var viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(verificationStatus = "not_submitted"),
+            sync = syncRepository,
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkFeedingViewModel.ARG_TASK_ID to "task-1",
+                    "milkFeeding.submitOutboxItemId.task-1" to "outbox-milk-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("total", "5"))
+        advanceUntilIdle()
+        assertEquals("first instance must already be editable after FAILED clears the latch", "5", viewModel.state.value.totalKidsFed)
+
+        // Simulate "navigate away (date flip on the list screen) and back": a brand-new
+        // ViewModel instance, WITHOUT the SavedStateHandle latch (as a fresh nav-backstack entry
+        // would have), reading the SAME durable draft store and the SAME still-FAILED sync item.
+        viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(verificationStatus = "not_submitted"),
+            sync = syncRepository,
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkFeedingViewModel.ARG_TASK_ID to "task-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("total", "9"))
+        advanceUntilIdle()
+        assertEquals(
+            "a date flip / re-entry must not resurrect the cleared latch or a stale status -- the screen must stay editable",
+            "9",
+            viewModel.state.value.totalKidsFed,
+        )
+    }
+
 }
 
 private class FakeMilkFeedingSyncRepository : SyncRepository {
