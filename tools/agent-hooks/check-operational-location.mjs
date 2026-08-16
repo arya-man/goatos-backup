@@ -1200,8 +1200,10 @@ function selfTest() {
     ],
 
     // NEW CHECK FIXTURES: sql-display-drift (Defect #2 from 2026-08-06 partition sweep)
-    // Real defect: SIX copies of hand-rolled CASE over partition_label, one renders
-    // "Castro - Part 2" while oploc.Display() renders "Castro 2"
+    // Real defect: hand-rolled CASE might render "Castro - Part 2" (if partition_label
+    // is bare numeric "2", dashed form is wrong) while canonical renders "Castro 2"
+    // (space form for numeric; farm's physical naming) or "Castro - Part 3" (if
+    // partition_label is "Part 3", dash form is correct for worded partitions)
     [
       "backend/internal/obligation/queries.sql",
       `  CASE WHEN gsp.partition_label IS NOT NULL
