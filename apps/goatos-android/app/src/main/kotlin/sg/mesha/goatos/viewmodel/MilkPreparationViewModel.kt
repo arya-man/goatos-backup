@@ -9,6 +9,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -66,39 +68,44 @@ class MilkPreparationListViewModel @Inject constructor(
     private val repo: MilkPreparationRepository,
     drafts: CaptureDraftRepository,
 ) : ViewModel() {
-    private val today = LocalDate.now(MILK_IST).toString()
+    private val selectedDate = MutableStateFlow(LocalDate.now(MILK_IST).toString())
     private val selectedFilter = MutableStateFlow("all")
     private val refresh = MutableStateFlow(MilkPreparationRefreshState())
 
-    val state: StateFlow<MilkPreparationListUiState> = combine(
-        repo.observe(today),
-        selectedFilter,
-        refresh,
-        // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
-        // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
-        drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
-    ) { resource, selected, sync, capturedByEntity ->
-        val page = resource.data
-        if (page == null) {
-            MilkPreparationListUiState(
-                selectedFilter = selected,
-                dateLabel = "Today · ${LocalDate.parse(today).format(MILK_DAY_LABEL)}",
-                isRefreshing = sync.isRefreshing,
-                isOffline = sync.isOffline,
-                emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
-            )
-        } else {
-            buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = today).copy(
-                isRefreshing = sync.isRefreshing,
-                isOffline = sync.isOffline,
-                lastSyncedAt = resource.lastSyncedAt,
-            )
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val state: StateFlow<MilkPreparationListUiState> = selectedDate
+        .flatMapLatest { dateStr ->
+            combine(
+                repo.observe(dateStr),
+                selectedFilter,
+                refresh,
+                // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
+                // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
+                drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
+            ) { resource, selected, sync, capturedByEntity ->
+                val page = resource.data
+                if (page == null) {
+                    MilkPreparationListUiState(
+                        selectedFilter = selected,
+                        dateLabel = "Today · ${LocalDate.parse(dateStr).format(MILK_DAY_LABEL)}",
+                        isRefreshing = sync.isRefreshing,
+                        isOffline = sync.isOffline,
+                        emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
+                    )
+                } else {
+                    buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = dateStr).copy(
+                        isRefreshing = sync.isRefreshing,
+                        isOffline = sync.isOffline,
+                        lastSyncedAt = resource.lastSyncedAt,
+                    )
+                }
+            }
         }
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        MilkPreparationListUiState(dateLabel = "Today · ${LocalDate.parse(today).format(MILK_DAY_LABEL)}"),
-    )
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            MilkPreparationListUiState(dateLabel = "Today · ${LocalDate.now(MILK_IST).format(MILK_DAY_LABEL)}"),
+        )
 
     init { refresh() }
 
@@ -106,13 +113,21 @@ class MilkPreparationListViewModel @Inject constructor(
         when (event) {
             MilkPreparationListEvent.Refresh -> refresh()
             is MilkPreparationListEvent.SelectFilter -> selectedFilter.value = event.key
+            is MilkPreparationListEvent.NavigateDate -> navigateDate(event.delta)
             is MilkPreparationListEvent.OpenFarm, MilkPreparationListEvent.Back -> Unit
         }
     }
 
+    private fun navigateDate(delta: Int) {
+        val currentDate = LocalDate.parse(selectedDate.value)
+        val newDate = currentDate.plusDays(delta.toLong())
+        selectedDate.value = newDate.toString()
+        refresh()
+    }
+
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
-        val preparationResult = repo.refresh(today)
+        val preparationResult = repo.refresh(selectedDate.value)
         refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
     }
 }
