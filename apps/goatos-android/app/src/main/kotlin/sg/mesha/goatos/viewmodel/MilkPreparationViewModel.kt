@@ -94,6 +94,7 @@ class MilkPreparationListViewModel @Inject constructor(
                     )
                 } else {
                     buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = dateStr).copy(
+                        selectedDate = dateStr,
                         isRefreshing = sync.isRefreshing,
                         isOffline = sync.isOffline,
                         lastSyncedAt = resource.lastSyncedAt,
@@ -266,7 +267,7 @@ class MilkPreparationViewModel @Inject constructor(
     private val saved: SavedStateHandle,
 ) : ViewModel() {
     private val parkId = saved.get<String>(ARG_PARK_ID).orEmpty()
-    private val preparationDate = LocalDate.now(MILK_IST).toString()
+    private val preparationDate = saved.get<String>(ARG_PREPARATION_DATE) ?: LocalDate.now(MILK_IST).toString()
     // Proof/draft field-key building now routes through the canonical ProofIdentity/EvidenceSlot
     // model (see evidenceSlot() below). identity.taskId is set to the EXISTING groupKey() literal
     // and fieldKey to the EXISTING "milk_preparation_$stepCode" literal, so the strings written to
@@ -699,6 +700,7 @@ class MilkPreparationViewModel @Inject constructor(
 
     companion object {
         const val ARG_PARK_ID = "park_id"
+        const val ARG_PREPARATION_DATE = "preparation_date"
         private val allSteps = listOf("goat_milk_quantity", "boiling_temperature", "cooled_temperature", "uht_milk_quantity", "citric_acid_mixing")
         private val labels = mapOf(
             "goat_milk_quantity" to ("Quantity of goat milk used" to "L"),

@@ -129,6 +129,7 @@ class MilkFeedingListViewModel @Inject constructor(
                 drafts.observeProgress(CaptureFlow.MILK_FEEDING),
             ) { resource, busy, selected, capturedByTask ->
                 buildMilkFeedingListUi(resource.data, selected, capturedByTask, selectedDate = dateStr).copy(
+                    selectedDate = dateStr,
                     isRefreshing = busy,
                     lastSyncedAt = resource.lastSyncedAt,
                     isOffline = resource.data == null,
@@ -221,7 +222,7 @@ class MilkFeedingViewModel @Inject constructor(
     private val saved: SavedStateHandle,
 ) : ViewModel() {
     private val taskId = saved.get<String>(ARG_TASK_ID).orEmpty()
-    private val feedingDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+    private val feedingDate = saved.get<String>(ARG_FEEDING_DATE) ?: LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
     // Proof/draft field-key building now routes through the canonical ProofIdentity/EvidenceSlot
     // model (see evidenceSlot() below). identity.taskId is set to the EXISTING groupKey() literal
     // and fieldKey to the EXISTING "milk_feeding_$code" literal, so the strings written to
@@ -564,6 +565,7 @@ class MilkFeedingViewModel @Inject constructor(
 
     companion object {
         const val ARG_TASK_ID = "task_id"
+        const val ARG_FEEDING_DATE = "feeding_date"
         private val EDITABLE_STATUSES = setOf("not_submitted", "rework")
     }
 }

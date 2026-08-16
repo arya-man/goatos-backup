@@ -308,12 +308,14 @@ object Routes {
     const val COUNTS_SHIFTING = "/counts/shifting"
     const val COUNTS_MILK_PREPARATION = "/counts/milk-preparation"
     const val MILK_PREPARATION_PARK_ID_ARG = "park_id"
-    const val COUNTS_MILK_PREPARATION_DETAIL = "/counts/milk-preparation/farms/{$MILK_PREPARATION_PARK_ID_ARG}"
-    fun milkPreparationDetailRoute(parkId: String): String = "/counts/milk-preparation/farms/$parkId"
+    const val MILK_PREPARATION_DATE_ARG = "preparation_date"
+    const val COUNTS_MILK_PREPARATION_DETAIL = "/counts/milk-preparation/farms/{$MILK_PREPARATION_PARK_ID_ARG}/dates/{$MILK_PREPARATION_DATE_ARG}"
+    fun milkPreparationDetailRoute(parkId: String, preparationDate: String): String = "/counts/milk-preparation/farms/$parkId/dates/$preparationDate"
     const val COUNTS_MILK_FEEDING = "/counts/milk-feeding"
     const val MILK_FEEDING_TASK_ID_ARG = "task_id"
-    const val COUNTS_MILK_FEEDING_DETAIL = "/counts/milk-feeding/tasks/{$MILK_FEEDING_TASK_ID_ARG}"
-    fun milkFeedingDetailRoute(taskId: String): String = "/counts/milk-feeding/tasks/$taskId"
+    const val MILK_FEEDING_DATE_ARG = "feeding_date"
+    const val COUNTS_MILK_FEEDING_DETAIL = "/counts/milk-feeding/tasks/{$MILK_FEEDING_TASK_ID_ARG}/dates/{$MILK_FEEDING_DATE_ARG}"
+    fun milkFeedingDetailRoute(taskId: String, feedingDate: String): String = "/counts/milk-feeding/tasks/$taskId/dates/$feedingDate"
 
     /**
      * `/counts/colostrum` — the Milk module's Colostrum work list (L0), the kids with a colostrum
@@ -1991,7 +1993,7 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is MilkPreparationListEvent.OpenFarm -> navController.navigate(
-                            Routes.milkPreparationDetailRoute(event.parkId),
+                            Routes.milkPreparationDetailRoute(event.parkId, event.preparationDate),
                         ) { launchSingleTop = true }
                         MilkPreparationListEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
@@ -2002,7 +2004,10 @@ fun AppNavHost(
 
         composable(
             route = Routes.COUNTS_MILK_PREPARATION_DETAIL,
-            arguments = listOf(navArgument(Routes.MILK_PREPARATION_PARK_ID_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(Routes.MILK_PREPARATION_PARK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.MILK_PREPARATION_DATE_ARG) { type = NavType.StringType },
+            ),
         ) {
             val vm: MilkPreparationViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -2024,7 +2029,7 @@ fun AppNavHost(
             val vm: MilkFeedingListViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             MilkFeedingListScreen(state, onEvent = { event -> when (event) {
-                is MilkFeedingListEvent.OpenTask -> navController.navigate(Routes.milkFeedingDetailRoute(event.taskId)) { launchSingleTop = true }
+                is MilkFeedingListEvent.OpenTask -> navController.navigate(Routes.milkFeedingDetailRoute(event.taskId, event.feedingDate)) { launchSingleTop = true }
                 MilkFeedingListEvent.Back -> navController.popBackStack()
                 else -> vm.onEvent(event)
             } })
@@ -2032,7 +2037,10 @@ fun AppNavHost(
 
         composable(
             route = Routes.COUNTS_MILK_FEEDING_DETAIL,
-            arguments = listOf(navArgument(Routes.MILK_FEEDING_TASK_ID_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(Routes.MILK_FEEDING_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.MILK_FEEDING_DATE_ARG) { type = NavType.StringType },
+            ),
         ) {
             val vm: MilkFeedingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
