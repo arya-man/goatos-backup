@@ -53,6 +53,28 @@ fun interface SyncRetryScheduler {
 }
 
 /**
+ * A generic, sync-engine-driven "the local cache is a whole-page KV blob, not a Room row keyed by
+ * server id" reconcile hook: for opTypes whose observed screen state is a [Resource]-wrapped page
+ * blob (e.g. Milk Feeding/Preparation's `CountsBreakdownMetaCacheDao` page cache — see
+ * [sg.mesha.goatos.core.data.MilkFeedingRepository] / [sg.mesha.goatos.core.data.MilkPreparationRepository]),
+ * there is no server-truth row to write directly into. The correct reconcile is instead "go fetch
+ * the page again" — a plain `repo.refresh(...)`. Registered per-[OutboxOpType] at the repo/DI layer
+ * ([sg.mesha.goatos.di.AppModule]), never in a ViewModel: the moment matching this reconcile's
+ * timing (right after a row reaches SUCCEEDED, alongside every other [reconcileFeatureSuccess] arm)
+ * belongs to [SyncEngine], not to whichever screen happens to be on-screen when it happens.
+ *
+ * Failures are swallowed the same way [reportCacheReconcileFailure] swallows every other
+ * post-success cache-write failure here: the outbox row is already SUCCEEDED on the server, so a
+ * refresh miss must never re-mark it failed or abort the rest of the drain pass. The next
+ * successful list/detail fetch repairs the cache regardless (pull-to-refresh, next screen visit).
+ */
+fun interface PostSuccessRefreshHook {
+    /** [payloadJson] is the SAME [OutboxEntity.payloadJson] this opType was dispatched with —
+     *  the hook decodes whatever payload shape it needs to derive the page key(s) to refresh. */
+    suspend fun onSuccess(payloadJson: String)
+}
+
+/**
  * A definitive, non-retryable server rejection (e.g. a failed submission validation).
  * Retrying with the SAME payload would only reproduce the same rejection, so [SyncEngine]
  * terminalizes the row immediately (marks it `conflict`) instead of burning the backoff
@@ -117,6 +139,12 @@ class SyncEngine(
      * emit can be forgotten by the next feature someone writes; a seam cannot.
      */
     private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
+    /**
+     * Per-[OutboxOpType] whole-page-blob reconcile hooks — see [PostSuccessRefreshHook] kdoc.
+     * Empty by default so every existing test/fake construction keeps compiling; production
+     * wiring registers the Milk Feeding/Preparation refresh callbacks in `AppModule`.
+     */
+    private val postSuccessRefreshHooks: Map<OutboxOpType, PostSuccessRefreshHook> = emptyMap(),
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -463,6 +491,12 @@ class SyncEngine(
                 }
             }
             else -> Unit
+        }
+        // Whole-page-blob opTypes (no server-truth row to write directly into a Room table) — run
+        // AFTER the opType-specific arm above so any row-shaped reconcile still happens first.
+        postSuccessRefreshHooks[OutboxOpType.valueOf(item.opType)]?.let { hook ->
+            runCatching { hook.onSuccess(item.payloadJson) }
+                .onFailure { reportCacheReconcileFailure(item, it) }
         }
     }
 

@@ -116,6 +116,9 @@ import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.milkFeedingSubmitRefreshHook
+import sg.mesha.goatos.core.data.sync.milkPreparationSubmitRefreshHook
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
@@ -715,6 +718,8 @@ object AppModule {
         database: GoatDatabase,
         outboxTelemetry: OutboxTelemetryReporter,
         feedRepository: FeedRepository,
+        milkFeedingRepository: MilkFeedingRepository,
+        milkPreparationRepository: MilkPreparationRepository,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -729,6 +734,13 @@ object AppModule {
         // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
         feedRepository = feedRepository,
         telemetry = outboxTelemetry,
+        // Milk Feeding/Preparation lists are a whole-page KV blob (CountsBreakdownMetaCacheDao),
+        // not a Room row keyed by server id — the reconcile is "refresh the page", not "write the
+        // result". Registered here (repo/DI layer), never in a ViewModel — see PostSuccessRefreshHook.
+        postSuccessRefreshHooks = mapOf(
+            OutboxOpType.MILK_FEEDING_SUBMIT to milkFeedingSubmitRefreshHook(milkFeedingRepository),
+            OutboxOpType.MILK_PREPARATION_SUBMIT to milkPreparationSubmitRefreshHook(milkPreparationRepository),
+        ),
     )
 
     /**
