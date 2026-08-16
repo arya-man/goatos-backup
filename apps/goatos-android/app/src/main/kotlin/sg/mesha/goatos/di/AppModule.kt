@@ -714,6 +714,7 @@ object AppModule {
         retryScheduler: SyncRetryScheduler,
         database: GoatDatabase,
         outboxTelemetry: OutboxTelemetryReporter,
+        feedRepository: FeedRepository,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -723,6 +724,10 @@ object AppModule {
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
         weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
+        // Without this, feedRepository defaults to null in the constructor and
+        // FEED_DISTRIBUTION_COMPLETE/FEED_PACKING_COMPLETE reconciliation silently no-ops in
+        // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
+        feedRepository = feedRepository,
         telemetry = outboxTelemetry,
     )
 
