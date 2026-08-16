@@ -141,10 +141,26 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	active, err := cfg.activeDeployBuild(r.Context())
+	triggeredBy := slackUserLabel(payload.User.ID, payload.User.Username, payload.User.Name)
+	responseURL := payload.ResponseURL
+	writeSlackJSON(w, map[string]any{
+		"response_type":    "in_channel",
+		"replace_original": true,
+		"text":             fmt.Sprintf("%s request accepted from `main` by <@%s>. Checking active deploys now.", actionLabel, payload.User.ID),
+		"blocks":           deployAcceptedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution),
+	})
+
+	go cfg.startDeployAsync(responseURL, deploySTG, mobileDistribution, payload.User.ID, triggeredBy, actionLabel)
+}
+
+func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribution bool, slackUserID, triggeredBy, actionLabel string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	active, err := cfg.activeDeployBuild(ctx)
 	if err != nil {
 		log.Printf("active build check failed: %v", err)
-		writeSlackJSON(w, map[string]any{
+		cfg.postSlackResponse(responseURL, map[string]any{
 			"response_type": "ephemeral",
 			"text":          fmt.Sprintf("Could not check active deployments: `%s`", err.Error()),
 		})
@@ -152,7 +168,7 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if active.ID != "" {
 		buildURL := cfg.cloudBuildURL(active.ID)
-		writeSlackJSON(w, map[string]any{
+		cfg.postSlackResponse(responseURL, map[string]any{
 			"response_type":    "in_channel",
 			"replace_original": true,
 			"text":             fmt.Sprintf("Goat OS deployment already running: `%s`", active.Status),
@@ -161,11 +177,10 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	triggeredBy := slackUserLabel(payload.User.ID, payload.User.Username, payload.User.Name)
-	buildID, err := cfg.runTrigger(r.Context(), deploySTG, mobileDistribution, payload.User.ID, triggeredBy)
+	buildID, err := cfg.runTrigger(ctx, deploySTG, mobileDistribution, slackUserID, triggeredBy)
 	if err != nil {
 		log.Printf("run trigger failed: %v", err)
-		writeSlackJSON(w, map[string]any{
+		cfg.postSlackResponse(responseURL, map[string]any{
 			"response_type": "ephemeral",
 			"text":          fmt.Sprintf("Failed to start %s: `%s`", actionLabel, err.Error()),
 		})
@@ -174,12 +189,24 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 
 	buildURL := cfg.cloudBuildURL(buildID)
 	deployURL := cfg.cloudDeployURL()
-	writeSlackJSON(w, map[string]any{
+	cfg.postSlackResponse(responseURL, map[string]any{
 		"response_type":    "in_channel",
 		"replace_original": true,
-		"text":             fmt.Sprintf("%s from `main` started by <@%s>.\nCloud Build: %s", actionLabel, payload.User.ID, buildURL),
+		"text":             fmt.Sprintf("%s from `main` started by %s.\nCloud Build: %s", actionLabel, triggeredBy, buildURL),
 		"blocks":           deployStartedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
+}
+
+func deployAcceptedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*%s request received* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nChecking whether another deploy is already active.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+			},
+		},
+	}
 }
 
 func deployAlreadyRunningBlocks(build cloudBuildListBuild, buildURL, deployURL string) []map[string]any {
@@ -199,6 +226,34 @@ func deployAlreadyRunningBlocks(build cloudBuildListBuild, buildURL, deployURL s
 				{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Deploy"}, "url": deployURL},
 			},
 		},
+	}
+}
+
+func (cfg config) postSlackResponse(responseURL string, payload map[string]any) {
+	if responseURL == "" {
+		log.Printf("slack response_url is empty; cannot post async deploy response")
+		return
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		log.Printf("encode slack async response failed: %v", err)
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, responseURL, bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		log.Printf("create slack async response failed: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("post slack async response failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		log.Printf("post slack async response returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 }
 
