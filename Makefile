@@ -806,6 +806,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
@@ -828,6 +830,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-operational-partition-identity.mjs --all
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs

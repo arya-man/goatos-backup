@@ -465,6 +465,10 @@ class MilkFeedingViewModel @Inject constructor(
             }
             is AppResult.Err -> {
                 analytics.track(AnalyticsEvents.MILK_FEEDING_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message))
+                // Clear both in-memory latch and persisted draft key so the operator can retry after process death
+                submitOutboxItemId.value = null
+                drafts.putSubmit(CaptureFlow.MILK_FEEDING, taskId, submitIdempotencyKey, null)
+                captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
                 draft.update { it.copy(submitting = false, message = result.message) }
             }
         }
