@@ -275,6 +275,134 @@ class MilkFeedingViewModelTest {
         assertEquals("terminal failure must unlock edits", "9", viewModel.state.value.totalKidsFed)
     }
 
+    /** Live-status gate (Codex item 4): the backend/Room task already carries a submission
+     *  (`verification_status = pending_verification`) even though NOTHING was ever queued on
+     *  THIS phone -- no local submitOutboxItemId latch, no process-death recovery. A fresh
+     *  ViewModel must still render read-only, because live server truth wins over remembered
+     *  local state (mirrors FeedDistributionCompleteViewModel's applyLiveStatus: null is
+     *  "unknown, don't change", but a concrete non-editable status always wins). */
+    @Test
+    fun `live pending_verification status blocks edits with no local latch`() = runTest(dispatcher) {
+        val syncRepository = FakeMilkFeedingSyncRepository()
+        val viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(verificationStatus = "pending_verification"),
+            sync = syncRepository,
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = FakeMilkFeedingDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkFeedingViewModel.ARG_TASK_ID to "task-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("total", "9"))
+        advanceUntilIdle()
+        org.junit.Assert.assertNotEquals(
+            "a task the server already recorded as submitted must render read-only even with no local latch",
+            "9",
+            viewModel.state.value.totalKidsFed,
+        )
+    }
+
+    /** The other half of the live-status gate: no server submission recorded AND the locally
+     *  remembered state is a terminal FAILED (latch cleared, per the process-death fix) must
+     *  leave the screen editable, not locked forever. */
+    @Test
+    fun `no server submission and locally FAILED submit leaves screen editable`() = runTest(dispatcher) {
+        val syncRepository = FakeMilkFeedingSyncRepository()
+        syncRepository.itemFlow.value = queueItem("outbox-milk-1", sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED, attempts = 8)
+        val viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(verificationStatus = "not_submitted"),
+            sync = syncRepository,
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = FakeMilkFeedingDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkFeedingViewModel.ARG_TASK_ID to "task-1",
+                    "milkFeeding.submitOutboxItemId.task-1" to "outbox-milk-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("total", "9"))
+        advanceUntilIdle()
+        assertEquals(
+            "no server submission + locally FAILED must leave the screen editable",
+            "9",
+            viewModel.state.value.totalKidsFed,
+        )
+    }
+
+    /** Twin of MilkPreparationViewModelTest's `process death after submit failure unlocks edits
+     *  (regression: #1)`: submit fails with no outbox item created, process death (fresh
+     *  ViewModel from the same persisted draft store), screen must be editable again. Drives the
+     *  form to a genuinely `canSubmit`-eligible state (both proofs captured, all counts
+     *  reconciled to zero) so `submit()` actually reaches `sync.enqueueMilkFeedingSubmit` instead
+     *  of returning early -- a canSubmit-false no-op would make this pass for the wrong reason. */
+    @Test
+    fun `process death after submit failure unlocks edits (regression twin of #1)`() = runTest(dispatcher) {
+        val syncRepository = FakeMilkFeedingSyncRepository()
+        val draftRepository = FakeMilkFeedingDraftRepository()
+        val proofRepository = FakeProofCaptureRepository()
+
+        var viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(),
+            sync = syncRepository,
+            capture = FakeProofCaptureSource(
+                mutableListOf(
+                    CapturedVideo(localUri = "/proof/clean-bottles.mp4", startedAtMs = 1L, endedAtMs = 2L),
+                    CapturedVideo(localUri = "/proof/mixing.mp4", startedAtMs = 3L, endedAtMs = 4L),
+                ),
+            ),
+            proofCaptureRepository = proofRepository,
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkFeedingViewModel.ARG_TASK_ID to "task-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("total", "10"))
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("attempt1", "0"))
+        viewModel.onEvent(MilkFeedingEvent.CaptureProof("clean_bottles"))
+        advanceUntilIdle()
+        viewModel.onEvent(MilkFeedingEvent.CaptureProof("mixing_and_filling"))
+        advanceUntilIdle()
+        assertEquals("form must be canSubmit-eligible before this test proves anything", true, viewModel.state.value.canSubmit)
+
+        // Submit fails before any outbox item is created (e.g. offline/network error at enqueue).
+        syncRepository.submitResult = AppResult.Err("network error")
+        viewModel.onEvent(MilkFeedingEvent.Submit)
+        advanceUntilIdle()
+        assertEquals("the failing submit must actually have been attempted", 1, syncRepository.submitCalls.size)
+
+        // Process death: recreate the ViewModel from the SAME durable draft store.
+        viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(),
+            sync = syncRepository,
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = proofRepository,
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkFeedingViewModel.ARG_TASK_ID to "task-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkFeedingEvent.SetNumber("total", "20"))
+        advanceUntilIdle()
+        assertEquals(
+            "after submit failure + process death, screen must be editable so operator can retry",
+            "20",
+            viewModel.state.value.totalKidsFed,
+        )
+    }
+
     /** Judge finding #3 realism: the REAL ViewModel emits the dedicated MILK_* events. */
     @Test
     fun `real viewmodel emits milk feeding opened event`() = runTest(dispatcher) {
@@ -301,6 +429,7 @@ class MilkFeedingViewModelTest {
 private class FakeMilkFeedingSyncRepository : SyncRepository {
     private val status = MutableStateFlow(sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = true))
     val deletedOutboxItems = mutableListOf<String>()
+    var submitResult: AppResult<String> = AppResult.Ok("outbox-milk-1")
 
     override fun observeStatus(): MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncStatus> = status
     val itemFlow = MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncQueueItem?>(null)
@@ -387,7 +516,7 @@ private class FakeMilkFeedingSyncRepository : SyncRepository {
         mixingAndFillingProofOutboxItemId: String,
     ): AppResult<String> {
         submitCalls += idempotencyKey
-        return AppResult.Ok("outbox-milk-1")
+        return submitResult
     }
 }
 
@@ -427,7 +556,9 @@ private class FakeMilkFeedingDraftRepository : CaptureDraftRepository {
     override fun observeProgress(flowKey: String, limit: Int): Flow<Map<String, Int>> = MutableStateFlow(emptyMap())
 }
 
-private class FakeMilkFeedingRepository : MilkFeedingRepository {
+private class FakeMilkFeedingRepository(
+    verificationStatus: String = "not_submitted",
+) : MilkFeedingRepository {
     private val status = MutableStateFlow(
         sg.mesha.goatos.core.common.Resource(
             data = MilkFeedingPageDto(
@@ -439,6 +570,7 @@ private class FakeMilkFeedingRepository : MilkFeedingRepository {
                         sessionNo = 1,
                         dueTime = "08:00",
                         available = true,
+                        verificationStatus = verificationStatus,
                     ),
                 ),
             ),
