@@ -746,6 +746,13 @@ const CHECKS = [
 // Response schemas that legitimately carry a shed WITHOUT a partition. Each entry
 // states WHY, because "it was failing" is not a reason.
 const RESPONSE_PARTITION_EXEMPT = new Set([
+  // ShedCardSummary (2026-08-16) is a keyed AGGREGATE sidecar, not a rendered location row: it
+  // rides in a map keyed by card id alongside the execution rows, and DOES carry partition_label —
+  // but as card IDENTITY for keying/grain, not for display. The card header's location text is
+  // owned by the execution ROW contract, which carries the full partition + composed
+  // operational_location_display; the summary is never rendered as a location, so composing a
+  // second display string here would duplicate the row's authority (two writers to one label).
+  "ShedCardSummary",
   // CommandBoardShedVaccineCell arrived from main on 2026-08-07, after this rule existed. It is
   // a shed x vaccine matrix cell and its Go struct (vaccinationexecution/domain.
   // CommandBoardShedVaccineCell) carries no partition at that grain, so wiring one means changing

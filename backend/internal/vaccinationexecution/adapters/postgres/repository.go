@@ -4471,7 +4471,7 @@ ORDER BY located.shed_uuid, located.partition_label, located.sop_task_id, locate
 			return vaccineGroups[i].Label < vaccineGroups[j].Label
 		})
 
-		cardID := buildCardID(shedID, ptrToString(partLabel), ptrToString(taskID), ptrToString(batchID), ptrToString(driveID))
+		cardID := domain.BuildCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(taskID), domain.StringOrEmpty(batchID), domain.StringOrEmpty(driveID))
 		summaries[cardID] = &domain.ShedCardSummary{
 			ShedID:         shedID,
 			PartitionLabel: partLabel,

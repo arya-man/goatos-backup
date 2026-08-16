@@ -1,7 +1,10 @@
 // Package domain holds vaccination-execution read-model types.
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const SourceAPI = "api"
 
@@ -138,11 +141,11 @@ type ExecutionResponse struct {
 	// ViewerReadOnly marks this as a leadership OVERSIGHT read (park-scoped, all sheds):
 	// the caller is not an assigned operator, so the client shows the shed list but must
 	// NOT let them open a shed into the operator scan/execute loop. Operators get false.
-	ViewerReadOnly bool                          `json:"viewerReadOnly"`
-	Freshness      *ProjectionFreshness          `json:"freshness,omitempty"`
-	CarrySummary   *CarrySummary                 `json:"carrySummary,omitempty"`
-	FilterOptions  *ExecutionFilters             `json:"filterOptions,omitempty"`
-	CardSummaries  map[string]*ShedCardSummary   `json:"cardSummaries,omitempty"`
+	ViewerReadOnly bool                        `json:"viewerReadOnly"`
+	Freshness      *ProjectionFreshness        `json:"freshness,omitempty"`
+	CarrySummary   *CarrySummary               `json:"carrySummary,omitempty"`
+	FilterOptions  *ExecutionFilters           `json:"filterOptions,omitempty"`
+	CardSummaries  map[string]*ShedCardSummary `json:"cardSummaries,omitempty"`
 }
 
 type ExecutionFilters struct {
@@ -193,17 +196,17 @@ type VaccineGroupSummary struct {
 // projection-review: membership=all execution rows matching card identity;
 // parity=status f(work_state + redo + review + final_closed); counts=sum of open/done/target
 type ShedCardSummary struct {
-	ShedID             string                 `json:"shedId"`
-	PartitionLabel     *string                `json:"partitionLabel,omitempty"`
-	TaskID             *string                `json:"taskId,omitempty"`
-	BatchID            *string                `json:"batchId,omitempty"`
-	DriveID            *string                `json:"driveId,omitempty"`
-	Status             WorkState              `json:"status"` // PENDING | DONE | DELAYED | SENT_BACK
-	DoneCount          int                    `json:"doneCount"`
-	TargetCount        int                    `json:"targetCount"`
-	OpenCount          int                    `json:"openCount"`
-	NeedsRedo          bool                   `json:"needsRedo"`     // true if any row is rejected/deferred
-	VaccineGroups      []VaccineGroupSummary  `json:"vaccineGroups"` // per-vaccine group summaries
+	ShedID         string                `json:"shedId"`
+	PartitionLabel *string               `json:"partitionLabel,omitempty"`
+	TaskID         *string               `json:"taskId,omitempty"`
+	BatchID        *string               `json:"batchId,omitempty"`
+	DriveID        *string               `json:"driveId,omitempty"`
+	Status         WorkState             `json:"status"` // PENDING | DONE | DELAYED | SENT_BACK
+	DoneCount      int                   `json:"doneCount"`
+	TargetCount    int                   `json:"targetCount"`
+	OpenCount      int                   `json:"openCount"`
+	NeedsRedo      bool                  `json:"needsRedo"`     // true if any row is rejected/deferred
+	VaccineGroups  []VaccineGroupSummary `json:"vaccineGroups"` // per-vaccine group summaries
 }
 
 type DriveSummary struct {
@@ -1244,4 +1247,39 @@ type CommandBoardQuery struct {
 	// expensive query twice per filter change and discarded one copy. Ignored when DriveBatchID is
 	// absent: it narrows a selection, it is not a second park filter.
 	DriveParkID *string
+}
+
+// BuildCardID is the canonical identity string for a shed execution card:
+// shed + partition (whole when blank) + exactly one of task/batch/drive.
+// Shared by the app-layer row fold and the postgres card-summary aggregate so
+// both layers key summaries identically.
+func BuildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string {
+	sb := strings.Builder{}
+	sb.WriteString("shed:")
+	sb.WriteString(shedID)
+	sb.WriteString("|partition:")
+	if partitionLabel != "" && partitionLabel != "whole" {
+		sb.WriteString(partitionLabel)
+	} else {
+		sb.WriteString("whole")
+	}
+	if taskID != "" {
+		sb.WriteString("|task:")
+		sb.WriteString(taskID)
+	} else if batchID != "" {
+		sb.WriteString("|batch:")
+		sb.WriteString(batchID)
+	} else if driveID != "" {
+		sb.WriteString("|drive:")
+		sb.WriteString(driveID)
+	}
+	return sb.String()
+}
+
+// StringOrEmpty dereferences an optional string, mapping nil to "".
+func StringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
