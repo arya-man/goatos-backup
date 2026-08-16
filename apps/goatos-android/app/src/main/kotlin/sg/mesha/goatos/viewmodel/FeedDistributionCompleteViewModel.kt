@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
@@ -75,6 +76,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val photoCaptureSource: PhotoCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val feedRepository: FeedRepository,
+    private val feedCompletionStore: FeedCompletionLocalStore,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     @ApplicationContext private val appContext: Context,
@@ -617,6 +619,12 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     outboxItemId.value = result.value
                     observeOutboxItem(result.value)
+                    // Optimistic offline overlay for the shared Feed Direction list: its chip reads
+                    // lifecycleStatus, and nothing here recorded the submit, so a queued
+                    // distribution stayed "Pending" until the write synced.
+                    feedCompletionStore.markSubmittedForReview(
+                        FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow),
+                    )
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
                     trackSubmitSources(
                         result = "submitted",

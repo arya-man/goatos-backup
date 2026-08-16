@@ -26,6 +26,7 @@ import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -69,6 +70,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = photoSource,
             proofCaptureRepository = proofCaptureRepository,
             feedRepository = FakeSplitFeedRepository(emptyList()),
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -129,6 +131,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = photoSource,
             proofCaptureRepository = proofCaptureRepository,
             feedRepository = FakeSplitFeedRepository(emptyList()),
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -215,6 +218,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -277,6 +281,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -325,6 +330,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -411,6 +417,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -466,6 +473,7 @@ class FeedDistributionCompleteViewModelTest {
             ),
             proofCaptureRepository = proofCaptureRepository,
             feedRepository = FakeSplitFeedRepository(emptyList()),
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -527,6 +535,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -564,6 +573,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -599,6 +609,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -640,6 +651,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = photoSource,
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = teammates,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -697,6 +709,7 @@ class FeedDistributionCompleteViewModelTest {
             photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
             proofCaptureRepository = FakeProofCaptureRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),

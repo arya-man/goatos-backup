@@ -10,7 +10,7 @@ import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
  * queued-but-unsynced submit bug (254.mp4): the operator submits a packing session, returns to the
  * list, and the row still reads "Pending" because the backend page has not seen the outbox write.
  *
- * EVERY case here calls the PRODUCTION rule [overlayPackingLifecycleStatus] and the PRODUCTION grain
+ * EVERY case here calls the PRODUCTION rule [overlayFeedLifecycleStatus] and the PRODUCTION grain
  * key [FeedCompletionLocalStore.key]. Nothing in this file re-implements the precedence. An earlier
  * revision of these tests copied the `when {}` into each test body and asserted against its own
  * copy — which passed even with the overlay deleted from the ViewModel. Do not reintroduce that:
@@ -52,7 +52,7 @@ class FeedPackingSubmittedForReviewOverlayTest {
 
     /** Renders [row] the way the list projection does, against a REAL store. */
     private fun renderedStatus(row: FeedPackingRowDto, store: FeedCompletionLocalStore): String =
-        overlayPackingLifecycleStatus(
+        overlayFeedLifecycleStatus(
             lifecycleStatus = row.lifecycleStatus,
             reworkReason = row.reworkReason,
             isLocallySubmittedForReview = store.submittedForReviewKeys.value.contains(keyOf(row)),

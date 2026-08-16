@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,7 @@ class FeedDistributionCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             appContext = context,
             feedRepository = FakeFeedRepository(),
+            feedCompletionStore = FeedCompletionLocalStore(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -145,6 +147,7 @@ class FeedDistributionCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             appContext = context,
             feedRepository = FakeFeedRepository(),
+            feedCompletionStore = FeedCompletionLocalStore(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
