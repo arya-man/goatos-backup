@@ -16551,6 +16551,91 @@ components:
           type: string
         freshness:
           $ref: "#/components/schemas/VaccinationProjectionFreshness"
+        cardSummaries:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ShedCardSummary"
+          description: >-
+            Authoritative per-card summaries (status, counts, vaccine groups)
+            keyed by execution card ID. Page-independent: computed from all rows
+            matching the query, not from paginated subsets. Ensures correct status
+            when rows straddle page boundaries.
+    VaccineGroupSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+        - full
+      properties:
+        label:
+          type: string
+          description: Display label for the vaccine group
+        full:
+          type: boolean
+          description: True if all animals done and none pending redo
+    ShedCardSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - shedId
+        - status
+        - doneCount
+        - targetCount
+        - openCount
+        - needsRedo
+        - vaccineGroups
+      properties:
+        shedId:
+          type: string
+          format: uuid
+        partitionLabel:
+          type: string
+          nullable: true
+          description: Partition identifier if present (null for "whole" shed)
+        taskId:
+          type: string
+          format: uuid
+          nullable: true
+        batchId:
+          type: string
+          format: uuid
+          nullable: true
+        driveId:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum:
+            - due
+            - overdue
+            - missed
+            - blocked
+            - rejected
+            - in_progress
+            - proof_pending
+            - verification_pending
+            - completed
+          description: >-
+            Authoritative card status computed from all rows.
+            Client maps: rejected→SENT_BACK, overdue→DELAYED, completed→DONE, due→PENDING
+        doneCount:
+          type: integer
+          description: Max doneCount across all rows for this card
+        targetCount:
+          type: integer
+          description: Max targetCount across all rows for this card
+        openCount:
+          type: integer
+          description: Max openCount across all rows for this card
+        needsRedo:
+          type: boolean
+          description: True if any row has work sent back (rejected/deferred)
+        vaccineGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccineGroupSummary"
+          description: Per-vaccine group summaries for this card
     VaccinationOperationsProtocol:
       type: object
       additionalProperties: false
