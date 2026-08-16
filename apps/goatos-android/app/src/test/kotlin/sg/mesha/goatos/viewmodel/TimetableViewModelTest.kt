@@ -208,10 +208,10 @@ private class FakeTimetableRepository : RosterRepository {
 
     override fun observeCoverage(): Flow<MyCoverageResponseDto?> = coverageFlow
 
-    override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean {
-        if (shouldRefreshFail) return false // simulate a network failure: cache is kept
+    override suspend fun refreshTimetable(centerId: String, limit: Int?): Result<Unit> {
+        if (shouldRefreshFail) return Result.failure(Exception("network failure")) // simulate a network failure: cache is kept
         refreshData?.let { timetableFlow.value = it }
-        return true
+        return Result.success(Unit)
     }
 
     override suspend fun refreshCoverage(): Boolean = true // unused in timetable tests

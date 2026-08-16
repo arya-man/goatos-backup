@@ -123,7 +123,7 @@ class CoverageBannerViewModelWhileSubscribedTest {
                 }
             }
 
-        override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean = true
+        override suspend fun refreshTimetable(centerId: String, limit: Int?): Result<Unit> = Result.success(Unit)
 
         override suspend fun refreshCoverage(): Boolean {
             refreshCount++
