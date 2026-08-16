@@ -122,7 +122,207 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		filterOptions = &domain.ExecutionFilters{Parks: parks}
 	}
 
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions}, nil
+	// For all requests: compute per-card summaries (page-independent, full-result aggregation)
+	// over all rows returned by the query, grouped by (shedId, partitionLabel, taskId/batchId/driveId)
+	cardSummaries := computeCardSummariesFromRows(rows)
+
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions, CardSummaries: cardSummaries}, nil
+}
+
+// computeCardSummariesFromRows groups all ExecutionRows by card identity (shedId, partitionLabel,
+// taskId/batchId/driveId) and computes authoritative per-card summaries: status, counts, vaccine
+// groups, redo state. These summaries are page-independent: all rows in the response contribute to
+// the summary, not just paginated subsets. This ensures the mobile card never misreports status
+// when rows straddle page boundaries.
+func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain.ShedCardSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	// Group rows by card identity: (shedId, partitionLabel, taskId/batchId/driveId)
+	type cardKey struct {
+		shedID         string
+		partitionLabel string
+		taskID         string
+		batchID        string
+		driveID        string
+	}
+	cardGroups := make(map[cardKey][]domain.ExecutionRow)
+	for _, r := range rows {
+		partition := strings.TrimSpace(r.Partition)
+		if partition == "" {
+			partition = "whole"
+		}
+		key := cardKey{
+			shedID:         r.ShedID,
+			partitionLabel: partition,
+			taskID:         ptrToString(r.SOPTaskID),
+			batchID:        ptrToString(r.BatchID),
+			driveID:        ptrToString(r.DriveID),
+		}
+		cardGroups[key] = append(cardGroups[key], r)
+	}
+
+	// Compute summary for each card
+	summaries := make(map[string]*domain.ShedCardSummary)
+	for key, cardRows := range cardGroups {
+		summary := summarizeCardFromRows(cardRows, key.partitionLabel)
+		cardID := buildCardID(key.shedID, key.partitionLabel, key.taskID, key.batchID, key.driveID)
+		summaries[cardID] = summary
+	}
+	return summaries
+}
+
+// summarizeCardFromRows computes the authoritative status, counts, and vaccine-group summaries
+// for one shed card from all its ExecutionRow objects.
+func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *domain.ShedCardSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	first := rows[0]
+	var targetCount, totalDone, totalOpen int
+	hasRedo := false
+	vaccineGroupMap := make(map[string]map[int]bool) // label -> (index -> full)
+
+	// Aggregate counts and redo state across all rows
+	for idx, r := range rows {
+		targetCount = maxInt(targetCount, r.TargetCount)
+		totalDone = maxInt(totalDone, r.DoneCount)
+		totalOpen = maxInt(totalOpen, r.OpenCount)
+
+		// Check if any row needs redo (rejected/deferred)
+		if r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred {
+			hasRedo = true
+		}
+
+		// Per-row vaccine groups: mark as "full" if open==0 and no redo on this row
+		for _, label := range r.VaccineLabels {
+			if vaccineGroupMap[label] == nil {
+				vaccineGroupMap[label] = make(map[int]bool)
+			}
+			isFull := r.OpenCount == 0 && !(r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred)
+			vaccineGroupMap[label][idx] = isFull
+		}
+	}
+
+	// Compute card-level status. The status field is meant to be interpreted by the client
+	// using the same logic as ShedsViewModel.shedStatusForRows():
+	// - If any row has needsRedo (rejected/deferred) -> SENT_BACK
+	// - Else if any row has overdue/missed/blocked -> DELAYED
+	// - Else if all rows final-closed (accepted/closed/completed) -> DONE
+	// - Else -> PENDING
+	// We use WorkStateCompleted as the status value to report final-closed state.
+	var status domain.WorkState
+	if hasRedo {
+		status = domain.WorkStateRejected // Signal to client: map to SENT_BACK
+	} else if anyRowHasStateFromRows(rows, domain.WorkStateOverdue, domain.WorkStateMissed, domain.WorkStateBlocked) {
+		status = domain.WorkStateOverdue // Signal to client: map to DELAYED
+	} else if allRowsFinalClosedFromRows(rows) {
+		status = domain.WorkStateCompleted // Signal to client: map to DONE
+	} else {
+		status = domain.WorkStateDue // Signal to client: map to PENDING
+	}
+
+	// Build vaccine group summaries: a group is "full" only if ALL rows have it full
+	vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(vaccineGroupMap))
+	for label, rowStates := range vaccineGroupMap {
+		full := true
+		for _, isFull := range rowStates {
+			if !isFull {
+				full = false
+				break
+			}
+		}
+		vaccineGroups = append(vaccineGroups, domain.VaccineGroupSummary{Label: label, Full: full})
+	}
+	sort.Slice(vaccineGroups, func(i, j int) bool {
+		return vaccineGroups[i].Label < vaccineGroups[j].Label
+	})
+
+	var partLabel *string
+	if partitionLabel != "" && partitionLabel != "whole" {
+		partLabel = &partitionLabel
+	}
+
+	return &domain.ShedCardSummary{
+		ShedID:         first.ShedID,
+		PartitionLabel: partLabel,
+		TaskID:         first.SOPTaskID,
+		BatchID:        first.BatchID,
+		DriveID:        first.DriveID,
+		Status:         status,
+		DoneCount:      totalDone,
+		TargetCount:    targetCount,
+		OpenCount:      totalOpen,
+		NeedsRedo:      hasRedo,
+		VaccineGroups:  vaccineGroups,
+	}
+}
+
+func buildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string {
+	sb := strings.Builder{}
+	sb.WriteString("shed:")
+	sb.WriteString(shedID)
+	sb.WriteString("|partition:")
+	if partitionLabel != "" && partitionLabel != "whole" {
+		sb.WriteString(partitionLabel)
+	} else {
+		sb.WriteString("whole")
+	}
+	if taskID != "" {
+		sb.WriteString("|task:")
+		sb.WriteString(taskID)
+	} else if batchID != "" {
+		sb.WriteString("|batch:")
+		sb.WriteString(batchID)
+	} else if driveID != "" {
+		sb.WriteString("|drive:")
+		sb.WriteString(driveID)
+	}
+	return sb.String()
+}
+
+func ptrToString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func anyRowHasStateFromRows(rows []domain.ExecutionRow, states ...domain.WorkState) bool {
+	for _, r := range rows {
+		for _, s := range states {
+			if r.WorkState == s {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func allRowsFinalClosedFromRows(rows []domain.ExecutionRow) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for _, r := range rows {
+		if !isFinalClosedFromRow(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isFinalClosedFromRow(r domain.ExecutionRow) bool {
+	return r.SOPStatus == domain.SOPStatusAccepted ||
+		r.WorkState == domain.WorkStateCompleted
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
