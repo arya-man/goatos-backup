@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
@@ -82,6 +83,14 @@ class MilkPreparationViewModelTest {
         viewModel.onEvent(MilkPreparationEvent.CaptureStep("goat_milk_quantity"))
         advanceUntilIdle()
         assertEquals("the first capture must record one proof", 1, proofCaptureRepository.captureCalls.size)
+        assertEquals(
+            "milk-prep proofs are not backend-shed-scoped: subject_type must not claim " +
+                "'shed' when the id is really the park id -- that poisons subject_type='shed' " +
+                "lookups (vaccination/weighing/sop) with a non-shed uuid. No backend task id " +
+                "exists at capture time for milk prep, so this is 'other', not 'shed' or 'task'.",
+            ProofSubject.OTHER,
+            proofCaptureRepository.captureCalls.single().subject,
+        )
 
         // Retake, and cancel it.
         viewModel.onEvent(MilkPreparationEvent.ReCaptureStep("goat_milk_quantity"))

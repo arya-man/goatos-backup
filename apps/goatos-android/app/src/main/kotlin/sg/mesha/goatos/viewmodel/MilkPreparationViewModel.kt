@@ -472,7 +472,14 @@ class MilkPreparationViewModel @Inject constructor(
             val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
-                subject = ProofSubject.SHED,
+                // subject_id is the park uuid, NOT a shed. Milk prep has no backend SOP
+                // task uuid to bind to at capture time (unlike milk feeding), and stamping
+                // subject_type='shed' here would poison the real subject_type='shed' lookups
+                // used by vaccination/weighing/sop (WHERE subject_type='shed' AND subject_id=
+                // <real shed uuid>) with a park id that resolves to no shed. 'other' carries
+                // no false identity claim; the park identity is already correct via
+                // scope_type='park'/scope_id=parkId above.
+                subject = ProofSubject.OTHER,
                 subjectId = parkId,
                 localUri = video.localUri,
                 mimeType = video.mimeType,
@@ -553,7 +560,14 @@ class MilkPreparationViewModel @Inject constructor(
             val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
-                subject = ProofSubject.SHED,
+                // subject_id is the park uuid, NOT a shed. Milk prep has no backend SOP
+                // task uuid to bind to at capture time (unlike milk feeding), and stamping
+                // subject_type='shed' here would poison the real subject_type='shed' lookups
+                // used by vaccination/weighing/sop (WHERE subject_type='shed' AND subject_id=
+                // <real shed uuid>) with a park id that resolves to no shed. 'other' carries
+                // no false identity claim; the park identity is already correct via
+                // scope_type='park'/scope_id=parkId above.
+                subject = ProofSubject.OTHER,
                 subjectId = parkId,
                 localUri = video.localUri,
                 mimeType = video.mimeType,
@@ -740,8 +754,13 @@ internal fun milkPreparationAnswers(state: MilkPreparationUiState): MilkPreparat
 internal fun milkParkProofPolicy(captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(
         proofMode = "park_step_video",
-        subjectScope = ProofSubject.PARK.wireValue,
-        expectedSubjects = listOf(ProofSubject.PARK.wireValue),
+        // Matches the subject actually written by captureStep/reCaptureStep (ProofSubject.OTHER,
+        // subjectId=parkId): milk prep has no backend-valid 'park' subject type and no backend
+        // task uuid to bind to at capture time. Keeping this aligned with the real wire value
+        // matters because ProofPolicy.defaultSubject falls back to the first entry here for any
+        // future caller that does not pass an explicit subject.
+        subjectScope = ProofSubject.OTHER.wireValue,
+        expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
         captureSource = captureSource,
     )
 
