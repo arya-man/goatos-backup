@@ -866,7 +866,7 @@ fi
 echo ""
 echo "════════ ci-local summary @ ${sha} ════════"
 for r in "${RESULTS[@]}"; do echo "  $r"; done
-if [ "${#TIMINGS[@]:-0}" -gt 0 ]; then
+if [ "${#TIMINGS[@]}" -gt 0 ]; then
   echo ""
   echo "──────── slowest steps (top 10) ────────"
   printf '%s\n' "${TIMINGS[@]}" | sort -t"$(printf '\t')" -k1,1nr | head -10 \
@@ -907,7 +907,7 @@ else
     echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
   fi
   echo "ci-local: RED @ ${sha} (${#FAILURES[@]} failing step(s) named above)"
-    if [ "${#FAILED_JOBS[@]:-0}" -gt 0 ]; then
+    if [ "${#FAILED_JOBS[@]}" -gt 0 ]; then
       echo ""
       echo "  Or re-check only the failing JOB (fast, writes NO receipt):"
       for j in "${FAILED_JOBS[@]}"; do
