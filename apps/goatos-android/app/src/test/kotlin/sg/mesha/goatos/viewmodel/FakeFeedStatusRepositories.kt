@@ -8,7 +8,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedPackingQuery
@@ -150,27 +149,9 @@ internal class FakeFeedRepository : FeedRepository {
     override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean = true
     override suspend fun fetchProofDownloadUrl(proofId: String): String? = null
     override fun observeDirectionTotals(query: FeedDirectionQuery): Flow<Resource<FeedDirectionPreviewPageDto>> = error("unused")
-
-    private var packingRowsPageData: PagingData<FeedPackingRowDto>? = null
-    private var directionRowsPageData: PagingData<FeedDirectionRowDto>? = null
-
-    /** For wiring tests: inject PagingData to be returned by packingRows(). */
-    fun setPackingRowsPage(pageData: PagingData<FeedPackingRowDto>) {
-        packingRowsPageData = pageData
-    }
-
-    /** For wiring tests: inject PagingData to be returned by directionRows(). */
-    fun setDirectionRowsPage(pageData: PagingData<FeedDirectionRowDto>) {
-        directionRowsPageData = pageData
-    }
-
-    override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> =
-        if (directionRowsPageData != null) flowOf(directionRowsPageData!!) else error("directionRows page not set")
-
+    override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
     override fun observePackingTotals(query: FeedPackingQuery): Flow<Resource<FeedPackingWorklistPageDto>> = error("unused")
-
-    override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> =
-        if (packingRowsPageData != null) flowOf(packingRowsPageData!!) else error("packingRows page not set")
+    override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> = error("unused")
 }
 
 /**
