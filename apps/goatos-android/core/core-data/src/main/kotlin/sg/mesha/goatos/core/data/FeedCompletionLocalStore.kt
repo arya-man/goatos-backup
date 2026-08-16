@@ -39,23 +39,40 @@ import kotlinx.coroutines.flow.update
  */
 class FeedCompletionLocalStore {
     private val _completedKeys = MutableStateFlow<Set<String>>(emptySet())
+    private val _submittedForReviewKeys = MutableStateFlow<Set<String>>(emptySet())
 
     /** The set of locally-completed shed-session keys for the CURRENT business day. */
     val completedKeys: StateFlow<Set<String>> = _completedKeys.asStateFlow()
+
+    /**
+     * The set of locally-submitted-for-review shed-session keys for the CURRENT business day.
+     * Used by the Feed Packing lifecycle overlay to show "pending_verification" before the server
+     * processes the queued submit. Semantically distinct from [completedKeys] because a row
+     * enqueued but not yet confirmed stays "pending_verification" (not "completed"), and the
+     * backend always owns the completion gate: if the server rejects the submit, this key clears
+     * on logout but the backend row remains "pending", giving the overlay a chance to self-correct.
+     */
+    val submittedForReviewKeys: StateFlow<Set<String>> = _submittedForReviewKeys.asStateFlow()
 
     fun markCompleted(key: String) {
         val prefix = businessDatePrefix()
         _completedKeys.update { current -> current.filterTo(mutableSetOf()) { it.startsWith(prefix) } + key }
     }
 
+    fun markSubmittedForReview(key: String) {
+        val prefix = businessDatePrefix()
+        _submittedForReviewKeys.update { current -> current.filterTo(mutableSetOf()) { it.startsWith(prefix) } + key }
+    }
+
     fun isCompleted(key: String): Boolean = _completedKeys.value.contains(key)
 
     /**
-     * Drops every optimistic completion. Called by [LogoutCoordinator.logout] so no part of the
-     * departing operator's work is visible to the next principal on the device.
+     * Drops every optimistic completion and submission. Called by [LogoutCoordinator.logout] so no
+     * part of the departing operator's work is visible to the next principal on the device.
      */
     fun clear() {
         _completedKeys.value = emptySet()
+        _submittedForReviewKeys.value = emptySet()
     }
 
     companion object {

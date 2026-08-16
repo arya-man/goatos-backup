@@ -82,6 +82,7 @@ class FeedPackingCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
             feedRepository = FakeFeedRepository(),
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -140,6 +141,7 @@ class FeedPackingCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
             feedRepository = FakeFeedRepository(),
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -176,6 +178,7 @@ class FeedPackingCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = FakeFeedRepository(),
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     "shed_id" to "shed-1",

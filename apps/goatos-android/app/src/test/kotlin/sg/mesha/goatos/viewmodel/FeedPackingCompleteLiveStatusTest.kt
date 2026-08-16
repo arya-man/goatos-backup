@@ -85,6 +85,7 @@ class FeedPackingCompleteLiveStatusTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             // The nav-arg hint alone says "open" (capturable) — this is exactly the stale-snapshot
             // shape from the STG 2026-08-09 report.
             savedStateHandle = savedState(lifecycleStatus = "open"),
@@ -117,6 +118,7 @@ class FeedPackingCompleteLiveStatusTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             savedStateHandle = savedState(lifecycleStatus = "open"),
         )
         advanceUntilIdle()
@@ -150,6 +152,7 @@ class FeedPackingCompleteLiveStatusTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             // The hint says already-submitted; Room has nothing yet, so the hint must stand.
             savedStateHandle = savedState(lifecycleStatus = FeedStatus.COMPLETED),
         )
@@ -181,6 +184,7 @@ class FeedPackingCompleteLiveStatusTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             // Nav-arg hint says open, but live status will arrive as submitted after a delay
             savedStateHandle = savedState(lifecycleStatus = "open"),
         )
@@ -218,6 +222,7 @@ class FeedPackingCompleteLiveStatusTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             savedStateHandle = savedState(lifecycleStatus = "open"),
         )
         // runCurrent() (NOT advanceUntilIdle()): the bounded server-poll loop is finite
@@ -256,6 +261,7 @@ class FeedPackingCompleteLiveStatusTest {
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
             feedRepository = feedRepository,
+            feedCompletionStore = sg.mesha.goatos.core.data.FeedCompletionLocalStore(),
             savedStateHandle = savedState(lifecycleStatus = "open"),
         )
         runCurrent() // see the sibling test above for why this is runCurrent(), not advanceUntilIdle().
