@@ -39,33 +39,33 @@ sed -n '/^cat >"\$hook" <<.HOOK.$/,/^HOOK$/p' "$repo/tools/agent-hooks/install-s
   | sed '1d;$d' > "$sandbox/hooks/pre-push"
 chmod +x "$sandbox/hooks/pre-push"
 
-# (a) installed copies match the sources
+# (a) installed copies match the sources — MUST unset CI env vars so the real logic runs
 cp tools/ci/check-local-ci-evidence.mjs "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
 cp tools/ci/check-stg-promotion.mjs "$sandbox/hooks/goatos-check-stg-promotion.mjs"
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(a) installed copies match" 0 $?
 
 # (b) drift — the incident this guard exists for
 printf 'DRIFTED\n' > "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(b) stale installed copy REJECTED" 1 $?
 cp tools/ci/check-local-ci-evidence.mjs "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
 
 # (c) not installed at all — must fail closed, never skip
 rm -f "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(c) guard NOT INSTALLED fails closed" 1 $?
 cp tools/ci/check-local-ci-evidence.mjs "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
 
 # (d) repo source missing — a renamed guard must not silently pass
 mv tools/ci/check-stg-promotion.mjs tools/ci/renamed.mjs
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(d) missing repo source REJECTED" 1 $?
 mv tools/ci/renamed.mjs tools/ci/check-stg-promotion.mjs
 
 # (f) NO pre-push hook installed — the gate is not enforcing; must fail closed
 mv "$sandbox/hooks/pre-push" "$sandbox/pre-push.parked"
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(f) missing pre-push hook fails closed" 1 $?
 mv "$sandbox/pre-push.parked" "$sandbox/hooks/pre-push"
 
@@ -76,14 +76,18 @@ mv "$sandbox/pre-push.parked" "$sandbox/hooks/pre-push"
 cp "$sandbox/hooks/pre-push" "$sandbox/pre-push.intact"
 grep -v 'evidence_guard" --pre-push' "$sandbox/pre-push.intact" > "$sandbox/hooks/pre-push"
 chmod +x "$sandbox/hooks/pre-push"
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(g) hook that no longer invokes the evidence guard REJECTED" 1 $?
 cp "$sandbox/pre-push.intact" "$sandbox/hooks/pre-push"
 chmod +x "$sandbox/hooks/pre-push"
 
-# (e) the real checkout must currently pass
+# (h) CI skip path: on CI runners, the guard must skip with exit 0
+CI=true GITHUB_ACTIONS=true bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+check "(h) CI skip path works" 0 $?
+
+# (e) the real checkout must currently pass (LOCAL, not CI)
 cd "$repo"
-bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(e) this checkout passes" 0 $?
 
 if [ "$fails" -ne 0 ]; then

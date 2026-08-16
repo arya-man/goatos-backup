@@ -113,18 +113,38 @@ function main() {
     return;
   }
 
+  // On CI runners, skip local git config checks (CI env has empty config).
+  // Only validate commit emails from the PR.
+  const isCI = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
+
   const name = gitConfig("user.name");
   const email = gitConfig("user.email");
-  const errors = [...validateIdentity(name, email), ...validateCommitEmails(commitEmailLines())];
-  if (errors.length > 0) {
-    console.error("git-identity guard failed:");
-    for (const error of errors) console.error(`- ${error}`);
-    console.error("");
-    console.error("Fix config with: git config user.name 'Raviteja' && git config user.email 'ravi@mesha.sg'");
-    console.error("Fix bad commits by amending/rebasing so author and committer emails are @mesha.sg.");
-    process.exit(1);
+  const commitErrors = validateCommitEmails(commitEmailLines());
+
+  if (!isCI) {
+    // Local machine: check both config and commit emails
+    const configErrors = validateIdentity(name, email);
+    const errors = [...configErrors, ...commitErrors];
+    if (errors.length > 0) {
+      console.error("git-identity guard failed:");
+      for (const error of errors) console.error(`- ${error}`);
+      console.error("");
+      console.error("Fix config with: git config user.name 'Raviteja' && git config user.email 'ravi@mesha.sg'");
+      console.error("Fix bad commits by amending/rebasing so author and committer emails are @mesha.sg.");
+      process.exit(1);
+    }
+    console.log(`git-identity guard passed: ${name} <${email}>`);
+  } else {
+    // CI runner: only check commit emails (runner config is empty)
+    if (commitErrors.length > 0) {
+      console.error("git-identity guard failed:");
+      for (const error of commitErrors) console.error(`- ${error}`);
+      console.error("");
+      console.error("Fix bad commits by amending/rebasing so author and committer emails are @mesha.sg.");
+      process.exit(1);
+    }
+    console.log("git-identity guard passed (CI mode: commit emails validated)");
   }
-  console.log(`git-identity guard passed: ${name} <${email}>`);
 }
 
 main();
