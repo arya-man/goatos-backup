@@ -682,20 +682,38 @@ func (r fakeRepo) VaccinationExecutionCarrySummary(context.Context, domain.Execu
 	return r.carryLines, nil
 }
 
-func (r fakeRepo) VaccinationExecutionCardSummaries(_ context.Context, _ domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error) {
+func (r fakeRepo) VaccinationExecutionCardSummaries(_ context.Context, q domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
-	// Compute summaries from ALL rows (not paginated subset).
+	// Compute summaries from FILTERED rows matching the page query's filter predicates.
 	// This is the whole-filter aggregate that the SQL GROUP BY will do.
-	// Convert ExecutionProjection rows to ExecutionRow and compute summaries.
+	// Convert ExecutionProjection rows to ExecutionRow, apply filters, and compute summaries.
 	var execRows []domain.ExecutionRow
 	for _, p := range r.rows {
-		q := domain.ExecutionQuery{
-			TenantID:  "tenant",
-			AsOf:      time.Now(),
-			DueBefore: time.Now().Add(30 * 24 * time.Hour),
+		// Apply the same filters as the page query:
+		// 1. work_state filter
+		if q.WorkState != nil {
+			if workStateFromProjection(p, q) != *q.WorkState {
+				continue
+			}
 		}
+		// 2. severity filter
+		if q.Severity != nil {
+			state := workStateFromProjection(p, q)
+			sev := severity(state)
+			if sev != *q.Severity {
+				continue
+			}
+		}
+		// 3. open-only filter (if OpenOnly is true, skip completed/deferred/missed rows)
+		if q.OpenOnly {
+			state := workStateFromProjection(p, q)
+			if state == domain.WorkStateCompleted || state == domain.WorkStateDeferred || state == domain.WorkStateMissed {
+				continue
+			}
+		}
+		// Row passed filters; convert to ExecutionRow
 		row := rowFromProjection(p, q)
 		execRows = append(execRows, row)
 	}
@@ -1055,6 +1073,117 @@ func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
 	}
 	if summary.OpenCount != wantOpenCount {
 		t.Errorf("OpenCount = %d, want %d (rows 1-10). BUG: aggregates only paginated subset!", summary.OpenCount, wantOpenCount)
+	}
+}
+
+// TestCardSummaryRespectsWorkStateFilter verifies that card summaries respect work_state filters.
+// A card may have rows with different work states (e.g., completed and overdue). When filtering by
+// work_state, the summary must count ONLY rows matching that filter, not all rows in the card.
+// RED test: card has 6 rows: 3 completed (done=1) + 3 overdue (done=0). Filter by work_state=overdue.
+// Page shows 3 rows, summary must show TargetCount=3 (only overdue), DoneCount=0, OpenCount=3.
+func TestCardSummaryRespectsWorkStateFilter(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	pastDue := asOf.Add(-24 * time.Hour)    // Overdue date
+	futureDue := asOf.Add(24 * time.Hour)   // Due (not overdue)
+	shedID := "shed-work-filter"
+	batchID := "batch-work-filter"
+
+	// Create 6 rows for ONE card (same shed, batch):
+	// Rows 1-3: completed (DueCount=0, CompletedCount=1, done_count=1)
+	// Rows 4-6: overdue (DueCount=0, CompletedCount=0, done_count=0, due date in past)
+	rows := make([]domain.ExecutionProjection, 0, 6)
+
+	// Add 3 completed rows
+	for i := 1; i <= 3; i++ {
+		operator := fmt.Sprintf("Operator %d", i)
+		p := projection(shedID, futureDue, 1, func(p *domain.ExecutionProjection) {
+			p.ShedID = shedID
+			p.BatchID = &batchID
+			p.OperatorName = &operator
+			p.ObligationCount = 1
+			p.DoneCount = 1
+			p.CompletedCount = 1
+			p.DueCount = 0
+			p.CompletionAccepted = 1
+		})
+		rows = append(rows, p)
+	}
+
+	// Add 3 overdue rows (due in past, not completed)
+	for i := 4; i <= 6; i++ {
+		operator := fmt.Sprintf("Operator %d", i)
+		p := projection(shedID, pastDue, 1, func(p *domain.ExecutionProjection) {
+			p.ShedID = shedID
+			p.BatchID = &batchID
+			p.OperatorName = &operator
+			p.ObligationCount = 1
+			p.DoneCount = 0
+			p.CompletedCount = 0
+			p.DueCount = 0
+			p.CompletionAccepted = 0
+		})
+		rows = append(rows, p)
+	}
+
+	// Use paginating fake repo
+	fakeRepoImpl := &paginatingFakeRepo{fakeRepo: fakeRepo{rows: rows}}
+	svc := NewService(fakeRepoImpl)
+
+	// Request page with work_state filter = overdue
+	overdue := domain.WorkStateOverdue
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     10,
+		WorkState: &overdue,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage() error = %v", err)
+	}
+
+	// Page should have only 3 rows (the overdue ones, not the completed ones)
+	if len(resp.Rows) != 3 {
+		t.Fatalf("got %d rows on page 1, want 3 (only overdue)", len(resp.Rows))
+	}
+
+	// Verify all returned rows are overdue
+	for i, row := range resp.Rows {
+		if row.WorkState != domain.WorkStateOverdue {
+			t.Errorf("row %d workState = %q, want overdue", i, row.WorkState)
+		}
+	}
+
+	// The critical check: card summary MUST reflect ONLY the 3 overdue rows, not all 6.
+	if resp.CardSummaries == nil {
+		t.Fatal("CardSummaries should not be nil")
+	}
+
+	cardID := domain.BuildCardID(shedID, "whole", "", batchID, "")
+	summary, ok := resp.CardSummaries[cardID]
+	if !ok {
+		t.Fatalf("card %q not found in summaries", cardID)
+	}
+
+	// CRITICAL: Card summary must reflect ONLY the work_state-filtered rows.
+	// Expected after fix: TargetCount=3 (overdue rows), DoneCount=0 (none are done), OpenCount=3
+	// Expected before fix (BROKEN): TargetCount=6 (all rows) or TargetCount=1 (aggregation bug)
+	t.Logf("Card summary: target=%d done=%d open=%d (filtered by work_state=overdue)", summary.TargetCount, summary.DoneCount, summary.OpenCount)
+
+	wantTargetCount := 3 // Only 3 overdue rows
+	wantDoneCount := 0   // None of the overdue rows are done
+	wantOpenCount := 3   // All 3 overdue rows are open
+
+	if summary.TargetCount != wantTargetCount {
+		t.Errorf("TargetCount = %d, want %d (only overdue rows). BUG: summary includes completed rows outside filter!", summary.TargetCount, wantTargetCount)
+	}
+	if summary.DoneCount != wantDoneCount {
+		t.Errorf("DoneCount = %d, want %d", summary.DoneCount, wantDoneCount)
+	}
+	if summary.OpenCount != wantOpenCount {
+		t.Errorf("OpenCount = %d, want %d", summary.OpenCount, wantOpenCount)
 	}
 }
 
