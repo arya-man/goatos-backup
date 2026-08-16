@@ -6156,6 +6156,43 @@ export interface components {
             totalCount: number;
             nextCursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
+            /** @description Authoritative per-card summaries (status, counts, vaccine groups) keyed by execution card ID. Page-independent: computed from all rows matching the query, not from paginated subsets. Ensures correct status when rows straddle page boundaries. */
+            cardSummaries?: {
+                [key: string]: components["schemas"]["ShedCardSummary"];
+            };
+        };
+        VaccineGroupSummary: {
+            /** @description Display label for the vaccine group */
+            label: string;
+            /** @description True if all animals done and none pending redo */
+            full: boolean;
+        };
+        ShedCardSummary: {
+            /** Format: uuid */
+            shedId: string;
+            /** @description Partition identifier if present (null for "whole" shed) */
+            partitionLabel?: string | null;
+            /** Format: uuid */
+            taskId?: string | null;
+            /** Format: uuid */
+            batchId?: string | null;
+            /** Format: uuid */
+            driveId?: string | null;
+            /**
+             * @description Authoritative card status computed from all rows. Client maps: rejected→SENT_BACK, overdue→DELAYED, completed→DONE, due→PENDING
+             * @enum {string}
+             */
+            status: "due" | "overdue" | "missed" | "blocked" | "rejected" | "in_progress" | "proof_pending" | "verification_pending" | "completed";
+            /** @description Max doneCount across all rows for this card */
+            doneCount: number;
+            /** @description Max targetCount across all rows for this card */
+            targetCount: number;
+            /** @description Max openCount across all rows for this card */
+            openCount: number;
+            /** @description True if any row has work sent back (rejected/deferred) */
+            needsRedo: boolean;
+            /** @description Per-vaccine group summaries for this card */
+            vaccineGroups: components["schemas"]["VaccineGroupSummary"][];
         };
         VaccinationOperationsProtocol: {
             /** Format: uuid */
