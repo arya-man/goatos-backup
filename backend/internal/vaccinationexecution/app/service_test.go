@@ -1021,7 +1021,7 @@ func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
 	}
 
 	// Build the expected card ID
-	cardID := buildCardID(shedID, "whole", "", batchID, "")
+	cardID := domain.BuildCardID(shedID, "whole", "", batchID, "")
 	summary, ok := resp.CardSummaries[cardID]
 	if !ok {
 		t.Fatalf("card %q not found in summaries. available cards: %v", cardID, len(resp.CardSummaries))

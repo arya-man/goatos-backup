@@ -161,9 +161,9 @@ func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain
 		key := cardKey{
 			shedID:         r.ShedID,
 			partitionLabel: partition,
-			taskID:         ptrToString(r.SOPTaskID),
-			batchID:        ptrToString(r.BatchID),
-			driveID:        ptrToString(r.DriveID),
+			taskID:         domain.StringOrEmpty(r.SOPTaskID),
+			batchID:        domain.StringOrEmpty(r.BatchID),
+			driveID:        domain.StringOrEmpty(r.DriveID),
 		}
 		cardGroups[key] = append(cardGroups[key], r)
 	}
@@ -172,7 +172,7 @@ func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain
 	summaries := make(map[string]*domain.ShedCardSummary)
 	for key, cardRows := range cardGroups {
 		summary := summarizeCardFromRows(cardRows, key.partitionLabel)
-		cardID := buildCardID(key.shedID, key.partitionLabel, key.taskID, key.batchID, key.driveID)
+		cardID := domain.BuildCardID(key.shedID, key.partitionLabel, key.taskID, key.batchID, key.driveID)
 		summaries[cardID] = summary
 	}
 	return summaries
@@ -194,9 +194,9 @@ func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *d
 
 	// Aggregate counts and redo state across all rows: SUM for counts (not max), ANY for redo state.
 	for idx, r := range rows {
-		targetCount += r.TargetCount       // SUM: total obligations across all rows
-		totalDone += r.DoneCount           // SUM: total done across all rows
-		totalOpen += r.OpenCount           // SUM: total open across all rows
+		targetCount += r.TargetCount // SUM: total obligations across all rows
+		totalDone += r.DoneCount     // SUM: total done across all rows
+		totalOpen += r.OpenCount     // SUM: total open across all rows
 
 		// Check if any row needs redo (rejected/deferred)
 		if r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred {
@@ -265,36 +265,6 @@ func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *d
 		NeedsRedo:      hasRedo,
 		VaccineGroups:  vaccineGroups,
 	}
-}
-
-func buildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string {
-	sb := strings.Builder{}
-	sb.WriteString("shed:")
-	sb.WriteString(shedID)
-	sb.WriteString("|partition:")
-	if partitionLabel != "" && partitionLabel != "whole" {
-		sb.WriteString(partitionLabel)
-	} else {
-		sb.WriteString("whole")
-	}
-	if taskID != "" {
-		sb.WriteString("|task:")
-		sb.WriteString(taskID)
-	} else if batchID != "" {
-		sb.WriteString("|batch:")
-		sb.WriteString(batchID)
-	} else if driveID != "" {
-		sb.WriteString("|drive:")
-		sb.WriteString(driveID)
-	}
-	return sb.String()
-}
-
-func ptrToString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
 
 func maxInt(a, b int) int {
