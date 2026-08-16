@@ -1,7 +1,23 @@
 import { test, describe } from 'node:test';
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 
 describe('command-board-view enrichDriveOptions partition handling', () => {
+  test('shed vaccine drawer title should use operational location display', () => {
+    const source = readFileSync(new URL('./command-board-view.tsx', import.meta.url), 'utf8');
+
+    assert.match(
+      source,
+      /selectedShedVaccine\.operational_location_display \|\| operationalLocationLabel\(/,
+      'drawer title must render the clicked partition label, not the parent shedName only',
+    );
+    assert.doesNotMatch(
+      source,
+      /<h3>\s*\{\s*selectedShedVaccine\.shedName\s*\}\s*·/s,
+      'parent shedName-only title regresses Mandela 2 - Part 8 into Mandela 2',
+    );
+  });
+
   test('enrichDriveOptions should key by shedId + partition_label to avoid count collapse', () => {
     // Simulates two partitions of Castro with different animal counts
     const matrixCells = [

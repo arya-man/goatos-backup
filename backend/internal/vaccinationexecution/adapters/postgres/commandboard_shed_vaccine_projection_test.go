@@ -310,6 +310,68 @@ func TestVaccinationCommandBoardShedVaccineStatusMatrixEveryStatusStatusBuckets(
 	}
 }
 
+func TestVaccinationCommandBoardShedVaccineAnimalListIgnoresStalePartitionFromOtherShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000aa"
+	parkID := uuidFromSuffix("01", "g10a")
+	shedID := uuidFromSuffix("02", "g10a")
+	staleParkID := uuidFromSuffix("01", "g10b")
+	staleShedID := uuidFromSuffix("02", "g10b")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "g10")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Mandela 2")
+	seedCommandBoardPark(t, ctx, pool, tenantID, staleParkID, staleShedID, "Yashoda")
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "g10d"), "sel-a", "GOAT_POX")
+
+	asOf := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	goatID := uuidFromSuffix("03", "g10a")
+	seedBareGoat(t, ctx, pool, tenantID, shedID, goatID, uuidFromSuffix("0a", "g10a"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, goatID,
+		uuidFromSuffix("08", "g10a"), "missed", asOf.Add(-3*24*time.Hour), "stale-partition")
+
+	// A stale per-goat partition row from a previous shed must not re-key the animal drawer list.
+	// The aggregate query already joins gsp.shed_id = goats.shed_id; the drilldown query must use
+	// the same scope or the red cell opens with a title from one shed and animal evidence from
+	// another partition.
+	execProjectionSQL(t, ctx, pool, "stale partition row",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, 'Part 8', 'Yashoda - Part 8')`,
+		tenantID, goatID, staleShedID)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+	var cell *domain.CommandBoardShedVaccineCell
+	for i := range resp.ShedVaccineMatrix {
+		candidate := &resp.ShedVaccineMatrix[i]
+		if candidate.ShedID == shedID && candidate.VaccineCode == "GOAT_POX" {
+			cell = candidate
+			break
+		}
+	}
+	if cell == nil {
+		t.Fatalf("missing current-shed GOAT_POX cell")
+	}
+	if cell.OperationalLocationDisplay != "Mandela 2" {
+		t.Fatalf("cell display = %q, want current shed without stale partition", cell.OperationalLocationDisplay)
+	}
+	if cell.BehindAnimals != 1 {
+		t.Fatalf("behindAnimals = %d, want 1", cell.BehindAnimals)
+	}
+	if len(cell.FlaggedAnimals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1; stale partition re-keyed the drawer list away from the clicked cell", len(cell.FlaggedAnimals))
+	}
+	if got := cell.FlaggedAnimals[0].PartitionLabel; got != "" {
+		t.Fatalf("flagged partitionLabel = %q, want empty because the only partition row belongs to another shed", got)
+	}
+}
+
 // shedVaccineCellsByCode reads the board and indexes its shed x vaccine cells by vaccine code.
 // Every test here seeds exactly one shed, so code alone identifies a cell.
 func shedVaccineCellsByCode(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time) map[string]domain.CommandBoardShedVaccineCell {
