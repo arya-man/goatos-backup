@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
@@ -69,6 +70,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     private val drafts: CaptureDraftRepository,
     private val feedRepository: FeedRepository,
+    private val feedCompletionStore: FeedCompletionLocalStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -401,6 +403,11 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, result.value)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+                    // Mark this pen-session as submitted for review immediately so the ViewModel overlay
+                    // will render it as pending_verification even before the server processes the queued submit.
+                    feedCompletionStore.markSubmittedForReview(
+                        FeedCompletionLocalStore.key(shedId, partitionLabel.ifBlank { null }, sessionNo, workflow)
+                    )
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_PACKING_SUBMITTED)
                     _state.update { it.copy(canComplete = false) }
