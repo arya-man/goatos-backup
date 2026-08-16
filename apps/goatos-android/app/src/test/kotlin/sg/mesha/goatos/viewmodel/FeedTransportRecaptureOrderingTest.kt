@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -61,6 +62,7 @@ class FeedTransportRecaptureOrderingTest {
         sync = RecordingFeedTransportOrderingSyncRepository(),
         capture = proofSource,
         proofCaptureRepository = proofCaptureRepository,
+        feedCompletionStore = FeedCompletionLocalStore(),
         drafts = drafts,
         analytics = RecordingAnalytics(),
         crashReporter = NoopCrashReporter(),

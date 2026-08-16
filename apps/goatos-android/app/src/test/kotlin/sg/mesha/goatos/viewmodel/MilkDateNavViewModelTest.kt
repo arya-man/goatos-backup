@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
@@ -122,7 +123,7 @@ class MilkDateNavViewModelTest {
     fun `milk feeding NavigateDate re-subscribes repo observe with the new date`() = runTest(dispatcher) {
         val repo = TrackingMilkFeedingRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkFeedingListViewModel(repo = repo, drafts = drafts)
+        val viewModel = MilkFeedingListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -146,7 +147,7 @@ class MilkDateNavViewModelTest {
     fun `milk feeding date label drops the Today prefix once navigated away`() = runTest(dispatcher) {
         val repo = TrackingMilkFeedingRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkFeedingListViewModel(repo = repo, drafts = drafts)
+        val viewModel = MilkFeedingListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -168,7 +169,7 @@ class MilkDateNavViewModelTest {
     fun `milk feeding NavigateDate is clamped at today`() = runTest(dispatcher) {
         val repo = TrackingMilkFeedingRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkFeedingListViewModel(repo = repo, drafts = drafts)
+        val viewModel = MilkFeedingListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
