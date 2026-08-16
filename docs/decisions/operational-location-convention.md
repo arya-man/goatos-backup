@@ -61,12 +61,19 @@ Normalize partition labels at the database layer. The `locations` table stores o
 
 User-facing surfaces ALWAYS show the partition when one exists:
 
-- No partition (NULL / '' / 'whole') → Display the plain shed name: `Yashoda`, `Castro 1`, `Ho Chi Minh 1`
-- Has partition → Display `shed_name - partition_label`: `Godel 1 - Part 3`, `Mandela 2 - Part 1`
+- No partition (NULL / '' / 'whole') → Display the plain shed name: `Yashoda`, `Ho Chi Minh 1`
+- Bare numeric partition → Space separator: `Castro 1`, `Gandhi 2`, `Castro 3` (the farm's physical shed names, as painted on buildings)
+- Worded partition → Dash separator: `Godel 1 - Part 3`, `Mandela 1 - Part 1`, `Mandela 2 - Part 10`
+
+**Separator rule (maintainer decision 2026-08-16, clarifying farm's real-world naming):**
+- Bare numerals use SPACE because `Castro 1`, `Gandhi 2`, etc. ARE the real names painted on the farm's sheds — not a display formatting choice.
+- Worded labels use " - " (space-dash-space) for visual boundary: `Godel 1 - Part 3` is unambiguous. Without the dash, `Godel 1` + `Part 3` = `Godel 1 Part 3` loses semantic clarity.
+- On live STG data 98 of 130 destination options (75%) have digit-terminated shed names. The space form for numerics stays unambiguous ONLY because the worded convention always uses " - ", signaling to the reader "what follows is a partition label, not part of the shed name."
 
 **NEVER render:**
 - `Yashoda whole` — `'whole'` is a matching key for queries, never copy for users
 - `Godel 1 1` — result of naive space-numeric join (worked example of what breaks)
+- `Castro - 1` — dash form for numeric partitions (contradicts the farm's physical naming)
 - Shed name alone when a partition exists (e.g., `Godel 1` without the partition) — **always carry both halves**
 
 **Both halves must always be read together.** Rendering the display requires BOTH `shed_id` (and its display name) AND `partition_label` in the response struct.
@@ -161,14 +168,14 @@ SELECT DisplayName(shed_name, partition_label) AS location_display
 
 ## Storage vs. Product Semantics
 
-This is the maintainer's critical insight (2026-08-05):
+This is the maintainer's critical insight (2026-08-05, clarified 2026-08-16):
 
 | Layer | Meaning | Example |
 |-------|---------|---------|
 | **Storage** (backend database) | Normalization for querying efficiency | `shed_name='Castro'` + `partition_label='2'` |
-| **Product** (user-facing surfaces) | ALWAYS show both when partition exists | `Castro - 2` (for numeric suffix) or `Godel 1 - Part 3` (for prefixed) |
+| **Product** (user-facing surfaces) | ALWAYS show both when partition exists | `Castro 2` (numeric: space, farm's real name) or `Godel 1 - Part 3` (worded: dash, visual boundary) |
 
-Both halves must always be read together when working on location-bearing features.
+Both halves must always be read together when working on location-bearing features. The numeric form `Castro 2` is not a formatting choice — it reproduces the actual shed name an operator sees and uses every day.
 
 ---
 
@@ -330,7 +337,8 @@ This workspace has multiple checkouts (`<another checkout>`, `<this repo>`, revi
 - **2026-08-03:** Weighing screens showed `Godel 1 1` (truncated partition label + shed name).
 - **2026-08-04:** Herd register showed multiple `Godel 1` rows instead of six distinct partitions.
 - **2026-08-05:** Evidence gathering from master registry, BigQuery, and legacy code confirmed three independent sources use dashed form.
-- **2026-08-06:** Full convention codified. Guard added. This ADR written. Do-not-reopen ledger created.
+- **2026-08-06:** Full convention codified (initial version). Guard added. This ADR written. Do-not-reopen ledger created.
 - **2026-08-07:** Session found 15 defects (OL-1..OL-15) across the ~5-handoff chain. Updated AGENTS.md with 10 defect classes and partition-change verification checklist. Added guard check 5 (snapshot staleness). Extended do-not-reopen ledger to include OL-10..OL-15.
+- **2026-08-16:** **SUPERSESSION** — Maintainer clarification: numeric partitions display with SPACE (farm's real physical naming, e.g., "Castro 1" as painted on buildings), not dashed form. Prefixed/worded partitions use dash for visual boundary (e.g., "Godel 1 - Part 3"). Updated Rule 2, storage-vs-product table, worked examples, and all docstrings across Go/TypeScript/Kotlin to reflect this clarification. The separator rule distinguishes two naming conventions at the farm level, not an arbitrary formatting choice.
 
 This decision is FINAL and LOCKED. Any future proposal to relax the partition requirement, allow name-keying, or omit the partition from product display MUST start by explaining why the worked examples no longer apply.

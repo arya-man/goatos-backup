@@ -32,9 +32,11 @@ function isPartitioned(rawPartitionLabel: string | null | undefined): rawPartiti
  * directly instead of calling this helper — it exists for surfaces that only receive
  * the raw shed_name/partition_label pair (e.g. a locally composed row).
  *
- * Separator rules (maintainer decision, 2026-08-14):
- *  - Bare numerals (1, 2, 3): space separator → "Castro 1" (matches physical shed name)
- *  - Worded labels (Part 3): dash separator → "Godel 1 - Part 3" (visual boundary)
+ * Separator rules (maintainer decision, 2026-08-16, clarifying farm's real-world naming):
+ *  - Bare numerals (1, 2, 3): space separator → "Castro 1" — matches the actual shed name
+ *    painted on the building (farm's physical naming, not a formatting choice).
+ *  - Worded labels (Part 3): dash separator → "Godel 1 - Part 3" (visual boundary, since
+ *    75% of live shed names end in digits and "Godel 1 1" would be ambiguous).
  */
 export function operationalLocationLabel({ shedName, partitionLabel, sourceShedName }: OperationalLocationInput): string {
   const shed = (shedName ?? "").trim();
