@@ -293,7 +293,13 @@ class WorkflowDetailViewModel @Inject constructor(
                     ),
                 )
                 previous?.localUri?.let(::deletePrivateDraftFile)
-                analytics.track(AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED)
+                analytics.track(
+                    AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                    mapOf(
+                        AnalyticsEvents.Params.ITEM_ID to workflowId,
+                        AnalyticsEvents.Params.ACTION to "death_draft",
+                    ),
+                )
                 _state.update {
                     it.copy(
                         isCapturingVideo = false,
@@ -331,7 +337,13 @@ class WorkflowDetailViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false, message = "Video upload could not be queued.", isErrorMessage = true) }
                 return@launch
             }
-            analytics.track(AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED)
+            analytics.track(
+                AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                mapOf(
+                    AnalyticsEvents.Params.ITEM_ID to workflowId,
+                    AnalyticsEvents.Params.ACTION to actionId,
+                ),
+            )
             val writeResult = if (answerValue != null) {
                 syncRepository.enqueueWorkflowActionAnswer(
                     groupKey = workflowId,
