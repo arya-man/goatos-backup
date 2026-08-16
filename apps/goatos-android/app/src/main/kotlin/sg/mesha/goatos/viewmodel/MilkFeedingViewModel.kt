@@ -8,6 +8,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -91,6 +93,9 @@ private fun MilkFeedingDraft.restoredFrom(answers: Map<String, String>): MilkFee
         .toMap(),
 )
 
+private val MILK_FEEDING_IST: ZoneId = ZoneId.of("Asia/Kolkata")
+private val MILK_FEEDING_DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
+
 private const val FIELD_TOTAL = "total"
 private const val FIELD_ATTEMPT_1 = "attempt1"
 private const val FIELD_ATTEMPT_2 = "attempt2"
@@ -105,38 +110,74 @@ class MilkFeedingListViewModel @Inject constructor(
     private val repo: MilkFeedingRepository,
     drafts: CaptureDraftRepository,
 ) : ViewModel() {
-    private val feedingDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+    // MutableStateFlow + flatMapLatest re-subscribe, mirroring the MilkPreparationListViewModel
+    // fix: a plain `val` here never re-subscribed repo.observe() when the chevrons were tapped,
+    // which was the device-reported bug (the earlier fix only reached Preparation, not Feeding).
+    private val feedingDate = MutableStateFlow(LocalDate.now(MILK_FEEDING_IST).toString())
     private val refreshing = MutableStateFlow(false)
     private val selectedFilter = MutableStateFlow("all")
-    val state: StateFlow<MilkFeedingListUiState> = combine(
-        repo.observe(feedingDate),
-        refreshing,
-        selectedFilter,
-        // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
-        // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
-        drafts.observeProgress(CaptureFlow.MILK_FEEDING),
-    ) { resource, busy, selected, capturedByTask ->
-        buildMilkFeedingListUi(resource.data, selected, capturedByTask).copy(
-            isRefreshing = busy,
-            lastSyncedAt = resource.lastSyncedAt,
-            isOffline = resource.data == null,
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val state: StateFlow<MilkFeedingListUiState> = feedingDate
+        .flatMapLatest { dateStr ->
+            combine(
+                repo.observe(dateStr),
+                refreshing,
+                selectedFilter,
+                // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
+                // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
+                drafts.observeProgress(CaptureFlow.MILK_FEEDING),
+            ) { resource, busy, selected, capturedByTask ->
+                buildMilkFeedingListUi(resource.data, selected, capturedByTask, selectedDate = dateStr).copy(
+                    isRefreshing = busy,
+                    lastSyncedAt = resource.lastSyncedAt,
+                    isOffline = resource.data == null,
+                )
+            }
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            MilkFeedingListUiState(dateLabel = milkFeedingDateLabel(feedingDate.value)),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MilkFeedingListUiState(dateLabel = feedingDate))
     init { refresh() }
     fun onEvent(event: MilkFeedingListEvent) {
         when (event) {
             MilkFeedingListEvent.Refresh -> refresh()
             is MilkFeedingListEvent.SelectFilter -> selectedFilter.value = event.key
+            is MilkFeedingListEvent.NavigateDate -> navigateDate(event.delta)
             is MilkFeedingListEvent.OpenTask, MilkFeedingListEvent.Back -> Unit
         }
     }
-    private fun refresh() = viewModelScope.launch { refreshing.value = true; repo.refresh(feedingDate); refreshing.value = false }
+
+    /** Business dates are capped at today IST, mirroring WorkflowListViewModel.selectDate — future
+     *  days have no feeding tasks by definition. */
+    private fun navigateDate(delta: Int) {
+        val currentDate = LocalDate.parse(feedingDate.value)
+        val today = LocalDate.now(MILK_FEEDING_IST)
+        val requested = currentDate.plusDays(delta.toLong())
+        val capped = if (requested.isAfter(today)) today else requested
+        if (capped.toString() == feedingDate.value) return
+        feedingDate.value = capped.toString()
+        refresh()
+    }
+
+    private fun refresh() = viewModelScope.launch { refreshing.value = true; repo.refresh(feedingDate.value); refreshing.value = false }
+}
+
+/** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
+ *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
+private fun milkFeedingDateLabel(dateIso: String): String {
+    val parsed = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
+    val label = parsed.format(MILK_FEEDING_DAY_LABEL)
+    return if (dateIso == LocalDate.now(MILK_FEEDING_IST).toString()) "Today · $label" else label
 }
 
 internal fun buildMilkFeedingListUi(
     page: MilkFeedingPageDto?,
     selectedFilter: String,
     capturedByTask: Map<String, Int> = emptyMap(),
+    selectedDate: String = "",
 ): MilkFeedingListUiState {
     val allCards = page?.items.orEmpty()
         // taskId is the same key the detail screen writes its draft under (MilkFeedingViewModel).
@@ -148,10 +189,10 @@ internal fun buildMilkFeedingListUi(
     val counts = allCards.groupingBy { it.status }.eachCount()
     val availableNotSubmitted = allCards.count { it.status == "not_submitted" && it.available }
     val needAction = allCards.count { it.canOpen }
-    val date = page?.feedingDate.orEmpty()
-    val dateLabel = runCatching {
-        "Today · ${LocalDate.parse(date).format(DateTimeFormatter.ofPattern("d MMM"))}"
-    }.getOrDefault(date)
+    // The SELECTED date drives the label, not the page's own feedingDate echo — a page still
+    // carrying yesterday's cached data (offline) must not silently relabel the date the operator
+    // navigated to.
+    val dateLabel = milkFeedingDateLabel(selectedDate.ifBlank { page?.feedingDate.orEmpty() })
     return MilkFeedingListUiState(
         subtitle = "${allCards.size} farm sessions · $needAction need action",
         dateLabel = dateLabel,

@@ -87,7 +87,7 @@ class MilkPreparationListViewModel @Inject constructor(
                 if (page == null) {
                     MilkPreparationListUiState(
                         selectedFilter = selected,
-                        dateLabel = "Today · ${LocalDate.parse(dateStr).format(MILK_DAY_LABEL)}",
+                        dateLabel = milkPreparationDateLabel(dateStr),
                         isRefreshing = sync.isRefreshing,
                         isOffline = sync.isOffline,
                         emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
@@ -104,7 +104,7 @@ class MilkPreparationListViewModel @Inject constructor(
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            MilkPreparationListUiState(dateLabel = "Today · ${LocalDate.now(MILK_IST).format(MILK_DAY_LABEL)}"),
+            MilkPreparationListUiState(dateLabel = milkPreparationDateLabel(selectedDate.value)),
         )
 
     init { refresh() }
@@ -118,10 +118,15 @@ class MilkPreparationListViewModel @Inject constructor(
         }
     }
 
+    /** Business dates are capped at today IST, mirroring WorkflowListViewModel.selectDate — future
+     *  days have no preparation tasks by definition. */
     private fun navigateDate(delta: Int) {
         val currentDate = LocalDate.parse(selectedDate.value)
-        val newDate = currentDate.plusDays(delta.toLong())
-        selectedDate.value = newDate.toString()
+        val today = LocalDate.now(MILK_IST)
+        val requested = currentDate.plusDays(delta.toLong())
+        val capped = if (requested.isAfter(today)) today else requested
+        if (capped.toString() == selectedDate.value) return
+        selectedDate.value = capped.toString()
         refresh()
     }
 
@@ -130,6 +135,14 @@ class MilkPreparationListViewModel @Inject constructor(
         val preparationResult = repo.refresh(selectedDate.value)
         refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
     }
+}
+
+/** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
+ *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
+private fun milkPreparationDateLabel(dateIso: String): String {
+    val parsed = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
+    val label = parsed.format(MILK_DAY_LABEL)
+    return if (dateIso == LocalDate.now(MILK_IST).toString()) "Today · $label" else label
 }
 
 internal fun buildMilkPreparationListUi(
@@ -160,7 +173,10 @@ internal fun buildMilkPreparationListUi(
     val toPrepare = counts[MilkPreparationCardBucket.TO_PREPARE] ?: 0
     return MilkPreparationListUiState(
         subtitle = "${allCards.size} ${if (allCards.size == 1) "farm" else "farms"} · $toPrepare need action",
-        dateLabel = page?.preparationDate.orEmpty().toMilkDateLabel("Today · "),
+        // The SELECTED date drives the label, not the page's own preparationDate echo — a page
+        // still carrying yesterday's cached data (offline) must not silently relabel the date the
+        // operator navigated to.
+        dateLabel = milkPreparationDateLabel(draftDate.ifBlank { page?.preparationDate.orEmpty() }),
         feedingDateLabel = page?.feedingDate?.toMilkDateLabel().orEmpty(),
         chips = listOf(
             MilkPreparationChipUi("all", "All", allCards.size),
