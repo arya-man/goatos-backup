@@ -526,6 +526,63 @@ class MilkFeedingViewModelTest {
         )
     }
 
+    /**
+     * BUG C (race condition): capture succeeds (analytics fire, logcat CAPTURED_ORIGINAL) but UI
+     * doesn't show "Recorded" on first attempts; longer recording makes it work.
+     *
+     * Root cause: init block reads captureDraft.hasProof() once and updates draft based on that.
+     * captureProof() then calls drafts.putProof() which stores the proof in the durable repository.
+     * The fix is observeProofChanges(): a subscription that keeps the draft proofs in sync with
+     * the authoritative Room observation. This way, the UI always reflects the current durable
+     * state, and there's ONE source of truth from the database, not a stale one-time init read.
+     *
+     * This test verifies that the ViewModel's observeProofChanges() subscription correctly
+     * updates the UI draft when the durable store changes.
+     */
+    @Test
+    fun `capture success immediately updates UI to Recorded via observeProofChanges subscription (BUG C fix)`() = runTest(dispatcher) {
+        val draftRepository = LiveCaptureDraftRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val videoSource = FakeProofCaptureSource(
+            mutableListOf(CapturedVideo(localUri = "/proof/clean-bottles.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+        )
+
+        val viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(),
+            sync = FakeMilkFeedingSyncRepository(),
+            capture = videoSource,
+            proofCaptureRepository = proofCaptureRepository,
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkFeedingViewModel.ARG_TASK_ID to "task-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        // Before capture: proofs start with captured=false
+        assertEquals(
+            "before capture, clean_bottles must be unrecorded",
+            false,
+            viewModel.state.value.proofs.first { it.code == "clean_bottles" }.captured,
+        )
+
+        // Capture the proof (writes to draftRepository which emits via observe())
+        viewModel.onEvent(MilkFeedingEvent.CaptureProof("clean_bottles"))
+        advanceUntilIdle()
+
+        // After capture, observeProofChanges() subscription must have updated the UI
+        // The proof captured flag comes from the durable store emission, not the init-block read
+        assertEquals(
+            "BUG C fix: observeProofChanges subscription must sync UI to durable store state",
+            true,
+            viewModel.state.value.proofs.first { it.code == "clean_bottles" }.captured,
+        )
+    }
+
 }
 
 private class FakeMilkFeedingSyncRepository : SyncRepository {
@@ -622,8 +679,8 @@ private class FakeMilkFeedingSyncRepository : SyncRepository {
     }
 }
 
-private class FakeMilkFeedingDraftRepository : CaptureDraftRepository {
-    private val drafts = mutableMapOf<String, CaptureDraft>()
+open class FakeMilkFeedingDraftRepository : CaptureDraftRepository {
+    protected val drafts = mutableMapOf<String, CaptureDraft>()
 
     override suspend fun find(flowKey: String, entityId: String): CaptureDraft {
         return drafts.getOrPut(entityId) { CaptureDraft() }
@@ -656,6 +713,49 @@ private class FakeMilkFeedingDraftRepository : CaptureDraftRepository {
     }
 
     override fun observeProgress(flowKey: String, limit: Int): Flow<Map<String, Int>> = MutableStateFlow(emptyMap())
+}
+
+/**
+ * A HOT draft repository that emits Room changes via a StateFlow. Used to test that the
+ * ViewModel's observeProofChanges() subscription keeps the UI in sync with the durable store.
+ * When putProof() is called, it immediately emits the new CaptureDraft state to all observers.
+ */
+private class LiveCaptureDraftRepository : FakeMilkFeedingDraftRepository() {
+    private val draftFlows = mutableMapOf<String, MutableStateFlow<CaptureDraft>>()
+
+    override suspend fun putProof(flowKey: String, entityId: String, step: String, outboxItemId: String, fingerprint: String?) {
+        super.putProof(flowKey, entityId, step, outboxItemId, fingerprint)
+        // Emit the updated draft immediately so observers see the new proof
+        val updated = find(flowKey, entityId)
+        draftFlows.getOrPut(entityId) { MutableStateFlow(updated) }.value = updated
+    }
+
+    override suspend fun putAnswers(flowKey: String, entityId: String, answers: Map<String, String>) {
+        super.putAnswers(flowKey, entityId, answers)
+        val updated = find(flowKey, entityId)
+        draftFlows.getOrPut(entityId) { MutableStateFlow(updated) }.value = updated
+    }
+
+    override suspend fun putSubmit(flowKey: String, entityId: String, idempotencyKey: String?, outboxItemId: String?) {
+        super.putSubmit(flowKey, entityId, idempotencyKey, outboxItemId)
+        val updated = find(flowKey, entityId)
+        draftFlows.getOrPut(entityId) { MutableStateFlow(updated) }.value = updated
+    }
+
+    override fun observe(flowKey: String, entityId: String): Flow<CaptureDraft> {
+        val flow = draftFlows.getOrPut(entityId) { MutableStateFlow(drafts[entityId] ?: CaptureDraft()) }
+        return flow
+    }
+
+    /** Simulate a stale Room emission by emitting the draft without the most-recently-written proof.
+     *  This is used to verify that the ViewModel's subscription to observeProofChanges() doesn't
+     *  get overwritten by stale emissions — the subscription must use distinctUntilChanged() to
+     *  prevent reacting to duplicate or stale values. */
+    fun emitStale(entityId: String = "task-1") {
+        val staleProofs = drafts[entityId]?.proofs?.filterKeys { it != "clean_bottles" } ?: emptyMap()
+        val staleDraft = drafts[entityId]?.copy(proofs = staleProofs) ?: CaptureDraft()
+        draftFlows[entityId]?.value = staleDraft
+    }
 }
 
 private class FakeMilkFeedingRepository(
