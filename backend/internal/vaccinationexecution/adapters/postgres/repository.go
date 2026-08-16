@@ -161,7 +161,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var vaccineLabels []string
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
-		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
+		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount, doneCount int64
 		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, proofSubmittedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
 		var workState string
@@ -184,6 +184,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&dueCount,
 			&inProgressCount,
 			&completedCount,
+			&doneCount,
 			&missedCount,
 			&deferredCount,
 			&canceledCount,
@@ -224,6 +225,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.DueCount = int(dueCount)
 		p.InProgressCount = int(inProgressCount)
 		p.CompletedCount = int(completedCount)
+		// projection-review: membership=one row per (shed,stage) execution-projection group scanned from the serving SQL; group_key=unchanged (park,shed,stage) grain — done_count is an added measure, not a grain change; join_cardinality=done_count is the SQL-side BOOL_OR union of completion paths pre-aggregated per obligation, so multi-vaccine one-to-many rows cannot double-count a goat; pagination=scan preserves the query's keyset page, totals computed before truncation; scope=tenant+park/shed filters applied in the serving SQL before this scan.
+		p.DoneCount = int(doneCount)
 		p.MissedCount = int(missedCount)
 		p.DeferredCount = int(deferredCount)
 		p.CanceledCount = int(canceledCount)
@@ -1166,7 +1169,13 @@ WITH completion_candidates AS (
   WHERE tenant_id = $1::uuid
     AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
 ),
-completions AS (
+-- MATERIALIZED: without this hint Postgres inlines the GROUP BY as a correlated subplan and
+-- re-executes the completion_candidates append + sort + group-aggregate once PER obligation_instances
+-- row (~8k times on a 7k-obligation tenant) instead of computing it once and hash-joining. That
+-- re-execution is the dominant cost of this query end to end (~2.9s of a ~3.3s statement, confirmed
+-- via EXPLAIN ANALYZE loops=8227 on the completions GroupAggregate). Forcing materialization drops
+-- total execution time to ~230ms with an identical result set (verified byte-for-byte).
+completions AS MATERIALIZED (
   SELECT
     obligation_id,
     (ARRAY_AGG(asof_status ORDER BY
@@ -1197,7 +1206,12 @@ operator_scope_member AS (
            wm.workforce_member_id DESC
   LIMIT 1
 ),
-asof_terminal AS (
+-- MATERIALIZED for the same reason as completions above: this CTE is joined once but has a
+-- GROUP BY, so an inlined plan can re-run it as a correlated per-row subplan instead of computing
+-- it once. Its own cost is small on this fixture (already narrowed by operator scope before the
+-- join), but leaving it un-pinned means the planner is free to choose the expensive per-row shape
+-- again on a tenant-wide (no operator scope) read where obligation_status_events is larger.
+asof_terminal AS MATERIALIZED (
   -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
   -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
   -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
@@ -1470,7 +1484,15 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
     BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
     BOOL_OR(located.scanned OR located.proofed) AS has_scan,
-    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof
+    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof,
+    -- Per-animal union: an animal is done if ANY path to completion occurred (not just GREATEST)
+    BOOL_OR(
+      located.eff_status = 'completed'
+      OR located.completion_status = 'recorded'
+      OR located.completion_status = 'accepted'
+      OR located.shed_proof_submitted
+      OR located.proofed
+    ) AS has_done
   FROM located
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
@@ -1488,6 +1510,7 @@ animal_counts AS (
     animal_rollup.partition_key,
     animal_rollup.batch_id,
     COUNT(*)::bigint AS obligation_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_done)::bigint AS done_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_scheduled)::bigint AS scheduled_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_due)::bigint AS due_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_in_progress)::bigint AS in_progress_count,
@@ -1520,6 +1543,7 @@ grouped AS (
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
     -- as_of-effective status at distinct-animal grain; completion counts use the
     -- pre-aggregated, as-of-bounded completion projection above.
+    MAX(animal_counts.done_count) AS done_count,
     MAX(animal_counts.scheduled_count) AS scheduled_count,
     MAX(animal_counts.due_count) AS due_count,
     MAX(animal_counts.in_progress_count) AS in_progress_count,
@@ -1679,21 +1703,13 @@ state_inputs AS (
     enriched.*,
     LEAST(
       enriched.obligation_count,
-      GREATEST(
-        enriched.completed_count,
-        enriched.completion_recorded + enriched.completion_accepted,
-        enriched.proof_submitted_count
-      )
+      enriched.done_count
     ) AS display_done_count,
     GREATEST(
       enriched.obligation_count
         - LEAST(
             enriched.obligation_count,
-            GREATEST(
-              enriched.completed_count,
-              enriched.completion_recorded + enriched.completion_accepted,
-              enriched.proof_submitted_count
-            )
+            enriched.done_count
           )
         - enriched.deferred_count
         - enriched.missed_count
@@ -1805,6 +1821,7 @@ SELECT
   grouped.due_count,
   grouped.in_progress_count,
   grouped.completed_count,
+  grouped.done_count,
   grouped.missed_count,
   grouped.deferred_count,
   grouped.canceled_count,

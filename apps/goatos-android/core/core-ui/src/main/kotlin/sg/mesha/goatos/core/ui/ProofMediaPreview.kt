@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +41,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import java.io.IOException
+import java.net.URL
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -54,7 +59,23 @@ fun ProofMediaPreview(path: String, kind: ProofMediaPreviewKind, modifier: Modif
 @Composable
 private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val bitmap = remember(path) {
+    val isRemote = path.startsWith("http://") || path.startsWith("https://")
+    // Local decode stays synchronous (small local files, unchanged behavior); a REMOTE preview must
+    // never touch the network on the composing thread (NetworkOnMainThreadException), so it loads
+    // via produceState on Dispatchers.IO and falls back to the icon-only state on any failure.
+    val remoteBitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = path) {
+        if (isRemote) {
+            value = withContext(Dispatchers.IO) {
+                try {
+                    URL(path).openStream().use(BitmapFactory::decodeStream)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+    val isLoading = isRemote && remoteBitmap == null
+    val bitmap = if (isRemote) remoteBitmap else remember(path) {
         try {
             val uri = Uri.parse(path)
             when (uri.scheme) {
@@ -71,13 +92,20 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
             null
         }
     }
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
-        )
+    Box(
+        modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
+        }
     }
 }
 
@@ -159,10 +187,12 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
 @Composable
 private fun ProofVideoPoster(path: String) {
     val context = LocalContext.current
-    val bitmap = remember(path) {
+    val isRemote = path.startsWith("http://") || path.startsWith("https://")
+    // Remote posters pull the frame over the network — never on the composing thread.
+    fun extractFrame(): android.graphics.Bitmap? {
         val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(context, Uri.parse(path))
+        return try {
+            if (isRemote) retriever.setDataSource(path, emptyMap()) else retriever.setDataSource(context, Uri.parse(path))
             retriever.getFrameAtTime(500_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: retriever.frameAtTime
         } catch (_: RuntimeException) {
@@ -173,6 +203,10 @@ private fun ProofVideoPoster(path: String) {
             retriever.release()
         }
     }
+    val remotePoster by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = path) {
+        if (isRemote) value = withContext(Dispatchers.IO) { extractFrame() }
+    }
+    val bitmap = if (isRemote) remotePoster else remember(path) { extractFrame() }
     if (bitmap != null) {
         Image(
             bitmap = bitmap.asImageBitmap(),

@@ -62,6 +62,14 @@ data class VaccinationExecutionRowDto(
     @SerialName("sopVersionId") val sopVersionId: String? = null,
     @SerialName("sopTaskRowVersion") val sopTaskRowVersion: Int? = null,
     @SerialName("completionId") val completionId: String? = null,
+    // Backend-owned lock gate. CORE INVARIANT: only a FINAL SUBMIT locks the card
+    // (operatorCanContinue=false); partial review/proof/verification state never locks while
+    // openCount > 0. Nullable for backward compat with API responses that predate this field --
+    // see opensSubmittedRecordOnly()'s fallback in ShedsViewModel.kt.
+    @SerialName("operatorCanContinue") val operatorCanContinue: Boolean? = null,
+    // Why operatorCanContinue is false, or "none" when it is true: none | final_submitted |
+    // assigned_elsewhere | scheduled_later.
+    @SerialName("operatorLockedReason") val operatorLockedReason: String? = null,
 )
 
 /**

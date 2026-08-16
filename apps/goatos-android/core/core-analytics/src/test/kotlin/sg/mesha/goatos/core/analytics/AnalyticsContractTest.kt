@@ -36,6 +36,10 @@ class AnalyticsContractTest {
         assertEquals("feed_transport_video_captured", AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED)
         assertEquals("feed_transport_submitted", AnalyticsEvents.FEED_TRANSPORT_SUBMITTED)
         assertEquals("feed_transport_failure", AnalyticsEvents.FEED_TRANSPORT_FAILURE)
+        assertEquals("feed_distribution_teammate_captures_read", AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ)
+        assertEquals("feed_distribution_teammate_proof_adopted", AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED)
+        assertEquals("feed_distribution_submit_sources", AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES)
+        assertEquals("feed_distribution_live_status_changed", AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED)
     }
 
     @Test
@@ -52,6 +56,18 @@ class AnalyticsContractTest {
         assertEquals("park_id", AnalyticsEvents.UserProps.PARK_ID)
         assertEquals("flavor", AnalyticsEvents.UserProps.FLAVOR)
         assertEquals("tenant", AnalyticsEvents.UserProps.TENANT)
+        assertEquals("result", AnalyticsEvents.Params.RESULT)
+        assertEquals("slot_mask", AnalyticsEvents.Params.SLOT_MASK)
+        assertEquals("retry_count", AnalyticsEvents.Params.RETRY_COUNT)
+        assertEquals("source", AnalyticsEvents.Params.SOURCE)
+        assertEquals("local_slot_state", AnalyticsEvents.Params.LOCAL_SLOT_STATE)
+        assertEquals("feed_weight_source", AnalyticsEvents.Params.FEED_WEIGHT_SOURCE)
+        assertEquals("feed_video_source", AnalyticsEvents.Params.FEED_VIDEO_SOURCE)
+        assertEquals("water_video_source", AnalyticsEvents.Params.WATER_VIDEO_SOURCE)
+        assertEquals("previous", AnalyticsEvents.Params.PREVIOUS)
+        assertEquals("next", AnalyticsEvents.Params.NEXT)
+        assertEquals("status", AnalyticsEvents.Params.STATUS)
+        assertEquals("kind", AnalyticsEvents.Params.KIND)
     }
 
     @Test
@@ -97,6 +113,10 @@ class AnalyticsContractTest {
                 AnalyticsEvents.Params.OUTCOME to "uploaded",
                 AnalyticsEvents.Params.REASON to "ready",
                 "feature_surface" to "feed_packing",
+                // Backend-mirror-only diagnostics: dropped from the Firebase envelope in the P1
+                // fix so the allowlist fits GA4's real 25-param hard cap (see
+                // FIREBASE_MAX_EVENT_PARAMS's comment). BackendAnalyticsAdapter still receives all
+                // of these via the full, uncapped props map -- only the Firebase mirror is compact.
                 "capture_source" to "camera",
                 "mime_type" to "video/mp4",
                 "processing_state" to "processed",
@@ -126,14 +146,22 @@ class AnalyticsContractTest {
         assertEquals("proof-1", params["proof_id"])
         assertEquals("feed_packing_video", params["field_key"])
         assertEquals("RFID-123", params["rfid_tag"])
-        assertEquals("RFID-123", params[AnalyticsEvents.Params.RFID])
         assertEquals("uploaded", params[AnalyticsEvents.Params.OUTCOME])
         assertEquals("ready", params[AnalyticsEvents.Params.REASON])
         assertEquals("feed_packing", params["feature_surface"])
         assertEquals("processed", params["processing_state"])
-        assertEquals("1_5mb", params["processed_size_bucket"])
         assertEquals("synced", params["proof_upload_status"])
         assertEquals("retrying", params["submit_status"])
+        // Dropped-from-Firebase diagnostics: still not backfilled from arbitrary props.
+        assertNull("Params.RFID is a duplicate of rfid_tag; dropped to stay within the 25-cap", params[AnalyticsEvents.Params.RFID])
+        assertNull(params["capture_source"])
+        assertNull(params["mime_type"])
+        assertNull(params["processing_attempt"])
+        assertNull(params["upload_original"])
+        assertNull(params["location_status"])
+        assertNull(params["geocoder_status"])
+        assertNull(params["original_size_bucket"])
+        assertNull(params["processed_size_bucket"])
         assertNull(params["attempt_count"])
         assertNull(params["max_attempts"])
         assertNull(params["subject_id"])
@@ -145,5 +173,104 @@ class AnalyticsContractTest {
         assertNull(params["input_height"])
         assertNull(params["object_key"])
         assertNull(params["random_future_param"])
+    }
+
+    @Test
+    fun `firebase event params keep the surviving proof-flow telemetry params within the 25-cap`() {
+        // P1 fix (2026-08-15): FIREBASE_MAX_EVENT_PARAMS is a HARD 25 -- GA4's own platform
+        // ceiling, not just a locally-chosen budget. To fit the proof-flow params (split-operator
+        // slot info, submit source, retry/failure reason, live-status transition) within that cap,
+        // feed_video_source and water_video_source were dropped from the Firebase envelope
+        // (feed_weight_source alone represents the "which slot source" diagnostic there); the full
+        // triple still reaches the backend mirror via BackendAnalyticsAdapter on the same call
+        // site. This test proves the adapter output actually contains every SURVIVING param, not
+        // just that the constants exist, and that the two dropped ones are genuinely dropped.
+        val params = firebaseEventParams(
+            mapOf(
+                AnalyticsEvents.Params.RESULT to "success_slots",
+                AnalyticsEvents.Params.SLOT_MASK to "weight_feed",
+                AnalyticsEvents.Params.RETRY_COUNT to "2",
+                AnalyticsEvents.Params.SOURCE to "sync_tap",
+                AnalyticsEvents.Params.LOCAL_SLOT_STATE to "local_present",
+                AnalyticsEvents.Params.FEED_WEIGHT_SOURCE to "local_outbox",
+                AnalyticsEvents.Params.FEED_VIDEO_SOURCE to "server_ref",
+                AnalyticsEvents.Params.WATER_VIDEO_SOURCE to "missing",
+                AnalyticsEvents.Params.PREVIOUS to "editable",
+                AnalyticsEvents.Params.NEXT to "readonly",
+                AnalyticsEvents.Params.STATUS to "pending_verification",
+                AnalyticsEvents.Params.KIND to "birth",
+            ),
+        )
+
+        assertTrue(params.size <= FIREBASE_MAX_EVENT_PARAMS)
+        assertEquals("success_slots", params[AnalyticsEvents.Params.RESULT])
+        assertEquals("weight_feed", params[AnalyticsEvents.Params.SLOT_MASK])
+        assertEquals("2", params[AnalyticsEvents.Params.RETRY_COUNT])
+        assertEquals("sync_tap", params[AnalyticsEvents.Params.SOURCE])
+        assertEquals("local_present", params[AnalyticsEvents.Params.LOCAL_SLOT_STATE])
+        assertEquals("local_outbox", params[AnalyticsEvents.Params.FEED_WEIGHT_SOURCE])
+        assertEquals("editable", params[AnalyticsEvents.Params.PREVIOUS])
+        assertEquals("readonly", params[AnalyticsEvents.Params.NEXT])
+        assertEquals("pending_verification", params[AnalyticsEvents.Params.STATUS])
+        assertEquals("birth", params[AnalyticsEvents.Params.KIND])
+        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.FEED_VIDEO_SOURCE])
+        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.WATER_VIDEO_SOURCE])
+    }
+
+    @Test
+    fun `every firebase event stays within GA4's hard 25-param cap`() {
+        // GA4 enforces this ceiling platform-side, unconditionally: every param past the 25th on
+        // a single logged event is silently dropped at ingestion, with no client-visible error.
+        // Every declared event in AnalyticsEvents flows through the SAME firebaseEventParams
+        // filter (FirebaseAnalyticsAdapter.track), so proving the filter's own upper bound proves
+        // it for every event without needing to enumerate call sites individually.
+        assertTrue(
+            "FIREBASE_MAX_EVENT_PARAMS must not exceed GA4's real platform cap of 25",
+            FIREBASE_MAX_EVENT_PARAMS <= 25,
+        )
+
+        // Saturate with every allowlisted key (plus decoys, which must never be picked up) to
+        // prove the bound holds even when a caller supplies more params than the cap allows.
+        val saturatedProps = buildMap {
+            put(AnalyticsEvents.Params.DEVICE_ID, "v")
+            put(AnalyticsEvents.Params.JOURNEY_ID, "v")
+            put(AnalyticsEvents.UserProps.ROLE, "v")
+            put(AnalyticsEvents.UserProps.PRIMARY_PARK, "v")
+            put("proof_id", "v")
+            put("task_id", "v")
+            put("field_key", "v")
+            put("feature_surface", "v")
+            put("rfid_tag", "v")
+            put(AnalyticsEvents.Params.OUTCOME, "v")
+            put(AnalyticsEvents.Params.REASON, "v")
+            put("processing_state", "v")
+            put("duration_bucket", "v")
+            put("proof_upload_status", "v")
+            put("submit_status", "v")
+            put(AnalyticsEvents.Params.RESULT, "v")
+            put(AnalyticsEvents.Params.SLOT_MASK, "v")
+            put(AnalyticsEvents.Params.RETRY_COUNT, "v")
+            put(AnalyticsEvents.Params.SOURCE, "v")
+            put(AnalyticsEvents.Params.LOCAL_SLOT_STATE, "v")
+            put(AnalyticsEvents.Params.FEED_WEIGHT_SOURCE, "v")
+            put(AnalyticsEvents.Params.PREVIOUS, "v")
+            put(AnalyticsEvents.Params.NEXT, "v")
+            put(AnalyticsEvents.Params.STATUS, "v")
+            put(AnalyticsEvents.Params.KIND, "v")
+            repeat(50) { i -> put("decoy_param_$i", "should never be picked up") }
+        }
+
+        for (event in listOf(
+            AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ,
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES,
+            AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED,
+            AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
+            AnalyticsEvents.WEIGHING_SUBMIT_SUCCESS,
+        )) {
+            // event name does not affect firebaseEventParams -- it uses one shared allowlist for
+            // every event -- but iterating declared events documents the guarantee applies to all.
+            val params = firebaseEventParams(saturatedProps)
+            assertTrue("event=$event produced ${params.size} params, exceeding the 25-cap", params.size <= 25)
+        }
     }
 }

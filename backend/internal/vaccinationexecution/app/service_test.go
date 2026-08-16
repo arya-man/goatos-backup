@@ -423,8 +423,9 @@ func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedPr
 	if len(got) != 2 {
 		t.Fatalf("got %d rows want 2", len(got))
 	}
+	// With openCount=1 (1 animal done, 1 still open), state stays in_progress even with proof submitted
 	if got[0].WorkState != domain.WorkStateInProgress || got[0].ProofStatus != domain.ProofStatusUploaded {
-		t.Fatalf("partially proofed shed state/proof = %q/%q want in_progress/uploaded", got[0].WorkState, got[0].ProofStatus)
+		t.Fatalf("partially proofed shed state/proof = %q/%q want in_progress/uploaded (openCount=1)", got[0].WorkState, got[0].ProofStatus)
 	}
 	if got[0].PrimaryActionKey != "scan" {
 		t.Fatalf("partially proofed shed primaryActionKey = %q want scan", got[0].PrimaryActionKey)
@@ -775,6 +776,111 @@ func TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone(t *testing.T) {
 }
 
 // Value receiver: this fake is used as a struct value, not a pointer.
+// TestVaccinationCardLockInvariant_NeedsReviewWithOpenWork reproduces the field bug: a card at
+// target=17 done=11 open=6, mixed needs_review/pending/verification_pending state, with no final
+// submission. CORE INVARIANT: this MUST NOT lock the card.
+func TestVaccinationCardLockInvariant_NeedsReviewWithOpenWork(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    17,
+		CompletedCount:     11,
+		DoneCount:          11,
+		CompletionRecorded: 11, // proofed, awaiting verdict (needs_review)
+		CompletionAccepted: 0,
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 6 {
+		t.Fatalf("openCount = %d, want 6", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateVerificationPending)
+	if !canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want true (reason=%s)", canContinue, reason)
+	}
+	if reason != "none" {
+		t.Fatalf("OperatorLockedReason = %q, want %q", reason, "none")
+	}
+}
+
+// TestVaccinationCardLockInvariant_FinalSubmit covers the genuinely locked case: target=17
+// done=17 open=0, all completions accepted (a real final submission). MUST lock the card.
+func TestVaccinationCardLockInvariant_FinalSubmit(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    17,
+		CompletedCount:     17,
+		DoneCount:          17,
+		CompletionRecorded: 0,
+		CompletionAccepted: 17,
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 0 {
+		t.Fatalf("openCount = %d, want 0", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateCompleted)
+	if canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want false", canContinue)
+	}
+	if reason != "final_submitted" {
+		t.Fatalf("OperatorLockedReason = %q, want %q", reason, "final_submitted")
+	}
+}
+
+// TestVaccinationCardLockInvariant_AllProofedNotFinalized covers the drive-close loop state:
+// All animals proofed (done_count = obligation_count) but not finalized submission yet.
+// Card should be UNLOCKED so operator can finalize the submission.
+func TestVaccinationCardLockInvariant_AllProofedNotFinalized(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    10,
+		CompletedCount:     0,  // No direct completion path
+		DoneCount:          10, // All done via proof
+		CompletionRecorded: 10, // All proofed, awaiting finalization
+		CompletionAccepted: 0,  // None finalized yet
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 0 {
+		t.Fatalf("openCount = %d, want 0 (all proofed)", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateVerificationPending)
+	if !canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want true for all-proofed-not-finalized (reason=%s)", canContinue, reason)
+	}
+	if reason != "none" {
+		t.Fatalf("OperatorLockedReason = %q, want %q for all-proofed state", reason, "none")
+	}
+}
+
+// TestVaccinationCardLockInvariant_FinalizedAllAccepted covers the locked case with all completions accepted.
+// This is a true final submission: all work done, all proofs verified and accepted.
+// Card is LOCKED with reason="final_submitted".
+func TestVaccinationCardLockInvariant_FinalizedAllAccepted(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    10,
+		CompletedCount:     0,
+		DoneCount:          10,
+		CompletionRecorded: 0,  // All verified
+		CompletionAccepted: 10, // All accepted
+		CompletionRejected: 0,
+		OperatorName:       strPtr("Amit"),
+	}
+	_, openCount, _ := executionDisplayCounts(p)
+	if openCount != 0 {
+		t.Fatalf("openCount = %d, want 0", openCount)
+	}
+	canContinue, reason := computeOperatorLockState(p, openCount, domain.WorkStateCompleted)
+	if canContinue {
+		t.Fatalf("OperatorCanContinue = %v, want false for finalized+accepted card", canContinue)
+	}
+	if reason != "final_submitted" {
+		t.Fatalf("OperatorLockedReason = %q, want %q for finalized+accepted", reason, "final_submitted")
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
 func (fakeRepo) ListAlerts(
 	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
 ) (domain.AlertPage, error) {

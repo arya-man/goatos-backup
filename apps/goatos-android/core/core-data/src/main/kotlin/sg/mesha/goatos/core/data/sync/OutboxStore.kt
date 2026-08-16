@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.ActiveOutboxCounts
 
 /**
  * Persistence port for the outbox. [SyncEngine] and [SyncRepository] talk to this, never to
@@ -17,11 +18,33 @@ interface OutboxStore {
     suspend fun insert(entity: OutboxEntity)
     suspend fun findById(id: String): OutboxEntity?
     suspend fun findByIdempotencyKey(key: String): OutboxEntity?
+
+    /** The single most recent row for (groupKey, opType) through EVERY status, including
+     *  terminal SUCCEEDED. See [sg.mesha.goatos.core.database.outbox.OutboxDao.findLatestForGroupAndOpType]
+     *  — use this, never [findByIdempotencyKey], to answer "is there an outstanding/landed write
+     *  for this scope" when the idempotency key can rotate out from under a landed row (weighing
+     *  scope-submit epoch). */
+    suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity?
+
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
     /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, non-conflict FAILED) — never includes
-     *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance. */
+     *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance.
+     *
+     *  DEPRECATED: Use [observeActiveCounts] for counts-only UI (most use case) or
+     *  [observeActiveWindow] for a bounded list. Full materialization violates bounded-memory rules. */
     fun observeActive(): Flow<List<OutboxEntity>>
+
+    /** Observes aggregate counts of active items (QUEUED, IN_FLIGHT, FAILED) without materializing
+     *  rows. Used for sync-status badges and health monitoring. Emits on any change in counts. */
+    fun observeActiveCounts(): Flow<ActiveOutboxCounts>
+
+    /** Observes a bounded window of active rows (newest-first, max [limit] rows). Use this
+     *  instead of [observeActive] when displaying a subset for UI. */
+    fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>>
+
+    /** Complete active set for ONE op type — reconciliation guards need the FULL per-feature set. */
+    fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>>
 
     /** Bounded active writes for one ordering group and selected operation types. */
     suspend fun findActiveForGroup(
@@ -96,8 +119,13 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun insert(entity: OutboxEntity) = dao.insert(entity)
     override suspend fun findById(id: String): OutboxEntity? = dao.findById(id)
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity? =
+        dao.findLatestForGroupAndOpType(groupKey, opType)
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
+    override fun observeActiveCounts(): Flow<ActiveOutboxCounts> = dao.observeActiveCounts()
+    override fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>> = dao.observeActiveByOpType(opType)
+    override fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>> = dao.observeActiveWindow(limit)
     override suspend fun findActiveForGroup(
         groupKey: String,
         opTypes: List<String>,
@@ -169,16 +197,24 @@ private const val OUTBOX_STORE_TAG = "GoatOsOutboxStore"
  *  [activeRows] is QUEUED/IN_FLIGHT/non-conflict-FAILED (never SUCCEEDED).
  *  [recentTerminals] is a bounded window of SUCCEEDED and conflict-FAILED for UI context.
  *  [recentTerminals] MUST be pre-sorted by recency (descending updatedAt) from the DAO. */
-fun toSyncStatus(activeRows: List<OutboxEntity>, recentTerminals: List<OutboxEntity>, online: Boolean): SyncStatus {
+fun toSyncStatus(
+    activeRows: List<OutboxEntity>,
+    recentTerminals: List<OutboxEntity>,
+    online: Boolean,
+    /** TRUE totals from the SQL aggregate. The windowed [activeRows] list undercounts once the
+     *  active set exceeds the window (judge finding 2026-08-15); counts must come from here when
+     *  available. Null only in legacy tests — falls back to counting the list. */
+    activeCounts: ActiveOutboxCounts? = null,
+): SyncStatus {
     val activeItems = activeRows.map { it.toSyncQueueItem() }
     val recentItems = recentTerminals.map { it.toSyncQueueItem() }
     val allItems = activeItems + recentItems
 
     return SyncStatus(
         online = online,
-        pendingCount = activeItems.count { it.status == SyncItemStatus.QUEUED },
-        inFlightCount = activeItems.count { it.status == SyncItemStatus.IN_FLIGHT },
-        failedCount = activeItems.count { it.status == SyncItemStatus.FAILED },
+        pendingCount = activeCounts?.queued ?: activeItems.count { it.status == SyncItemStatus.QUEUED },
+        inFlightCount = activeCounts?.inFlight ?: activeItems.count { it.status == SyncItemStatus.IN_FLIGHT },
+        failedCount = activeCounts?.failed ?: activeItems.count { it.status == SyncItemStatus.FAILED },
         deadLetterCount = recentItems.count { it.isDeadLetter }, // Dead-letter is terminal, so only in recent
         lastSyncAt = recentItems.filter { it.status == SyncItemStatus.SUCCEEDED }.maxOfOrNull { it.updatedAt },
         items = allItems,

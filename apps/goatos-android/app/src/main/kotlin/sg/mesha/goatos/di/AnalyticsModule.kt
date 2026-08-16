@@ -66,4 +66,13 @@ object AnalyticsModule {
             appVersionName = BuildConfig.VERSION_NAME
             appVersionCode = BuildConfig.VERSION_CODE.toString()
         }
+
+    @Provides
+    @Singleton
+    fun provideBackendAnalyticsAdapter(
+        appApi: Provider<AppApi>,
+        appScope: CoroutineScope,
+        analyticsContext: AnalyticsContext,
+    ): BackendAnalyticsAdapter =
+        BackendAnalyticsAdapter(appApi, appScope, analyticsContext)
 }

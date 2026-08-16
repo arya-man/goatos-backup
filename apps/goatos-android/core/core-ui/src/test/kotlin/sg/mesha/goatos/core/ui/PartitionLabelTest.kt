@@ -64,23 +64,25 @@ class OperationalLocationLabelTest {
     }
 
     @Test
-    fun `numeric partition uses dash format`() {
-        assertEquals("Castro - 2", operationalLocationLabel("Castro", "2"))
-        assertEquals("Castro - 1", operationalLocationLabel("Castro", "1"))
-        assertEquals("Godel 1 - 5", operationalLocationLabel("Godel 1", "5"))
+    fun `bare numeric partition uses space format`() {
+        assertEquals("Castro 2", operationalLocationLabel("Castro", "2"))
+        assertEquals("Castro 1", operationalLocationLabel("Castro", "1"))
+        assertEquals("Godel 1 5", operationalLocationLabel("Godel 1", "5"))
     }
 
     /**
-     * The reason the separator changed (2026-08-06). A shed NAME that itself ends in a digit made
-     * the old space form unreadable: "Godel 1" + "1" rendered "Godel 1 1", and "Godel 1" + "10"
-     * rendered "Godel 1 10", which cannot be parsed back into shed + partition by eye. This was
-     * 98 of 130 live STG destination options (75%), not an edge case.
+     * Separator rule (2026-08-14): bare numerals use space (farm's physical naming), worded labels
+     * use dash (visual boundary). Even for digit-terminated shed names like "Godel 1", the space form
+     * stays unambiguous because "Part" prefix only appears for worded labels, so the reader knows
+     * "Godel 1 1" means partition 1 (not a shed named "Godel 1 1" or worded "Godel 1 - Part 1").
      */
     @Test
-    fun `digit-terminated shed names stay readable`() {
-        assertEquals("Godel 1 - 1", operationalLocationLabel("Godel 1", "1"))
-        assertEquals("Godel 1 - 10", operationalLocationLabel("Godel 1", "10"))
-        assertEquals("Sumathi 2 - 7", operationalLocationLabel("Sumathi 2", "7"))
+    fun `bare numerals use space, worded labels use dash`() {
+        assertEquals("Godel 1 1", operationalLocationLabel("Godel 1", "1"))
+        assertEquals("Godel 1 10", operationalLocationLabel("Godel 1", "10"))
+        assertEquals("Sumathi 2 7", operationalLocationLabel("Sumathi 2", "7"))
+        // Worded labels keep the dash.
+        assertEquals("Godel 1 - Part 1", operationalLocationLabel("Godel 1", "Part 1"))
     }
 
     @Test
@@ -118,9 +120,9 @@ class OperationalLocationLabelTest {
         // misleading: Yashoda is an undivided shed (AGENTS.md Rule 2), so feeding it a
         // partition asserts a shape the farm does not have. The formatter output was
         // right either way -- the FIXTURE implied a partitioned Yashoda, which is how a
-        // reader comes to believe `Yashoda - 2` is a real label. It is not; `Yashoda 2`
+        // reader comes to believe `Yashoda 2` is a real partition. It is not; `Yashoda 2`
         // is simply that shed's whole name.
-        assertEquals("Godel 1 - 2", operationalLocationLabel("  Godel 1  ", "  2  "))
+        assertEquals("Godel 1 2", operationalLocationLabel("  Godel 1  ", "  2  "))
         assertEquals("Godel 1 - Part 3", operationalLocationLabel("  Godel 1  ", "  Part 3  "))
     }
 
@@ -179,7 +181,7 @@ private val goldenFixture = listOf(
         shedId = "shed-castro-cbe",
         shedName = "Castro",
         partitionLabel = "2",
-        want = "Castro - 2",
+        want = "Castro 2",
     ),
     GoldenFixtureRow(
         name = "undivided shed, no partition",
@@ -214,14 +216,14 @@ private val goldenFixture = listOf(
         shedId = "shed-castro-cbe",
         shedName = "Castro",
         partitionLabel = "1",
-        want = "Castro - 1",
+        want = "Castro 1",
     ),
     GoldenFixtureRow(
         name = "two same-named sheds, different parks -- CPT",
         shedId = "shed-castro-cpt",
         shedName = "Castro",
         partitionLabel = "1",
-        want = "Castro - 1",
+        want = "Castro 1",
     ),
 )
 

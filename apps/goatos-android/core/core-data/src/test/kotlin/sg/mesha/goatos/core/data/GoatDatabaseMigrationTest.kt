@@ -131,6 +131,31 @@ class GoatDatabaseMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `migration 45 to 46 adds nullable supersedesRowId defaulting to null for existing rows`() {
+        helper.createDatabase(DB_NAME, 45).apply {
+            execSQL(
+                "INSERT INTO `proof_capture` " +
+                    "(`id`, `taskId`, `partitionKey`, `fieldKey`, `proofSubject`, `subjectId`, `localUri`, `mimeType`, `caption`, " +
+                    "`capturedAtMs`, `capturedStartMs`, `capturedEndMs`, `capturedByPrincipalId`, `syncStatus`, " +
+                    "`idempotencyKey`, `outboxItemId`, `serverProofId`, `lastError`, `captureSource`, " +
+                    "`scopeType`, `scopeId`, `slotRequired`, `processingState`, `processingAttempted`, " +
+                    "`stateAttempt`, `uploadOriginal`, `updatedAtMs`) " +
+                    "VALUES ('proof-pre-46', 'task-1', 'whole', 'shed_video', 'shed', 'shed-1', 'file://proof.mp4', " +
+                    "'video/mp4', NULL, 1, 1, 2, 'operator-1', 'PENDING', 'proof-key-pre-46', NULL, NULL, NULL, " +
+                    "'in_app_camera', 'shed', 'shed-1', 0, 'CAPTURED_ORIGINAL', 0, 0, 0, 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 46, true, MIGRATION_45_46)
+        db.query("SELECT `supersedesRowId` FROM `proof_capture` WHERE `id`='proof-pre-46'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(true, cursor.isNull(0))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -190,6 +215,11 @@ class GoatDatabaseMigrationTest {
         MIGRATION_39_40.migrate(db)
         MIGRATION_40_41.migrate(db)
         MIGRATION_41_42.migrate(db)
+        MIGRATION_42_43.migrate(db)
+        MIGRATION_43_44.migrate(db)
+        MIGRATION_44_45.migrate(db)
+        MIGRATION_45_46.migrate(db)
+        MIGRATION_46_47.migrate(db)
         return db
     }
 
@@ -208,7 +238,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 40
+        const val CURRENT_VERSION = 47
     }
 }
 

@@ -34,7 +34,7 @@ private val SERVER_DONE_ROSTER_STATUSES = setOf("done", "completed")
  * evidence exists. A sent-back animal WAS scanned -- that is why it has a capture and a
  * scannedAt -- but the verifier refused its proof, so it is work again.
  */
-private val SERVER_OUTSTANDING_ROSTER_STATUSES = setOf("rejected", "due", "pending")
+private val SERVER_OUTSTANDING_ROSTER_STATUSES = setOf("rejected", "due", "pending", "in_progress")
 
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
@@ -190,6 +190,21 @@ interface ExecutionRepository {
         goatIds: List<String>,
         partitionLabel: String? = null,
     ): List<StatusCount>
+
+    /** Debug-fixture support (see sg.mesha.goatos.rfid.DebugSampleTagAliaser, app/src/debug only):
+     *  the still-open (pending/due/in_progress) rows of this scope's roster, one per goat,
+     *  deterministic order. Read-only; unused in release builds. */
+    suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String? = null): List<ScanRosterRowEntity>
+
+    /** Debug-fixture support: the open rows of a NEIGHBORING partition of the same shed, drawn
+     *  from whatever partitions are already cached locally (first sibling scope, by scopeKey
+     *  order, that has open rows). Empty if no sibling partition is cached or none has open rows. */
+    suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String? = null): List<ScanRosterRowEntity>
+
+    /** Debug-fixture support: the open rows of a DIFFERENT shed for the same task, drawn from
+     *  whatever sheds are already cached locally (first other-shed scope, by scopeKey order,
+     *  that has open rows). Empty if no other shed is cached or none has open rows. */
+    suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<ScanRosterRowEntity>
 }
 
 class DefaultExecutionRepository(
@@ -353,6 +368,29 @@ class DefaultExecutionRepository(
     ): List<ScanRosterRowEntity> =
         if (goatIds.isEmpty()) emptyList()
         else scanRosterRowDao.rowsByGoatIds(scanRosterRowScopeKey(shedId, taskId, partitionLabel), goatIds)
+
+    override suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String?): List<ScanRosterRowEntity> =
+        scanRosterRowDao.openRowsForScope(scanRosterRowScopeKey(shedId, taskId, partitionLabel))
+
+    override suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String?): List<ScanRosterRowEntity> {
+        val tid = taskId ?: return emptyList()
+        val activeScopeKey = scanRosterRowScopeKey(shedId, taskId, activePartitionLabel)
+        val siblingScopeKeys = scanRosterRowDao.scopeKeysForShedTask(shedId, tid).filter { it != activeScopeKey }
+        for (scopeKey in siblingScopeKeys) {
+            val rows = scanRosterRowDao.openRowsForScope(scopeKey)
+            if (rows.isNotEmpty()) return rows
+        }
+        return emptyList()
+    }
+
+    override suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<ScanRosterRowEntity> {
+        val tid = taskId ?: return emptyList()
+        for (scopeKey in scanRosterRowDao.scopeKeysForOtherSheds(shedId, tid)) {
+            val rows = scanRosterRowDao.openRowsForScope(scopeKey)
+            if (rows.isNotEmpty()) return rows
+        }
+        return emptyList()
+    }
 
     override suspend fun refreshScanRoster(
         shedId: String,

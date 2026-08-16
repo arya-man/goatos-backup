@@ -387,8 +387,10 @@ object Routes {
     const val FEED_DIRECTION = "/feed/direction"
     const val FEED_PACKING = "/feed/packing"
     const val FEED_TRANSPORT = "/feed/transport"
-    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}"
-    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String,parkLabel:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}&park_label=${Uri.encode(parkLabel)}"
+    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
+    // [lifecycleStatus] is the task's backend-owned status AT THE MOMENT the row was tapped — only a
+    // FIRST-PAINT hint for FeedTransportCaptureViewModel; see its ARG_LIFECYCLE_STATUS kdoc.
+    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String,parkLabel:String,lifecycleStatus:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}&park_label=${Uri.encode(parkLabel)}&lifecycle_status=${Uri.encode(lifecycleStatus)}"
 
     // L2 feed-direction completion detail, reached by tapping a shed-session row on either feed
     // screen. Path args are the completion grain; labels are query args (URL-encoded, may contain
@@ -2421,7 +2423,7 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel,event.row.parkLabel))}else vm.onEvent(event)}}
+        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel,event.row.parkLabel,event.row.status))}else vm.onEvent(event)}}
 
         composable(
             route = Routes.FEED_TRANSPORT_CAPTURE,
@@ -2433,6 +2435,10 @@ fun AppNavHost(
                     defaultValue = ""
                 },
                 navArgument(FeedTransportCaptureViewModel.ARG_PARK_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedTransportCaptureViewModel.ARG_LIFECYCLE_STATUS) {
                     type = NavType.StringType
                     defaultValue = ""
                 },
