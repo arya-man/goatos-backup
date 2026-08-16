@@ -4576,7 +4576,7 @@ FROM per_animal pa
 JOIN goats g ON g.goat_id = pa.target_id AND g.tenant_id = $1::uuid
 LEFT JOIN locations shed ON g.shed_id = shed.location_id AND g.tenant_id = shed.tenant_id
 LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
 -- The animal's REAL identity is its physical tag(s), and an animal may carry two. Same
 -- canonical source and types the shed roster and calendar drawer read, so one animal reads
 -- identically on every surface.
@@ -5407,7 +5407,7 @@ JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 LEFT JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
 WHERE oi.tenant_id = $1::uuid
   AND oi.scope_type = 'shed'
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
