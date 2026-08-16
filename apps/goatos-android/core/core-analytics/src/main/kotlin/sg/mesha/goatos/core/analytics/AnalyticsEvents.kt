@@ -760,6 +760,10 @@ object AnalyticsEvents {
         const val METHOD = "method"
         const val REASON = "reason"
 
+        /** Stable park identifier, event-scoped (unlike [UserProps.PARK_ID], which is a durable
+         *  user property) — e.g. which park a Milk Preparation/Feeding event happened in. */
+        const val PARK_ID = "park_id"
+
         /**
          * Bounded-cardinality request route TEMPLATE (`/app/weighing/campaigns/{id}/sheds`),
          * produced by `TelemetryInterceptor.routeTemplate` — never a raw path.
