@@ -64,8 +64,10 @@ class FeedRowPartitionLabelTest {
         val labelOne = operationalLocationLabel(one.shedLabel, one.partitionLabel)
         val labelTwo = operationalLocationLabel(two.shedLabel, two.partitionLabel)
 
-        assertEquals("Castro - 1", labelOne)
-        assertEquals("Castro - 2", labelTwo)
+        // Canonical pen naming (2026-08-14): bare-numeral partitions join with a SPACE — the
+        // farm calls this pen "Castro 1", never "Castro - 1". Distinctness still holds.
+        assertEquals("Castro 1", labelOne)
+        assertEquals("Castro 2", labelTwo)
         if (labelOne == labelTwo) {
             throw AssertionError("two partitions of one shed rendered identically as $labelOne")
         }

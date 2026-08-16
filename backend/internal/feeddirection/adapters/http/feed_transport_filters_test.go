@@ -33,8 +33,8 @@ func (transportFilterService) CompleteSession(context.Context, app.CompleteSessi
 // multi-operator discovery read.
 func (transportFilterService) ListPenSessionCaptures(
 	context.Context, app.PenSessionCapturesInput,
-) ([]ports.CapturedProofSlot, error) {
-	return nil, nil
+) (app.PenSessionCapturesResult, error) {
+	return app.PenSessionCapturesResult{}, nil
 }
 
 func (transportFilterService) CompleteDistribution(context.Context, app.CompleteDistributionInput) (ports.CompleteDistributionResult, error) {

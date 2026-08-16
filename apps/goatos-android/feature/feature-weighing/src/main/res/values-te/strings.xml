@@ -70,6 +70,7 @@
     <string name="weighing_submit">సమర్పించండి</string>
     <string name="weighing_blocked_saving">మీరు నమోదు చేసినది భద్రపరుస్తున్నాం. ఒక క్షణం ఆగండి.</string>
     <string name="weighing_blocked_no_shed_open">ఈ తూకం నమోదు చేసే ముందు ఒక షెడ్ తెరవండి.</string>
+    <string name="weighing_blocked_already_submitted">ఇప్పటికే సమర్పించారు — ఈ షెడ్ చదవడానికి మాత్రమే.</string>
     <string name="weighing_blocked_need_weight">సమర్పించే ముందు బరువు నమోదు చేయండి.</string>
     <string name="weighing_blocked_need_count">త్రాసుపై ఎన్ని జంతువులు ఉన్నాయో నమోదు చేయండి.</string>
     <string name="weighing_blocked_need_video">సమర్పించే ముందు ఈ తూకం వీడియో రికార్డ్ చేయండి.</string>

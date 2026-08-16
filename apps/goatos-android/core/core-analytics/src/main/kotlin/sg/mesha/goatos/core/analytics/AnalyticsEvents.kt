@@ -461,6 +461,29 @@ object AnalyticsEvents {
     /** A feed-distribution completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_DISTRIBUTION_FAILURE = "feed_distribution_failure"
 
+    /**
+     * A read of ANOTHER operator's server-recorded proof slots for this pen-session completed
+     * (success, empty, a failed attempt, or the retry ladder exhausted). [Params.RESULT],
+     * [Params.SLOT_MASK], [Params.RETRY_COUNT], and [Params.SOURCE] carry the bounded outcome;
+     * richer per-slot detail is backend-mirror-only on the same call site.
+     */
+    const val FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ = "feed_distribution_teammate_captures_read"
+
+    /** A teammate's server proof ref was adopted for a slot this phone had not itself captured.
+     *  [Params.KIND] names the slot; [Params.LOCAL_SLOT_STATE] is always `empty` here (a local
+     *  capture always wins and is never overwritten -- see [adoptTeammateCapture]). */
+    const val FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED = "feed_distribution_teammate_proof_adopted"
+
+    /** Fired alongside [FEED_DISTRIBUTION_SUBMITTED]/[FEED_DISTRIBUTION_SUBMIT_BLOCKED] with the
+     *  per-slot source breakdown ([Params.FEED_WEIGHT_SOURCE]/[Params.FEED_VIDEO_SOURCE]/
+     *  [Params.WATER_VIDEO_SOURCE]) and [Params.RESULT]. */
+    const val FEED_DISTRIBUTION_SUBMIT_SOURCES = "feed_distribution_submit_sources"
+
+    /** The screen's editable/read-only status changed. [Params.SOURCE] is `room`/`server_poll`/
+     *  `sync_tap`; [Params.PREVIOUS]/[Params.NEXT] are `editable`/`readonly`; [Params.STATUS] is
+     *  the underlying lifecycle bucket. */
+    const val FEED_DISTRIBUTION_LIVE_STATUS_CHANGED = "feed_distribution_live_status_changed"
+
     /** The verifier-gated feed-packing completion detail was opened (a Packing row tapped). */
     const val FEED_PACKING_COMPLETE_OPENED = "feed_packing_complete_opened"
 
@@ -495,6 +518,42 @@ object AnalyticsEvents {
 
     /** A feed-transport proof or completion could not be queued. */
     const val FEED_TRANSPORT_FAILURE = "feed_transport_failure"
+
+    /** The milk preparation screen (park's milk processing setup) was opened. */
+    const val MILK_PREPARATION_OPENED = "milk_preparation_opened"
+
+    /** Operator attempted to capture a proof video for a milk preparation step. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT = "milk_preparation_proof_capture_attempt"
+
+    /** A milk preparation proof video was captured successfully. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_SUCCESS = "milk_preparation_proof_capture_success"
+
+    /** A milk preparation proof capture failed or was cancelled. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_FAILURE = "milk_preparation_proof_capture_failure"
+
+    /** Operator submitted milk preparation answers and proofs for verification. */
+    const val MILK_PREPARATION_SUBMITTED = "milk_preparation_submitted"
+
+    /** A milk preparation submission could not be queued. [Params.REASON] carries a coarse cause. */
+    const val MILK_PREPARATION_FAILURE = "milk_preparation_failure"
+
+    /** The milk feeding screen (recording feeding observations) was opened. */
+    const val MILK_FEEDING_OPENED = "milk_feeding_opened"
+
+    /** Operator attempted to capture a proof video for a milk feeding task. */
+    const val MILK_FEEDING_PROOF_CAPTURE_ATTEMPT = "milk_feeding_proof_capture_attempt"
+
+    /** A milk feeding proof video was captured successfully. */
+    const val MILK_FEEDING_PROOF_CAPTURE_SUCCESS = "milk_feeding_proof_capture_success"
+
+    /** A milk feeding proof capture failed or was cancelled. */
+    const val MILK_FEEDING_PROOF_CAPTURE_FAILURE = "milk_feeding_proof_capture_failure"
+
+    /** Operator submitted milk feeding answers and proofs for verification. */
+    const val MILK_FEEDING_SUBMITTED = "milk_feeding_submitted"
+
+    /** A milk feeding submission could not be queued. [Params.REASON] carries a coarse cause. */
+    const val MILK_FEEDING_FAILURE = "milk_feeding_failure"
 
     /**
      * A Birth/Death workflow work list was opened (docs/decisions/birth-death-workflows.md).
@@ -701,6 +760,10 @@ object AnalyticsEvents {
         const val METHOD = "method"
         const val REASON = "reason"
 
+        /** Stable park identifier, event-scoped (unlike [UserProps.PARK_ID], which is a durable
+         *  user property) — e.g. which park a Milk Preparation/Feeding event happened in. */
+        const val PARK_ID = "park_id"
+
         /**
          * Bounded-cardinality request route TEMPLATE (`/app/weighing/campaigns/{id}/sheds`),
          * produced by `TelemetryInterceptor.routeTemplate` — never a raw path.
@@ -829,6 +892,47 @@ object AnalyticsEvents {
          * auto-sessions.
          */
         const val JOURNEY_ID = "journey_id"
+
+        /** Bounded outcome of a read/attempt (`success_slots`/`success_empty`/`failed`/
+         *  `retry_exhausted`/`submitted`/`blocked`, depending on the event). */
+        const val RESULT = "result"
+
+        /** Bitmask-style label of which teammate-captured slots came back (`weight`/`feed`/
+         *  `water`/`weight_feed`/`weight_water`/`feed_water`/`all`/`none`). */
+        const val SLOT_MASK = "slot_mask"
+
+        /** How many retries a bounded retry ladder has attempted so far. */
+        const val RETRY_COUNT = "retry_count"
+
+        /** What triggered a read or a status change (`open`/`sync_tap`/`retry`/`server_poll`/
+         *  `room`, depending on the event). */
+        const val SOURCE = "source"
+
+        /** Whether the local slot was empty or already locally captured when a teammate ref
+         *  arrived (`empty`/`local_present`). */
+        const val LOCAL_SLOT_STATE = "local_slot_state"
+
+        /** Where the feed-weight-photo slot's submitted value came from (`local_outbox`/
+         *  `server_ref`/`missing`). */
+        const val FEED_WEIGHT_SOURCE = "feed_weight_source"
+
+        /** Where the feed-video slot's submitted value came from (`local_outbox`/`server_ref`/
+         *  `missing`). */
+        const val FEED_VIDEO_SOURCE = "feed_video_source"
+
+        /** Where the water-video slot's submitted value came from (`local_outbox`/`server_ref`/
+         *  `missing`). */
+        const val WATER_VIDEO_SOURCE = "water_video_source"
+
+        /** Editable/read-only state before a status change (`editable`/`readonly`). */
+        const val PREVIOUS = "previous"
+
+        /** Editable/read-only state after a status change (`editable`/`readonly`). */
+        const val NEXT = "next"
+
+        /** Coarse lifecycle bucket backing a status change (`open`/`pending_verification`/
+         *  `submitted`/`unknown`). */
+        const val STATUS = "status"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

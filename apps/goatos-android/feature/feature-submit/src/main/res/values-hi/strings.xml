@@ -49,6 +49,7 @@
     <string name="submit_snackbar_succeeded">सबमिशन सिंक किया गया · रिकॉर्ड फाइल पर</string>
     <string name="submit_snackbar_conflict">सर्वर ने सबमिशन को अस्वीकार किया</string>
     <string name="submit_snackbar_dead_letter">सबमिशन विफल — ऑनलाइन होने पर पुनः प्रयास होगा</string>
+    <string name="submit_snackbar_proof_save_failed">वीडियो सेव नहीं हो सका — फिर से रिकॉर्ड करें</string>
     <string name="submit_confirm_title">यह शेड पूरा करें?</string>
     <string name="submit_confirm_body">यह शेड वीडियो जाँच के लिए जाएगा। आप इसे खुद दोबारा नहीं खोल सकते — मैनेजर या डायरेक्टर खोल सकते हैं।</string>
     <string name="submit_confirm_cancel">अभी नहीं</string>

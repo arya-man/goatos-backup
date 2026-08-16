@@ -119,6 +119,15 @@ type ExecutionRow struct {
 	SOPVersionID       *string            `json:"sopVersionId,omitempty"`
 	SOPTaskRowVersion  *int32             `json:"sopTaskRowVersion,omitempty"`
 	CompletionID       *string            `json:"completionId,omitempty"`
+	// OperatorCanContinue is the backend-owned gate for whether tapping this card may still
+	// open the scan/capture flow. CORE INVARIANT: only a FINAL SUBMIT locks the card
+	// (OperatorCanContinue=false). Partial review/proof/verification state NEVER locks the
+	// card while OpenCount > 0, regardless of sopStatus/verificationStatus wording (e.g.
+	// "needs_review" is not itself terminal -- see computeOperatorLockState in service.go).
+	OperatorCanContinue bool `json:"operatorCanContinue"`
+	// OperatorLockedReason names why OperatorCanContinue is false, or "none" when it is true.
+	// One of: none | final_submitted | assigned_elsewhere | scheduled_later.
+	OperatorLockedReason string `json:"operatorLockedReason"`
 }
 
 type ExecutionResponse struct {
@@ -459,6 +468,7 @@ type ExecutionProjection struct {
 	DueCount             int
 	InProgressCount      int
 	CompletedCount       int
+	DoneCount            int
 	MissedCount          int
 	DeferredCount        int
 	CanceledCount        int

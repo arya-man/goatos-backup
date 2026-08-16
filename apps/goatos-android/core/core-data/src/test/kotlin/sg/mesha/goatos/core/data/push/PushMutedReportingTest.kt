@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.data.push
 
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -34,8 +35,10 @@ class PushMutedReportingTest {
             notificationsEnabled = { false },
         )
 
+        // No deviceId yet: registerTokenOnce spends DEVICE_ID_WAIT_ATTEMPTS deferring behind
+        // delay() before it is allowed to register without one — advance past those delays.
         port.registerToken("fcm-token")
-        runCurrent()
+        advanceUntilIdle()
 
         assertEquals(1, api.registerRequests.size)
         assertEquals(false, api.registerRequests.single().notificationsEnabled)
@@ -77,7 +80,7 @@ class PushMutedReportingTest {
         )
 
         port.registerToken("fcm-token")
-        runCurrent()
+        advanceUntilIdle()
 
         assertEquals(null, api.registerRequests.single().notificationsEnabled)
     }

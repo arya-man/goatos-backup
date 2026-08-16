@@ -70,6 +70,7 @@
     <string name="weighing_submit">भेजें</string>
     <string name="weighing_blocked_saving">आपकी दर्ज जानकारी सहेजी जा रही है। एक पल रुकें।</string>
     <string name="weighing_blocked_no_shed_open">यह तौल दर्ज करने से पहले एक शेड खोलें।</string>
+    <string name="weighing_blocked_already_submitted">पहले ही सबमिट हो चुका है — यह शेड केवल पढ़ने के लिए है।</string>
     <string name="weighing_blocked_need_weight">भेजने से पहले वज़न दर्ज करें।</string>
     <string name="weighing_blocked_need_count">तराजू पर कितने पशु थे, वह संख्या दर्ज करें।</string>
     <string name="weighing_blocked_need_video">भेजने से पहले इस तौल का वीडियो रिकॉर्ड करें।</string>

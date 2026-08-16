@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
@@ -147,6 +148,7 @@ import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.push.PushLogoutCleanup
 import sg.mesha.goatos.sync.AndroidForegroundSyncController
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
 
@@ -477,6 +479,11 @@ object AppModule {
 
     @Provides @Singleton fun provideFeedTransportRepository(api: AppApi, database: GoatDatabase): FeedTransportRepository = FeedTransportRepository(api,database)
 
+    /** The narrow live-status surface FeedTransportCaptureViewModel depends on — same singleton
+     *  instance as [provideFeedTransportRepository], bound to its slimmer interface so tests can
+     *  fake just that surface without a real [GoatDatabase]. */
+    @Provides @Singleton fun provideFeedTransportStatusSource(repository: FeedTransportRepository): sg.mesha.goatos.core.data.FeedTransportStatusSource = repository
+
     @Provides
     @Singleton
     fun provideControlTowerRepository(api: AppApi, dao: ControlTowerCacheDao): ControlTowerRepository =
@@ -606,6 +613,7 @@ object AppModule {
         appScope = appScope,
         mediaProcessor = mediaProcessor,
         locationProvider = locationProvider,
+        proofArtifactValidator = FileSystemProofArtifactValidator(),
         galleryProofSaver = MediaStoreGalleryProofSaver(context),
         telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
@@ -714,6 +722,7 @@ object AppModule {
         scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
+        weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
         telemetry = outboxTelemetry,
     )
 
@@ -778,6 +787,7 @@ object AppModule {
         engine: SyncEngine,
         syncRepository: SyncRepository,
         connectivityGate: ConnectivityGate,
+        backendAnalyticsAdapter: BackendAnalyticsAdapter,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
         return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { platformOnline ->
@@ -790,7 +800,10 @@ object AppModule {
             // rendered freshly fetched data.
             val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
-            if (online) appScope.launch { engine.drainOnce() }
+            if (online) appScope.launch {
+                engine.drainOnce()
+                runCatching { backendAnalyticsAdapter.drainQueue() }
+            }
         }
     }
 }

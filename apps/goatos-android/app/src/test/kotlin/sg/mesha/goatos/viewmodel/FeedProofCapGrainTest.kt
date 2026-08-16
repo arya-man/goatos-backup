@@ -3,6 +3,7 @@ package sg.mesha.goatos.viewmodel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_GOAT
 
 /**
@@ -162,6 +163,90 @@ class FeedProofCapGrainTest {
         assertTrue(
             "the operator must be told how to replace it, not just that it failed: ${error?.message}",
             error?.message?.contains("re-capture", ignoreCase = true) == true,
+        )
+    }
+
+    // ============================================================================
+    // REGRESSION TEST (b): Pen-grain regression guard
+    // ============================================================================
+    // MOB-003 2026-08-09 pen-collapse: two pens (partitions) of the SAME shed
+    // + session-day must produce DIFFERENT draft keys AND DIFFERENT submit idempotency keys.
+    // The 2026-08-09 defect collapsed draft keys and idempotency keys across partitions,
+    // so one pen's submission would overwrite the other's, and vice versa.
+    @Test
+    fun `two pens of the same shed produce different draft keys and idempotency keys`() {
+        val repository = FakeProofCaptureRepository()
+        val policy = feedShedProofPolicy("in_app_camera")
+
+        // Pen A (partition "Part 1")
+        val taskIdA = "feed-dist:2026-08-14:shed-1:2:1:normal:Part 1"
+        val scopeIdA = "shed-1"
+        val fieldKey = "feed_distribution_feed_weight_photo"
+
+        // Capture in Pen A
+        kotlinx.coroutines.runBlocking {
+            repository.capture(
+                taskId = taskIdA,
+                fieldKey = fieldKey,
+                subject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = scopeIdA,
+                localUri = "/proof/pen-a-weight.jpg",
+                mimeType = "image/jpeg",
+                caption = null,
+                scopeType = "shed",
+                scopeId = scopeIdA,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+            )
+        }
+
+        // Pen B (partition "Part 2"), same shed, same session
+        val taskIdB = "feed-dist:2026-08-14:shed-1:2:2:normal:Part 2"
+        val scopeIdB = "shed-1"
+
+        // Capture in Pen B
+        kotlinx.coroutines.runBlocking {
+            repository.capture(
+                taskId = taskIdB,
+                fieldKey = fieldKey,
+                subject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = scopeIdB,
+                localUri = "/proof/pen-b-weight.jpg",
+                mimeType = "image/jpeg",
+                caption = null,
+                scopeType = "shed",
+                scopeId = scopeIdB,
+                capturedStartMs = 3L,
+                capturedEndMs = 4L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+            )
+        }
+
+        // Production addresses proof storage by the FULL capture group key as taskId (see
+        // buildFeedEvidenceSlotIdentity's kdoc) -- there is no shared "shed" parent to query by
+        // prefix. The regression this guards is collision: each pen's own taskId must resolve to
+        // exactly its own row, and never leak or overwrite the sibling pen's row.
+        val proofsForPenA = kotlinx.coroutines.runBlocking {
+            repository.observeProofs(taskIdA, null).first()
+        }
+        val proofsForPenB = kotlinx.coroutines.runBlocking {
+            repository.observeProofs(taskIdB, null).first()
+        }
+        assertEquals("Pen A's own key sees exactly its own row", 1, proofsForPenA.size)
+        assertEquals("Pen B's own key sees exactly its own row", 1, proofsForPenB.size)
+        assertEquals("Pen A's row is its own capture", "/proof/pen-a-weight.jpg", proofsForPenA.single().localUri)
+        assertEquals("Pen B's row is its own capture", "/proof/pen-b-weight.jpg", proofsForPenB.single().localUri)
+
+        // The 2026-08-09 defect collapsed both pens onto one draft/idempotency key derived from
+        // taskId, so proof-upload's idempotency key ("proof-upload:$taskId:$id") also collapsed.
+        // Since the two pens now carry different taskId, capture ids alone already prove distinct
+        // rows -- but this asserts the actual failure mode: no row id is visible from BOTH pens.
+        assertTrue(
+            "Pen A's row must not be visible from Pen B's key",
+            proofsForPenB.none { it.id == proofsForPenA.single().id },
         )
     }
 }

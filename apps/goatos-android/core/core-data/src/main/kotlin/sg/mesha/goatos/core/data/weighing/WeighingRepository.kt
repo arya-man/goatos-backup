@@ -23,6 +23,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
@@ -737,11 +739,23 @@ interface WeighingRepository {
         serverProofIds: List<String> = emptyList(),
     )
     suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String)
+    /**
+     * Enqueues the shed SUBMIT transition durably via the outbox and returns the outbox item id
+     * (`AppResult.Ok` = "durably queued", NOT "server confirmed" — callers observe the returned id
+     * via [sg.mesha.goatos.core.data.sync.SyncRepository.observeItem] for the terminal outcome,
+     * exactly like every other outbox-backed submit in this app). A killed process no longer loses
+     * the attempt: the row survives in Room and the sync engine retries it independently of
+     * whether anything is still observing.
+     */
     suspend fun submitIndividualScope(
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
-    ): AppResult<Unit>
+    ): AppResult<String>
+
+    /** Resolves the durable outbox row (if any) for the shed's current submit attempt, so a
+     *  recreated ViewModel can resume observing instead of losing the in-flight submit. */
+    suspend fun findPendingSubmit(campaignId: String, campaignShedId: String): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?>
     suspend fun reopenScope(
         campaignId: String,
         campaignShedId: String,
@@ -830,15 +844,22 @@ class DefaultWeighingRepository(
         // same attempt, and re-applied it -- the exact double-apply this mechanism exists
         // to prevent, crossing transition types instead of repeating within one.
         val scopeId = "$transition:$rawScopeId"
-        val dao = epochDao ?: return "weighing:$transition:$scopeId:" +
-            inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
-        // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
-        // the write and then reads the winner's epoch, so both send the SAME key.
-        dao.insertIfAbsent(
-            WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+        val epoch = epochDao?.let {
+            // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
+            // the write and then reads the winner's epoch, so both send the SAME key.
+            it.insertIfAbsent(
+                WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+            )
+            it.get(scopeId) ?: idGenerator()
+        } ?: inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
+
+        val identity = ProofIdentity(
+            flow = ProofFlow.WEIGHING_SHED,
+            taskId = rawScopeId,
+            transition = transition,
+            transitionEpoch = epoch,
         )
-        val epoch = dao.get(scopeId) ?: idGenerator()
-        return "weighing:$transition:$scopeId:$epoch"
+        return identity.weighingTransitionKey()
     }
 
     /** Called only after the server confirmed the transition, so a failed attempt stays retryable. */
@@ -1986,9 +2007,10 @@ class DefaultWeighingRepository(
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
-    ): AppResult<Unit> =
+    ): AppResult<String> =
         withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            val sync = syncRepository
+                ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
             try {
                 // The key names the ATTEMPT, not the shed's contents. It used to hash only
                 // (campaignId, campaignShedId, scannedIdentifiers), which is byte-identical
@@ -1997,21 +2019,64 @@ class DefaultWeighingRepository(
                 // and wrote nothing, while the phone navigated away as if it had worked. The
                 // operator's rework was silently lost -- the same failure the close/reopen
                 // epoch below exists to prevent. The epoch rotates only after the server
-                // confirms, so retrying an unknown outcome still deduplicates.
+                // confirms (now: only after the outbox row reaches SUCCEEDED, see
+                // SyncEngine.reconcileFeatureSuccess), so retrying an unknown outcome still
+                // deduplicates.
+                //
+                // Previously this made a direct, non-durable HTTP call: a killed process or a
+                // dropped connection mid-call lost the write entirely -- no retry, no record it
+                // was ever attempted, and the operator's confirm tap silently vanished. This now
+                // enqueues onto the SAME durable outbox every other weighing write already uses.
                 val scopeId = "$campaignId:$campaignShedId"
                 val idempotencyKey = transitionIdempotencyKey("submit", scopeId)
-                service.submitWeighingScope(
-                    campaignId,
-                    campaignShedId,
-                    idempotencyKey,
-                    WeighingScopeSubmitRequestDto(scannedIdentifiers),
+                sync.enqueueWeighingScopeSubmit(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    groupKey = campaignShedId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeSubmitRequestDto(scannedIdentifiers),
                 )
-                advanceTransitionEpoch("submit", scopeId)
-                AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't submit weighing shed."), error)
             }
         }
+
+    override suspend fun findPendingSubmit(
+        campaignId: String,
+        campaignShedId: String,
+    ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = withContext(Dispatchers.IO) {
+        val sync = syncRepository
+            ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
+        // MUST find the row by its stable (groupKey, opType) identity, never by re-deriving an
+        // idempotency key from transitionIdempotencyKey(). SyncEngine.reconcileFeatureSuccess
+        // advances the submit epoch the moment this row reaches SUCCEEDED, so a key re-derived
+        // AFTER success is already a DIFFERENT key than the one the succeeded row was written
+        // under -- findOutboxItemByIdempotencyKey would miss it, scopeSubmitted would flip back
+        // to false/null, the screen would unlock, and a re-tap would dispatch a genuinely new
+        // POST under a fresh key against a shed that was already submitted.
+        val result = sync.findLatestOutboxItem(
+            groupKey = campaignShedId,
+            opType = sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT.name,
+        )
+        // groupKey is the shed alone (see enqueueWeighingScopeSubmit's `groupKey = campaignShedId`),
+        // so if the same shed is reused across a LATER, different campaign the latest row by
+        // groupKey could belong to that other campaign. The idempotency key still encodes both
+        // ids ("weighing:submit:submit:$campaignId:$campaignShedId:$epoch" -- see
+        // transitionIdempotencyKey), so cross-check it and treat a mismatch as "no pending
+        // submit for THIS campaign scope" rather than surfacing an unrelated campaign's row.
+        when (result) {
+            is AppResult.Ok -> {
+                val item = result.value
+                val expectedPrefix = "weighing:submit:submit:$campaignId:$campaignShedId:"
+                if (item == null || !item.idempotencyKey.startsWith(expectedPrefix)) {
+                    AppResult.Ok(null)
+                } else {
+                    result
+                }
+            }
+            is AppResult.Err -> result
+        }
+    }
 
     override suspend fun reopenScope(
         campaignId: String,

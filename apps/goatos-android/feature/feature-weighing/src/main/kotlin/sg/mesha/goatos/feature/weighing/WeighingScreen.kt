@@ -174,6 +174,13 @@ data class WeighingUiState(
     val shedProofs: List<WeighingProofUiRow> = emptyList(),
     val showSubmitConfirmation: Boolean = false,
     val hasLoadedOnce: Boolean = false,
+    /**
+     * True once THIS scope's OWN submit is durably queued or done (Room-observed outbox state,
+     * never a transient snapshot or a 409 response) -- see WeighingViewModel.scopeSubmitted /
+     * refreshScopeSubmitted(). Re-entering an already-submitted shed must render read-only from
+     * the first emission, so this is folded into [state] the same way showSubmitConfirmation is.
+     */
+    val isReadOnly: Boolean = false,
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
@@ -202,9 +209,9 @@ data class WeighingUiState(
         else -> 0f
     }
     val canRecordIndividual: Boolean get() =
-        hasScope && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
+        hasScope && !isReadOnly && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
     val canRecordShedPartition: Boolean get() =
-        hasScope && isShedPartition && !actionInFlight &&
+        hasScope && !isReadOnly && isShedPartition && !actionInFlight &&
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
             animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
@@ -221,6 +228,7 @@ data class WeighingUiState(
     @get:StringRes
     val submitBlockedReason: Int? get() = when {
         !hasScope -> R.string.weighing_blocked_no_shed_open
+        isReadOnly -> R.string.weighing_blocked_already_submitted
         !isShedPartition -> individualSubmitBlockedReason
         actionInFlight -> R.string.weighing_blocked_saving
         weightInput.toDoubleOrNull()?.let { it > 0.0 } != true -> R.string.weighing_blocked_need_weight
@@ -1924,6 +1932,7 @@ private fun WeighingLumpSumCapture(
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { onWeightEntryActive(it.isFocused) },
+            isError = state.animalCountInput.isNotBlank() && state.animalCountInput.toIntOrNull()?.let { it > 0 } != true,
         )
         val totalWeight = state.weightInput.toDoubleOrNull()
         val animalCount = state.animalCountInput.toIntOrNull()

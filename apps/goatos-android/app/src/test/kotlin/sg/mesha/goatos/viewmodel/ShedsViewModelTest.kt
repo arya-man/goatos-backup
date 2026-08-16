@@ -370,7 +370,17 @@ class ShedsViewModelTest {
     }
 
     @Test
-    fun `a submitted shed stays record-only even when open count lags`() = runTest(dispatcher) {
+    fun `a submitted shed with lagging open count is NOT locked (card-lock invariant)`() = runTest(dispatcher) {
+        // RECONCILED for the vaccination card-lock invariant (CORE INVARIANT: only a FINAL
+        // SUBMIT locks the card; sopStatus="submitted"/"needs_review" describes evidence state,
+        // not remaining work). This case predates operatorCanContinue: the fake DTO below omits
+        // it, so opensSubmittedRecordOnly() falls back to the openCount guard — and openCount=3
+        // means 3 animals still have no completion evidence, so the card must NOT lock. The old
+        // expectation here (sopStatus="submitted" wins over a stale open count) was exactly the
+        // field bug: a needs_review/submitted card with real open work got refused entry. The
+        // backend-owned field (operatorCanContinue) is now the source of truth in production;
+        // this fallback path only matters for API responses that predate the field, and even
+        // there it must never lock on remaining open work.
         val today = LocalDate.now()
         val repo = FakeShedsPinVmExecutionRepository(
             VaccinationExecutionResponseDto(
@@ -406,10 +416,54 @@ class ShedsViewModelTest {
         val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-submitted" }
         assertTrue("submitted shed must stay visible for review", row != null)
         assertEquals(
-            "submitted/review state must win over stale open counts and block scan re-entry",
-            true,
+            "open work must veto record-only even when sopStatus reads submitted/needs_review",
+            false,
             row!!.opensRecordOnly,
         )
+    }
+
+    @Test
+    fun `a shed with backend operatorCanContinue=false locks even though openCount is stale`() = runTest(dispatcher) {
+        // Backend field wins over any local inference: a genuine final submission
+        // (operatorCanContinue=false, operatorLockedReason=final_submitted) must lock the card
+        // even if a stale openCount value were ever to disagree.
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-final",
+                        shedName = "Castro 1",
+                        parkId = "park-cpt",
+                        parkName = "CPT",
+                        dueDate = today.toString(),
+                        targetCount = 3,
+                        openCount = 0,
+                        doneCount = 3,
+                        acceptedCount = 3,
+                        reviewCount = 0,
+                        workState = "completed",
+                        sopStatus = "accepted",
+                        verificationStatus = "accepted",
+                        operatorCanContinue = false,
+                        operatorLockedReason = "final_submitted",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-final" }
+        assertTrue("finalized shed must stay visible for record", row != null)
+        assertEquals(true, row!!.opensRecordOnly)
     }
 
     @Test
@@ -452,6 +506,49 @@ class ShedsViewModelTest {
             "uploaded proof alone must not lock the card before finalize/submit",
             false,
             row.opensRecordOnly,
+        )
+    }
+
+    @Test
+    fun `verification pending alone without terminal sopStatus must not trigger record-only`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-verification-pending",
+                        shedName = "Test Shed",
+                        parkId = "park-test",
+                        parkName = "Test Park",
+                        dueDate = today.toString(),
+                        targetCount = 5,
+                        openCount = 4,
+                        doneCount = 1,
+                        acceptedCount = 0,
+                        reviewCount = 1,
+                        workState = "in_progress",
+                        sopStatus = "in_progress",
+                        verificationStatus = "pending",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-verification-pending" }
+        assertTrue("partial proof shed must stay on the list", row != null)
+        assertEquals(
+            "verificationStatus=pending alone (partial evidence, no terminal sopStatus) must not lock",
+            false,
+            row!!.opensRecordOnly,
         )
     }
 }
@@ -580,6 +677,16 @@ private class FakeShedsPinVmExecutionRepository(
     ): List<StatusCount> = emptyList()
 
     override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> = emptyList()
+
+    override suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
 }
 
 private class FakeShedsPinVmBootstrapRepository : BootstrapRepository {

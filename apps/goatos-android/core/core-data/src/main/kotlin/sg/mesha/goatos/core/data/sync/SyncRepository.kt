@@ -19,6 +19,7 @@ import sg.mesha.goatos.core.common.OutboxTelemetryReporter
 import sg.mesha.goatos.core.common.OutboxWritePhase
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.ActiveOutboxCounts
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
@@ -34,6 +35,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.security.MessageDigest
 import java.util.UUID
@@ -260,6 +262,21 @@ interface SyncRepository {
         idempotencyKey: String,
         request: WeighingShedObservationRequestDto,
     ): AppResult<String> = AppResult.Err("weighing shed observation sync is not configured")
+
+    /** Enqueues a weighing scope SUBMIT transition (`POST
+     *  /app/weighing/campaigns/{id}/sheds/{id}/submit`), durable and retryable like every other
+     *  outbox write instead of the direct, at-most-once HTTP call this replaced. [groupKey] is the
+     *  campaign-shed id, so two submit attempts for the same shed drain strictly oldest-first.
+     *  [idempotencyKey] MUST be the caller's existing Room-backed transition-epoch key
+     *  (`WeighingRepository.transitionIdempotencyKey`) — never a fresh one per call — so a
+     *  server-committed-but-client-unrecorded retry dedupes instead of double-submitting. */
+    suspend fun enqueueWeighingScopeSubmit(
+        campaignId: String,
+        campaignShedId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    ): AppResult<String> = AppResult.Err("weighing scope submit sync is not configured")
 
     /**
      * Enqueues a Shifting EXECUTION "Mark done" (`POST /app/counts/shifting-events/{id}/complete`) —
@@ -498,6 +515,13 @@ interface SyncRepository {
     suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
         AppResult.Err("Outbox recovery is not available.")
 
+    /** Finds the single most recent outbox row for (groupKey, opType) through EVERY status,
+     *  including terminal SUCCEEDED — unlike [findOutboxItemByIdempotencyKey], this does not key
+     *  off the current idempotency epoch, so it still finds a row whose success already rotated
+     *  the epoch that would derive a different key today (weighing scope-submit). */
+    suspend fun findLatestOutboxItem(groupKey: String, opType: String): AppResult<SyncQueueItem?> =
+        AppResult.Err("Outbox recovery is not available.")
+
     /** Finds one outbox row by id, including terminal rows. Used by local feature stores to
      *  reconcile their Room SSOT after process/activity churn missed a live terminal emission. */
     suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
@@ -537,26 +561,36 @@ class DefaultSyncRepository(
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
     private val _status = MutableStateFlow(SyncStatus.empty(online = onlineFlow.value))
+    private val activeWindowLimit: Int = 20 // Bounded window for memory safety in long offline periods
 
     init {
         appScope.launch {
-            // Observe active rows + fetch recent terminals on changes to update UI.
+            // Observe active rows (bounded window) + fetch recent terminals on changes to update UI.
             // Combines online status with outbox state to produce SyncStatus.
             var activeRows = emptyList<OutboxEntity>()
             var recentTerminals = emptyList<OutboxEntity>()
 
+            var activeCounts: ActiveOutboxCounts? = null
             appScope.launch {
-                store.observeActive().collect { rows ->
+                store.observeActiveWindow(activeWindowLimit).collect { rows ->
                     activeRows = rows
                     recentTerminals = store.observeRecentTerminals(recentTerminalLimit)
-                    _status.value = toSyncStatus(activeRows, recentTerminals, onlineFlow.value)
+                    _status.value = toSyncStatus(activeRows, recentTerminals, onlineFlow.value, activeCounts)
+                }
+            }
+            appScope.launch {
+                // TRUE totals via SQL aggregate — the windowed list undercounts past the window
+                // size, and the badge must never lie about how much work is still pending.
+                store.observeActiveCounts().collect { counts ->
+                    activeCounts = counts
+                    _status.value = toSyncStatus(activeRows, recentTerminals, onlineFlow.value, counts)
                 }
             }
 
             appScope.launch {
                 onlineFlow.collect { online ->
                     // Emit status with updated online flag, using current row state.
-                    _status.value = toSyncStatus(activeRows, recentTerminals, online)
+                    _status.value = toSyncStatus(activeRows, recentTerminals, online, activeCounts)
                 }
             }
         }
@@ -585,7 +619,11 @@ class DefaultSyncRepository(
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
 
     override fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> =
-        store.observeActive()
+        // FULL per-opType active set, never the cross-feature newest-N window: this reconciliation
+        // guard exists so a network refresh cannot erase a still-pending command, and a windowed
+        // read silently drops the oldest pending open once other features queue enough rows
+        // after it (judge finding 2026-08-15).
+        store.observeActiveByOpType(OutboxOpType.HEALTH_CASE_OPEN.name)
             .map { rows -> projectPendingHealthCaseOpens(rows, syncJson) }
             .distinctUntilChanged()
 
@@ -836,6 +874,21 @@ class DefaultSyncRepository(
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(WeighingShedObservationPayload(campaignId = campaignId, request = request)),
+    )
+
+    override suspend fun enqueueWeighingScopeSubmit(
+        campaignId: String,
+        campaignShedId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_SCOPE_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WeighingScopeSubmitPayload(campaignId = campaignId, campaignShedId = campaignShedId, request = request),
+        ),
     )
 
     override suspend fun enqueueShiftingComplete(
@@ -1274,6 +1327,19 @@ class DefaultSyncRepository(
     ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
         try {
             AppResult.Ok(store.findByIdempotencyKey(idempotencyKey)?.toSyncQueueItem())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't recover outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun findLatestOutboxItem(
+        groupKey: String,
+        opType: String,
+    ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
+        try {
+            AppResult.Ok(store.findLatestForGroupAndOpType(groupKey, opType)?.toSyncQueueItem())
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {

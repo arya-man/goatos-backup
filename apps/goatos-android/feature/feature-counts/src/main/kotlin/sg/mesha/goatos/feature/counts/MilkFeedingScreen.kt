@@ -89,6 +89,7 @@ sealed interface MilkFeedingListEvent {
     data object Refresh : MilkFeedingListEvent
     data class SelectFilter(val key: String) : MilkFeedingListEvent
     data class OpenTask(val taskId: String) : MilkFeedingListEvent
+    data class NavigateDate(val delta: Int) : MilkFeedingListEvent
     data object Back : MilkFeedingListEvent
 }
 
@@ -101,7 +102,11 @@ fun MilkFeedingListScreen(state: MilkFeedingListUiState, onEvent: (MilkFeedingLi
             actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(MilkFeedingListEvent.Refresh) }) },
         )
         SyncStatusIndicator(state.isRefreshing, state.lastSyncedAt, state.cards.isNotEmpty(), state.isOffline, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        MilkWorkDateBar(state.dateLabel)
+        MilkWorkDateBar(
+            state.dateLabel,
+            onPreviousDate = { onEvent(MilkFeedingListEvent.NavigateDate(-1)) },
+            onNextDate = { onEvent(MilkFeedingListEvent.NavigateDate(1)) },
+        )
         MilkStatusChips(state.chips, state.selectedFilter) { onEvent(MilkFeedingListEvent.SelectFilter(it)) }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (state.cards.isEmpty() && state.emptyMessage != null) item(key = "empty") {

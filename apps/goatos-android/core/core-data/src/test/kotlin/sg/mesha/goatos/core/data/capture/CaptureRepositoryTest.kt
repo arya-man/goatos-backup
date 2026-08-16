@@ -17,6 +17,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,8 +29,10 @@ import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.database.capture.ProofProcessingState
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.data.sync.GalleryProofSaver
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
@@ -119,6 +122,47 @@ class CaptureRepositoryTest {
                     "scan:task-1:goat_scan:tag001:obligation:ppr:ov3",
                 ),
                 sync.scanCalls.map { it.idempotencyKey },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `enqueuePendingScans recovery replays the row's own obligationRowVersion not ov0`() = runTest {
+        // P1 fix: app/process re-entry after a crash left durable evidence without a matching
+        // outbox row must rebuild the SAME idempotency key the original enqueue would have built —
+        // not the ov0 default — or a reopened/rejected obligation's recovery silently dedupes
+        // against the OLD cycle's key.
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            // Seed a durable scan row directly at the DB layer (simulating: row was written to
+            // Room before the process died, so no matching outbox item exists yet) with a
+            // non-zero obligationRowVersion, as a reopened obligation's row would carry.
+            db.scannedGoatDao().upsertScan(
+                ScannedGoatEntity(
+                    id = "seed-row-1",
+                    taskId = "task-recovery",
+                    partitionKey = "whole",
+                    fieldKey = "goat_scan",
+                    tag = "tag009",
+                    goatId = "goat-9",
+                    obligationId = "ppr",
+                    capturedAtMs = 1_000L,
+                    obligationRowVersion = 9,
+                ),
+            )
+
+            repo.enqueuePendingScans("task-recovery", "goat_scan")
+
+            assertEquals(1, sync.scanCalls.size)
+            assertEquals(
+                "recovery must key off the row's persisted row_version, not the ov0 default",
+                "scan:task-recovery:goat_scan:tag009:obligation:ppr:ov9",
+                sync.scanCalls.single().idempotencyKey,
             )
         } finally {
             db.close()
@@ -406,6 +450,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             repeat(5) { index ->
@@ -575,6 +620,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             val captured = (
                 repo.capture(
@@ -620,6 +666,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -731,6 +778,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -785,6 +833,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             // Drive reconciliation explicitly (awaited) rather than racing the fire-and-forget init.
             repo.reconcileRecoverableUploadsNow()
@@ -819,6 +868,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             repo.observeProofs("task-live-orphan").first()
@@ -1042,7 +1092,11 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `processor failure fallback saves and uploads original once across recovery reenqueues`() = runTest {
+    fun `processor failure leaves proof awaiting operator retry and never auto-uploads the raw original`() = runTest {
+        // P1 fix: processing failure used to fall through to uploadOriginal=true and auto-enqueue
+        // the raw original as completed proof -- an overlay-free capture could then silently
+        // satisfy a compliance proof gate. The new default (no proof_policy opt-in exists) is:
+        // NO enqueue, NO gallery save, state exposes an actionable retry, original stays on disk.
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -1074,33 +1128,46 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
 
-            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
-            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
-            assertEquals("true", sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content)
-            assertEquals("file://original-proof.mp4", db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
+            // NO original upload op enqueued for this required-overlay flow.
+            assertEquals("Corrupt processing must not enqueue any upload", emptyList<String>(), sync.enqueueCalls)
+            assertEquals("Corrupt processing must not save to Gallery either", emptyList<String>(), gallery.paths)
 
-            db.proofCaptureDao().setOutboxItemId(captured.id, null)
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(
+                "State exposes an actionable retry, not a queued original upload",
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                row?.processingState,
+            )
+            assertEquals("uploadOriginal must stay false — nothing is queued", false, row?.uploadOriginal)
+            assertEquals("Original file path preserved (safety kept)", "file://original-proof.mp4", row?.localUri)
+            assertEquals("syncStatus stays PENDING — never FAILED for a processing failure", CaptureSyncStatus.PENDING.name, row?.syncStatus)
+
+            // Startup/process-death recovery must not resurrect the auto-upload either — it is
+            // idempotent through the same AWAITING_RETRY short-circuit, not a second enqueue.
             repo.reconcileRecoverableUploadsNow()
-
-            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
-            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("Recovery must not enqueue the raw original", emptyList<String>(), sync.enqueueCalls)
         } finally {
             db.close()
         }
     }
 
     @Test
-    fun `processor success that reuses original path falls back to original instead of pretending processed`() = runTest {
+    fun `retryUpload re-invokes the processor and succeeds once it recovers`() = runTest {
+        // P1 fix: the only path back from PROCESSING_FAILED_AWAITING_RETRY is an explicit operator
+        // action. retryUpload() resets processingAttempted so prepareFinalArtifact re-runs the
+        // media processor; once it succeeds, registration/upload proceeds normally with the
+        // PROCESSED (overlay-burned) artifact -- never the raw original.
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
             val gallery = RecordingGalleryProofSaver()
-            val processor = RecordingProofMediaProcessor(
-                ProofMediaProcessingResult(
-                    outputUri = "file://original-proof.mp4",
+            val processor = SometimesFailingProofMediaProcessor(
+                failFirst = 1,
+                successResult = ProofMediaProcessingResult(
+                    outputUri = "file://processed-proof.mp4",
                     outputMimeType = "video/mp4",
                     originalBytes = 12_000_000L,
-                    processedBytes = 12_000_000L,
+                    processedBytes = 4_000_000L,
                 ),
             )
             val repo = DefaultProofCaptureRepository(
@@ -1115,14 +1182,14 @@ class CaptureRepositoryTest {
 
             val captured = (
                 repo.capture(
-                    taskId = "task-gallery-invalid-processed",
+                    taskId = "task-retry-processing",
                     fieldKey = "feed_distribution_video",
                     subject = ProofSubject.SHED,
                     localUri = "file://original-proof.mp4",
                     mimeType = "video/mp4",
-                    caption = "Feed direction proof",
+                    caption = null,
                     scopeType = "task",
-                    scopeId = "task-gallery-invalid-processed",
+                    scopeId = "task-retry-processing",
                     capturedStartMs = 1_000L,
                     capturedEndMs = 4_000L,
                     capturedByPrincipalId = "operator-1",
@@ -1130,13 +1197,31 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
 
+            // First attempt failed: awaiting retry, nothing enqueued.
+            assertEquals(
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                db.proofCaptureDao().findById(captured.id)?.processingState,
+            )
+            assertEquals(0, sync.enqueueCalls.size)
+
+            // Operator retries; the processor now succeeds.
+            val retryResult = repo.retryUpload("task-retry-processing", captured.id)
+            assertTrue("Retry succeeds", retryResult is AppResult.Ok)
+
             val row = db.proofCaptureDao().findById(captured.id)
-            assertEquals(listOf("file://original-proof.mp4"), gallery.paths)
-            assertEquals("file://original-proof.mp4", sync.enqueueCalls.single().localFilePath)
-            assertEquals("true", sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content)
-            assertEquals("file://original-proof.mp4", row?.localUri)
-            assertEquals(true, row?.uploadOriginal)
-            assertEquals(null, row?.processedUri)
+            // enqueueRegistrationNow's Ok branch advances processingState to REGISTERING_UPLOAD once
+            // the outbox write is queued (same as any other successful registration) -- the row
+            // still carries the PROCESSED (overlay-burned) artifact's localUri/uploadOriginal, not
+            // the raw original's.
+            assertEquals("Registration succeeded with the processed artifact, not the raw original", ProofProcessingState.REGISTERING_UPLOAD.name, row?.processingState)
+            assertEquals("uploadOriginal must be false for the processed artifact", false, row?.uploadOriginal)
+            assertEquals("file://processed-proof.mp4", row?.localUri)
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals(
+                "false",
+                sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content,
+            )
         } finally {
             db.close()
         }
@@ -1217,6 +1302,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             repo.reconcileRecoverableUploadsNow()
 
@@ -1227,6 +1313,96 @@ class CaptureRepositoryTest {
                 "external_upload",
                 captureSource,
             )
+        } finally {
+            db.close()
+        }
+    }
+
+    /** External review 2026-08-16: a replacement must retire ALL prior active occupants of its
+     *  slot across process death, not just the single persisted supersedesRowId — a prior
+     *  half-finished replacement legitimately leaves TWO old active rows. */
+    @Test
+    fun `recovery retires every older same-slot row once the replacement syncs`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            // TWO stale active occupants of the same slot+subject (an earlier replacement died
+            // mid-retirement), plus the NEW replacement row carrying the supersession marker for
+            // only ONE of them — exactly the state after a process death.
+            db.proofCaptureDao().insert(
+                proofEntity(id = "old-1", taskId = "task-ms", fieldKey = "administration_video", idempotencyKey = "k-old-1"),
+            )
+            db.proofCaptureDao().insert(
+                proofEntity(id = "old-2", taskId = "task-ms", fieldKey = "administration_video", idempotencyKey = "k-old-2"),
+            )
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "new-row", taskId = "task-ms", fieldKey = "administration_video",
+                    idempotencyKey = "k-new", outboxItemId = "outbox-new",
+                ).copy(
+                    supersedesRowId = "old-1",
+                    capturedAtMs = 9_000L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                    serverProofId = "server-proof-new",
+                ),
+            )
+            sync.seed("outbox-new", SyncItemStatus.SUCCEEDED)
+
+            // Fresh repository instance = empty in-memory retirement tickets (post-death).
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            repo.reconcileRecoverableUploadsNow()
+            repo.observeProofs("task-ms", null).first()
+
+            val remaining = db.proofCaptureDao().listForTask("task-ms")
+            assertEquals(
+                "exactly the synced replacement must remain: got ${'$'}{remaining.map { it.id }}",
+                listOf("new-row"),
+                remaining.map { it.id },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    /** Judge finding #5 (2026-08-16): recovery must re-enqueue with the PERSISTED
+     *  uploadGroupKey/clientTaskKey verbatim — values deliberately different from anything the
+     *  fallback derivation would produce, so a fallback regression fails loudly. */
+    @Test
+    fun `startup recovery reuses the persisted upload group key and client task key`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-gk",
+                    taskId = "task-gk",
+                    fieldKey = "administration_video",
+                    idempotencyKey = "proof-upload:task-gk:proof-gk",
+                    uploadGroupKey = "group-original-not-derivable",
+                    clientTaskKey = "ctk-original-not-derivable",
+                ),
+            )
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            repo.reconcileRecoverableUploadsNow()
+
+            val call = sync.enqueueCalls.single()
+            assertEquals("recovery must reuse the persisted group key", "group-original-not-derivable", call.groupKey)
+            val ctk = (call.request.metadata["client_task_key"] as? JsonPrimitive)?.content
+            assertEquals("recovery must reuse the persisted client task key", "ctk-original-not-derivable", ctk)
         } finally {
             db.close()
         }
@@ -1338,6 +1514,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -1389,6 +1566,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -1445,6 +1623,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             val captured = (
                 repo.capture(
@@ -1485,6 +1664,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             val captured = (
@@ -1650,6 +1830,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             // Capture a shed proof (scope_type="shed", scope_id=<shedId>)
@@ -1727,6 +1908,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
             repo.reconcileRecoverableUploadsNow()
 
@@ -1751,6 +1933,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             // Capture a proof
@@ -1823,6 +2006,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
             )
 
             // Capture a proof with its outbox item
@@ -1960,6 +2144,1129 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `one video covers multiple obligations in vaccination contract (animal grain, prove readiness)`() = runTest {
+        // Vaccination contract: One goat with 2 vaccine obligations (e.g., PPR + ET+TT).
+        // One proof video captures both obligations' requirements.
+        // Expectations:
+        // - Roster row grain is animal (ScanProofIdentityTest ensures this)
+        // - Done tracked per obligation underneath (via scanned goat rows)
+        // - Both obligations' submit readiness satisfied by single clip
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val scans = DefaultScanCaptureRepository(
+                db.scannedGoatDao(),
+                syncRepository = sync,
+                dispatchers = unconfinedDispatchers,
+            )
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val taskId = "vax-campaign-1"
+            val goatId = "goat-multi-vacc"
+            val pprObligation = "obl-ppr"
+            val ettObligation = "obl-et-tt"
+            val tag = "C1-901007000504418"
+
+            // Goat scanned for both obligations (different vaccine schedules on same animal)
+            scans.recordScan(
+                taskId = taskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = tag,
+                goatId = goatId,
+                obligationId = pprObligation,
+            )
+            scans.recordScan(
+                taskId = taskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = tag,
+                goatId = goatId,
+                obligationId = ettObligation,
+            )
+
+            // One proof capture for the goat covers both obligations
+            val captureResult = proofs.capture(
+                taskId = taskId,
+                fieldKey = "goat_scan_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = goatId,
+                localUri = "file://multi-vax.mp4",
+                mimeType = "video/mp4",
+                caption = "Vaccination · Multivacc · $tag · PPR+ET+TT",
+                rfidTag = tag,
+                scopeType = "task",
+                scopeId = taskId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = ProofPolicy(
+                    proofMode = "per_goat_video",
+                    subjectScope = "goat",
+                    expectedSubjects = listOf("goat"),
+                    maximumCount = 5,
+                    maximumCountPerSubject = 5,
+                ),
+                partitionLabel = null,
+                awaitUploadEnqueue = false,
+                uploadGroupKey = null,
+            )
+            assertTrue("Proof capture must succeed", captureResult is AppResult.Ok)
+
+            // Both obligations have scanned evidence
+            val allScans = scans.observeAllForTask(taskId).first()
+            assertEquals("Both obligations scanned for same goat", 2, allScans.size)
+            val scannedObligations = allScans.sortedBy { it.obligationId }.map { it.obligationId }
+            assertEquals(
+                listOf(ettObligation, pprObligation),
+                scannedObligations,
+            )
+            assertEquals("Both scans for same goat", listOf(goatId, goatId), allScans.sortedBy { it.obligationId }.map { it.goatId })
+
+            // Roster row grain is animal (one proof for goat, two obligations underneath)
+            val proofCount = proofs.observeProofs(taskId).first().size
+            assertEquals("One proof clip for the goat", 1, proofCount)
+            val singleProof = proofs.observeProofs(taskId).first().single()
+            assertEquals("Proof subject is the goat", goatId, singleProof.subjectId)
+            assertEquals("Proof references tag", tag, singleProof.rfidTag)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `captureReplacingLatest removes only the old row after successful capture`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            // taskId must be the actual identity that'll be used in capture()
+            val shedId = "shed-1"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,  // Use the full groupKey as taskId, like the ViewModels do
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture
+            val first = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", first is AppResult.Ok)
+            val firstId = (first as AppResult.Ok).value.id
+            assertEquals("One proof in slot", 1, proofs.observeProofs(taskId).first().size)
+
+            // Second capture (replace)
+            val second = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///second.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second capture succeeds", second is AppResult.Ok)
+            val secondId = (second as AppResult.Ok).value.id
+
+            // P1 fix: the old row is NOT retired just because the new capture succeeded locally —
+            // it stays active/visible until the new upload reaches SYNCED with a server proof id.
+            val beforeSync = proofs.observeProofs(taskId).first()
+            assertEquals("Old row survives until the new upload is confirmed SYNCED", 2, beforeSync.size)
+            assertTrue("Old row still present pre-sync", beforeSync.any { it.id == firstId })
+
+            sync.completeUpload(db, secondId, "server-proof-second")
+            advanceUntilIdle()
+
+            // Verify exactly one row remains: the new one, now that it reached SYNCED
+            val remaining = proofs.observeProofs(taskId).first()
+            assertEquals("Exactly one proof remains once the replacement is confirmed SYNCED", 1, remaining.size)
+            assertEquals("Remaining proof is the new one", secondId, remaining[0].id)
+            assertEquals("New proof path is second (processed)", "file:///second.mp4.processed", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `captureReplacingLatest removes all two pre-existing active rows and keeps only the new one`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-2"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // Manually seed two pre-existing active rows by calling capture() with allowReplacementOverCap=true
+            // (simulating a corrupted state where two rows ended up for the same slot)
+            val oldCapture1 = proofs.capture(
+                taskId = taskId,
+                fieldKey = fieldKey,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///old-1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+                allowReplacementOverCap = true,
+            )
+            assertTrue("First seed capture succeeds", oldCapture1 is AppResult.Ok)
+            val oldId1 = (oldCapture1 as AppResult.Ok).value.id
+
+            val oldCapture2 = proofs.capture(
+                taskId = taskId,
+                fieldKey = fieldKey,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///old-2.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+                allowReplacementOverCap = true,
+            )
+            assertTrue("Second seed capture succeeds", oldCapture2 is AppResult.Ok)
+            val oldId2 = (oldCapture2 as AppResult.Ok).value.id
+
+            // Verify two rows exist
+            val beforeReplace = proofs.observeProofs(taskId).first()
+            assertEquals("Two proofs seeded before replace", 2, beforeReplace.size)
+
+            // Now replace: captureReplacingLatest must remove BOTH old rows
+            val newCapture = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///new-3.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Replace capture succeeds", newCapture is AppResult.Ok)
+            val newId = (newCapture as AppResult.Ok).value.id
+
+            // P1 fix: both old rows survive until the new upload is confirmed SYNCED.
+            val beforeSync = proofs.observeProofs(taskId).first()
+            assertEquals("All three rows present pre-sync (both old + new)", 3, beforeSync.size)
+
+            sync.completeUpload(db, newId, "server-proof-new-3")
+            advanceUntilIdle()
+
+            // Verify exactly one row remains: the new one, once SYNCED
+            val afterReplace = proofs.observeProofs(taskId).first()
+            assertEquals("Exactly one proof remains after replace (both old removed)", 1, afterReplace.size)
+            assertEquals("Remaining proof is the new one", newId, afterReplace[0].id)
+            assertEquals("New proof path is the new capture (processed)", "file:///new-3.mp4.processed", afterReplace[0].localUri)
+            assertTrue("New ID is different from both old IDs", newId != oldId1 && newId != oldId2)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `captureReplacingLatest keeps old untouched when capture fails`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-1"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                proofArtifactValidator = object : ProofArtifactValidator {
+                    override fun validateVideoFile(localUri: String): ProofArtifactValidator.ValidationResult =
+                        if (localUri.isBlank()) {
+                            ProofArtifactValidator.ValidationResult(isValid = false, reason = "blank uri")
+                        } else {
+                            ProofArtifactValidator.ValidationResult(isValid = true)
+                        }
+                },
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture
+            val first = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", first is AppResult.Ok)
+            val firstId = (first as AppResult.Ok).value.id
+
+            // Second capture fails: invalid file (empty URI)
+            val second = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "", // invalid: empty
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second capture fails", second is AppResult.Err)
+
+            // Verify first row is untouched
+            val remaining = proofs.observeProofs(taskId).first()
+            assertEquals("One proof still in slot", 1, remaining.size)
+            assertEquals("Old proof survived failed replacement", firstId, remaining[0].id)
+            assertEquals("Old proof path unchanged", "file:///first.mp4", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `concurrent captureReplacingLatest converges to exactly one active row`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-1"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture
+            val first = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", first is AppResult.Ok)
+
+            // Concurrent second replace
+            val second = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///second.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second replace succeeds", second is AppResult.Ok)
+
+            // Concurrent third replace
+            val third = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///third.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Third replace succeeds", third is AppResult.Ok)
+            val thirdId = (third as AppResult.Ok).value.id
+
+            // P1 fix: three local/queued replaces in a row do not retire anything by themselves —
+            // all three stay active until whichever one actually reaches SYNCED.
+            val beforeSync = proofs.observeProofs(taskId).first()
+            assertEquals("All three replaces stay active pre-sync", 3, beforeSync.size)
+
+            sync.completeUpload(db, thirdId, "server-proof-third")
+            advanceUntilIdle()
+
+            // Once the third is confirmed SYNCED, it retires every other same-subject occupant —
+            // exactly one active row should remain: the third.
+            val remaining = proofs.observeProofs(taskId).first()
+            assertEquals("Exactly one proof after concurrent replaces", 1, remaining.size)
+            assertEquals("The most recent proof is active", thirdId, remaining[0].id)
+            assertEquals("Newest proof path is third (processed)", "file:///third.mp4.processed", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // ITEM 7: Cross-subject grain isolation in captureReplacingLatest
+    // ============================================================================
+    // ITEM 7: Two active rows same task+field different subjectIds → captureReplacingLatest
+    // for subject A removes only A's old row, B untouched.
+    @Test
+    fun `captureReplacingLatest removes only same-subject old rows, leaves sibling subjects untouched`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val taskId = "vacc-task:per-goat"
+            val fieldKey = "vaccination_goat_proof"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // Capture for goat A
+            val aFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-a",
+                localUri = "file:///a-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-a",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for goat A succeeds", aFirst is AppResult.Ok)
+            val aFirstId = (aFirst as AppResult.Ok).value.id
+
+            // Capture for goat B (same task, same field, different subject)
+            val bFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-b",
+                localUri = "file:///b-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-b",
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for goat B succeeds", bFirst is AppResult.Ok)
+            val bFirstId = (bFirst as AppResult.Ok).value.id
+
+            // Verify both rows exist
+            var allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Two proofs after capturing both subjects", 2, allRows.size)
+
+            // Now replace: captureReplacingLatest for subject A
+            val aSecond = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-a",
+                localUri = "file:///a-second.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-a",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second capture for goat A succeeds", aSecond is AppResult.Ok)
+            val aSecondId = (aSecond as AppResult.Ok).value.id
+
+            // P1 fix: A's old row is not retired just because the new A capture succeeded locally.
+            allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Three rows pre-sync: old A, new A, old B", 3, allRows.size)
+            assertTrue("Old A row still present pre-sync", allRows.any { it.id == aFirstId })
+
+            sync.completeUpload(db, aSecondId, "server-proof-a-second")
+            advanceUntilIdle()
+
+            // Once the new A capture is confirmed SYNCED: ITEM 7 — only A's old row is removed, B's row untouched
+            allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Two proofs remain: new A + old B", 2, allRows.size)
+            val rowIds = allRows.map { it.id }.toSet()
+            assertTrue("New A row exists", rowIds.contains(aSecondId))
+            assertTrue("Old B row still exists (not removed)", rowIds.contains(bFirstId))
+            assertFalse("Old A row removed", rowIds.contains(aFirstId))
+        } finally {
+            db.close()
+        }
+    }
+
+    // ITEM 7: Concurrent A/B replaces don't serialize on each other (different mutex keys).
+    @Test
+    fun `concurrent captureReplacingLatest on different subjects does not serialize mutex`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val taskId = "vacc-task:per-goat:concurrent"
+            val fieldKey = "vaccination_goat_proof"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture for A
+            val aFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-x",
+                localUri = "file:///x-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-x",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for X succeeds", aFirst is AppResult.Ok)
+
+            // First capture for B
+            val bFirst = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-y",
+                localUri = "file:///y-first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-y",
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture for Y succeeds", bFirst is AppResult.Ok)
+
+            // Concurrent replace A/B on different subjects: must both succeed, not serialize
+            val aReplace = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-x",
+                localUri = "file:///x-replace.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-x",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Concurrent replace for X succeeds", aReplace is AppResult.Ok)
+
+            val bReplace = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-y",
+                localUri = "file:///y-replace.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-y",
+                capturedStartMs = 7_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Concurrent replace for Y succeeds", bReplace is AppResult.Ok)
+            val xReplaceId = (aReplace as AppResult.Ok).value.id
+            val yReplaceId = (bReplace as AppResult.Ok).value.id
+
+            // P1 fix: neither replace retires its predecessor until its own upload is SYNCED.
+            var allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Four rows pre-sync: old X, old Y, new X, new Y", 4, allRows.size)
+
+            sync.completeUpload(db, xReplaceId, "server-proof-x-replace")
+            advanceUntilIdle()
+            sync.completeUpload(db, yReplaceId, "server-proof-y-replace")
+            advanceUntilIdle()
+
+            // ITEM 7: Both replaces succeeded without one blocking the other. Final state, once both
+            // are confirmed SYNCED: two active rows.
+            allRows = proofs.observeProofs(taskId).first()
+            assertEquals("Two active proofs after concurrent replaces", 2, allRows.size)
+            val rowsBySubject = allRows.associateBy { it.subjectId }
+            assertEquals("X proof path is replace (processed)", "file:///x-replace.mp4.processed", rowsBySubject["goat-x"]?.localUri)
+            assertEquals("Y proof path is replace (processed)", "file:///y-replace.mp4.processed", rowsBySubject["goat-y"]?.localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // CRITICAL fix: captureReplacingLatest supersession must be DURABLE, not just an in-memory
+    // ticket. A process death between a successful replace and the new row reaching SYNCED must
+    // not lose the retirement intent -- that would leave BOTH rows ACTIVE forever and permanently
+    // block the slot's per-field capture cap with no operator escape.
+    // ============================================================================
+    @Test
+    fun `replace survives process death before the new row reaches SYNCED, retiring the old row from durable state alone`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-durable"
+            val taskId = "feed-dist:2026-08-15:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // "Process 1": captures the old and new (replace) rows.
+            val repo1 = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val oldCapture = repo1.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///old.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Old capture succeeds", oldCapture is AppResult.Ok)
+            val oldId = (oldCapture as AppResult.Ok).value.id
+            // Drive the old row to SYNCED too, matching the realistic case this bug report names:
+            // the OLD proof is already valid, server-confirmed evidence at the moment of replace.
+            sync.completeUpload(db, oldId, "server-proof-old")
+
+            val newCapture = repo1.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///new.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Replace capture succeeds", newCapture is AppResult.Ok)
+            val newId = (newCapture as AppResult.Ok).value.id
+
+            // The durable marker is written in the SAME insert as the new row -- verify directly,
+            // independent of any in-memory state.
+            assertEquals(
+                "New row's insert durably records the SINGLE row it supersedes",
+                oldId,
+                db.proofCaptureDao().findById(newId)?.supersedesRowId,
+            )
+
+            // "Process 2": simulate process death with a FRESH repository instance -- its
+            // pendingSlotRetirement map starts empty. It knows nothing about this replace except
+            // what is durably in Room (the assertion above already proved that record exists).
+            // The CRITICAL guarantee under test is that THIS instance -- ticket-less by
+            // construction -- can retire the old row from durable state alone; whether "process
+            // 1"'s own collector also happens to be reachable in-process is irrelevant to that.
+            val repo2 = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            // The new row's upload now completes -- with no live collector left to react to it.
+            sync.completeUpload(db, newId, "server-proof-new")
+
+            // The first observation from the fresh instance is what durably reconciles: it reads
+            // the outbox truth directly (reconcileOutboxTerminalState), lands the new row on
+            // SYNCED, and -- from the persisted supersedesRowId alone -- retires the old row. Its
+            // OWN emission is built from the pre-reconcile row snapshot (observeProofs' documented
+            // one-emission-behind status quirk — reconcile's dao.updateStatus is a side effect,
+            // not reflected in the `rows` this SAME map() call returns), so assert deletion here
+            // and re-observe for the now-fresh status, exactly like the F4 reconcile test does via
+            // a direct DAO read.
+            val firstRecoveryRead = repo2.observeProofs(taskId).first()
+            assertEquals(
+                "Exactly one active row after process-death recovery: old row retired from durable state",
+                1,
+                firstRecoveryRead.size,
+            )
+            assertEquals("Surviving row is the new one", newId, firstRecoveryRead[0].id)
+
+            val afterRecovery = repo2.observeProofs(taskId).first()
+            assertEquals("Still exactly one active row on re-observation", 1, afterRecovery.size)
+            assertEquals("Surviving row is the new (now SYNCED) one", newId, afterRecovery[0].id)
+            assertEquals(CaptureSyncStatus.SYNCED, afterRecovery[0].syncStatus)
+
+            // The escape-hatch this bug actually blocks: with the old row durably retired, the
+            // slot's ACTIVE (not-yet-delivered) row count is back down to just the new SYNCED row
+            // -- itself excluded by activeCountForField once serverProofId is set -- so a plain
+            // (non-replace) capture against a per-field cap of 1 must still succeed. Before this
+            // fix, the never-retired old row (no serverProofId yet reconciled) plus the new row
+            // would have pinned the slot at its cap with no operator escape ("Use re-capture to
+            // replace it" — which itself calls captureReplacingLatest and would recurse into the
+            // same stuck state).
+            val cappedPolicy = ProofPolicy(maximumCountPerField = 1)
+            val fourthCapture = repo2.capture(
+                taskId = taskId,
+                fieldKey = fieldKey,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///fourth.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 7_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = cappedPolicy,
+                partitionLabel = null,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue(
+                "Slot is not permanently capped after durable recovery",
+                fourthCapture is AppResult.Ok,
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // REGRESSION TEST (c): Offline-fail → retry → process-death-recovery → exactly one
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: Offline failure must not leak duplicate outbox items
+    // across recovery. When a capture's outbox item fails (FAILED status), retrying it should
+    // succeed without duplicating the proof row or outbox item.
+    @Test
+    fun `offline failure retry and process death recovery produces exactly one outbox item`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = "vacc-task-1",
+                    partitionKey = "whole",
+                ),
+                fieldKey = "vaccination_video",
+            )
+
+            // First capture: succeeds, creates outbox item
+            val firstCapture = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-1",
+                localUri = "file:///proof1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "goat",
+                scopeId = "goat-1",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", firstCapture is AppResult.Ok)
+            val proofId = (firstCapture as AppResult.Ok).value.id
+
+            // Verify one outbox item was enqueued
+            assertEquals("One outbox item after first capture", 1, sync.enqueueCalls.size)
+            val outboxItemId = sync.enqueueCalls[0].outboxItemId
+
+            // Simulate offline failure: drive the outbox item to FAILED state
+            sync.seedConflict(outboxItemId, "network timeout")
+            advanceUntilIdle()
+
+            // Retry the upload. A manual retry of an already-registered proof re-arms the SAME
+            // outbox item (SyncRepository.retry -> OutboxDao.markRetryReady): it does not mint a
+            // new outbox row via enqueueProofUpload, which is reserved for a fresh registration.
+            val retryResult = proofs.retryUpload("vacc-task-1", proofId)
+            assertTrue("Retry succeeds", retryResult is AppResult.Ok)
+            advanceUntilIdle()
+
+            assertEquals("Retry re-arms the existing outbox item", listOf(outboxItemId), sync.retryCalls)
+            assertEquals("Retry does not mint a second outbox item", 1, sync.enqueueCalls.size)
+
+            // Simulate process death: create a NEW repository instance over the SAME Room database
+            val recoveredProofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = true,  // Recovery path runs reconciliation
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            advanceUntilIdle()
+
+            // After recovery, there must be EXACTLY ONE proof row for this proof
+            val recoveredRows = recoveredProofs.observeProofs("vacc-task-1").first()
+            assertEquals("Exactly one proof row after recovery", 1, recoveredRows.size)
+            assertEquals("Same proof ID survives recovery", proofId, recoveredRows[0].id)
+
+            // Verify exactly one outbox item (recovery must not duplicate)
+            val expectedIdempotencyKey = "proof-upload:vacc-task-1:${recoveredRows[0].id}"
+            val finalEnqueueCalls = sync.enqueueCalls.filter { it.idempotencyKey == expectedIdempotencyKey }
+            assertEquals("Exactly one active outbox entry per proof", 1, finalEnqueueCalls.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    // INVARIANT regression (field bug 2026-08-15, third occurrence site): Gate 3 backstop
+    // validation must be mime-aware — a real JPEG through capture() with the PRODUCTION
+    // FileSystemProofArtifactValidator must succeed. Before the fix, the gate ran the video
+    // duration probe on photos; OEMs whose probe reports duration=0 for images rejected every
+    // valid photo at insert time.
+    @Test
+    fun `real jpeg passes gate3 backstop validation with production validator`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                proofArtifactValidator = FileSystemProofArtifactValidator(),
+            )
+            val jpeg = File.createTempFile("proof-photo", ".jpg")
+            try {
+                val bitmap = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888)
+                jpeg.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+                bitmap.recycle()
+                val result = proofs.captureReplacingLatest(
+                    slot = EvidenceSlot(
+                        identity = ProofIdentity(
+                            flow = ProofFlow.VACCINATION,
+                            taskId = "photo-task-1",
+                            partitionKey = "whole",
+                        ),
+                        fieldKey = "feed_distribution_feed_weight_photo",
+                    ),
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-photo",
+                    localUri = jpeg.toURI().toString(),
+                    mimeType = "image/jpeg",
+                    caption = null,
+                    scopeType = "goat",
+                    scopeId = "goat-photo",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 2_000L,
+                    capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = false,
+                )
+                assertTrue(
+                    "Real JPEG must pass gate 3: ${(result as? AppResult.Err)?.message}",
+                    result is AppResult.Ok,
+                )
+            } finally {
+                jpeg.delete()
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    // ============================================================================
+    // REGRESSION TEST (d): Malformed-file validation with REAL files
+    // ============================================================================
+    // MOB-003 Proof-flow-integration: Zero-byte files must be rejected unconditionally.
+    // Truncated/garbage files are validated through the SAME [MediaMetadataRetriever] probe
+    // FileSystemProofArtifactValidator uses in production -- under Robolectric's shadow retriever,
+    // setDataSource() on 4KB of non-MP4 bytes does NOT throw (it never really parses the
+    // container), so the probe "succeeds" with a null/zero duration. That is the OTHER definitive
+    // rejection branch the validator documents ("probe succeeded but duration invalid" -- not
+    // plausible-accept, which requires the probe to actually throw). This still proves a malformed
+    // file is rejected end-to-end; it exercises the succeeded-with-bad-metadata path rather than
+    // the threw-on-probe path, because that is the path this JVM test environment can reach
+    // deterministically.
+    @Test
+    fun `zero byte file is rejected and truncated file with unreadable metadata is rejected`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val validator = FileSystemProofArtifactValidator()
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                proofArtifactValidator = validator,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.VACCINATION,
+                    taskId = "vacc-task-2",
+                    partitionKey = "whole",
+                ),
+                fieldKey = "vaccination_video",
+            )
+
+            // Test zero-byte file: must be rejected
+            val tempZeroFile = File.createTempFile("proof-zero", ".mp4")
+            try {
+                val zeroCapture = proofs.captureReplacingLatest(
+                    slot = slot,
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-2",
+                    localUri = "file://${tempZeroFile.absolutePath}",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "goat",
+                    scopeId = "goat-2",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 2_000L,
+                    capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = false,
+                )
+                assertTrue(
+                    "Zero-byte file capture is rejected: ${(zeroCapture as? AppResult.Err)?.message}",
+                    zeroCapture is AppResult.Err,
+                )
+            } finally {
+                tempZeroFile.delete()
+            }
+
+            // Test truncated file (4KB garbage, no valid MP4 header, over the 1KB size floor):
+            // Robolectric's shadow retriever succeeds on setDataSource() without ever really
+            // parsing it, then reports no duration -- the validator's "probe succeeded but
+            // duration invalid" branch rejects it, same as production would for any file whose
+            // container metadata reads back empty.
+            val tempGarbageFile = File.createTempFile("proof-garbage", ".mp4")
+            try {
+                tempGarbageFile.writeBytes(ByteArray(4096) { it.toByte() })  // 4KB garbage
+                val garbageCapture = proofs.captureReplacingLatest(
+                    slot = slot,
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-2",
+                    localUri = "file://${tempGarbageFile.absolutePath}",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "goat",
+                    scopeId = "goat-2",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 2_000L,
+                    capturedByPrincipalId = null,
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = true,
+                )
+                assertTrue(
+                    "Truncated file with unreadable metadata is rejected: " +
+                        (garbageCapture as? AppResult.Ok)?.value,
+                    garbageCapture is AppResult.Err,
+                )
+                assertEquals(
+                    "Rejection names the unreadable duration",
+                    "Recording has no valid duration.",
+                    (garbageCapture as AppResult.Err).message,
+                )
+                // Verify it was never enqueued -- validation runs before the outbox write
+                assertEquals("Rejected garbage file produces no enqueue call", 0, sync.enqueueCalls.size)
+            } finally {
+                tempGarbageFile.delete()
+            }
+        } finally {
+            db.close()
+        }
+    }
+}
+
+/** Test helper: drives the outbox item behind [proofId] straight to SUCCEEDED with
+ *  [serverProofId], mirroring [SyncEngine]'s real IN_FLIGHT -> SUCCEEDED transition — used by the
+ *  captureReplacingLatest deferred-retirement tests (P1 fix), which must observe the NEW row
+ *  actually reach SYNCED before the OLD occupant(s) are retired. */
+private suspend fun FakeSyncRepository.completeUpload(db: GoatDatabase, proofId: String, serverProofId: String) {
+    val outboxItemId = requireNotNull(db.proofCaptureDao().findById(proofId)?.outboxItemId) {
+        "proof $proofId has no outboxItemId yet"
+    }
+    emit(
+        outboxItemId,
+        SyncItemStatus.SUCCEEDED,
+        resultJson = syncJson.encodeToString(ProofUploadResponseDto(proof = ProofReferenceDto(proofId = serverProofId))),
+    )
 }
 
 private fun proofEntity(
@@ -1969,6 +3276,8 @@ private fun proofEntity(
     idempotencyKey: String,
     outboxItemId: String? = null,
     captureSource: String = "in_app_camera",
+    uploadGroupKey: String? = null,
+    clientTaskKey: String? = null,
 ) = ProofCaptureEntity(
     id = id,
     taskId = taskId,
@@ -1986,6 +3295,8 @@ private fun proofEntity(
     idempotencyKey = idempotencyKey,
     outboxItemId = outboxItemId,
     captureSource = captureSource,
+    uploadGroupKey = uploadGroupKey,
+    clientTaskKey = clientTaskKey,
 )
 
 private class RecordingProofMediaProcessor(
@@ -2002,6 +3313,42 @@ private class RecordingProofMediaProcessor(
 private class ThrowingProofMediaProcessor : ProofMediaProcessor {
     override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
         error("processor failed")
+}
+
+/** Fails the first [failFirst] invocations, then returns [successResult] — models a processor
+ *  that recovers (device storage freed, transient decoder issue resolved) so a test can drive
+ *  the retryUpload() "retry processing" path (P1 fix) end to end. */
+private class SometimesFailingProofMediaProcessor(
+    private val failFirst: Int,
+    private val successResult: ProofMediaProcessingResult,
+) : ProofMediaProcessor {
+    private var invocations = 0
+
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult {
+        invocations += 1
+        if (invocations <= failFirst) error("processor failed (attempt $invocations)")
+        return successResult
+    }
+}
+
+/** Test default "processing succeeds" double for tests that only care about the row reaching a
+ *  registered/enqueued/removable state, not about media-processing behavior itself. Distinct from
+ *  [ProofMediaProcessor.Noop] (the production constructor default), which deliberately THROWS to
+ *  catch un-wired DI — these tests previously relied on Noop's throw plus the OLD
+ *  processing-failure fallback (uploadOriginal=true, auto-enqueue) to reach an enqueued row at
+ *  all. That fallback no longer exists (P1 fix: a processing failure now leaves the row
+ *  PROCESSING_FAILED_AWAITING_RETRY and enqueues nothing), so tests exercising unrelated behavior
+ *  (remove, retryUpload, reconcile, replace ordering) need an explicit processor that actually
+ *  succeeds. The output URI is deterministically derived from the original so assertions can
+ *  compute the expected processed path without a processor-per-test convention. */
+private class IdentityProofMediaProcessor : ProofMediaProcessor {
+    override suspend fun process(request: ProofMediaProcessingRequest): ProofMediaProcessingResult =
+        ProofMediaProcessingResult(
+            outputUri = "${request.originalUri}.processed",
+            outputMimeType = request.mimeType,
+            originalBytes = 2_000_000L,
+            processedBytes = 1_000_000L,
+        )
 }
 
 private class RecordingGalleryProofSaver : GalleryProofSaver {
@@ -2028,6 +3375,7 @@ private class FakeSyncRepository(
         val outboxItemId: String,
         val request: ProofUploadRequestDto,
         val localFilePath: String,
+        val groupKey: String = "",
     )
     data class ScanCall(val idempotencyKey: String, val partitionKey: String, val request: ScanCaptureRequestDto)
     data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
@@ -2123,7 +3471,7 @@ private class FakeSyncRepository(
         // Without this the fake handed out outbox-0 AND outbox-1 and the winner raced the assertions.
         enqueueCalls.firstOrNull { it.idempotencyKey == idempotencyKey }?.let { return AppResult.Ok(it.outboxItemId) }
         val id = "outbox-${nextId++}"
-        enqueueCalls += EnqueueCall(idempotencyKey, id, request, localFilePath)
+        enqueueCalls += EnqueueCall(idempotencyKey, id, request, localFilePath, groupKey)
         status.value = status.value.copy(
             items = status.value.items + syncQueueItem(id, SyncItemStatus.QUEUED, groupKey = groupKey),
         )
@@ -2138,6 +3486,18 @@ private class FakeSyncRepository(
 
     override suspend fun retry(itemId: String): AppResult<Unit> {
         retryCalls += itemId
+        // Mirrors OutboxDao.markRetryReady: a manual retry only re-arms a terminal FAILED row,
+        // resetting it to QUEUED and clearing conflict/lastError, so a subsequent followOutboxItem
+        // collection does not immediately replay the same conflict back onto the proof row.
+        status.value = status.value.copy(
+            items = status.value.items.map { item ->
+                if (item.id == itemId && item.status == SyncItemStatus.FAILED) {
+                    item.copy(status = SyncItemStatus.QUEUED, conflict = false, lastError = null)
+                } else {
+                    item
+                }
+            },
+        )
         return AppResult.Ok(Unit)
     }
 
@@ -2233,6 +3593,8 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         delegate.activeCountForSubject(taskId, partitionKey, subjectId)
     override suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int =
         delegate.activeCountForSubjectType(taskId, partitionKey, proofSubject)
+    override suspend fun activeCountForField(taskId: String, partitionKey: String, fieldKey: String): Int =
+        delegate.activeCountForField(taskId, partitionKey, fieldKey)
     override suspend fun findById(id: String): ProofCaptureEntity? = delegate.findById(id)
     override suspend fun setOutboxItemId(id: String, outboxItemId: String?) = delegate.setOutboxItemId(id, outboxItemId)
     override suspend fun updateStatus(id: String, status: String, serverProofId: String?, lastError: String?) {

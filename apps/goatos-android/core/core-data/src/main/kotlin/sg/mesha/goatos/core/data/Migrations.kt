@@ -1147,3 +1147,70 @@ val MIGRATION_41_42: Migration = object : Migration(41, 42) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gallerySavedUri` TEXT")
     }
 }
+
+val MIGRATION_42_43: Migration = object : Migration(42, 43) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add indexes on unindexed grain/task keys for live-status observers
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_direction_items_grainKey` ON `feed_direction_items` (`grainKey`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_packing_items_grainKey` ON `feed_packing_items` (`grainKey`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_taskId` ON `feed_transport_scoped_items` (`taskId`)")
+    }
+}
+
+/**
+ * v43 -> v44: persists obligation_instances.row_version on scanned_goat_capture so the reconciliation
+ * in ScanViewModel can distinguish "never submitted" (same row_version as capture time) from
+ * "submitted then reopened" (row_version incremented since capture). This is the server-issued
+ * cycle discriminator that correctly gates whether a SYNCED capture overrules a roster row's open
+ * status, fixing the bug where a simple roster refresh would falsely drop scan DONE ticks.
+ */
+val MIGRATION_43_44: Migration = object : Migration(43, 44) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+val MIGRATION_44_45: Migration = object : Migration(44, 45) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // R50-060: Persist scopeType and scopeId on ProofCaptureEntity for correct recovery
+        // of weighing free-flow proofs (subject_type="other") on app restart.
+        // Weighing proofs cannot re-derive scope from subjectId (null), so scope MUST be
+        // persisted to prevent backend validation failure on re-registration.
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeType` TEXT NOT NULL DEFAULT 'shed'")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeId` TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+/**
+ * v45 -> v46: durable supersession marker for captureReplacingLatest (P1 fix, CRITICAL
+ * follow-up). `supersedesRowId` is set on a replacement row in the SAME insert as the row
+ * itself, naming the single active occupant it replaces. Previously this "retire the old row
+ * once the new one is SYNCED" intent lived ONLY in an in-memory map
+ * ([sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository.pendingSlotRetirement]) —
+ * process death between a successful replace and the new row reaching SYNCED lost that intent
+ * forever, leaving BOTH rows active and permanently blocking the slot's per-field capture cap
+ * with no operator escape. The column lets every reconcile pass re-derive retirement from
+ * durable state instead of a ticket that may never have existed in this process.
+ */
+val MIGRATION_45_46: Migration = object : Migration(45, 46) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `supersedesRowId` TEXT DEFAULT NULL")
+    }
+}
+
+/**
+ * v46 -> v47: persist uploadGroupKey and clientTaskKey on ProofCaptureEntity for correct
+ * ordering/grouping recovery (Codex blocker 3, CRITICAL). Live capture passes uploadGroupKey for
+ * proof ordering/grouping (feed flows, milk flows, packing flows). On process death, startup
+ * recovery must re-enqueue WITHOUT losing the original group key → proof ordering can break.
+ * These columns let recovery re-enqueue with the EXACT key used at capture time.
+ * clientTaskKey is the application-level session/context id; uploadGroupKey is the order key.
+ * Legacy null falls back to current derivation (legacy: taskId for clientTaskKey,
+ * proofUploadGroupKey for uploadGroupKey).
+ */
+val MIGRATION_46_47: Migration = object : Migration(46, 47) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadGroupKey` TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `clientTaskKey` TEXT DEFAULT NULL")
+    }
+}

@@ -55,6 +55,7 @@ import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofArtifactDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.ProofDownloadUrlResponseDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -270,6 +271,10 @@ data class AppAnalyticsEventRequestDto(
     @SerialName("flavor") val flavor: String,
     @SerialName("app_version_name") val appVersionName: String,
     @SerialName("app_version_code") val appVersionCode: Int,
+    /** Client-minted operation id — the backend's idempotency key (UNIQUE per tenant); a resend
+     *  after a lost response must not double-count. Top-level, not a property, so the server can
+     *  dedupe without parsing the properties map. */
+    @SerialName("client_event_id") val clientEventId: String? = null,
 )
 
 @Serializable
@@ -698,6 +703,11 @@ interface AppApi {
         limit: Int? = 20,
     ): UploadedProofListResponseDto
 
+    /** GET /app/proofs/{proof_id}/download — fetches the signed download URL for a proof
+     *  so its media can be previewed. The URL is short-lived, so clients fetch on-demand
+     *  rather than caching. */
+    suspend fun getProofDownloadUrl(proofId: String): String
+
     /**
      * The binary-PUT + completion pass that follows a successful [registerProof]
      * (docs/mobile/proof-capture-sync-and-e2e.md §3): streams [filePath]'s bytes (this app's own
@@ -934,6 +944,7 @@ interface AppApi {
         parkId: String,
         targetDate: String,
         shedId: String? = null,
+        partitionLabel: String? = null,
         session: Int? = null,
         workflow: String? = null,
         // Optional verification-lifecycle filter: pending | pending_verification | completed.
@@ -1019,6 +1030,8 @@ interface AppApi {
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String? = null,
+        partitionLabel: String? = null,
         // Optional session filter (session_no; null = every session). Mirrors the preview.
         session: Int? = null,
         workflow: String? = null,
@@ -1532,6 +1545,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
     ): UploadedProofListResponseDto = UploadedProofListResponseDto()
 
+    override suspend fun getProofDownloadUrl(proofId: String): String =
+        "https://fake.local/proofs/$proofId/download"
+
     // Test/dev scaffolding — does not touch the filesystem or network; a proof is simply marked
     // completed under the id `registerProof` handed back, so previews/unit tests that don't care
     // about the real byte-streaming path (see OkHttpProofBlobUploader) compile and pass.
@@ -1726,6 +1742,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         parkId: String,
         targetDate: String,
         shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
@@ -1736,6 +1753,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,

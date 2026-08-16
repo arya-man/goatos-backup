@@ -57,6 +57,7 @@
     <string name="submit_snackbar_succeeded">Submission synced · record on file</string>
     <string name="submit_snackbar_conflict">Server rejected the submission</string>
     <string name="submit_snackbar_dead_letter">Submission failed — will retry when online</string>
+    <string name="submit_snackbar_proof_save_failed">Video could not be saved — record again</string>
     <string name="submit_confirm_title">Finalise this shed?</string>
     <string name="submit_confirm_body">This shed goes for video check. You cannot reopen it yourself — a manager or director can.</string>
     <string name="submit_confirm_cancel">Not yet</string>

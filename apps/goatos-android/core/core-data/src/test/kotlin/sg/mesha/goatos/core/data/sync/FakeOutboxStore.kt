@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
+import sg.mesha.goatos.core.database.outbox.ActiveOutboxCounts
 
 /**
  * In-memory [OutboxStore] test double — no Room/Robolectric needed. [OutboxEntity] is a
@@ -35,6 +36,11 @@ class FakeOutboxStore : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? =
         rows.value.firstOrNull { it.idempotencyKey == key }
 
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity? =
+        rows.value
+            .filter { it.groupKey == groupKey && it.opType == opType }
+            .maxByOrNull { it.createdAt }
+
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
         val snapshot = rows.value
         return snapshot
@@ -57,6 +63,37 @@ class FakeOutboxStore : OutboxStore {
                     it.status == OutboxStatus.IN_FLIGHT.name ||
                     (it.status == OutboxStatus.FAILED.name && !it.conflict && it.attemptCount < it.maxAttempts)
             }
+        }
+
+    override fun observeActiveByOpType(opType: String): kotlinx.coroutines.flow.Flow<List<OutboxEntity>> {
+        val base = observeActive()
+        return kotlinx.coroutines.flow.flow {
+            base.collect { rows -> emit(rows.filter { row -> row.opType == opType }) }
+        }
+    }
+    override fun observeActiveCounts(): Flow<ActiveOutboxCounts> =
+        rows.asStateFlow().map { all ->
+            val active = all.filter {
+                it.status == OutboxStatus.QUEUED.name ||
+                    it.status == OutboxStatus.IN_FLIGHT.name ||
+                    (it.status == OutboxStatus.FAILED.name && !it.conflict && it.attemptCount < it.maxAttempts)
+            }
+            ActiveOutboxCounts(
+                queued = active.count { it.status == OutboxStatus.QUEUED.name },
+                inFlight = active.count { it.status == OutboxStatus.IN_FLIGHT.name },
+                failed = active.count { it.status == OutboxStatus.FAILED.name && !it.conflict && it.attemptCount < it.maxAttempts },
+            )
+        }
+
+    override fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>> =
+        rows.asStateFlow().map { all ->
+            all.filter {
+                it.status == OutboxStatus.QUEUED.name ||
+                    it.status == OutboxStatus.IN_FLIGHT.name ||
+                    (it.status == OutboxStatus.FAILED.name && !it.conflict && it.attemptCount < it.maxAttempts)
+            }
+                .sortedByDescending { it.createdAt }
+                .take(limit)
         }
 
     override fun observeById(id: String): Flow<OutboxEntity?> =

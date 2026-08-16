@@ -872,23 +872,40 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
  * True when tapping this shed may ONLY open its read-only record — i.e. there is nothing left
  * for the operator to do here.
  *
- * `proofStatus=uploaded` is only "ready to finalize" and must stay open. A submitted/review record
- * is different: once the backend says `sopStatus=submitted` or `verificationStatus=pending`, stale
- * open counts must not reopen the scan/camera workflow. The only exception is an explicit redo
- * state (`rejected`/`deferred`), where the verifier intentionally sent the animal back to the
- * operator.
+ * CORE INVARIANT (backend-owned, see vaccinationexecution/app/service.go
+ * computeOperatorLockState): only a FINAL SUBMIT locks the card. Partial review/proof/
+ * verification state NEVER locks while openCount > 0. `sopStatus` wording such as
+ * "needs_review" or "submitted" describes EVIDENCE state, not remaining work, and must not be
+ * read as a lock signal — a card with open=6 whose sopStatus happens to read "needs_review" is
+ * NOT done. This was the field bug: a 17/11/6 needs_review card was refused entry because the
+ * old predicate treated "needs_review" itself as a terminal submission status.
+ *
+ * Prefer the backend's own `operatorCanContinue` field. Fall back, ONLY for API responses that
+ * predate this field (missing operatorCanContinue), to the pre-existing openCount + terminal
+ * sopStatus guard: record-only iff openCount == 0 AND sopStatus is a terminal submission status
+ * (submitted/needs_review/accepted/closed/completed). openCount==0 alone is not enough in the
+ * fallback -- a shed can reach openCount==0 via a draft/uploaded proof that has not been
+ * submitted yet (`sopStatus="draft"`/`"open"`), which must stay open for finalize.
  */
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
     isNotEmpty() &&
+        // Explicit verifier redo ALWAYS vetoes record-only, even against a stale backend
+        // operatorCanContinue: the verifier deliberately sent this back to the operator.
         none { row -> row.needsRedo() } &&
         all { row -> row.hasSubmittedRecord() }
 
-private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
-    sopStatus.isSubmissionTerminalStatus() ||
-        verificationStatus.equals("pending", ignoreCase = true) ||
-        verificationStatus.equals("accepted", ignoreCase = true) ||
-        verificationStatus.equals("verified", ignoreCase = true) ||
-        workState.equals("verification_pending", ignoreCase = true)
+/** True when this row's work is submitted-and-locked from the operator's perspective. Prefers the
+ *  backend-owned operatorCanContinue (core invariant: only a FINAL SUBMIT locks; partial
+ *  review/proof state never locks while openCount > 0); falls back for pre-field API responses to
+ *  the explicit openCount + terminal-submission-status guard. */
+private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean {
+    val canContinue = operatorCanContinue
+    return if (canContinue != null) {
+        !canContinue
+    } else {
+        openCount.coerceAtLeast(0) == 0 && sopStatus.isSubmissionTerminalStatus()
+    }
+}
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

@@ -4,6 +4,23 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
+import androidx.room.ColumnInfo
+
+/** Aggregate counts of active outbox items without materializing rows. Used for sync status
+ *  badges and health monitoring. Queued and inFlight are always ≥0; failed can be null if
+ *  the aggregation query returns no rows. */
+data class ActiveOutboxCounts(
+    @ColumnInfo("queued")
+    val queued: Int = 0,
+
+    @ColumnInfo("inFlight")
+    val inFlight: Int = 0,
+
+    @ColumnInfo("failed")
+    val failed: Int = 0,
+) {
+    val total: Int get() = (queued ?: 0) + (inFlight ?: 0) + (failed ?: 0)
+}
 
 /**
  * Room DAO for the outbox. State transitions are ATOMIC conditional `UPDATE`s guarded by the
@@ -59,13 +76,48 @@ interface OutboxDao {
      *  (`attemptCount >= maxAttempts`). An exhausted row is terminal (it will never be re-claimed —
      *  see [eligibleForDrain]'s `attemptCount < maxAttempts` guard), so keeping it here would leave
      *  it in the active set forever, unbounded-accumulating in memory. This bounds memory and query
-     *  time. Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
+     *  time. Backs the sync-status overlay (see `SyncRepository.observeStatus`).
+     *
+     *  DEPRECATED: Use [observeActiveCounts] for counts only (most UI use case) or
+     *  [observeActiveWindow] for a bounded list. Full materialization violates bounded-memory rules. */
     @Query(
         "SELECT * FROM outbox WHERE status IN ('QUEUED', 'IN_FLIGHT') " +
             "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts) " +
             "ORDER BY createdAt ASC",
     )
     fun observeActive(): Flow<List<OutboxEntity>>
+
+    /** Observes ACTIVE counts (QUEUED, IN_FLIGHT, FAILED non-conflict retryable) without materializing
+     *  rows. Returns a data class with pending, inFlight, failed counts. Used for sync-status badge
+     *  and health monitoring without memory overhead. */
+    @Query(
+        "SELECT " +
+            "CAST(SUM(CASE WHEN status = 'QUEUED' THEN 1 ELSE 0 END) AS INTEGER) as queued, " +
+            "CAST(SUM(CASE WHEN status = 'IN_FLIGHT' THEN 1 ELSE 0 END) AS INTEGER) as inFlight, " +
+            "CAST(SUM(CASE WHEN status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts THEN 1 ELSE 0 END) AS INTEGER) as failed " +
+            "FROM outbox",
+    )
+    fun observeActiveCounts(): Flow<ActiveOutboxCounts>
+
+    /** Observes a bounded window of ACTIVE rows (newest-first, limited by [limit]) without
+     *  unbounded growth. Excludes SUCCEEDED, terminal FAILED, and dead-letter rows.
+     *  Use this instead of [observeActive] when you need a subset for UI display. */
+    @Query(
+        "SELECT * FROM outbox WHERE status IN ('QUEUED', 'IN_FLIGHT') " +
+            "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts) " +
+            "ORDER BY createdAt DESC LIMIT :limit",
+    )
+    fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>>
+
+    /** Every ACTIVE row of ONE op type. Bounded by nature (a single feature's pending writes),
+     *  unlike the cross-feature window: reconciliation guards (e.g. pending health-case opens)
+     *  need the COMPLETE set for their op type — a newest-N window silently drops the oldest
+     *  pending command once other features queue enough rows after it. */
+    @Query(
+        "SELECT * FROM outbox WHERE opType = :opType AND (status IN ('QUEUED', 'IN_FLIGHT') " +
+            "OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts)) ORDER BY createdAt ASC",
+    )
+    fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>>
 
     /**
      * Bounded active rows for one ordering group and a small caller-owned op-type set. Used by
@@ -97,6 +149,22 @@ interface OutboxDao {
         opTypes: List<String>,
         limit: Int,
     ): List<OutboxEntity>
+
+    /**
+     * The single most recent row for one ordering group + op type, through EVERY status
+     * including terminal SUCCEEDED — unlike [findActiveForGroup] / [findByIdempotencyKey],
+     * this does NOT filter by status and does NOT key off the current idempotency epoch. A
+     * caller asking "is there an outstanding/landed submission for this scope?" must find the
+     * row by its stable identity (groupKey, opType), because [findByIdempotencyKey] re-derives
+     * a key from the CURRENT epoch — which the SUCCEEDED row's own success already rotated
+     * past (see `WeighingRepository.findPendingSubmit` / `SyncEngine.reconcileFeatureSuccess`),
+     * so a key-based lookup misses the very row it is trying to find.
+     */
+    @Query(
+        "SELECT * FROM outbox WHERE groupKey = :groupKey AND opType = :opType " +
+            "ORDER BY createdAt DESC LIMIT 1",
+    )
+    suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity?
 
     /** Observes ONE row by id through EVERY status, including terminal SUCCEEDED/conflict/
      *  attempt-exhausted (R50-030: leadership close must follow its own submission to a terminal
