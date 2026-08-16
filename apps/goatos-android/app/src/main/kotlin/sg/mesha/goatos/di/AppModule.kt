@@ -118,6 +118,14 @@ import sg.mesha.goatos.core.data.sync.RoomOutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
 import sg.mesha.goatos.core.data.sync.milkFeedingSubmitRefreshHook
 import sg.mesha.goatos.core.data.sync.milkPreparationSubmitRefreshHook
+import sg.mesha.goatos.core.data.sync.countsShiftingRefreshHook
+import sg.mesha.goatos.core.data.sync.countsBirthRefreshHook
+import sg.mesha.goatos.core.data.sync.countsDeathRefreshHook
+import sg.mesha.goatos.core.data.sync.countsApprovalApproveRefreshHook
+import sg.mesha.goatos.core.data.sync.countsApprovalRejectRefreshHook
+import sg.mesha.goatos.core.data.sync.shiftingCompleteRefreshHook
+import sg.mesha.goatos.core.data.sync.shiftingCancelRefreshHook
+import sg.mesha.goatos.core.data.sync.countsPromoteIdentifierRefreshHook
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
@@ -720,6 +728,9 @@ object AppModule {
         feedRepository: FeedRepository,
         milkFeedingRepository: MilkFeedingRepository,
         milkPreparationRepository: MilkPreparationRepository,
+        countsRepository: CountsRepository,
+        countsApprovalRepository: CountsApprovalRepository,
+        shiftingPendingRepository: ShiftingPendingRepository,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -734,12 +745,24 @@ object AppModule {
         // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
         feedRepository = feedRepository,
         telemetry = outboxTelemetry,
-        // Milk Feeding/Preparation lists are a whole-page KV blob (CountsBreakdownMetaCacheDao),
-        // not a Room row keyed by server id — the reconcile is "refresh the page", not "write the
-        // result". Registered here (repo/DI layer), never in a ViewModel — see PostSuccessRefreshHook.
+        // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
+        // row to write directly into. The reconcile is "refresh the page" or "forget the row",
+        // never "write a result". Registered here (repo/DI layer), never in a ViewModel — see
+        // PostSuccessRefreshHook. Counts-family operations (birth/death/shifting/approval) + Milk
+        // operations (feeding/preparation) all follow this pattern.
         postSuccessRefreshHooks = mapOf(
+            // Milk operations
             OutboxOpType.MILK_FEEDING_SUBMIT to milkFeedingSubmitRefreshHook(milkFeedingRepository),
             OutboxOpType.MILK_PREPARATION_SUBMIT to milkPreparationSubmitRefreshHook(milkPreparationRepository),
+            // Counts family operations
+            OutboxOpType.COUNTS_SHIFTING to countsShiftingRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_BIRTH to countsBirthRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_DEATH to countsDeathRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_APPROVAL_APPROVE to countsApprovalApproveRefreshHook(countsApprovalRepository),
+            OutboxOpType.COUNTS_APPROVAL_REJECT to countsApprovalRejectRefreshHook(countsApprovalRepository),
+            OutboxOpType.SHIFTING_COMPLETE to shiftingCompleteRefreshHook(shiftingPendingRepository),
+            OutboxOpType.SHIFTING_CANCEL to shiftingCancelRefreshHook(shiftingPendingRepository),
+            OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(countsRepository),
         ),
     )
 
