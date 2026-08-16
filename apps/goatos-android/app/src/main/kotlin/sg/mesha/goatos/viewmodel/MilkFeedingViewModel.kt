@@ -211,7 +211,10 @@ class MilkFeedingViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MilkFeedingUiState(taskId = taskId, feedingDate = feedingDate))
 
     init {
-        analytics.track(AnalyticsEvents.MILK_FEEDING_OPENED)
+        analytics.track(
+            AnalyticsEvents.MILK_FEEDING_OPENED,
+            mapOf(AnalyticsEvents.Params.ITEM_ID to taskId),
+        )
         viewModelScope.launch {
             captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
             draft.update { current ->
@@ -335,7 +338,13 @@ class MilkFeedingViewModel @Inject constructor(
 
     private fun captureProof(code: String) = viewModelScope.launch {
         val proof = state.value.proofs.firstOrNull { it.code == code } ?: return@launch
-        analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_ATTEMPT)
+        analytics.track(
+            AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_ATTEMPT,
+            mapOf(
+                AnalyticsEvents.Params.ITEM_ID to taskId,
+                AnalyticsEvents.Params.FIELD to code,
+            ),
+        )
         draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = true) else row }) }
         val current = state.value
         val caption = proofOverlayContextLine(
@@ -353,7 +362,14 @@ class MilkFeedingViewModel @Inject constructor(
             ),
         )
         if (video == null) {
-            analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE)
+            analytics.track(
+                AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE,
+                mapOf(
+                    AnalyticsEvents.Params.ITEM_ID to taskId,
+                    AnalyticsEvents.Params.FIELD to code,
+                    AnalyticsEvents.Params.REASON to "cancelled",
+                ),
+            )
             draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
             return@launch
         }
@@ -377,19 +393,39 @@ class MilkFeedingViewModel @Inject constructor(
             is AppResult.Ok -> {
                 val proofOutboxId = result.value.outboxItemId
                 if (proofOutboxId.isNullOrBlank()) {
-                    analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE)
+                    analytics.track(
+                        AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.ITEM_ID to taskId,
+                            AnalyticsEvents.Params.FIELD to code,
+                            AnalyticsEvents.Params.REASON to "enqueue_failed",
+                        ),
+                    )
                     draft.update { it.copy(message = "Proof upload could not be queued", proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
                     return@launch
                 }
                 // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
                 drafts.putProof(CaptureFlow.MILK_FEEDING, taskId, code, proofOutboxId)
                 captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
-                analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_SUCCESS)
+                analytics.track(
+                    AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_SUCCESS,
+                    mapOf(
+                        AnalyticsEvents.Params.ITEM_ID to taskId,
+                        AnalyticsEvents.Params.FIELD to code,
+                    ),
+                )
                 draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(captured = true, capturing = false) else row }) }
             }
             is AppResult.Err -> {
                 proofKeys.getValue(code).invalidate()
-                analytics.track(AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE)
+                analytics.track(
+                    AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE,
+                    mapOf(
+                        AnalyticsEvents.Params.ITEM_ID to taskId,
+                        AnalyticsEvents.Params.FIELD to code,
+                        AnalyticsEvents.Params.REASON to result.message,
+                    ),
+                )
                 draft.update { it.copy(message = result.message, proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
             }
         }
@@ -414,7 +450,10 @@ class MilkFeedingViewModel @Inject constructor(
             drafts.putSubmit(CaptureFlow.MILK_FEEDING, taskId, submitIdempotencyKey, null)
             captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
         }
-        analytics.track(AnalyticsEvents.MILK_FEEDING_SUBMITTED)
+        analytics.track(
+            AnalyticsEvents.MILK_FEEDING_SUBMITTED,
+            mapOf(AnalyticsEvents.Params.ITEM_ID to current.taskId),
+        )
         when (val result = sync.enqueueMilkFeedingSubmit(groupKey(), submitIdempotencyKey, current.taskId, current.parkId, current.feedingDate, current.sessionNo, answers, clean, mixing)) {
             is AppResult.Ok -> {
                 drafts.putSubmit(CaptureFlow.MILK_FEEDING, taskId, submitIdempotencyKey, result.value)

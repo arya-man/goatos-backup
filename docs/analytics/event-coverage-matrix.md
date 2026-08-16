@@ -1,25 +1,31 @@
 # Analytics Event Coverage Matrix
 
-## Corrections (2026-08-16, post external review — supersedes stale statements below)
+## Corrections (2026-08-16, post external review + observability audit — supersedes stale statements below)
 
-- **Milk analytics are REAL and use dedicated event names** — `MILK_PREPARATION_OPENED /
-  _PROOF_CAPTURE_ATTEMPT / _PROOF_CAPTURE_SUCCESS / _PROOF_CAPTURE_FAILURE / _SUBMITTED /
-  _FAILURE` and the `MILK_FEEDING_*` equivalents, emitted from the real ViewModels (injected
-  AnalyticsPort) and asserted by real-ViewModel tests. Any statement below that milk reuses
-  `WEIGHING_*` names or has no proof-capture analytics is STALE.
+- **Milk analytics are REAL and use dedicated event names WITH PARAMS** — `MILK_PREPARATION_OPENED
+  (park_id) / _PROOF_CAPTURE_ATTEMPT (park_id, field) / _PROOF_CAPTURE_SUCCESS (park_id, field) /
+  _PROOF_CAPTURE_FAILURE (park_id, field, reason) / _SUBMITTED (park_id) / _FAILURE (reason)`
+  and the `MILK_FEEDING_*` equivalents (item_id instead of park_id), emitted from real ViewModels
+  (injected AnalyticsPort) with identifying params for diagnostics. Any statement below showing
+  milk without params or reusing `WEIGHING_*` names is STALE.
+- **Workflow detail analytics now carry params** — `WORKFLOW_VIDEO_CAPTURED (item_id, action)`,
+  `WORKFLOW_ACTION_ANSWERED/COMPLETED (no params yet)`. Previous stale gap about no capture-fail
+  events is still accurate (no distinct cancel/error event).
 - **Durable backend events (`BackendAnalyticsAdapter.CRITICAL_EVENT_ALLOWLIST`)** are exactly:
   `proof_processing_failed`, `SYNC_WRITE_DEAD`, `FEED_DISTRIBUTION_LIVE_STATUS_CHANGED`,
   `FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ`, **`FEED_DISTRIBUTION_SUBMIT_SOURCES`** (the only
   full record of feed_weight/feed_video/water_video source — Firebase drops two of the three
   under the 25-param cap), `WEIGHING_CAPTURE_FAILURE`, `WEIGHING_WEIGHT_CAPTURE_FAILURE`,
-  `WEIGHING_PROOF_CAPTURE_FAILURE`. Failed sends queue durably; drains fire on connectivity
-  return, app start, and any later send; resends reuse the ORIGINAL `client_event_id`
-  (first-class DTO field, backend UNIQUE (tenant_id, client_event_id) + ON CONFLICT DO NOTHING).
+  `WEIGHING_PROOF_CAPTURE_FAILURE`. Milk capture failures NOT yet in durable list (P3).
+  Failed sends queue durably; drains fire on connectivity return, app start, and any later send;
+  resends reuse the ORIGINAL `client_event_id` (first-class DTO field, backend UNIQUE
+  (tenant_id, client_event_id) + ON CONFLICT DO NOTHING).
 - **Architecture status: CANONICAL** — all proof-flow captures now route through
   [ProofIdentity](../../apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureRepository.kt#L1)/[EvidenceSlot](../../apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureRepository.kt#L1)
   machinery with Manohar ordering (NEW → STORE → DELETE-OLD). Previous non-canonical flows
   (`milk_preparation`, `milk_feeding`, `workflow_detail`) were migrated to call
-  `captureReplacingLatest(slot=..., ...)` in 2026-08-16 (Blocker 9).
+  `captureReplacingLatest(slot=..., ...)` in 2026-08-16 (Blocker 9). Anti-patterns from this
+  migration documented in MOBILE_ANTI_PATTERNS.md.
 
 
 This matrix documents proof-flow analytics coverage across all features, identifying event emissions and known gaps. Columns represent event lifecycle stages; rows represent workflows. Cell values are event names or "GAP" where tracking is absent.

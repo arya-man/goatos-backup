@@ -342,7 +342,10 @@ class MilkPreparationViewModel @Inject constructor(
     private var captureDraft = CaptureDraft()
 
     init {
-        analytics.track(AnalyticsEvents.MILK_PREPARATION_OPENED)
+        analytics.track(
+            AnalyticsEvents.MILK_PREPARATION_OPENED,
+            mapOf(AnalyticsEvents.Params.PARK_ID to parkId),
+        )
         viewModelScope.launch {
             captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             val answers = captureDraft.answers
@@ -479,7 +482,13 @@ class MilkPreparationViewModel @Inject constructor(
         val current = state.value
         val step = current.steps.firstOrNull { it.code == stepCode } ?: return
         if (!current.isEditable || parkId.isBlank() || !step.enabled || !step.answerComplete || step.captured || step.capturing) return
-        analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT)
+        analytics.track(
+            AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT,
+            mapOf(
+                AnalyticsEvents.Params.PARK_ID to parkId,
+                AnalyticsEvents.Params.FIELD to stepCode,
+            ),
+        )
         draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
         viewModelScope.launch {
             val caption = proofOverlayContextLine(
@@ -497,7 +506,14 @@ class MilkPreparationViewModel @Inject constructor(
                 ),
             )
             if (video == null) {
-                analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE)
+                analytics.track(
+                    AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                    mapOf(
+                        AnalyticsEvents.Params.PARK_ID to parkId,
+                        AnalyticsEvents.Params.FIELD to stepCode,
+                        AnalyticsEvents.Params.REASON to "cancelled",
+                    ),
+                )
                 setCapturing(stepCode, false)
                 return@launch
             }
@@ -521,7 +537,14 @@ class MilkPreparationViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE)
+                        analytics.track(
+                            AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                            mapOf(
+                                AnalyticsEvents.Params.PARK_ID to parkId,
+                                AnalyticsEvents.Params.FIELD to stepCode,
+                                AnalyticsEvents.Params.REASON to "enqueue_failed",
+                            ),
+                        )
                         setCapturing(stepCode, false)
                         draft.update { it.copy(message = "Proof upload could not be queued") }
                         return@launch
@@ -529,12 +552,25 @@ class MilkPreparationViewModel @Inject constructor(
                     // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
                     drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, proofOutboxId)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
-                    analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_SUCCESS)
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_SUCCESS,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                        ),
+                    )
                     draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
                 }
                 is AppResult.Err -> {
                     proofKeys.getValue(stepCode).invalidate()
-                    analytics.track(AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE)
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                            AnalyticsEvents.Params.REASON to result.message,
+                        ),
+                    )
                     setCapturing(stepCode, false)
                     draft.update { it.copy(message = result.message) }
                 }
@@ -559,7 +595,10 @@ class MilkPreparationViewModel @Inject constructor(
                 drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, null)
                 captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             }
-            analytics.track(AnalyticsEvents.MILK_PREPARATION_SUBMITTED)
+            analytics.track(
+                AnalyticsEvents.MILK_PREPARATION_SUBMITTED,
+                mapOf(AnalyticsEvents.Params.PARK_ID to current.selectedParkId),
+            )
             when (val result = sync.enqueueMilkPreparationSubmit(groupKey(), submitIdempotencyKey, current.selectedParkId, current.preparationDate, goatMilkUsed, answers, proofItems)) {
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, result.value)
