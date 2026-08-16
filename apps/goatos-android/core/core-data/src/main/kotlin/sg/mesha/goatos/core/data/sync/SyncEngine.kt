@@ -329,6 +329,24 @@ class SyncEngine(
         runCatching { telemetry.onOutboxWrite(event) }
     }
 
+    /** Logs a post-success local-cache reconcile failure (e.g. the Room mirror write in
+     *  [reconcileFeatureSuccess] threw) without ever rethrowing: the golden rule is "never
+     *  swallow an exception", but this one item is already SUCCEEDED on the server, so it must
+     *  never be re-marked failed and must never abort the rest of a drain pass. Reused as
+     *  [OutboxWritePhase.ATTEMPT_FAILED] telemetry (attempt/maxAttempts left at 0) — the closest
+     *  existing signal that reaches the same Crashlytics/analytics sink as every other outbox
+     *  failure, rather than adding a new wire-format phase for one call site. */
+    private fun reportCacheReconcileFailure(item: OutboxEntity, error: Throwable) {
+        report(
+            OutboxTelemetryEvent(
+                phase = OutboxWritePhase.ATTEMPT_FAILED,
+                opType = item.opType,
+                itemId = item.id,
+                failureClass = error.javaClass.simpleName,
+            ),
+        )
+    }
+
     /** Calls the app-api for [item], reusing its stored idempotency key verbatim (never a new
      *  key on retry). Returns the raw JSON response on success, echoed back via
      *  [OutboxEntity.resultJson] so a later observer can decode the original server result
@@ -406,13 +424,22 @@ class SyncEngine(
                 item.resultJson?.let { resultJson ->
                     val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto>(resultJson)
                     if (response.status.isNotBlank()) {
-                        feedRepository?.persistDirectionSessionStatus(
-                            shedId = payload.shedId,
-                            partitionLabel = payload.partitionLabel ?: "",
-                            workflow = payload.workflow,
-                            sessionNo = payload.sessionNo,
-                            lifecycleStatus = response.status,
-                        )
+                        // The server already accepted this write (item is SUCCEEDED) — a failure
+                        // HERE is only "local Room mirror didn't refresh", never a reason to mark
+                        // the outbox row failed or abort the rest of this drain pass (this runs
+                        // both per-item in processItem's try and in bulk in drainOnce's startup
+                        // reconcile loop, which has no surrounding try/catch of its own). Caught
+                        // locally and reported so it is never silently lost; the next successful
+                        // preview/worklist fetch repairs the cache regardless.
+                        runCatching {
+                            feedRepository?.persistDirectionSessionStatus(
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = payload.workflow,
+                                sessionNo = payload.sessionNo,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
                     }
                 }
             }
@@ -421,13 +448,17 @@ class SyncEngine(
                 item.resultJson?.let { resultJson ->
                     val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto>(resultJson)
                     if (response.status.isNotBlank()) {
-                        feedRepository?.persistPackingRowStatus(
-                            shedId = payload.shedId,
-                            partitionLabel = payload.partitionLabel ?: "",
-                            workflow = payload.workflow,
-                            sessionNo = payload.sessionNo,
-                            lifecycleStatus = response.status,
-                        )
+                        // Same rationale as FEED_DISTRIBUTION_COMPLETE above: never let a local
+                        // cache-write failure look like (or behave like) a dispatch failure.
+                        runCatching {
+                            feedRepository?.persistPackingRowStatus(
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = payload.workflow,
+                                sessionNo = payload.sessionNo,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
                     }
                 }
             }

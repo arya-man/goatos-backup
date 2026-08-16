@@ -46,27 +46,29 @@ class FeedDistributionCompleteReconcileTest {
         }
 
         // Other methods not needed for this test
-        override suspend fun observeDirectionTotals(query: sg.mesha.goatos.core.data.FeedDirectionQuery) =
-            kotlinx.coroutines.flow.flowOf(sg.mesha.goatos.core.common.Resource<Any>())
+        override fun observeDirectionTotals(query: sg.mesha.goatos.core.data.FeedDirectionQuery) =
+            kotlinx.coroutines.flow.flowOf(sg.mesha.goatos.core.common.Resource<sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto>(data = null))
 
-        override suspend fun directionRows(query: sg.mesha.goatos.core.data.FeedDirectionQuery) =
-            kotlinx.coroutines.flow.flowOf(androidx.paging.PagingData.empty())
+        override fun directionRows(query: sg.mesha.goatos.core.data.FeedDirectionQuery) =
+            kotlinx.coroutines.flow.flowOf(androidx.paging.PagingData.empty<sg.mesha.goatos.core.network.dto.FeedDirectionRowDto>())
 
-        override suspend fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int) =
-            kotlinx.coroutines.flow.flowOf(null)
+        override fun observePackingTotals(query: sg.mesha.goatos.core.data.FeedPackingQuery) =
+            kotlinx.coroutines.flow.flowOf(sg.mesha.goatos.core.common.Resource<sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto>(data = null))
 
-        override suspend fun packingRows(query: sg.mesha.goatos.core.data.FeedPackingQuery) =
-            kotlinx.coroutines.flow.flowOf(androidx.paging.PagingData.empty())
+        override fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int) =
+            kotlinx.coroutines.flow.flowOf<String?>(null)
 
-        override suspend fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int) =
-            kotlinx.coroutines.flow.flowOf(null)
+        override fun packingRows(query: sg.mesha.goatos.core.data.FeedPackingQuery) =
+            kotlinx.coroutines.flow.flowOf(androidx.paging.PagingData.empty<sg.mesha.goatos.core.network.dto.FeedPackingRowDto>())
 
-        override suspend fun observeTotals(query: sg.mesha.goatos.core.data.FeedPackingQuery) =
-            kotlinx.coroutines.flow.flowOf(sg.mesha.goatos.core.common.Resource<Any>())
+        override fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int) =
+            kotlinx.coroutines.flow.flowOf<String?>(null)
 
         override suspend fun penSessionCaptures(query: sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery) = null
 
-        override suspend fun fetchDirectionSessionStatus(parkId: String?, shedId: String, partitionLabel: String?, workflow: String, sessionNo: Int, targetDate: String): String? = null
+        override suspend fun fetchDirectionSessionStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null
+
+        override suspend fun fetchPackingRowStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null
 
         override suspend fun fetchProofDownloadUrl(proofId: String): String? = null
 
@@ -123,15 +125,18 @@ class FeedDistributionCompleteReconcileTest {
             resultJson = syncJson.encodeToString(response),
         )
 
-        // Manually call reconcileFeatureSuccess (normally called after outbox item succeeds)
-        // This is the fix: before, reconcileFeatureSuccess didn't handle FEED_DISTRIBUTION_COMPLETE
-        // and Room cache was never updated. Now it updates.
-        val privateMethod = engine::class.java.getDeclaredMethod(
-            "reconcileFeatureSuccess",
-            OutboxEntity::class.java
-        )
-        privateMethod.isAccessible = true
-        privateMethod.invoke(engine, item)
+        // Drive the REAL production path: seed the store with an already-SUCCEEDED row and run a
+        // drain pass. drainOnce()'s startup reconcile loop
+        // (`store.observeRecentTerminals(...).filter{SUCCEEDED}.forEach{reconcileFeatureSuccess}`)
+        // is exactly what runs after a process restart with a pending-reconcile row, and it is the
+        // one path `private fun reconcileFeatureSuccess` cannot be invoked without going through
+        // (a raw reflective call to a `suspend fun` needs a `Continuation` argument it never had
+        // here — the original committed version of this test called
+        // `getDeclaredMethod("reconcileFeatureSuccess", OutboxEntity::class.java)` with ONE
+        // parameter, which does not exist for a compiled suspend fun and threw
+        // NoSuchMethodException on every run; this test was never actually green).
+        store.insert(item)
+        engine.drainOnce()
 
         // Verify the Room cache was updated with the new status
         val key = "shed-1|1|distribution|2"
@@ -186,12 +191,8 @@ class FeedDistributionCompleteReconcileTest {
             resultJson = syncJson.encodeToString(response),
         )
 
-        val privateMethod = engine::class.java.getDeclaredMethod(
-            "reconcileFeatureSuccess",
-            OutboxEntity::class.java
-        )
-        privateMethod.isAccessible = true
-        privateMethod.invoke(engine, item)
+        store.insert(item)
+        engine.drainOnce()
 
         val key = "shed-2|2|packing|3"
         assertEquals(
