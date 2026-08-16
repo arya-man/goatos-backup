@@ -216,8 +216,9 @@ class MilkPreparationViewModelTest {
             2,
             proofCaptureRepository.captureCalls.size,
         )
-        // Manohar ordering (captureReplacingLatest): new proof is stored first, then the old one
-        // is removed from the repository. Only the latest proof survives in Room storage.
+        // P1 FIX: Manohar ordering (captureReplacingLatest): new proof is stored first, then the old one
+        // is removed from the repository ONCE SYNCED. Only the latest proof survives in Room storage.
+        proofCaptureRepository.driveAllPendingRetirements()
         val survivingRows = proofCaptureRepository.allRows()
         assertEquals("only the new proof remains after successful re-capture", 1, survivingRows.size)
         assertEquals("/proof/goat-milk-qty-2.mp4", survivingRows.last().localUri)

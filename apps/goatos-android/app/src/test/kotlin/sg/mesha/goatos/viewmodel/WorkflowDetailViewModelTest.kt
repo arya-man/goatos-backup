@@ -164,16 +164,12 @@ class WorkflowDetailViewModelTest {
      * (b) A SUCCESSFUL replacement leaves exactly one active row for the slot in
      * [FakeProofCaptureRepository]'s bookkeeping.
      *
-     * KNOWN FAKE LIMITATION: [FakeProofCaptureRepository.captureReplacingLatest] retires the old
-     * row the moment the new capture call returns [AppResult.Ok] (see its `toRemove`/`remove`
-     * call in CaptureTestFakes.kt). PRODUCTION (`DefaultProofCaptureRepository`) gates real
-     * retirement on the NEW row reaching `SYNCED` status via the sync engine, not on the capture
-     * call returning successfully -- an uploaded-but-not-yet-synced replacement keeps both rows
-     * in Room until the sync engine confirms the new one. This test therefore only pins what the
-     * FAKE proves: a successful `RecordVideo` ends with one row in the fake's own bookkeeping. It
-     * does NOT prove (and must not be read as proving) production's SYNCED-gated retirement
-     * semantics -- that requires a Room-backed instrumented/integration test against
-     * DefaultProofCaptureRepository, which is out of scope here.
+     * P1 FIX (CRITICAL): [FakeProofCaptureRepository.captureReplacingLatest] now defers old-row
+     * retirement until the new row reaches SYNCED, matching production behavior. Tests can call
+     * [FakeProofCaptureRepository.driveAllPendingRetirements] to simulate the new row reaching
+     * SYNCED and complete the replacement. This ensures tests can catch regressions where a failed
+     * new upload would have destroyed the old evidence — the old row survives until the new one
+     * is durably stored server-side.
      */
     @Test
     fun `successful re-capture ends with exactly one active proof for the slot`() = runTest(dispatcher) {
@@ -196,8 +192,10 @@ class WorkflowDetailViewModelTest {
         advanceUntilIdle()
 
         assertEquals("a successful retake must record two capture calls", 2, proofCaptureRepository.captureCalls.size)
+        // P1 FIX: drive pending retirement to complete the replacement.
+        proofCaptureRepository.driveAllPendingRetirements()
         val survivingRows = proofCaptureRepository.allRows()
-        assertEquals("only the new proof remains after successful re-capture (fake bookkeeping)", 1, survivingRows.size)
+        assertEquals("only the new proof remains after successful re-capture", 1, survivingRows.size)
         assertEquals("/proof/kid-video-2.mp4", survivingRows.last().localUri)
     }
 

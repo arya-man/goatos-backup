@@ -225,6 +225,11 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
      *  resets itself — drives "cancelled/failed re-capture must not lose the old proof" tests. */
     var failNextCapture: Boolean = false
 
+    /** Deferred retirement actions, keyed by the NEW proof row id, matching production's durable
+     *  supersession contract: old rows are only removed once the new row reaches SYNCED with a
+     *  serverProofId. Tests call [driveSlotRetirementIfPending] to simulate this transition. */
+    private val pendingSlotRetirement = mutableMapOf<String, suspend () -> Unit>()
+
     override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
         flow.map { list ->
             list.filter {
@@ -359,6 +364,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         return AppResult.Ok(Unit)
     }
 
+    /** Mark a proof row's sync status. This is a non-suspend version that does NOT fire pending
+     *  retirement actions — use [markSyncedAndDriveRetirement] to simulate the row reaching SYNCED
+     *  and trigger old-row cleanup. Kept for backward compatibility with existing tests that call
+     *  markSynced directly. */
     fun markSynced(id: String, serverProofId: String, syncStatus: String = "SYNCED") {
         val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
@@ -374,7 +383,37 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         }
     }
 
+    /**
+     * Mark a proof row as SYNCED and fire any pending slot-retirement action keyed by this row's id.
+     * This is the test hook matching production behavior: old rows are removed only when the
+     * replacement reaches SYNCED + serverProofId. Tests that verify old-row survival during upload
+     * should use [markInFlight] instead (no retirement), then call this method once the new row
+     * should complete its upload.
+     *
+     * Regression test case: old row SURVIVES while replacement is uploading/FAILED.
+     * 1. captureReplacingLatest succeeds (new row written)
+     * 2. assert old row still exists (markInFlight only, not markSyncedAndDriveRetirement yet)
+     * 3. mark new row as SYNCED (this fires retirement)
+     * 4. assert old row is now gone
+     */
+    suspend fun markSyncedAndDriveRetirement(id: String, serverProofId: String) {
+        markSynced(id, serverProofId, "SYNCED")
+        val action = pendingSlotRetirement.remove(id)
+        action?.invoke()
+    }
+
     fun getProofById(id: String): ProofCaptureRow? = rows.find { it.row.id == id }?.row
+
+    /** Fire ALL pending slot-retirement actions and clear the registry. Convenience for tests that
+     *  do not care about intermediate upload state and want to simulate the full replace cycle
+     *  completing. Tests that verify old-row survival during IN_FLIGHT should NOT call this;
+     *  they should instead use [markInFlight] (no retirement) then [markSyncedAndDriveRetirement]
+     *  once they want to complete the replacement. */
+    suspend fun driveAllPendingRetirements() {
+        val toFire = pendingSlotRetirement.values.toList()
+        pendingSlotRetirement.clear()
+        toFire.forEach { it.invoke() }
+    }
 
     fun markFailed(id: String, error: String) {
         val index = rows.indexOfFirst { it.row.id == id }
@@ -459,14 +498,23 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         if (result is AppResult.Ok) {
             val newId = result.value.id
             val partitionKey = testPartitionKey(partitionLabel)
-            val toRemove = rows.filter {
+            // P1 FIX: DEFER retirement of the old row(s) until the new row reaches SYNCED with
+            // a serverProofId, matching production behavior. This prevents data loss if the new
+            // upload fails — the old row stays viable evidence until the new one is durably stored.
+            // Register a one-shot retirement action, keyed by the new row's id, that tests invoke
+            // via driveSlotRetirementIfPending() to simulate the new row reaching SYNCED.
+            val toRemoveIds = rows.filter {
                 it.matches(taskId) &&
                     it.row.partitionKey == partitionKey &&
                     it.row.fieldKey == slot.fieldKey &&
                     it.row.syncStatus != CaptureSyncStatus.FAILED &&
                     it.row.id != newId
+            }.map { it.row.id }
+            if (toRemoveIds.isNotEmpty()) {
+                pendingSlotRetirement[newId] = {
+                    toRemoveIds.forEach { remove(taskId, it) }
+                }
             }
-            toRemove.forEach { remove(taskId, it.row.id) }
         }
         return result
     }
