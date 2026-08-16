@@ -73,6 +73,23 @@ registered in `context/architecture/domain-event-registry.json`. Do not build a
 mobile-only follow-up pipeline for shifting, death/cull, feed direction,
 vaccination, or future operational modules.
 
+### Decision-from-rendered-subset (colostrum-class defect)
+
+A VM must never re-derive a business decision (blocked/enabled/ready/visible/
+complete/editable) with `.all{}`/`.any{}`/`.none{}`/`.count{}` over the rows
+IT RENDERS when those rows are a filtered, paged, or date-scoped SUBSET of a
+backend-known complete set. Worked example: `canRecordWorkflowVideo` ANDed
+`workflowPredecessorsReady` computed over the Colostrum lens's one-day row
+list, so a kid's later-day feeds lost the camera because the birth-day
+predecessor wasn't in the rendered subset — while the backend's `blocked`
+field (computed over the kid's COMPLETE action set) correctly said false.
+Fixed 2680ed615; full catalog entry + detection steps in
+`.agents/skills/mobile-anti-patterns/SKILL.md` ("Decision-from-rendered-subset").
+When reviewing a VM: grep for these iterators feeding a gate, then check
+whether an authoritative backend field exists for that same decision. If yes
+and the client re-derives, block. If no such field exists and the row set is
+paged/lensed, flag CONTRACT-GAP — do not accept a client-only fix.
+
 ## User-facing copy firewall
 
 Mobile UI is for operators, directors, and leaders in the field. Treat leaked
