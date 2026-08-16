@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.feature.sheds.ShedsEvent
+import sg.mesha.goatos.feature.sheds.ShedStatus
 import java.time.LocalDate
 
 /**
@@ -550,6 +551,93 @@ class ShedsViewModelTest {
             false,
             row!!.opensRecordOnly,
         )
+    }
+
+    /**
+     * RED→GREEN: Shed card status must be computed from ALL rows matching its identity,
+     * not from paginated subsets. Without backend summaries, a card whose rows straddle
+     * an unloaded page would show incorrect status/counts based only on page-1 rows.
+     * With backend summaries, the status stays authoritative even when only page 1 is loaded.
+     *
+     * Scenario: A card has 3 rows total (page 1: 2 rows, page 2: 1 row). Page-1 rows
+     * show status=PENDING (2 open, 0 redo), but the card actually has 1 redo row on page 2.
+     * Backend summary correctly computes status=SENT_BACK from all 3 rows. Client should
+     * render SENT_BACK (backend summary) not PENDING (page-1 only).
+     */
+    @Test
+    fun `backend card summary overrides page-1-only row computation when rows straddle pages`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        // Simulate page 1 with 2 rows for the card (both show open work, no redo)
+        val page1Rows = listOf(
+            VaccinationExecutionRowDto(
+                shedId = "shed-split",
+                shedName = "Gandhi Multi",
+                parkId = "park-cbe",
+                parkName = "Coimbatore",
+                dueDate = today,
+                targetCount = 10,
+                openCount = 8,
+                doneCount = 2,
+                workState = "due",
+                sopStatus = "open",
+            ),
+            VaccinationExecutionRowDto(
+                shedId = "shed-split",
+                shedName = "Gandhi Multi",
+                parkId = "park-cbe",
+                parkName = "Coimbatore",
+                partition = "Part 2",
+                dueDate = today,
+                targetCount = 10,
+                openCount = 9,
+                doneCount = 1,
+                workState = "due",
+                sopStatus = "open",
+            ),
+        )
+
+        // Backend summary computed from ALL 3 rows (including page 2's 1 redo row)
+        // tells us the card actually has needsRedo=true → status should be SENT_BACK
+        val cardSummaries = mapOf(
+            "shed:shed-split|partition:whole" to sg.mesha.goatos.core.network.dto.ShedCardSummaryDto(
+                shedId = "shed-split",
+                partitionLabel = null,
+                status = "rejected",  // Backend computed from all rows: this card has rejected work
+                doneCount = 3,
+                targetCount = 30,    // Max from all 3 rows
+                openCount = 18,      // Max from all 3 rows
+                needsRedo = true,    // Set because one page-2 row has rejected/deferred state
+                vaccineGroups = emptyList(),
+            ),
+        )
+
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = page1Rows,
+                nextCursor = "cursor-page-2",
+                cardSummaries = cardSummaries,
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Verify: card status is SENT_BACK (from backend summary), not PENDING (from page-1 only)
+        val cardRow = vm.state.value.rows.first()
+        assertEquals(
+            "Card status must reflect backend summary (all rows), not page-1-only rows",
+            ShedStatus.SENT_BACK,
+            cardRow.status,
+        )
+        assertEquals(30, cardRow.inShed.toInt())  // From backend summary
+        assertEquals(18, cardRow.due.toInt())    // From backend summary
+        assertEquals(3, cardRow.done.toInt())    // From backend summary
     }
 }
 
