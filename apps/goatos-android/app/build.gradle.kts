@@ -386,8 +386,6 @@ dependencies {
     // in test context, no manual launch/collect needed). Catches state-sequence bugs:
     // flashes, wedges, yanks, stale-scope issues (item: state-sequence tests).
     testImplementation(libs.turbine)
-    // Paging testing (asSnapshot: deterministic collection of PagingData emissions).
-    testImplementation(libs.androidx.paging.testing)
     // Retrofit and OkHttp for creating mock HttpException with proper error bodies in tests
     testImplementation(libs.retrofit)
     testImplementation(libs.okhttp)
