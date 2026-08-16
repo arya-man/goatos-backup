@@ -33,6 +33,7 @@ const (
 	defaultMCPPath          = "/mcp"
 	defaultAPIAskPath       = "/ceo-ai/ask"
 	maxBodyBytes      int64 = 1 << 20
+	firebaseTokenTTL        = 3600
 )
 
 func main() {
@@ -278,10 +279,10 @@ func (s *server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 		"token_endpoint":                        base + "/token",
 		"registration_endpoint":                 base + "/register",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
-		"scopes_supported":                      []string{"goatos.read"},
+		"scopes_supported":                      []string{"goatos.read", "offline_access"},
 	})
 }
 
@@ -295,7 +296,7 @@ func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		"client_id":                  "goatos-mcp-" + randomString(12),
 		"client_id_issued_at":        time.Now().Unix(),
 		"token_endpoint_auth_method": "none",
-		"grant_types":                []string{"authorization_code"},
+		"grant_types":                []string{"authorization_code", "refresh_token"},
 		"response_types":             []string{"code"},
 	})
 }
@@ -379,7 +380,7 @@ func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
 		return
 	}
-	idToken, claims, err := s.signInWithFirebase(r.Context(), strings.TrimSpace(r.Form.Get("email")), r.Form.Get("password"))
+	signIn, claims, err := s.signInWithFirebase(r.Context(), strings.TrimSpace(r.Form.Get("email")), r.Form.Get("password"))
 	if err != nil {
 		s.log.Warn("goatos_mcp_login_failed", slog.Any("error", err))
 		s.renderLogin(w, r, "Login failed. Check the Goat OS staging email and password.")
@@ -393,7 +394,8 @@ func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
 	code := randomString(32)
 	s.oauthMu.Lock()
 	s.oauthCodes[code] = oauthCode{
-		Token:               idToken,
+		Token:               signIn.IDToken,
+		RefreshToken:        signIn.RefreshToken,
 		Email:               email,
 		ExpiresAt:           time.Now().Add(5 * time.Minute),
 		ClientID:            strings.TrimSpace(r.Form.Get("client_id")),
@@ -416,6 +418,7 @@ func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
 
 type oauthCode struct {
 	Token               string
+	RefreshToken        string
 	Email               string
 	ExpiresAt           time.Time
 	ClientID            string
@@ -432,6 +435,10 @@ func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := r.ParseForm(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if strings.TrimSpace(r.Form.Get("grant_type")) == "refresh_token" {
+		s.handleRefreshToken(w, r)
 		return
 	}
 	code := strings.TrimSpace(r.Form.Get("code"))
@@ -452,11 +459,41 @@ func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": entry.Token,
-		"token_type":   "Bearer",
-		"expires_in":   3600,
-		"scope":        "goatos.read",
+		"access_token":  entry.Token,
+		"refresh_token": entry.RefreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    firebaseTokenTTL,
+		"scope":         "goatos.read",
 	})
+}
+
+func (s *server) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
+	refreshToken := strings.TrimSpace(r.Form.Get("refresh_token"))
+	if refreshToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
+	refreshed, claims, err := s.refreshFirebaseToken(r.Context(), refreshToken)
+	if err != nil {
+		s.log.Warn("goatos_mcp_refresh_failed", slog.Any("error", err))
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
+	email := normalizedEmail(claims.Email)
+	if len(s.cfg.AllowedEmails) > 0 && !s.cfg.AllowedEmails.Allows(email, claims.EmailVerified) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+		return
+	}
+	out := map[string]any{
+		"access_token": refreshed.IDToken,
+		"token_type":   "Bearer",
+		"expires_in":   firebaseTokenTTL,
+		"scope":        "goatos.read",
+	}
+	if strings.TrimSpace(refreshed.RefreshToken) != "" {
+		out["refresh_token"] = refreshed.RefreshToken
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func allowedOAuthRedirectURI(raw string) bool {
@@ -508,9 +545,14 @@ func (c oauthCode) pkceAllows(verifier string) bool {
 	}
 }
 
-func (s *server) signInWithFirebase(ctx context.Context, email, password string) (string, platformauth.Claims, error) {
+type firebaseAuthTokens struct {
+	IDToken      string
+	RefreshToken string
+}
+
+func (s *server) signInWithFirebase(ctx context.Context, email, password string) (firebaseAuthTokens, platformauth.Claims, error) {
 	if s.cfg.FirebaseAPIKey == "" {
-		return "", platformauth.Claims{}, errors.New("firebase_api_key_missing")
+		return firebaseAuthTokens{}, platformauth.Claims{}, errors.New("firebase_api_key_missing")
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"email":             email,
@@ -520,33 +562,79 @@ func (s *server) signInWithFirebase(ctx context.Context, email, password string)
 	endpoint := "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + url.QueryEscape(s.cfg.FirebaseAPIKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", platformauth.Claims{}, err
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", platformauth.Claims{}, err
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", platformauth.Claims{}, fmt.Errorf("firebase_sign_in_status_%d", resp.StatusCode)
+		return firebaseAuthTokens{}, platformauth.Claims{}, fmt.Errorf("firebase_sign_in_status_%d", resp.StatusCode)
 	}
 	var out struct {
-		IDToken string `json:"idToken"`
-		Email   string `json:"email"`
+		IDToken      string `json:"idToken"`
+		RefreshToken string `json:"refreshToken"`
+		Email        string `json:"email"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return "", platformauth.Claims{}, err
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
 	}
 	if strings.TrimSpace(out.IDToken) == "" {
-		return "", platformauth.Claims{}, errors.New("firebase_id_token_missing")
+		return firebaseAuthTokens{}, platformauth.Claims{}, errors.New("firebase_id_token_missing")
+	}
+	if strings.TrimSpace(out.RefreshToken) == "" {
+		return firebaseAuthTokens{}, platformauth.Claims{}, errors.New("firebase_refresh_token_missing")
 	}
 	claims, err := s.cfg.TokenVerifier.Verify(out.IDToken)
 	if err != nil {
-		return "", platformauth.Claims{}, err
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
 	}
-	return out.IDToken, claims, nil
+	return firebaseAuthTokens{IDToken: out.IDToken, RefreshToken: out.RefreshToken}, claims, nil
+}
+
+func (s *server) refreshFirebaseToken(ctx context.Context, refreshToken string) (firebaseAuthTokens, platformauth.Claims, error) {
+	if s.cfg.FirebaseAPIKey == "" {
+		return firebaseAuthTokens{}, platformauth.Claims{}, errors.New("firebase_api_key_missing")
+	}
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refreshToken)
+	endpoint := "https://securetoken.googleapis.com/v1/token?key=" + url.QueryEscape(s.cfg.FirebaseAPIKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return firebaseAuthTokens{}, platformauth.Claims{}, fmt.Errorf("firebase_refresh_status_%d", resp.StatusCode)
+	}
+	var out struct {
+		IDToken      string `json:"id_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
+	}
+	if strings.TrimSpace(out.IDToken) == "" {
+		return firebaseAuthTokens{}, platformauth.Claims{}, errors.New("firebase_id_token_missing")
+	}
+	claims, err := s.cfg.TokenVerifier.Verify(out.IDToken)
+	if err != nil {
+		return firebaseAuthTokens{}, platformauth.Claims{}, err
+	}
+	if strings.TrimSpace(out.RefreshToken) == "" {
+		out.RefreshToken = refreshToken
+	}
+	return firebaseAuthTokens{IDToken: out.IDToken, RefreshToken: out.RefreshToken}, claims, nil
 }
 
 func randomString(bytesLen int) string {

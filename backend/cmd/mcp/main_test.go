@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -740,8 +741,8 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 	if asRec.Code != http.StatusOK {
 		t.Fatalf("auth metadata status=%d body=%s", asRec.Code, asRec.Body.String())
 	}
-	if strings.Contains(asRec.Body.String(), "offline_access") {
-		t.Fatalf("auth metadata must not advertise offline_access without refresh tokens: %s", asRec.Body.String())
+	if !strings.Contains(asRec.Body.String(), "refresh_token") || !strings.Contains(asRec.Body.String(), "offline_access") {
+		t.Fatalf("auth metadata must advertise refresh-token support: %s", asRec.Body.String())
 	}
 
 	verifier := "codex-pkce-verifier"
@@ -749,6 +750,7 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
 	s.oauthCodes["code-1"] = oauthCode{
 		Token:               "firebase-id-token",
+		RefreshToken:        "firebase-refresh-token",
 		ExpiresAt:           time.Now().Add(time.Minute),
 		ClientID:            "goatos-mcp-client",
 		RedirectURI:         "https://chatgpt.com/connector/oauth/goatos",
@@ -771,6 +773,57 @@ func TestOAuthMetadataAndCodeExchange(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"access_token":"firebase-id-token"`) {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"refresh_token":"firebase-refresh-token"`) {
+		t.Fatalf("body missing refresh token: %s", rec.Body.String())
+	}
+}
+
+func TestOAuthRefreshTokenExchange(t *testing.T) {
+	s := newServer(config{
+		FirebaseAPIKey: "firebase-api-key",
+		PublicURL:      "https://goatos-mcp-stg.example.com",
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		MCPPath:        "/mcp",
+		AllowedEmails:  mustEmailSet(t, "ravi@mesha.sg"),
+		TokenVerifier:  staticTokenVerifier{claims: platformauth.Claims{Email: "ravi@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "securetoken.googleapis.com" {
+			t.Fatalf("unexpected host %s", r.URL.Host)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Form.Get("grant_type"); got != "refresh_token" {
+			t.Fatalf("grant_type=%q", got)
+		}
+		if got := r.Form.Get("refresh_token"); got != "firebase-refresh-token" {
+			t.Fatalf("refresh_token=%q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"id_token":"new-firebase-id-token","refresh_token":"new-firebase-refresh-token"}`)),
+		}, nil
+	})}, nil)
+
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", "firebase-refresh-token")
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	s.handleToken(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"access_token":"new-firebase-id-token"`) {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"refresh_token":"new-firebase-refresh-token"`) {
 		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
@@ -832,6 +885,12 @@ type staticTokenVerifier struct {
 
 func (v staticTokenVerifier) Verify(string) (platformauth.Claims, error) {
 	return v.claims, v.err
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
 
 func mustEmailSet(t *testing.T, emails ...string) authallow.EmailSet {
