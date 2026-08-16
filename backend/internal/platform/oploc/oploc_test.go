@@ -53,20 +53,25 @@ func TestDisplayPreservesEachShedsOwnConvention(t *testing.T) {
 	cases := []struct {
 		shed, partition, want string
 	}{
-		{"Castro", "1", "Castro - 1"},
-		{"Castro", "2", "Castro - 2"},
-		{"Gandhi", "3", "Gandhi - 3"},
+		// Bare numerals: space separator (matches the physical shed name "Castro 1" painted on the building).
+		{"Castro", "1", "Castro 1"},
+		{"Castro", "2", "Castro 2"},
+		{"Gandhi", "3", "Gandhi 3"},
+		{"Ho Chi Minh", "1", "Ho Chi Minh 1"},
+		// Worded labels ("Part N"): space-dash-space separator for visual boundary (since many shed names end in digits).
 		{"Godel 1", "Part 3", "Godel 1 - Part 3"},
 		{"Mandela 1", "Part 10", "Mandela 1 - Part 10"},
-		{"Ho Chi Minh", "1", "Ho Chi Minh - 1"},
+		{"Godel 1", "Part 1", "Godel 1 - Part 1"},
+		// Non-partitioned sheds: bare shed name only, no partition rendering.
 		{"Yashoda", "", "Yashoda"},
-		{"Old Yashoda", "5", "Old Yashoda - 5"},
-		// The cases that forced the separator change (2026-08-06): a shed name that
-		// itself ends in a digit. "Godel 1 1" and "Godel 1 10" were unreadable, and
-		// this shape was 75% of live STG destination options.
-		{"Godel 1", "1", "Godel 1 - 1"},
-		{"Godel 1", "10", "Godel 1 - 10"},
-		{"Sumathi 2", "7", "Sumathi 2 - 7"},
+		// Digit-terminated shed names with bare numeric partitions (75% of live STG data):
+		// space separator remains unambiguous because "Part" prefix exists for the rare
+		// worded case, so the reader knows "Godel 1 1" means partition 1 (not a shed
+		// named "Godel 1 1", which would use "Part" prefix).
+		{"Godel 1", "1", "Godel 1 1"},
+		{"Godel 1", "10", "Godel 1 10"},
+		{"Sumathi 2", "7", "Sumathi 2 7"},
+		{"Old Yashoda", "5", "Old Yashoda 5"},
 	}
 	for _, c := range cases {
 		loc := OperationalLocation{ShedName: c.shed, PartitionLabel: c.partition}
@@ -97,5 +102,37 @@ func TestKeyGroupsByShedIDNotShedName(t *testing.T) {
 	whole := OperationalLocation{ShedID: "shed-yashoda", PartitionLabel: "whole"}
 	if null.Key() != whole.Key() {
 		t.Fatalf("non-partitioned encodings split: %q vs %q", null.Key(), whole.Key())
+	}
+}
+
+func TestIsBarNumericPartitionDetectsPureNumerals(t *testing.T) {
+	// Bare numerals use space separator in Display().
+	cases := []struct {
+		label  string
+		wantOK bool
+	}{
+		// Bare numerals: should be true.
+		{"1", true},
+		{"42", true},
+		{"123", true},
+		{"0", true},
+		{"  5  ", true}, // whitespace is trimmed before check
+		// Worded labels: should be false.
+		{"Part 1", false},
+		{"Part 3", false},
+		{"Parts 1-3", false},
+		{"भाग 2", false}, // Devanagari "part"
+		{"whole", false},
+		{"", false},
+		{"  ", false},
+		// Edge cases that are not bare numerals.
+		{"A", false},
+		{"1A", false},
+		{"Part", false},
+	}
+	for _, c := range cases {
+		if got := isBarNumericPartition(c.label); got != c.wantOK {
+			t.Errorf("isBarNumericPartition(%q) = %v, want %v", c.label, got, c.wantOK)
+		}
 	}
 }

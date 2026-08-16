@@ -48,6 +48,10 @@ data class ScannedGoatEntity(
     val obligationId: String?,
     val capturedAtMs: Long,
     val syncStatus: String = CaptureSyncStatus.PENDING.name,
+    /** obligation_instances.row_version from the backend at the time the scan was captured —
+     *  the server-issued cycle discriminator that distinguishes "never submitted" (same row_version
+     *  as capture time) from "submitted then reopened" (row_version incremented since capture). */
+    val obligationRowVersion: Int = 0,
 )
 
 /**
@@ -125,9 +129,9 @@ interface ScannedGoatDao {
 
     @Query(
         "UPDATE scanned_goat_capture SET goatId = :goatId, obligationId = :obligationId, " +
-            "capturedAtMs = :capturedAtMs, syncStatus = :syncStatus WHERE id = :id",
+            "capturedAtMs = :capturedAtMs, syncStatus = :syncStatus, obligationRowVersion = :obligationRowVersion WHERE id = :id",
     )
-    suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String)
+    suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String, obligationRowVersion: Int = 0)
 
     /**
      * Writes [entity] as durable local evidence, distinguishing a TRUE repeat (same tag, same
@@ -200,6 +204,7 @@ interface ScannedGoatDao {
             obligationId = entity.obligationId,
             capturedAtMs = entity.capturedAtMs,
             syncStatus = entity.syncStatus,
+            obligationRowVersion = entity.obligationRowVersion,
         )
         return ScanUpsertResult.REPLACED
     }
@@ -448,6 +453,15 @@ data class ProofCaptureEntity(
      *  `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource` (cross-module const cannot
      *  be shared, so both default to [DEFAULT_CAPTURE_SOURCE]). */
     val captureSource: String = DEFAULT_CAPTURE_SOURCE,
+    /** Original scope_type for this proof capture (e.g. "shed", "task"), persisted so recovery
+     *  re-registers with the EXACT scope used at capture time. R50-060: Weighing free-flow proofs
+     *  (subject_type="other") cannot re-derive scope from subject_id (null), so scope MUST be
+     *  persisted. Falls back to "shed" for compatibility. */
+    val scopeType: String = "shed",
+    /** Original scope_id (e.g. shed UUID, task UUID), persisted for proof re-registration on
+     *  app restart. R50-060: Weighing free-flow proofs must use original shed scope_id, not
+     *  derived "task" scope. */
+    val scopeId: String = "",
     val featureSurface: String? = null,
     val proofMode: String? = null,
     val slotIndex: Int? = null,
@@ -483,6 +497,27 @@ data class ProofCaptureEntity(
      *  flooding Gallery with duplicate final media. */
     val gallerySavedUri: String? = null,
     val updatedAtMs: Long = capturedAtMs,
+    /** P1 fix (CRITICAL follow-up): durable supersession marker. Set on a captureReplacingLatest
+     *  replacement row to the id of the SINGLE active occupant it is replacing, persisted in the
+     *  SAME insert as this row (no separate write, no window for the marker to go missing). An
+     *  in-memory-only "retire once synced" ticket cannot survive process death between a
+     *  successful replace and the new row reaching SYNCED — this column is the fallback a fresh
+     *  repository instance re-derives retirement from: once THIS row is SYNCED with a
+     *  serverProofId, [sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository]'s reconcile
+     *  passes retire the row named here, exactly as if the in-memory ticket had fired. Null for
+     *  every capture that is not part of a replace. */
+    val supersedesRowId: String? = null,
+    /** Original proof upload group key for ordering/grouping (feed proof ordering, milk group
+     *  ordering, packing group ordering). Persisted so startup recovery re-enqueues with the EXACT
+     *  group key used at capture time, preserving proof ordering across process death. Legacy null
+     *  falls back to current derivation (proofUploadGroupKey). This is the SSOT for recovery;
+     *  enqueueRegistrationNow must use this verbatim when present. */
+    val uploadGroupKey: String? = null,
+    /** Original client_task_key for tracking and grouping in the backend. Persisted so recovery
+     *  re-registers with the original key instead of deriving it fresh. In most cases this equals
+     *  taskId, but for workflows that override grouping (feed flows, milk flows, packing), this
+     *  holds the application-level session/context id. Legacy null falls back to taskId. */
+    val clientTaskKey: String? = null,
 )
 
 enum class ProofProcessingState {
@@ -495,6 +530,13 @@ enum class ProofProcessingState {
     UPLOAD_CONFIRMED,
     ATTACHED_TO_SUBMISSION,
     PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED,
+    /** P1 fix: processed-artifact validation/processing failed and the flow requires the
+     *  overlay-burned processed artifact (the default for every flow — no proof_policy opt-in
+     *  currently exists to skip it). Terminal until an operator explicitly retries: the ORIGINAL
+     *  file stays on disk but is never auto-enqueued for upload, so an overlay-free capture can
+     *  never silently satisfy a compliance proof gate. See
+     *  [sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository.prepareFinalArtifact]. */
+    PROCESSING_FAILED_AWAITING_RETRY,
     REGISTER_FAILED_RETRYING,
     UPLOAD_FAILED_RETRYING,
     UPLOAD_ORIGINAL_FAILED_RETRYING,

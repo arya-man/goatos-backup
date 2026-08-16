@@ -129,9 +129,9 @@ class TimetableViewModelWhileSubscribedTest {
         override fun observeCoverage(): Flow<MyCoverageResponseDto?> =
             MutableStateFlow<MyCoverageResponseDto?>(null)
 
-        override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean {
+        override suspend fun refreshTimetable(centerId: String, limit: Int?): Result<Unit> {
             refreshCount++
-            return true
+            return Result.success(Unit)
         }
 
         override suspend fun refreshCoverage(): Boolean = true

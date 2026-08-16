@@ -181,6 +181,7 @@ class FeedTransportSequenceTest {
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
+            feedTransportRepository = FakeFeedTransportStatusSource(),
             saved = SavedStateHandle(
                 mapOf(
                     FeedTransportCaptureViewModel.ARG_TASK_ID to "transport-task-1",

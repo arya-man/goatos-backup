@@ -122,7 +122,184 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		filterOptions = &domain.ExecutionFilters{Parks: parks}
 	}
 
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions}, nil
+	// For all requests: compute per-card summaries (page-independent, full-filter aggregation)
+	// via a separate SQL GROUP BY query that uses the SAME filter predicates as the page query
+	// but WITHOUT the LIMIT/cursor. This ensures cards spanning page boundaries report correct
+	// counts/status from ALL matching rows, not just the paginated subset.
+	cardSummaries, err := s.repo.VaccinationExecutionCardSummaries(ctx, q)
+	if err != nil {
+		return domain.ExecutionResponse{}, err
+	}
+
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions, CardSummaries: cardSummaries}, nil
+}
+
+// computeCardSummariesFromRows groups all ExecutionRows by card identity (shedId, partitionLabel,
+// taskId/batchId/driveId) and computes authoritative per-card summaries: status, counts, vaccine
+// groups, redo state. These summaries are page-independent: all rows in the response contribute to
+// the summary, not just paginated subsets. This ensures the mobile card never misreports status
+// when rows straddle page boundaries.
+func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain.ShedCardSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	// Group rows by card identity: (shedId, partitionLabel, taskId/batchId/driveId)
+	type cardKey struct {
+		shedID         string
+		partitionLabel string
+		taskID         string
+		batchID        string
+		driveID        string
+	}
+	cardGroups := make(map[cardKey][]domain.ExecutionRow)
+	for _, r := range rows {
+		partition := strings.TrimSpace(r.Partition)
+		if partition == "" {
+			partition = "whole"
+		}
+		key := cardKey{
+			shedID:         r.ShedID,
+			partitionLabel: partition,
+			taskID:         domain.StringOrEmpty(r.SOPTaskID),
+			batchID:        domain.StringOrEmpty(r.BatchID),
+			driveID:        domain.StringOrEmpty(r.DriveID),
+		}
+		cardGroups[key] = append(cardGroups[key], r)
+	}
+
+	// Compute summary for each card
+	summaries := make(map[string]*domain.ShedCardSummary)
+	for key, cardRows := range cardGroups {
+		summary := summarizeCardFromRows(cardRows, key.partitionLabel)
+		cardID := domain.BuildCardID(key.shedID, key.partitionLabel, key.taskID, key.batchID, key.driveID)
+		summaries[cardID] = summary
+	}
+	return summaries
+}
+
+// summarizeCardFromRows computes the authoritative status, counts, and vaccine-group summaries
+// for one shed card from all its ExecutionRow objects.
+// projection-review: grain=(shed_id, partition_label, task_id/batch_id/drive_id); membership=all execution rows matching card identity;
+// counts=sum of obligation_count/done_count/open_count across all rows in the card; parity=status f(redo + final_closed + delayed state).
+func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *domain.ShedCardSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	first := rows[0]
+	var targetCount, totalDone, totalOpen int
+	hasRedo := false
+	vaccineGroupMap := make(map[string]map[int]bool) // label -> (index -> full)
+
+	// Aggregate counts and redo state across all rows: SUM for counts (not max), ANY for redo state.
+	for idx, r := range rows {
+		targetCount += r.TargetCount // SUM: total obligations across all rows
+		totalDone += r.DoneCount     // SUM: total done across all rows
+		totalOpen += r.OpenCount     // SUM: total open across all rows
+
+		// Check if any row needs redo (rejected/deferred)
+		if r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred {
+			hasRedo = true
+		}
+
+		// Per-row vaccine groups: mark as "full" if open==0 and no redo on this row
+		for _, label := range r.VaccineLabels {
+			if vaccineGroupMap[label] == nil {
+				vaccineGroupMap[label] = make(map[int]bool)
+			}
+			isFull := r.OpenCount == 0 && !(r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred)
+			vaccineGroupMap[label][idx] = isFull
+		}
+	}
+
+	// Compute card-level status. The status field is meant to be interpreted by the client
+	// using the same logic as ShedsViewModel.shedStatusForRows():
+	// - If any row has needsRedo (rejected/deferred) -> SENT_BACK
+	// - Else if any row has overdue/missed/blocked -> DELAYED
+	// - Else if all rows final-closed (accepted/closed/completed) -> DONE
+	// - Else -> PENDING
+	// We use WorkStateCompleted as the status value to report final-closed state.
+	var status domain.WorkState
+	if hasRedo {
+		status = domain.WorkStateRejected // Signal to client: map to SENT_BACK
+	} else if anyRowHasStateFromRows(rows, domain.WorkStateOverdue, domain.WorkStateMissed, domain.WorkStateBlocked) {
+		status = domain.WorkStateOverdue // Signal to client: map to DELAYED
+	} else if allRowsFinalClosedFromRows(rows) {
+		status = domain.WorkStateCompleted // Signal to client: map to DONE
+	} else {
+		status = domain.WorkStateDue // Signal to client: map to PENDING
+	}
+
+	// Build vaccine group summaries: a group is "full" only if ALL rows have it full
+	vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(vaccineGroupMap))
+	for label, rowStates := range vaccineGroupMap {
+		full := true
+		for _, isFull := range rowStates {
+			if !isFull {
+				full = false
+				break
+			}
+		}
+		vaccineGroups = append(vaccineGroups, domain.VaccineGroupSummary{Label: label, Full: full})
+	}
+	sort.Slice(vaccineGroups, func(i, j int) bool {
+		return vaccineGroups[i].Label < vaccineGroups[j].Label
+	})
+
+	var partLabel *string
+	if partitionLabel != "" && partitionLabel != "whole" {
+		partLabel = &partitionLabel
+	}
+
+	return &domain.ShedCardSummary{
+		ShedID:         first.ShedID,
+		PartitionLabel: partLabel,
+		TaskID:         first.SOPTaskID,
+		BatchID:        first.BatchID,
+		DriveID:        first.DriveID,
+		Status:         status,
+		DoneCount:      totalDone,
+		TargetCount:    targetCount,
+		OpenCount:      totalOpen,
+		NeedsRedo:      hasRedo,
+		VaccineGroups:  vaccineGroups,
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func anyRowHasStateFromRows(rows []domain.ExecutionRow, states ...domain.WorkState) bool {
+	for _, r := range rows {
+		for _, s := range states {
+			if r.WorkState == s {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func allRowsFinalClosedFromRows(rows []domain.ExecutionRow) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for _, r := range rows {
+		if !isFinalClosedFromRow(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isFinalClosedFromRow(r domain.ExecutionRow) bool {
+	return r.SOPStatus == domain.SOPStatusAccepted ||
+		r.WorkState == domain.WorkStateCompleted
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
@@ -384,6 +561,47 @@ func operationsRank(w domain.WorkState) int {
 	}
 }
 
+// computeOperatorLockState is the single source of truth for whether an operator card may still
+// open into the scan/capture flow. CORE INVARIANT: only a FINAL SUBMIT locks the card. Partial
+// review/proof/verification state NEVER locks the card while openCount > 0 -- sopStatus wording
+// such as "needs_review" or "submitted" is NOT itself a lock signal; it describes evidence state,
+// not remaining work. This closes the field bug where a 17/11/6 needs_review card was refused
+// entry even though 6 animals still had no completion evidence.
+func computeOperatorLockState(p domain.ExecutionProjection, openCount int, workState domain.WorkState) (canContinue bool, reason string) {
+	if openCount > 0 {
+		// No operator owns this work yet: nothing to hand the tapping user, so the card must
+		// stay closed until an operator is assigned.
+		if p.OperatorName == nil {
+			return false, "assigned_elsewhere"
+		}
+		// Scheduled work is real, operator-owned, open work -- it just is not executable yet
+		// (due date is in the future). The card stays closed until it becomes due.
+		if workState == domain.WorkStateScheduled {
+			return false, "scheduled_later"
+		}
+		return true, "none"
+	}
+	// openCount == 0: no per-animal field execution remains. Locked iff a FINAL SUBMIT actually
+	// happened. The final-submit signal is the SOP task state -- it only reaches
+	// submitted/needs_review/accepted through the operator's finalize action -- with the
+	// all-accepted completion shape kept as the legacy equivalent for rows without a task state.
+	if taskStateIs(p, "submitted", "needs_review", "accepted") {
+		return false, "final_submitted"
+	}
+	if p.CompletionAccepted > 0 && p.CompletionRecorded == 0 {
+		return false, "final_submitted"
+	}
+	// All animals done via completions/proofs but the drive-close submission has not happened:
+	// the operator must still be able to open the card to FINALIZE. Locking here reproduces the
+	// field bug where an all-proofed card could never be submitted.
+	if (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0) && p.OperatorName != nil {
+		return true, "none"
+	}
+	// Deferred/missed/canceled closures with no completion evidence: nothing to finalize, and no
+	// scan/capture work remains -- reason "none" simply means "not a submission lock".
+	return false, "none"
+}
+
 func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.ExecutionRow {
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
 	partialProofProgress := openCount > 0 && (p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0)
@@ -401,6 +619,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partialProofProgress && workState == domain.WorkStateVerificationPending {
 		workState = domain.WorkStateInProgress
 	}
+	operatorCanContinue, operatorLockedReason := computeOperatorLockState(p, openCount, workState)
 	physicalShed := strings.TrimSpace(p.PhysicalShed)
 	partition := strings.TrimSpace(p.Partition)
 	if physicalShed == "" || partition == "" {
@@ -444,26 +663,28 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		// CompletionRecorded + CompletionRejected, so rejections never decremented the number and
 		// operator/CEO/PC-director screens drifted further out of sync with the queue on every
 		// rejection.
-		ReviewCount:        p.CompletionRecorded,
-		DriveID:            p.BatchID,
-		DriveName:          driveName(p),
-		VaccineLabels:      vaccineLabels(p),
-		DueDate:            dueDate(p),
-		WorkState:          workState,
-		Severity:           severity(workState),
-		Owner:              owner(p),
-		BlockerReason:      blockerReason(p, workState),
-		SOPStatus:          sopStatus,
-		ProofStatus:        proofStatus,
-		VerificationStatus: verificationStatus,
-		NextAction:         nextAction(p, workState),
-		PrimaryActionKey:   primaryActionKey(p, workState, openCount),
-		ObligationID:       p.ObligationID,
-		BatchID:            p.BatchID,
-		SOPTaskID:          p.SOPTaskID,
-		SOPVersionID:       p.SOPVersionID,
-		SOPTaskRowVersion:  p.SOPTaskRowVersion,
-		CompletionID:       p.CompletionID,
+		ReviewCount:          p.CompletionRecorded,
+		DriveID:              p.BatchID,
+		DriveName:            driveName(p),
+		VaccineLabels:        vaccineLabels(p),
+		DueDate:              dueDate(p),
+		WorkState:            workState,
+		Severity:             severity(workState),
+		Owner:                owner(p),
+		BlockerReason:        blockerReason(p, workState),
+		SOPStatus:            sopStatus,
+		ProofStatus:          proofStatus,
+		VerificationStatus:   verificationStatus,
+		NextAction:           nextAction(p, workState),
+		PrimaryActionKey:     primaryActionKey(p, workState, openCount),
+		ObligationID:         p.ObligationID,
+		BatchID:              p.BatchID,
+		SOPTaskID:            p.SOPTaskID,
+		SOPVersionID:         p.SOPVersionID,
+		SOPTaskRowVersion:    p.SOPTaskRowVersion,
+		CompletionID:         p.CompletionID,
+		OperatorCanContinue:  operatorCanContinue,
+		OperatorLockedReason: operatorLockedReason,
 	}
 }
 
@@ -479,13 +700,22 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 // into `open` below, which is what makes the redo visible to whoever owns it.
 func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done int) {
 	target = p.ObligationCount
-	done = p.CompletedCount
-	completionEvidence := p.CompletionRecorded + p.CompletionAccepted
-	if completionEvidence > done {
-		done = completionEvidence
-	}
-	if p.ProofSubmittedCount > done {
-		done = p.ProofSubmittedCount
+	// SQL computes DoneCount as the per-animal UNION of the done paths (completed OR
+	// recorded/accepted completion OR goat proof). Use it as the single source of truth so
+	// display counts cannot diverge from the state CASE for mixed paths (e.g. 3 goats done
+	// via completion records + 2 via proof-only must show done=5, not max(3,2)=3). The
+	// legacy max-of-counters math is kept ONLY as a fallback for projections produced by
+	// older readers that do not populate DoneCount.
+	done = p.DoneCount
+	if done == 0 {
+		done = p.CompletedCount
+		completionEvidence := p.CompletionRecorded + p.CompletionAccepted
+		if completionEvidence > done {
+			done = completionEvidence
+		}
+		if p.ProofSubmittedCount > done {
+			done = p.ProofSubmittedCount
+		}
 	}
 	if done > target {
 		done = target
@@ -516,8 +746,23 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateBlocked
 	}
+	// Only mark as verification_pending if all work is done (openCount == 0)
 	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
-		return domain.WorkStateVerificationPending
+		done := p.CompletedCount
+		completionEvidence := p.CompletionRecorded + p.CompletionAccepted
+		if completionEvidence > done {
+			done = completionEvidence
+		}
+		if p.ProofSubmittedCount > done {
+			done = p.ProofSubmittedCount
+		}
+		if done > p.ObligationCount {
+			done = p.ObligationCount
+		}
+		openCount := p.ObligationCount - done - p.DeferredCount - p.MissedCount - p.CanceledCount
+		if openCount <= 0 {
+			return domain.WorkStateVerificationPending
+		}
 	}
 	if p.InProgressCount > 0 || batchStatusIs(p, "in_progress") || taskStateIs(p, "in_progress") {
 		return domain.WorkStateInProgress

@@ -32,17 +32,29 @@ type PenSessionCapturesInput struct {
 // video, one the water video -- and so whoever submits can reference proofs they did not shoot
 // (maintainer decision 2026-08-14). The completion route already accepts another operator's proof:
 // ValidateFeedProofMedia checks tenant, upload state and media kind, never the uploader.
+// PenSessionCapturesResult pairs the recorded proof slots with the pen-session's completion
+// status IN ONE ANSWER. The mobile proof screen's read-only gate previously came from a stale
+// list-row snapshot while this fetch answered only the slots — a submitted session opened
+// editable for up to one poll interval (field bug 2026-08-15). Slots and status now travel
+// together so the screen paints both from the same instant.
+type PenSessionCapturesResult struct {
+	Slots []ports.CapturedProofSlot
+	// SessionStatus is the RAW feed_distribution_completions status for this exact pen-session
+	// ("pending_verification", "completed", "rework"); empty when no completion row exists yet.
+	SessionStatus string
+}
+
 func (s *Service) ListPenSessionCaptures(
 	ctx context.Context, in PenSessionCapturesInput,
-) ([]ports.CapturedProofSlot, error) {
+) (PenSessionCapturesResult, error) {
 	if s.proofs == nil {
 		// No validator wired (a pure-generation unit build). Nothing is discoverable, which degrades
 		// to today's single-phone behaviour rather than failing the screen.
-		return nil, nil
+		return PenSessionCapturesResult{}, nil
 	}
 	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID, nil)
 	if err != nil {
-		return nil, err
+		return PenSessionCapturesResult{}, err
 	}
 	in.ParkID = resolvedPark
 	in.TenantID = strings.TrimSpace(in.TenantID)
@@ -50,29 +62,29 @@ func (s *Service) ListPenSessionCaptures(
 	in.Workflow = strings.TrimSpace(in.Workflow)
 
 	if in.TenantID == "" || in.ParkID == "" {
-		return nil, ports.ErrParkRequired
+		return PenSessionCapturesResult{}, ports.ErrParkRequired
 	}
 	if in.ShedID == "" {
-		return nil, ports.ErrShedRequired
+		return PenSessionCapturesResult{}, ports.ErrShedRequired
 	}
 	if in.TargetDate.IsZero() {
-		return nil, ports.ErrInvalidTargetDate
+		return PenSessionCapturesResult{}, ports.ErrInvalidTargetDate
 	}
 	in.TargetDate = biztime.BusinessDayStart(in.TargetDate)
 	if in.SessionNo < 1 {
 		// Same rule as the completion: 0 is not "the whole day", it is a value no worklist line
 		// matches (docs/decisions/feed-distribution-verification.md).
-		return nil, ports.ErrInvalidSession
+		return PenSessionCapturesResult{}, ports.ErrInvalidSession
 	}
 	switch in.Workflow {
 	case domain.WorkflowNormal, domain.WorkflowExperiment:
 	case "":
-		return nil, ports.ErrWorkflowRequired
+		return PenSessionCapturesResult{}, ports.ErrWorkflowRequired
 	default:
-		return nil, ports.ErrInvalidWorkflow
+		return PenSessionCapturesResult{}, ports.ErrInvalidWorkflow
 	}
 
-	return s.proofs.ListPenSessionCaptures(ctx, ports.PenSessionCaptureQuery{
+	slots, err := s.proofs.ListPenSessionCaptures(ctx, ports.PenSessionCaptureQuery{
 		TenantID:          in.TenantID,
 		ParkID:            in.ParkID,
 		ShedID:            in.ShedID,
@@ -82,4 +94,28 @@ func (s *Service) ListPenSessionCaptures(
 		Workflow:          in.Workflow,
 		AuthorizedParkIDs: in.AuthorizedParkIDs,
 	})
+	if err != nil {
+		return PenSessionCapturesResult{}, err
+	}
+
+	// The completion status for THIS pen-session, from the same authoritative table the list
+	// overlay reads. Fail-open on error: slots still answer (single-phone behaviour), and the
+	// mobile gate treats an absent status as "no answer", never as "editable".
+	status := ""
+	if s.distributions != nil {
+		statuses, serr := s.distributions.ListDistributionSessionStatuses(ctx, in.TenantID, in.ParkID, in.TargetDate)
+		if serr == nil {
+			wantPartition := domain.PartitionMatchKey(in.PartitionLabel)
+			for _, st := range statuses {
+				if st.ShedID == in.ShedID &&
+					st.SessionNo == in.SessionNo &&
+					st.Workflow == in.Workflow &&
+					domain.PartitionMatchKey(st.PartitionLabel) == wantPartition {
+					status = st.Status
+					break
+				}
+			}
+		}
+	}
+	return PenSessionCapturesResult{Slots: slots, SessionStatus: status}, nil
 }

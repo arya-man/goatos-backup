@@ -323,7 +323,12 @@ func cubeRowScope(row map[string]any, view string, dims []string) string {
 			shed := scalarString(row[shedMember])
 			partition := scalarString(row[partitionMember])
 			if shed != "" && partition != "" && !strings.EqualFold(partition, "whole") {
-				parts = append(parts, shed+" - "+partition)
+				// Use space separator for bare numerals, dash for worded labels (e.g., "Part 3").
+				separator := " - "
+				if isBarNumeric(partition) {
+					separator = " "
+				}
+				parts = append(parts, shed+separator+partition)
 				continue
 			}
 		}
@@ -354,6 +359,21 @@ func scalarString(v any) string {
 	default:
 		return fmt.Sprintf("%v", t)
 	}
+}
+
+// isBarNumeric reports whether a partition label is a bare ordinal (e.g., "1", "42").
+// Used by partition display logic: bare numerics join with space, worded labels with dash.
+func isBarNumeric(label string) bool {
+	trimmed := strings.TrimSpace(label)
+	if trimmed == "" {
+		return false
+	}
+	for _, ch := range trimmed {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
-import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
@@ -37,6 +38,13 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         private set
     var enqueuePendingScansCalls: Int = 0
         private set
+
+    /** Test hook: flip every stored capture to SYNCED — the precondition for any server-side
+     *  reconciliation (a PENDING capture is offline evidence the server has not seen). */
+    fun markAllSynced() {
+        rows.replaceAll { it.copy(syncStatus = CaptureSyncStatus.SYNCED) }
+        flow.value = rows.toList()
+    }
 
     override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
         flow.map { list ->
@@ -76,6 +84,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
                 obligationId = obligationId,
                 capturedAtMs = capturedAtMs ?: rows.size.toLong(),
                 partitionKey = partitionKey,
+                obligationRowVersion = obligationRowVersion,
             )
             flow.value = rows.toList()
         }
@@ -179,6 +188,11 @@ class FakeScanAttemptRepository : ScanAttemptRepository {
 /** In-memory [ProofCaptureRepository] test double — enforces the same 5-video cap the Room-
  *  backed implementation does, records every [capture] call's arguments for assertions. */
 class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureRepository {
+    companion object {
+        /** Sentinel taskId for seeded rows: matches any observed/queried task. */
+        const val SEEDED_ANY_TASK = "__seeded-any-task__"
+    }
+
     data class CaptureCall(
         val fieldKey: String,
         val subject: ProofSubject,
@@ -194,16 +208,47 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val capturedByPrincipalId: String?,
     )
 
-    private val rows = mutableListOf<ProofCaptureRow>()
-    private val flow = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
+    // The production DAO scopes every query (activeCountForField/activeCountForSubject/
+    // observeForTaskPartition) by taskId + partitionKey, not partitionKey alone. [ProofCaptureRow]
+    // itself has no taskId column (it's the UI-facing projection), so this fake tracks it
+    // out-of-band alongside each row rather than folding two different tasks' rows together.
+    private data class TrackedRow(val taskId: String, val row: ProofCaptureRow)
+
+    private fun TrackedRow.matches(taskId: String) = this.taskId == taskId || this.taskId == SEEDED_ANY_TASK
+
+    private val rows = mutableListOf<TrackedRow>()
+    private val flow = MutableStateFlow<List<TrackedRow>>(emptyList())
     val captureCalls = mutableListOf<CaptureCall>()
     private var nextId = 0
 
-    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
-        flow.map { list -> list.filter { it.partitionKey == testPartitionKey(partitionLabel) } }
+    /** When true, the NEXT [capture] call returns [AppResult.Err] instead of writing a row, then
+     *  resets itself — drives "cancelled/failed re-capture must not lose the old proof" tests. */
+    var failNextCapture: Boolean = false
 
+    /** Deferred retirement actions, keyed by the NEW proof row id, matching production's durable
+     *  supersession contract: old rows are only removed once the new row reaches SYNCED with a
+     *  serverProofId. Tests call [driveSlotRetirementIfPending] to simulate this transition. */
+    private val pendingSlotRetirement = mutableMapOf<String, suspend () -> Unit>()
+
+    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
+        flow.map { list ->
+            list.filter {
+                (it.taskId == taskId || it.taskId == SEEDED_ANY_TASK) &&
+                    it.row.partitionKey == testPartitionKey(partitionLabel)
+            }.map { it.row }
+        }
+
+    /** All live rows regardless of task scoping — for tests asserting row survival, not scoping. */
+    fun allRows(): List<ProofCaptureRow> = rows.map { it.row }
+
+    /**
+     * Seeded rows model "a proof already durably exists for whatever task the screen addresses" —
+     * seeding tests don't know (and shouldn't reconstruct) the production task key, so seeded rows
+     * match ANY observed taskId. Rows written through [capture] keep strict taskId scoping, which
+     * is what the pen-grain tests assert.
+     */
     fun seedProofs(vararg proofRows: ProofCaptureRow) {
-        rows += proofRows
+        rows += proofRows.map { TrackedRow(taskId = SEEDED_ANY_TASK, row = it) }
         flow.value = rows.toList()
     }
 
@@ -225,7 +270,12 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         partitionLabel: String?,
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
+        allowReplacementOverCap: Boolean,
     ): AppResult<ProofCaptureRow> {
+        if (failNextCapture) {
+            failNextCapture = false
+            return AppResult.Err("Simulated capture failure.")
+        }
         captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, rfidTag, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
@@ -238,24 +288,33 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val partitionKey = testPartitionKey(partitionLabel)
         // Mirror the production per-SLOT cap. Without this the fake pools every slot under the
         // subject cap, which is exactly the behaviour the real repository stopped doing.
-        proofPolicy.maximumCountPerField?.let { perFieldCap ->
+        // allowReplacementOverCap mirrors DefaultProofCaptureRepository.capture()'s own
+        // `perFieldCap != null && !allowReplacementOverCap` guard: captureReplacingLatest's
+        // transient second row (new capture landing before the old one is removed) must bypass
+        // the cap the same way production does, or every field with maximumCountPerField reachable
+        // via captureReplacingLatest would wrongly fail its FIRST replace attempt in this fake.
+        proofPolicy.maximumCountPerField?.takeUnless { allowReplacementOverCap }?.let { perFieldCap ->
             // Mirrors activeCountForField: a DELIVERED row (serverProofId set) is history, not an
             // in-flight duplicate, so it does not hold the slot. Keeping it counted here would make
-            // this fake disagree with the DAO and hide the reopened-pen case.
+            // this fake disagree with the DAO and hide the reopened-pen case. Scoped by taskId too —
+            // the real DAO query is taskId+partitionKey+fieldKey, and feed capture embeds the pen in
+            // taskId (the capture group key), not just partitionKey.
             val activeForField = rows.count {
-                it.partitionKey == partitionKey &&
-                    it.fieldKey == fieldKey &&
-                    it.syncStatus != CaptureSyncStatus.FAILED &&
-                    it.serverProofId == null
+                it.matches(taskId) &&
+                    it.row.partitionKey == partitionKey &&
+                    it.row.fieldKey == fieldKey &&
+                    it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                    it.row.serverProofId == null
             }
             if (activeForField >= perFieldCap) {
                 return AppResult.Err("This proof is already recorded. Use re-capture to replace it.")
             }
         }
         val activeRows = rows.count {
-            it.partitionKey == partitionKey &&
-                it.subjectId == subjectId &&
-                it.syncStatus != CaptureSyncStatus.FAILED
+            it.matches(taskId) &&
+                it.row.partitionKey == partitionKey &&
+                it.row.subjectId == subjectId &&
+                it.row.syncStatus != CaptureSyncStatus.FAILED
         }
         if (activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
@@ -285,62 +344,179 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             lastError = null,
             partitionKey = partitionKey,
         )
-        rows += row
+        rows += TrackedRow(taskId = taskId, row = row)
         flow.value = rows.toList()
         return AppResult.Ok(row)
     }
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(caption = caption)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(caption = caption))
             flow.value = rows.toList()
         }
         return AppResult.Ok(Unit)
     }
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> {
-        rows.removeAll { it.id == id }
+        rows.removeAll { it.row.id == id }
         flow.value = rows.toList()
         return AppResult.Ok(Unit)
     }
 
-    fun markSynced(id: String, serverProofId: String) {
-        val index = rows.indexOfFirst { it.id == id }
+    /** Mark a proof row's sync status. This is a non-suspend version that does NOT fire pending
+     *  retirement actions — use [markSyncedAndDriveRetirement] to simulate the row reaching SYNCED
+     *  and trigger old-row cleanup. Kept for backward compatibility with existing tests that call
+     *  markSynced directly. */
+    fun markSynced(id: String, serverProofId: String, syncStatus: String = "SYNCED") {
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.SYNCED, serverProofId = serverProofId)
+            val status = when (syncStatus.uppercase()) {
+                "SYNCED" -> CaptureSyncStatus.SYNCED
+                "PENDING" -> CaptureSyncStatus.PENDING
+                "FAILED" -> CaptureSyncStatus.FAILED
+                "IN_FLIGHT" -> CaptureSyncStatus.IN_FLIGHT
+                else -> CaptureSyncStatus.SYNCED
+            }
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = status, serverProofId = serverProofId))
             flow.value = rows.toList()
         }
     }
 
+    /**
+     * Mark a proof row as SYNCED and fire any pending slot-retirement action keyed by this row's id.
+     * This is the test hook matching production behavior: old rows are removed only when the
+     * replacement reaches SYNCED + serverProofId. Tests that verify old-row survival during upload
+     * should use [markInFlight] instead (no retirement), then call this method once the new row
+     * should complete its upload.
+     *
+     * Regression test case: old row SURVIVES while replacement is uploading/FAILED.
+     * 1. captureReplacingLatest succeeds (new row written)
+     * 2. assert old row still exists (markInFlight only, not markSyncedAndDriveRetirement yet)
+     * 3. mark new row as SYNCED (this fires retirement)
+     * 4. assert old row is now gone
+     */
+    suspend fun markSyncedAndDriveRetirement(id: String, serverProofId: String) {
+        markSynced(id, serverProofId, "SYNCED")
+        val action = pendingSlotRetirement.remove(id)
+        action?.invoke()
+    }
+
+    fun getProofById(id: String): ProofCaptureRow? = rows.find { it.row.id == id }?.row
+
+    /** Fire ALL pending slot-retirement actions and clear the registry. Convenience for tests that
+     *  do not care about intermediate upload state and want to simulate the full replace cycle
+     *  completing. Tests that verify old-row survival during IN_FLIGHT should NOT call this;
+     *  they should instead use [markInFlight] (no retirement) then [markSyncedAndDriveRetirement]
+     *  once they want to complete the replacement. */
+    suspend fun driveAllPendingRetirements() {
+        val toFire = pendingSlotRetirement.values.toList()
+        pendingSlotRetirement.clear()
+        toFire.forEach { it.invoke() }
+    }
+
     fun markFailed(id: String, error: String) {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.FAILED, lastError = error)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.FAILED, lastError = error))
             flow.value = rows.toList()
         }
     }
 
     fun markInFlight(id: String) {
-        val index = rows.indexOfFirst { it.id == id }
+        val index = rows.indexOfFirst { it.row.id == id }
         if (index >= 0) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.IN_FLIGHT)
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.IN_FLIGHT))
             flow.value = rows.toList()
         }
     }
 
     override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> {
-        val index = rows.indexOfFirst { it.id == id }
-        if (index >= 0 && rows[index].syncStatus == CaptureSyncStatus.FAILED) {
-            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.PENDING, lastError = null)
+        val index = rows.indexOfFirst { it.row.id == id }
+        if (index >= 0 && rows[index].row.syncStatus == CaptureSyncStatus.FAILED) {
+            rows[index] = rows[index].copy(row = rows[index].row.copy(syncStatus = CaptureSyncStatus.PENDING, lastError = null))
             flow.value = rows.toList()
         }
         return AppResult.Ok(Unit)
     }
 
     override suspend fun clearForTask(taskId: String) {
-        rows.clear()
-        flow.value = emptyList()
+        rows.removeAll { it.matches(taskId) }
+        flow.value = rows.toList()
+    }
+
+    override suspend fun activeCount(slot: EvidenceSlot): Int {
+        val partitionKey = testPartitionKey(slot.identity.partitionKey.takeUnless { it == "whole" })
+        return rows.count {
+            it.matches(slot.identity.taskId) &&
+                it.row.partitionKey == partitionKey &&
+                it.row.fieldKey == slot.fieldKey &&
+                it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                it.row.serverProofId == null
+        }
+    }
+
+    override suspend fun captureReplacingLatest(
+        slot: EvidenceSlot,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> {
+        val taskId = slot.identity.taskId
+        val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+        val result = capture(
+            taskId = taskId,
+            fieldKey = slot.fieldKey,
+            subject = subject,
+            subjectId = subjectId,
+            localUri = localUri,
+            mimeType = mimeType,
+            caption = caption,
+            rfidTag = rfidTag,
+            scopeType = scopeType,
+            scopeId = scopeId,
+            capturedStartMs = capturedStartMs,
+            capturedEndMs = capturedEndMs,
+            capturedByPrincipalId = capturedByPrincipalId,
+            proofPolicy = proofPolicy,
+            partitionLabel = partitionLabel,
+            awaitUploadEnqueue = awaitUploadEnqueue,
+            uploadGroupKey = uploadGroupKey,
+            allowReplacementOverCap = true,
+        )
+        if (result is AppResult.Ok) {
+            val newId = result.value.id
+            val partitionKey = testPartitionKey(partitionLabel)
+            // P1 FIX: DEFER retirement of the old row(s) until the new row reaches SYNCED with
+            // a serverProofId, matching production behavior. This prevents data loss if the new
+            // upload fails — the old row stays viable evidence until the new one is durably stored.
+            // Register a one-shot retirement action, keyed by the new row's id, that tests invoke
+            // via driveSlotRetirementIfPending() to simulate the new row reaching SYNCED.
+            val toRemoveIds = rows.filter {
+                it.matches(taskId) &&
+                    it.row.partitionKey == partitionKey &&
+                    it.row.fieldKey == slot.fieldKey &&
+                    it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                    it.row.id != newId
+            }.map { it.row.id }
+            if (toRemoveIds.isNotEmpty()) {
+                pendingSlotRetirement[newId] = {
+                    toRemoveIds.forEach { remove(taskId, it) }
+                }
+            }
+        }
+        return result
     }
 }
 
@@ -414,3 +590,67 @@ private fun proofTaskDetail(): TaskDetail = TaskDetail(
     form = FormSpec.Empty,
     proofPolicy = ProofPolicy.Default,
 )
+
+// Test helpers for proof policies across different flows
+
+fun vaccGoatProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "goat_level_video",
+        subjectScope = ProofSubject.GOAT.wireValue,
+        expectedSubjects = listOf(ProofSubject.GOAT.wireValue),
+        captureSource = captureSource,
+        maximumCountPerField = 1,
+        maximumCount = 5,
+        maximumCountPerSubject = 1,
+    )
+
+fun genericSubmitProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "shed_level_video",
+        subjectScope = ProofSubject.SHED.wireValue,
+        expectedSubjects = listOf(ProofSubject.SHED.wireValue),
+        captureSource = captureSource,
+        maximumCountPerField = 1,
+        maximumCount = 1,
+        maximumCountPerSubject = 1,
+    )
+
+fun weighingIndividualProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "goat_level_video",
+        subjectScope = ProofSubject.GOAT.wireValue,
+        expectedSubjects = listOf(ProofSubject.GOAT.wireValue),
+        captureSource = captureSource,
+        maximumCountPerField = 1,
+        maximumCount = 5,
+        maximumCountPerSubject = 1,
+    )
+
+fun weighingShedProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "shed_level_video",
+        subjectScope = ProofSubject.SHED.wireValue,
+        expectedSubjects = listOf(ProofSubject.SHED.wireValue),
+        captureSource = captureSource,
+        maximumCountPerField = 1,
+        maximumCount = 5,
+        maximumCountPerSubject = 5,
+    )
+
+fun feedShedProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "shed_level_video",
+        subjectScope = ProofSubject.SHED.wireValue,
+        expectedSubjects = listOf(ProofSubject.SHED.wireValue),
+        captureSource = captureSource,
+        maximumCountPerField = 1,
+        maximumCount = 5,
+    )
+
+/** Shared test double for analytics. Used across multiple test files to avoid redeclaration. */
+class FakeAnalyticsPort : sg.mesha.goatos.core.analytics.AnalyticsPort {
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+    override fun track(event: String, props: Map<String, String>) { events += event to props }
+    override fun setUserProperty(name: String, value: String?) = Unit
+    override fun setUserId(id: String?) = Unit
+}

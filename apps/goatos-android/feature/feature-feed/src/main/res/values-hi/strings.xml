@@ -129,4 +129,5 @@
     <string name="feed_proof_recapture">प्रमाण दोबारा लें</string>
     <string name="feed_complete_already_submitted_title">पहले ही भेजा गया</string>
     <string name="feed_complete_already_submitted_body">यह वीडियो सत्यापनकर्ता को भेज दिया गया है। यहाँ और कुछ रिकॉर्ड नहीं करना है — समीक्षा के बाद परिणाम दिखेगा।</string>
+    <string name="feed_dist_session_submitted_body">इस सत्र के प्रूफ़ सत्यापनकर्ता को भेज दिए गए हैं। यहाँ और कुछ रिकॉर्ड नहीं करना है — समीक्षा के बाद परिणाम दिखेगा।</string>
 </resources>

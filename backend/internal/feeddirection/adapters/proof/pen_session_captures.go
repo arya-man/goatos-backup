@@ -47,7 +47,8 @@ func clientPartitionToken(label string) string {
 //
 // The feed module deliberately does NOT touch proof_artifacts itself: the table belongs to the proof
 // module, and this adapter is the boundary. Results arrive newest-first, so the first row seen for a
-// slot is that slot's current proof.
+// slot is that slot's current proof. Display names are enriched from workforce_members when the pool
+// is wired; if wiring is missing or a lookup fails, CapturedByName is left empty.
 func (v *Validator) ListPenSessionCaptures(
 	ctx context.Context, q fdports.PenSessionCaptureQuery,
 ) ([]fdports.CapturedProofSlot, error) {
@@ -68,6 +69,26 @@ func (v *Validator) ListPenSessionCaptures(
 	if err != nil {
 		return nil, err
 	}
+
+	// Collect unique uploader IDs for a single batch lookup.
+	uploaderIDs := make([]string, 0)
+	uploaderIDSet := make(map[string]struct{})
+	for _, artifact := range artifacts {
+		if artifact.UploadedBy != nil && *artifact.UploadedBy != "" {
+			uploaderID := *artifact.UploadedBy
+			if _, seen := uploaderIDSet[uploaderID]; !seen {
+				uploaderIDs = append(uploaderIDs, uploaderID)
+				uploaderIDSet[uploaderID] = struct{}{}
+			}
+		}
+	}
+
+	// Look up display names in batch (only if pool is wired). Failures are non-fatal; empty names are acceptable.
+	displayNames := make(map[string]string)
+	if v.pool != nil && len(uploaderIDs) > 0 {
+		displayNames = v.lookupWorkforceDisplayNames(ctx, q.TenantID, uploaderIDs)
+	}
+
 	out := make([]fdports.CapturedProofSlot, 0, 3)
 	seen := make(map[string]struct{}, 3)
 	for _, artifact := range artifacts {
@@ -85,14 +106,52 @@ func (v *Validator) ListPenSessionCaptures(
 		if artifact.UploadedAt != nil {
 			capturedAt = *artifact.UploadedAt
 		}
+
+		capturedByName := ""
+		if artifact.UploadedBy != nil && *artifact.UploadedBy != "" {
+			capturedByName = displayNames[*artifact.UploadedBy]
+		}
+
 		out = append(out, fdports.CapturedProofSlot{
-			FieldKey:   fieldKey,
-			ProofID:    artifact.ProofID,
-			CapturedAt: capturedAt,
-			MimeType:   artifact.MimeType,
+			FieldKey:       fieldKey,
+			ProofID:        artifact.ProofID,
+			CapturedAt:     capturedAt,
+			MimeType:       artifact.MimeType,
+			CapturedByName: capturedByName,
 		})
 	}
 	return out, nil
+}
+
+// lookupWorkforceDisplayNames queries workforce_members for display_name by user_id.
+// Returns a map of user_id -> display_name. Non-fatal on errors; missing entries are returned as empty strings.
+func (v *Validator) lookupWorkforceDisplayNames(ctx context.Context, tenantID string, userIDs []string) map[string]string {
+	if v.pool == nil || len(userIDs) == 0 {
+		return make(map[string]string)
+	}
+
+	result := make(map[string]string)
+	// Best-effort lookup; timeout or pool errors are silently ignored so the proof slot is still
+	// returned, just without a display name.
+	rows, err := v.pool.Query(ctx, `
+		SELECT user_id::text, display_name
+		FROM workforce_members
+		WHERE tenant_id = $1::uuid
+		  AND user_id = ANY($2::uuid[])
+	`, tenantID, userIDs)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var userID, displayName string
+		if err := rows.Scan(&userID, &displayName); err != nil {
+			continue
+		}
+		result[userID] = strings.TrimSpace(displayName)
+	}
+	return result
 }
 
 // penSessionCaptureLimit bounds the read. A pen-session has three slots; the allowance covers

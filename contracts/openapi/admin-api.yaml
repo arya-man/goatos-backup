@@ -4997,7 +4997,7 @@ components:
           maxLength: 200
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
     GoatSummary:
       type: object
@@ -5587,7 +5587,7 @@ components:
           description: Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here.
         operational_location_display:
           type: string
-          description: Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it.
+          description: Backend-composed ("Castro 2"). Clients render it verbatim and never recompose it.
         management_stage:
           type: string
           description: The canonical resolved target tag.

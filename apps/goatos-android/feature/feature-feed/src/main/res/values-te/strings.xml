@@ -129,4 +129,5 @@
     <string name="feed_proof_recapture">రుజువును మళ్లీ తీయండి</string>
     <string name="feed_complete_already_submitted_title">ఇప్పటికే సబ్మిట్ చేసారు</string>
     <string name="feed_complete_already_submitted_body">ఈ వీడియో వెరిఫైయర్కు వెళ్లింది. ఇక్కడ మరో రికార్డు అవసరం లేదు.</string>
+    <string name="feed_dist_session_submitted_body">ఈ సెషన్ ప్రూఫ్‌లు వెరిఫైయర్‌కు వెళ్లాయి. ఇక్కడ మరేమీ రికార్డ్ చేయవలసిన అవసరం లేదు — సమీక్ష తర్వాత ఫలితం కనిపిస్తుంది.</string>
 </resources>

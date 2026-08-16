@@ -1,7 +1,10 @@
 // Package domain holds vaccination-execution read-model types.
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const SourceAPI = "api"
 
@@ -119,6 +122,15 @@ type ExecutionRow struct {
 	SOPVersionID       *string            `json:"sopVersionId,omitempty"`
 	SOPTaskRowVersion  *int32             `json:"sopTaskRowVersion,omitempty"`
 	CompletionID       *string            `json:"completionId,omitempty"`
+	// OperatorCanContinue is the backend-owned gate for whether tapping this card may still
+	// open the scan/capture flow. CORE INVARIANT: only a FINAL SUBMIT locks the card
+	// (OperatorCanContinue=false). Partial review/proof/verification state NEVER locks the
+	// card while OpenCount > 0, regardless of sopStatus/verificationStatus wording (e.g.
+	// "needs_review" is not itself terminal -- see computeOperatorLockState in service.go).
+	OperatorCanContinue bool `json:"operatorCanContinue"`
+	// OperatorLockedReason names why OperatorCanContinue is false, or "none" when it is true.
+	// One of: none | final_submitted | assigned_elsewhere | scheduled_later.
+	OperatorLockedReason string `json:"operatorLockedReason"`
 }
 
 type ExecutionResponse struct {
@@ -129,10 +141,11 @@ type ExecutionResponse struct {
 	// ViewerReadOnly marks this as a leadership OVERSIGHT read (park-scoped, all sheds):
 	// the caller is not an assigned operator, so the client shows the shed list but must
 	// NOT let them open a shed into the operator scan/execute loop. Operators get false.
-	ViewerReadOnly bool                 `json:"viewerReadOnly"`
-	Freshness      *ProjectionFreshness `json:"freshness,omitempty"`
-	CarrySummary   *CarrySummary        `json:"carrySummary,omitempty"`
-	FilterOptions  *ExecutionFilters    `json:"filterOptions,omitempty"`
+	ViewerReadOnly bool                        `json:"viewerReadOnly"`
+	Freshness      *ProjectionFreshness        `json:"freshness,omitempty"`
+	CarrySummary   *CarrySummary               `json:"carrySummary,omitempty"`
+	FilterOptions  *ExecutionFilters           `json:"filterOptions,omitempty"`
+	CardSummaries  map[string]*ShedCardSummary `json:"cardSummaries,omitempty"`
 }
 
 type ExecutionFilters struct {
@@ -166,6 +179,34 @@ type CarryDay struct {
 // grain=eff_date + protocol_name; parity=sum distinct goats with status IN (scheduled,due,in_progress)
 type CarrySummary struct {
 	CarryByDay []CarryDay `json:"carryByDay"` // ordered by date
+}
+
+// VaccineGroupSummary is the server-computed status of one vaccine group within a shed card.
+// grain=shed + partition + vaccine_label; membership=all rows with matching (shed_id, partition_label, vaccine label)
+type VaccineGroupSummary struct {
+	Label string `json:"label"` // display label for the vaccine group
+	Full  bool   `json:"full"`  // true if all animals done and none pending redo
+}
+
+// ShedCardSummary is the authoritative, page-independent status of one shed card, computed from
+// ALL execution rows matching the card's identity (shed_id + partition + task_id/batch_id/drive_id),
+// NOT from paginated row subsets. The card itself uses this for status/counts/vaccine-group details,
+// never the row-level folds visible in the paginated cursor.
+// grain=shed_id + partition_label + (task_id | batch_id | drive_id);
+// projection-review: membership=all execution rows matching card identity;
+// parity=status f(work_state + redo + review + final_closed); counts=sum of open/done/target
+type ShedCardSummary struct {
+	ShedID         string                `json:"shedId"`
+	PartitionLabel *string               `json:"partitionLabel,omitempty"`
+	TaskID         *string               `json:"taskId,omitempty"`
+	BatchID        *string               `json:"batchId,omitempty"`
+	DriveID        *string               `json:"driveId,omitempty"`
+	Status         WorkState             `json:"status"` // PENDING | DONE | DELAYED | SENT_BACK
+	DoneCount      int                   `json:"doneCount"`
+	TargetCount    int                   `json:"targetCount"`
+	OpenCount      int                   `json:"openCount"`
+	NeedsRedo      bool                  `json:"needsRedo"`     // true if any row is rejected/deferred
+	VaccineGroups  []VaccineGroupSummary `json:"vaccineGroups"` // per-vaccine group summaries
 }
 
 type DriveSummary struct {
@@ -459,6 +500,7 @@ type ExecutionProjection struct {
 	DueCount             int
 	InProgressCount      int
 	CompletedCount       int
+	DoneCount            int
 	MissedCount          int
 	DeferredCount        int
 	CanceledCount        int
@@ -1205,4 +1247,39 @@ type CommandBoardQuery struct {
 	// expensive query twice per filter change and discarded one copy. Ignored when DriveBatchID is
 	// absent: it narrows a selection, it is not a second park filter.
 	DriveParkID *string
+}
+
+// BuildCardID is the canonical identity string for a shed execution card:
+// shed + partition (whole when blank) + exactly one of task/batch/drive.
+// Shared by the app-layer row fold and the postgres card-summary aggregate so
+// both layers key summaries identically.
+func BuildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string {
+	sb := strings.Builder{}
+	sb.WriteString("shed:")
+	sb.WriteString(shedID)
+	sb.WriteString("|partition:")
+	if partitionLabel != "" && partitionLabel != "whole" {
+		sb.WriteString(partitionLabel)
+	} else {
+		sb.WriteString("whole")
+	}
+	if taskID != "" {
+		sb.WriteString("|task:")
+		sb.WriteString(taskID)
+	} else if batchID != "" {
+		sb.WriteString("|batch:")
+		sb.WriteString(batchID)
+	} else if driveID != "" {
+		sb.WriteString("|drive:")
+		sb.WriteString(driveID)
+	}
+	return sb.String()
+}
+
+// StringOrEmpty dereferences an optional string, mapping nil to "".
+func StringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

@@ -38,6 +38,7 @@ type recordEventRequest struct {
 	Flavor            string            `json:"flavor"`
 	AppVersionName    string            `json:"app_version_name"`
 	AppVersionCode    int               `json:"app_version_code"`
+	ClientEventID     string            `json:"client_event_id"`
 }
 
 type recordEventResponse struct {
@@ -58,6 +59,7 @@ func (h *Handler) RecordEvent(w http.ResponseWriter, r *http.Request) {
 	if body.Properties == nil {
 		body.Properties = map[string]string{}
 	}
+	body.ClientEventID = strings.TrimSpace(body.ClientEventID)
 
 	props, err := json.Marshal(body.Properties)
 	if err != nil {
@@ -82,8 +84,10 @@ func (h *Handler) RecordEvent(w http.ResponseWriter, r *http.Request) {
 	_, err = h.pool.Exec(r.Context(), `
 INSERT INTO analytics.app_events (
   tenant_id, actor_id, device_id, event_name, properties, client_event_time,
-  flavor, app_version_name, app_version_code, request_id, trace_id, client_info
-) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
+  flavor, app_version_name, app_version_code, request_id, trace_id, client_info, client_event_id
+) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)
+ON CONFLICT (tenant_id, client_event_id) WHERE client_event_id IS NOT NULL
+DO NOTHING`,
 		tenantID,
 		actorID,
 		strings.TrimSpace(httpmiddleware.DeviceIDFromContext(r.Context())),
@@ -96,6 +100,9 @@ INSERT INTO analytics.app_events (
 		httpmiddleware.RequestIDFromContext(r.Context()),
 		httpmiddleware.TraceIDFromContext(r.Context()),
 		string(client),
+		// NULL, never "": the partial unique index treats "" as a real value, so a blank id
+		// would dedupe EVERY id-less event for a tenant against the first one (silent loss).
+		nullableClientEventID(body.ClientEventID),
 	)
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "app_analytics_event_insert_failed", slog.String("event_name", body.EventName), slog.String("error", err.Error()))
@@ -111,4 +118,13 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int,
 		"message":      message,
 		"field_errors": []any{},
 	}, cause)
+}
+
+// nullableClientEventID maps an absent/blank client_event_id to SQL NULL so the partial
+// unique index (WHERE client_event_id IS NOT NULL) never treats "" as a dedupe key.
+func nullableClientEventID(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }

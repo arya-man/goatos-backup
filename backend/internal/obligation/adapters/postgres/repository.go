@@ -2112,7 +2112,7 @@ WITH candidates AS (
          CASE
            WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
            WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
-           WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+           WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' ' || gsp.partition_label
            ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
          END::text AS shed_name,
          oi.target_id AS target_id_key,

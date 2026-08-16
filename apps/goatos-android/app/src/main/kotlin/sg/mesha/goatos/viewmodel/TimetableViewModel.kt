@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.RosterRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.EnrichedPositionDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.feature.timetable.PositionTier
@@ -117,9 +118,8 @@ class TimetableViewModel @Inject constructor(
 
     private fun refreshInBackground(centerId: String) = viewModelScope.launch {
         _isRefreshing.value = true
-        // refreshTimetable never throws; it returns false on a network failure (cache kept).
-        val refreshed = repo.refreshTimetable(centerId)
-        _isOffline.value = !refreshed
+        val result = repo.refreshTimetable(centerId)
+        _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         _isRefreshing.value = false
     }
 }
