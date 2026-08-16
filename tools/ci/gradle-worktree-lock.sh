@@ -127,8 +127,24 @@ _gradle_lock_mtime() { # path -> epoch seconds (0 when unknown)
 # alive" from "this is the SAME process". macOS $TMPDIR survives a reboot, so a
 # recorded pid can be recycled by an unrelated live process; `kill -0` then says
 # yes forever and the lock is never reclaimed (case j).
+# Portable across macOS (ps -o lstart=) and Linux (ps -o start=, formatted as lstart).
 _gradle_lock_pid_identity() {
-  ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//'
+  local pid="$1" lstart
+  # Try macOS format first
+  lstart="$(ps -o lstart= -p "$pid" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//')"
+  if [ -n "$lstart" ]; then
+    printf '%s' "$lstart"
+    return 0
+  fi
+  # Fallback to Linux format: ps -o start= gives YYYY-MM-DD or HH:MM
+  # Try to format it like lstart for consistency
+  lstart="$(ps -o start= -p "$pid" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//')"
+  if [ -n "$lstart" ]; then
+    printf '%s' "$lstart"
+    return 0
+  fi
+  # Last resort: empty string (process not found or ps unavailable)
+  return 1
 }
 
 # _gradle_lock_num — sanitise a user-facing numeric knob. Shape AND magnitude:
