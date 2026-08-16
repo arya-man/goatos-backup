@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 /** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
@@ -163,6 +164,14 @@ data class WeighingAnimalObservationPayload(
 data class WeighingShedObservationPayload(
     @SerialName("campaign_id") val campaignId: String,
     @SerialName("request") val request: WeighingShedObservationRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT]. */
+@Serializable
+data class WeighingScopeSubmitPayload(
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("request") val request: WeighingScopeSubmitRequestDto,
 )
 
 /**

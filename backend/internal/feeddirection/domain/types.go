@@ -128,8 +128,13 @@ type PreviewQuery struct {
 	// TargetDate is the feed day being planned, in the Goat OS business calendar. The time-of-day
 	// component is discarded.
 	TargetDate time.Time
-	// ShedID optionally narrows to a single shed.
+	// ShedID optionally narrows to a single shed. When combined with PartitionLabel, narrows to exact
+	// operational location grain (shed + partition). Used by live-status polling to guarantee the
+	// target row is on page one.
 	ShedID string
+	// PartitionLabel optionally narrows to a single partition within a shed. Empty for a non-partitioned
+	// shed. Only meaningful when ShedID is also set. Used by live-status polling to narrow to exact grain.
+	PartitionLabel string
 	// SessionNo optionally narrows to a single feeding session. Zero means every session.
 	SessionNo int32
 	// Workflow optionally narrows the served issue to one dispatch workflow (normal | experiment).
@@ -161,6 +166,13 @@ type PackingQuery struct {
 	TenantID   string
 	ParkID     string
 	TargetDate time.Time
+	// ShedID optionally narrows to a single shed. When combined with PartitionLabel, narrows to exact
+	// operational location grain (shed + partition). Used by live-status polling to guarantee the
+	// target row is on page one.
+	ShedID string
+	// PartitionLabel optionally narrows to a single partition within a shed. Empty for a non-partitioned
+	// shed. Only meaningful when ShedID is also set. Used by live-status polling to narrow to exact grain.
+	PartitionLabel string
 	// SessionNo optionally narrows the worklist to a single feeding session. Zero means every
 	// session, mirroring PreviewQuery.SessionNo.
 	SessionNo int32

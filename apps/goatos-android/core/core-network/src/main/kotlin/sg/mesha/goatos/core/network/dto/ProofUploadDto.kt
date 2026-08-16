@@ -81,6 +81,12 @@ data class ProofArtifactDto(
     @SerialName("download_url") val downloadUrl: String = "",
 )
 
+/** Response from `GET /app/proofs/{proof_id}/download` — provides the signed URL for downloading a proof. */
+@Serializable
+data class ProofDownloadUrlResponseDto(
+    @SerialName("download_url") val downloadUrl: String = "",
+)
+
 fun ProofUploadRequestDto.forCreateUpload(): ProofUploadRequestDto {
     val normalizedScopeType = scopeType.ifBlank { if (!legacyTaskId.isNullOrBlank()) "task" else "shed" }
     val normalizedScopeId = scopeId.ifBlank {

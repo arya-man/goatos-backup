@@ -469,11 +469,21 @@ fun GoatOsShellChrome(
     //
     // Exact membership only — a drill (L1+) must never inherit root chrome, so no
     // prefix/substring matching here. See docs/decisions/android-navigation-stack.md.
+    //
+    // CRITICAL INVARIANT: Chrome derivation must always work, even on cold start.
+    // Drawer-top-level routes include BOTH module landing routes (module.href) and
+    // their bottom-bar items (module.navItems). Module landing routes MUST be top-level
+    // — when an operator selects a module in the drawer, they navigate to module.href,
+    // which must render with chrome. The fallback destination (Routes.CALENDAR on cold
+    // start) is implicitly top-level as a module root. Not including module.hrefs caused
+    // operators on real devices to land on a chrome-less CALENDAR screen at cold start,
+    // unable to access other modules. See bugs: RFID screen race on cold start.
     val topLevelRoutes = barItems.map { it.href }
-    val drawerTopLevelRoutes = navState.availableModules().flatMap { module -> module.navItems.map { it.href } }
+    val drawerTopLevelRoutes = navState.availableModules().flatMap { module ->
+        listOf(module.href) + module.navItems.map { it.href }
+    }.filter { it.isNotBlank() }
     val topLevelRouteKey = topLevelRoutes.joinToString(separator = "\u001F")
     val isTopLevel = isTopLevelRoute(currentRoute, drawerTopLevelRoutes)
-
     // A process/activity restore can resurrect ModalNavigationDrawer in an open or partially
     // offset state while the sheet is not actually visible yet. On real phones that makes the
     // screen look blank because the page content is translated almost entirely off the right

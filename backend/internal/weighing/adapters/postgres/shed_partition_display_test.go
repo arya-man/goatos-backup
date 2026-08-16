@@ -94,11 +94,12 @@ func TestPlannerParkBucketsPartitionOneToManyDisplayDoesNotCollapseSiblings(t *t
 		}
 		seen[key] = true
 	}
-	if got := sheds[0].OperationalLocationDisplay; got != "Castro - 1" {
-		t.Fatalf("first sibling display = %q, want Castro - 1", got)
+	// Bare numeric partitions join with a space, not a dash (oploc.go, 2026-08-14).
+	if got := sheds[0].OperationalLocationDisplay; got != "Castro 1" {
+		t.Fatalf("first sibling display = %q, want Castro 1", got)
 	}
-	if got := sheds[1].OperationalLocationDisplay; got != "Castro - 2" {
-		t.Fatalf("second sibling display = %q, want Castro - 2", got)
+	if got := sheds[1].OperationalLocationDisplay; got != "Castro 2" {
+		t.Fatalf("second sibling display = %q, want Castro 2", got)
 	}
 	if got := sheds[2].OperationalLocationDisplay; got != "Yashoda" {
 		t.Fatalf("unpartitioned display = %q, want Yashoda", got)
@@ -126,7 +127,8 @@ func TestPlannerParkBucketsPartitionPaginationPageBoundaryCursorIncludesPartitio
 func TestPlannerParkBucketsPartitionParkScopeUsesOperationalKey(t *testing.T) {
 	left := operationalLocationDisplay("park-a-castro", "Castro", "1")
 	right := operationalLocationDisplay("park-b-castro", "Castro", "1")
-	if left != "Castro - 1" || right != "Castro - 1" {
+	// Bare numeric partitions join with a space, not a dash (oploc.go, 2026-08-14).
+	if left != "Castro 1" || right != "Castro 1" {
 		t.Fatalf("display must be stable across parks, got %q and %q", left, right)
 	}
 	if key := "park-a-castro|1"; key == "park-b-castro|1" {

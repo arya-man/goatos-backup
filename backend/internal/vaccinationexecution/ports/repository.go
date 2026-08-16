@@ -89,6 +89,13 @@ type Repository interface {
 	// Returns VaccineCarryLine rows keyed by (date, vaccine_label).
 	VaccinationExecutionCarrySummary(ctx context.Context, q domain.ExecutionQuery) ([]domain.VaccineCarryLine, error)
 
+	// VaccinationExecutionCardSummaries returns per-card aggregates (status, counts, vaccine groups) over ALL
+	// matching rows in the filter set, WITHOUT pagination. This ensures the mobile card never misreports status
+	// when rows straddle page boundaries. Grain: shed_id + partition_label + (task_id | batch_id | drive_id).
+	// Computed via SQL GROUP BY on the SAME filter predicate as ListVaccinationExecutionPage but without
+	// the LIMIT/cursor, so a card spanning multiple pages reflects all rows (full-filter aggregate).
+	VaccinationExecutionCardSummaries(ctx context.Context, q domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error)
+
 	// VaccinationCommandBoard returns the CEO closure view: KPIs (drive-scoped or all-history),
 	// cohort×vaccine pending matrix, shed×dose state matrix, weekly given chart, and verification queue.
 	// All aggregations are served from canonical indexed SQL (5k-50k envelope); no projection tables.

@@ -62,6 +62,14 @@ data class VaccinationExecutionRowDto(
     @SerialName("sopVersionId") val sopVersionId: String? = null,
     @SerialName("sopTaskRowVersion") val sopTaskRowVersion: Int? = null,
     @SerialName("completionId") val completionId: String? = null,
+    // Backend-owned lock gate. CORE INVARIANT: only a FINAL SUBMIT locks the card
+    // (operatorCanContinue=false); partial review/proof/verification state never locks while
+    // openCount > 0. Nullable for backward compat with API responses that predate this field --
+    // see opensSubmittedRecordOnly()'s fallback in ShedsViewModel.kt.
+    @SerialName("operatorCanContinue") val operatorCanContinue: Boolean? = null,
+    // Why operatorCanContinue is false, or "none" when it is true: none | final_submitted |
+    // assigned_elsewhere | scheduled_later.
+    @SerialName("operatorLockedReason") val operatorLockedReason: String? = null,
 )
 
 /**
@@ -73,6 +81,29 @@ data class VaccinationExecutionRowDto(
  */
 val VaccinationExecutionRowDto.currentScheduleDate: String?
     get() = dueDate
+
+@Serializable
+data class VaccineGroupSummaryDto(
+    @SerialName("label") val label: String = "",
+    @SerialName("full") val full: Boolean = false,
+)
+
+@Serializable
+data class ShedCardSummaryDto(
+    @SerialName("shedId") val shedId: String = "",
+    @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("taskId") val taskId: String? = null,
+    @SerialName("batchId") val batchId: String? = null,
+    @SerialName("driveId") val driveId: String? = null,
+    // Authoritative card status: client maps rejected→SENT_BACK, overdue→DELAYED,
+    // completed→DONE, due→PENDING. See shedStatusForRows() in ShedsViewModel.kt.
+    @SerialName("status") val status: String = "due",
+    @SerialName("doneCount") val doneCount: Int = 0,
+    @SerialName("targetCount") val targetCount: Int = 0,
+    @SerialName("openCount") val openCount: Int = 0,
+    @SerialName("needsRedo") val needsRedo: Boolean = false,
+    @SerialName("vaccineGroups") val vaccineGroups: List<VaccineGroupSummaryDto> = emptyList(),
+)
 
 @Serializable
 data class VaccinationExecutionResponseDto(
@@ -88,6 +119,10 @@ data class VaccinationExecutionResponseDto(
     // paginated page). The client renders these verbatim — it never sums shed rows.
     @SerialName("carrySummary") val carrySummary: CarrySummaryDto? = null,
     @SerialName("filterOptions") val filterOptions: ExecutionFilterOptionsDto? = null,
+    // Authoritative per-card summaries (status, counts, vaccine groups) keyed by execution card ID.
+    // Page-independent: computed from all rows matching the query, not from paginated subsets.
+    // Ensures correct status when rows straddle page boundaries.
+    @SerialName("cardSummaries") val cardSummaries: Map<String, ShedCardSummaryDto>? = null,
 )
 
 @Serializable

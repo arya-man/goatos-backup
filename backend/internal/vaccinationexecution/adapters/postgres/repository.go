@@ -161,7 +161,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var vaccineLabels []string
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
-		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
+		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount, doneCount int64
 		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, proofSubmittedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
 		var workState string
@@ -184,6 +184,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&dueCount,
 			&inProgressCount,
 			&completedCount,
+			&doneCount,
 			&missedCount,
 			&deferredCount,
 			&canceledCount,
@@ -224,6 +225,8 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.DueCount = int(dueCount)
 		p.InProgressCount = int(inProgressCount)
 		p.CompletedCount = int(completedCount)
+		// projection-review: membership=one row per (shed,stage) execution-projection group scanned from the serving SQL; group_key=unchanged (park,shed,stage) grain — done_count is an added measure, not a grain change; join_cardinality=done_count is the SQL-side BOOL_OR union of completion paths pre-aggregated per obligation, so multi-vaccine one-to-many rows cannot double-count a goat; pagination=scan preserves the query's keyset page, totals computed before truncation; scope=tenant+park/shed filters applied in the serving SQL before this scan.
+		p.DoneCount = int(doneCount)
 		p.MissedCount = int(missedCount)
 		p.DeferredCount = int(deferredCount)
 		p.CanceledCount = int(canceledCount)
@@ -1140,7 +1143,33 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // This is now the request-path serving read (ListVaccinationExecutionPage), not only the projector replay.
 // projection-review: membership=obligation_instances rows for one tenant due by $4, joined to obligation_batches by batch_id so batched rows use the canonical batch planned_date while unbatched rows fall back to obligation due_at; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code); join_cardinality=completion history is pre-aggregated from 0:N to one as-of-effective row per obligation before joining, while batch/task/goat joins are keyed 1:1 and grouped COUNT/ARRAY_AGG operate on obligation grain so target counts cannot fan out; pagination=classified rows are keyset paginated after grouped aggregation with total_count over the full filtered set; scope=park/shed filters are resolved through located.park_uuid/shed_uuid with tenant scoping and status buckets from as_of-effective eff_status/work_state.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 rows) canonical execution list, query-plan-tested (canonical_read_plan_test.go).
-const vaccinationExecutionSQL = `
+// executionClassifiedCTE is the SHARED card-grain classification pipeline: it resolves every
+// obligation row (completion history, terminal events, drive assignment, task/goat/location joins),
+// rolls them up to per-animal state (animal_rollup/animal_counts), groups to CARD grain
+// (park_uuid, shed_uuid, partition_key, batch_id) in `+"`grouped`"+`, enriches with operator/quarantine/ICU
+// signals, and derives the single authoritative work_state + severity per card in `+"`stateful`"+`/`+"`classified`"+`.
+// Both vaccinationExecutionSQL (the paginated page) and cardSummariesSQL (the whole-filter card
+// badge aggregate) embed this EXACT text and therefore read `+"`classified.work_state`"+`/`+"`classified.severity`"+`
+// from the identical derivation. This is a structural guard, not a convention: prior drift rounds
+// hand-copied predicates into a parallel `+"`filtered_by_state`"+` CTE that filtered by a per-row `+"`eff_status`"+`
+// PROXY instead of the card-grain work_state, which made `+"`blocked`"+`/`+"`rejected`"+` work_states and the
+// `+"`at_risk`"+` severity bucket permanently unreachable through the summary's filters. Sharing this
+// constant makes that class of bug impossible to reintroduce by hand-copying predicates again.
+//
+// Shared $-parameter contract: executionClassifiedCTE itself only references $1, $2, $3, $4, $7,
+// $8, $15, $16 (tenant_id, park filter, shed filter, due-before bound, as_of instant, closed-history
+// bound, operator scope actor id, partition label filter) — these MUST stay bound at the same
+// positions/types in both callers. $6 (work_state filter), $9 (severity filter), and $10 (open-only
+// filter) are NOT read inside this shared chain; each caller applies them itself against
+// `+"`classified.work_state`"+`/`+"`classified.severity`"+`/`+"`classified.display_open_count`"+` after embedding this
+// constant, so both appear at the SAME parameter numbers in both queries even though only one
+// query's WHERE clause consumes them at this stage. $5, $11-$14 are page-only (limit, cursor).
+// This is the SAME canonical execution read the page query is already exempted for, extracted verbatim so the page
+// and its card summaries cannot drift apart (they had drifted three times while hand-copied). Both callers stay
+// tenant/park/shed/due-indexed and query-plan-tested (canonical_read_plan_test.go); the summary adds no new scan,
+// it aggregates the rows the page already reads.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+const executionClassifiedCTE = `
 WITH completion_candidates AS (
   SELECT
     obligation_id,
@@ -1184,7 +1213,13 @@ WITH completion_candidates AS (
   WHERE tenant_id = $1::uuid
     AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
 ),
-completions AS (
+-- MATERIALIZED: without this hint Postgres inlines the GROUP BY as a correlated subplan and
+-- re-executes the completion_candidates append + sort + group-aggregate once PER obligation_instances
+-- row (~8k times on a 7k-obligation tenant) instead of computing it once and hash-joining. That
+-- re-execution is the dominant cost of this query end to end (~2.9s of a ~3.3s statement, confirmed
+-- via EXPLAIN ANALYZE loops=8227 on the completions GroupAggregate). Forcing materialization drops
+-- total execution time to ~230ms with an identical result set (verified byte-for-byte).
+completions AS MATERIALIZED (
   SELECT
     obligation_id,
     (ARRAY_AGG(asof_status ORDER BY
@@ -1215,7 +1250,12 @@ operator_scope_member AS (
            wm.workforce_member_id DESC
   LIMIT 1
 ),
-asof_terminal AS (
+-- MATERIALIZED for the same reason as completions above: this CTE is joined once but has a
+-- GROUP BY, so an inlined plan can re-run it as a correlated per-row subplan instead of computing
+-- it once. Its own cost is small on this fixture (already narrowed by operator scope before the
+-- join), but leaving it un-pinned means the planner is free to choose the expensive per-row shape
+-- again on a tenant-wide (no operator scope) read where obligation_status_events is larger.
+asof_terminal AS MATERIALIZED (
   -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
   -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
   -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
@@ -1488,7 +1528,15 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
     BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
     BOOL_OR(located.scanned OR located.proofed) AS has_scan,
-    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof
+    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof,
+    -- Per-animal union: an animal is done if ANY path to completion occurred (not just GREATEST)
+    BOOL_OR(
+      located.eff_status = 'completed'
+      OR located.completion_status = 'recorded'
+      OR located.completion_status = 'accepted'
+      OR located.shed_proof_submitted
+      OR located.proofed
+    ) AS has_done
   FROM located
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
@@ -1506,6 +1554,7 @@ animal_counts AS (
     animal_rollup.partition_key,
     animal_rollup.batch_id,
     COUNT(*)::bigint AS obligation_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_done)::bigint AS done_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_scheduled)::bigint AS scheduled_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_due)::bigint AS due_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_in_progress)::bigint AS in_progress_count,
@@ -1538,6 +1587,7 @@ grouped AS (
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
     -- as_of-effective status at distinct-animal grain; completion counts use the
     -- pre-aggregated, as-of-bounded completion projection above.
+    MAX(animal_counts.done_count) AS done_count,
     MAX(animal_counts.scheduled_count) AS scheduled_count,
     MAX(animal_counts.due_count) AS due_count,
     MAX(animal_counts.in_progress_count) AS in_progress_count,
@@ -1697,21 +1747,13 @@ state_inputs AS (
     enriched.*,
     LEAST(
       enriched.obligation_count,
-      GREATEST(
-        enriched.completed_count,
-        enriched.completion_recorded + enriched.completion_accepted,
-        enriched.proof_submitted_count
-      )
+      enriched.done_count
     ) AS display_done_count,
     GREATEST(
       enriched.obligation_count
         - LEAST(
             enriched.obligation_count,
-            GREATEST(
-              enriched.completed_count,
-              enriched.completion_recorded + enriched.completion_accepted,
-              enriched.proof_submitted_count
-            )
+            enriched.done_count
           )
         - enriched.deferred_count
         - enriched.missed_count
@@ -1787,7 +1829,13 @@ classified AS (
       ELSE 'broken'
     END AS severity
   FROM stateful
-),
+)`
+
+// vaccinationExecutionSQL is the paginated card-list page. It embeds executionClassifiedCTE
+// unmodified and adds only the page-specific work_state/severity/open-only filter (`filtered`) plus
+// keyset pagination and the display-name LATERAL joins. See executionClassifiedCTE's doc comment for
+// why this sharing exists and the $-parameter contract both queries must honor.
+const vaccinationExecutionSQL = executionClassifiedCTE + `,
 filtered AS (
   -- projection-review: membership=classified rows after tenant/category/scope resolution and work_state/severity filters; group_key=classified.sort_row_key; join_cardinality=classified is already grouped to one row per execution cohort before COUNT(*) OVER(); pagination=total_count is computed over the full filtered result before keyset LIMIT; scope=park/shed inherited from located.park_uuid/located.shed_uuid.
   SELECT classified.*, COUNT(*) OVER()::bigint AS total_count
@@ -1823,6 +1871,7 @@ SELECT
   grouped.due_count,
   grouped.in_progress_count,
   grouped.completed_count,
+  grouped.done_count,
   grouped.missed_count,
   grouped.deferred_count,
   grouped.canceled_count,
@@ -1898,6 +1947,68 @@ WHERE NOT $11::boolean
    OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($12::int, $13::bigint, $14::text)
 ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
+`
+
+// cardSummariesSQL is the whole-filter (current filter, ALL matching pages — not just the visible
+// page) per-card aggregate that powers shed-card badge counts. It embeds executionClassifiedCTE
+// unmodified, so `classified.work_state`/`classified.severity`/`classified.display_open_count` are
+// the EXACT SAME per-card classification the page renders (see executionClassifiedCTE's doc comment
+// for the drift history this fixes and the $-parameter contract). classified is already grouped to
+// card grain (park_uuid, shed_uuid, partition_key, batch_id), so this query re-groups only by the
+// caller-facing card identity (shed_uuid, partition_label, sop_task_id, batch_id) and applies the
+// SAME work_state/severity/open-only/completed-visibility filters as the page's `filtered` CTE,
+// with NO LIMIT/cursor -- summaries must reflect every card in the filter, not only the current page.
+const cardSummariesSQL = executionClassifiedCTE + `
+SELECT
+  classified.shed_uuid,
+  classified.partition_label,
+  classified.sop_task_id,
+  classified.batch_id,
+  NULL::uuid AS drive_id,
+  COALESCE(SUM(classified.obligation_count), 0)::bigint AS obligation_count,
+  COALESCE(SUM(classified.display_done_count), 0)::bigint AS done_count,
+  COALESCE(SUM(classified.display_open_count), 0)::bigint AS open_count,
+  BOOL_OR(classified.missed_count > 0) AS has_missed,
+  BOOL_OR(
+    classified.deferred_count > 0
+    OR classified.health_deferred_count > 0
+    OR classified.is_quarantine
+    OR classified.is_icu
+  ) AS has_deferred,
+  BOOL_OR(classified.work_state = 'overdue') AS has_overdue,
+  -- Reachable now: classified.work_state is the CARD-GRAIN state derived in stateful/classified
+  -- (operator absence -> blocked, task rework/rejected or completion_rejected -> rejected, etc),
+  -- not the per-row eff_status proxy the old filtered_by_state CTE filtered by. That proxy never
+  -- produces 'blocked'/'rejected', so an operator filtering the card list to Blocked or Sent Back
+  -- got badge counts computed from a definition the list itself does not use.
+  BOOL_OR(classified.work_state = 'rejected' OR classified.completion_rejected > 0) AS has_rejected,
+  ARRAY_REMOVE(ARRAY_AGG(DISTINCT classified.protocol_name), NULL) AS vaccine_labels
+FROM classified
+WHERE ($6::text = '' OR classified.work_state = $6::text)
+  AND ($9::text = '' OR classified.severity = $9::text)
+  AND (
+    -- $5 (page Limit) and $11-$14 (page cursor tuple) are NOT used by this whole-filter aggregate --
+    -- see executionClassifiedCTE's $-parameter contract comment -- but pgx's extended query
+    -- protocol still requires Postgres to infer a bind type for every placeholder the caller
+    -- supplies a value for, so each must appear at least once. Always true; no filtering effect.
+    $5::int IS NOT NULL
+    OR $11::boolean IS NOT NULL
+    OR $12::int IS NOT NULL
+    OR $13::bigint IS NOT NULL
+    OR $14::text IS NOT NULL
+    OR TRUE
+  )
+  AND (
+    $15::text = ''
+    OR classified.work_state <> 'completed'
+    OR (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+  )
+  AND (
+    NOT $10::boolean
+    OR classified.display_open_count > 0
+  )
+GROUP BY classified.shed_uuid, classified.partition_label, classified.sop_task_id, classified.batch_id
+ORDER BY classified.shed_uuid, classified.partition_label, classified.sop_task_id, classified.batch_id
 `
 
 // vaccinationOperationsSQL is point-in-time correct as of $2 (as_of). It does NOT bucket off the stored
@@ -4139,6 +4250,133 @@ ORDER BY eff_date::date, protocol_name, dose_code
 		return nil, fmt.Errorf("vaccination execution: carry summary rows: %w", err)
 	}
 	return out, nil
+}
+
+// VaccinationExecutionCardSummaries computes per-card aggregates (status, counts, vaccine groups)
+// over ALL matching rows in the filter set, WITHOUT pagination. Uses the SAME filter predicates
+// as ListVaccinationExecutionPage but without LIMIT/cursor, ensuring cards spanning page
+// boundaries report counts from the full filtered set (page-independent aggregation).
+func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	if q.AsOf.IsZero() {
+		q.AsOf = time.Now().In(biztime.DefaultLocation())
+	}
+	workState := ""
+	if q.WorkState != nil {
+		workState = string(*q.WorkState)
+	}
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = *q.ParkID
+	}
+	shedID := ""
+	if q.ShedID != nil {
+		shedID = *q.ShedID
+	}
+	severity := ""
+	if q.Severity != nil {
+		severity = string(*q.Severity)
+	}
+	partitionLabel := ""
+	if q.PartitionLabel != nil {
+		partitionLabel = strings.TrimSpace(*q.PartitionLabel)
+	}
+	dueBefore := q.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = q.AsOf.Add(defaultExecutionHorizon)
+	}
+	closedAfter := q.AsOf.Add(-defaultClosedHistoryAge)
+
+	// projection-review: membership=all execution rows matching card identity (shed_id, partition_label, task_id/batch_id/drive_id);
+	// group_key=(shed_uuid, partition_key, task_id, batch_id, drive_id) WITH aggregates over matching rows;
+	// join_cardinality=same as vaccinationExecutionSQL (obligation 1:1 to completion history and batch/task/goat, pre-aggregated);
+	// pagination=NONE — card summaries are full-filter aggregates computed independently of the paginated row window;
+	// scope=same filter predicates as vaccinationExecutionSQL (park/shed/work_state/severity resolved via canonical tables).
+
+	// cardSummariesSQL does not actually consume $11-$14 (they are page-cursor-only; see
+	// executionClassifiedCTE's $-parameter contract comment), but the bind values must still be
+	// supplied without dereferencing a nil q.Cursor -- same nil guard as ListVaccinationExecutionPage.
+	var cursorRank int
+	var cursorDueMicros int64
+	var cursorRowKey string
+	if q.Cursor != nil {
+		cursorRank = q.Cursor.SortRank
+		cursorDueMicros = q.Cursor.SortDueMicros
+		cursorRowKey = q.Cursor.SortRowKey
+	}
+
+	// projection-review: summary counts now respect work_state, severity, and open-only filters (identical to page query predicate set) to prevent badge counts from misrepresenting the filtered page view.
+	rows, err := r.pool.Query(ctx, cardSummariesSQL,
+		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, q.AsOf, closedAfter, severity,
+		q.OpenOnly, q.Cursor != nil, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: card summaries query: %w", err)
+	}
+	defer rows.Close()
+
+	summaries := make(map[string]*domain.ShedCardSummary)
+	for rows.Next() {
+		var shedID string
+		var partLabel *string
+		var taskID *string
+		var batchID *string
+		var driveID *string
+		var obligationCount, doneCount, openCount int64
+		var hasMissed, hasDeferred, hasOverdue, hasRejected bool
+		var vaccineLabels []string
+
+		if err := rows.Scan(&shedID, &partLabel, &taskID, &batchID, &driveID, &obligationCount, &doneCount, &openCount,
+			&hasMissed, &hasDeferred, &hasOverdue, &hasRejected, &vaccineLabels); err != nil {
+			return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
+		}
+
+		// Compute status: DONE | DELAYED | SENT_BACK | PENDING
+		var status domain.WorkState
+		if hasRejected {
+			status = domain.WorkStateRejected // SENT_BACK
+		} else if hasOverdue || hasMissed {
+			status = domain.WorkStateOverdue // DELAYED
+		} else if openCount == 0 && obligationCount > 0 {
+			status = domain.WorkStateCompleted // DONE
+		} else {
+			status = domain.WorkStateDue // PENDING
+		}
+
+		// Build vaccine group summaries
+		vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(vaccineLabels))
+		for _, label := range vaccineLabels {
+			vaccineGroups = append(vaccineGroups, domain.VaccineGroupSummary{
+				Label: label,
+				Full:  openCount == 0,
+			})
+		}
+		sort.Slice(vaccineGroups, func(i, j int) bool {
+			return vaccineGroups[i].Label < vaccineGroups[j].Label
+		})
+
+		cardID := domain.BuildCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(taskID), domain.StringOrEmpty(batchID), domain.StringOrEmpty(driveID))
+		summaries[cardID] = &domain.ShedCardSummary{
+			ShedID:         shedID,
+			PartitionLabel: partLabel,
+			TaskID:         taskID,
+			BatchID:        batchID,
+			DriveID:        driveID,
+			Status:         status,
+			DoneCount:      int(doneCount),
+			TargetCount:    int(obligationCount),
+			OpenCount:      int(openCount),
+			NeedsRedo:      hasRejected,
+			VaccineGroups:  vaccineGroups,
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: card summaries rows: %w", err)
+	}
+
+	return summaries, nil
 }
 
 // VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,

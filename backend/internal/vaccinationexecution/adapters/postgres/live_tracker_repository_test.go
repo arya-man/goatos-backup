@@ -548,7 +548,9 @@ func TestLiveTrackerVaccineLabelsNeverComeFromTheEmptyCatalog(t *testing.T) {
 // the vaccination surface, so the same partition is not called two different things on two screens.
 func TestLiveTrackerShedLabelMatchesOperationalNaming(t *testing.T) {
 	cases := map[[2]string]string{
-		{"Gandhi", "3"}:         "Gandhi - 3",
+		// Canonical naming (2026-08-14 ruling): bare-numeral partitions join with a SPACE
+		// ("Gandhi 3" is a real shed name, never "Gandhi - 3"); worded partitions keep the dash.
+		{"Gandhi", "3"}:         "Gandhi 3",
 		{"Sumathi 2", "Part 4"}: "Sumathi 2 - Part 4",
 		{"Mandela 2", "whole"}:  "Mandela 2",
 		{"Old Yashoda", ""}:     "Old Yashoda",

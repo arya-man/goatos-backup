@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemEntity
@@ -28,12 +30,37 @@ data class FeedTransportQuery(
         get() = listOf(businessDate, parkId, shedId, status).joinToString("|")
 }
 
+/**
+ * The narrow surface [sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel] depends on for live
+ * status gating — split out so tests can fake it directly rather than needing a real [GoatDatabase]
+ * to construct a [FeedTransportRepository]. See [FeedRepository]'s own interface/impl split for the
+ * same shape.
+ */
+interface FeedTransportStatusSource {
+    /** LIVE status for one transport task, straight from the same Room table the task list renders
+     *  from. `null` while Room has no cached row for this task yet. */
+    fun observeTaskStatus(taskId: String): Flow<String?>
+
+    /**
+     * ONE-SHOT SERVER read of one transport task's status, bypassing Room entirely.
+     * [observeTaskStatus] only changes when THIS phone's own list refresh writes a fresh cached row
+     * — a teammate submitting the SAME task on another phone never touches this phone's Room cache
+     * while the capture screen sits open. This is the periodic top-up that closes that gap. Reuses
+     * the existing `GET /feed-transport/tasks` endpoint (no new backend route), narrowed to one
+     * shed/day.
+     *
+     * Returns `null` on ANY failure (offline/timeout/5xx) OR when no matching task comes back —
+     * callers MUST treat `null` as "unknown, keep current state", never as "not yet submitted".
+     */
+    suspend fun fetchTaskStatus(businessDate: String, shedId: String, taskId: String): String?
+}
+
 class FeedTransportRepository(
     private val api: AppApi,
     private val db: GoatDatabase,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
-) {
+) : FeedTransportStatusSource {
     /**
      * Cache-first page Flow. The per-row `dtoJson` decode is CPU work over the whole visible
      * window and Room emits on its query executor, so the mapping is moved off the collector's
@@ -52,6 +79,31 @@ class FeedTransportRepository(
                 ?: FeedTransportFilterOptionsDto(),
         )
     }.flowOn(Dispatchers.Default)
+
+    /**
+     * LIVE status for one transport task, straight from the same Room table [observe] renders from.
+     * `null` while Room has no cached row for this task yet — the caller should fall back to its
+     * nav-arg hint in that case. Lets [sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel] flip
+     * to read-only live if the task is verified/rejected elsewhere while the capture screen is open,
+     * mirroring the packing/distribution completion screens' status gating.
+     */
+    override fun observeTaskStatus(taskId: String): Flow<String?> =
+        db.feedTransportScopedItemDao().observeByTaskId(taskId)
+            .map { entity -> entity?.let { json.decodeFromString<FeedTransportTaskDto>(it.dtoJson).status } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun fetchTaskStatus( // offline-first-guard:ignore: liveness beats staleness — this exists specifically to see a teammate's write Room has not cached yet.
+        businessDate: String,
+        shedId: String,
+        taskId: String,
+    ): String? = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
+        api.getFeedTransportTasks(
+            businessDate = businessDate,
+            shedId = shedId.takeIf { it.isNotBlank() },
+            limit = STATUS_POLL_LIMIT,
+        ).items.firstOrNull { it.taskId == taskId }?.status
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     suspend fun refresh(query: FeedTransportQuery): Result<Unit> = runCatching {
         val page = fetch(query, cursor = null)
@@ -111,5 +163,9 @@ class FeedTransportRepository(
 
     private companion object {
         const val PAGE_SIZE = 20
+
+        /** Page size for [fetchTaskStatus]'s narrow poll — one shed/day filtered server-side, so a
+         *  small page is always enough (one task per physical shed per day). */
+        const val STATUS_POLL_LIMIT = 20
     }
 }

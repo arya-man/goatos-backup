@@ -334,9 +334,18 @@ data class FeedTransportCaptureUiState(
     val canSubmit: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedTransportResultUi? = null,
+    /**
+     * The task already went to the verifier (or was decided) elsewhere, so there is nothing to
+     * record here. Backend-owned: derived from the task's LIVE status, not from local capture-draft
+     * presence. Mirrors [FeedPackingCompleteUiState.alreadySubmitted] / distribution's equivalent —
+     * transport had no such gate at all before (STG 2026-08-09 class of bug).
+     */
+    val alreadySubmitted: Boolean = false,
 ) {
+    val captureEnabled: Boolean get() = !alreadySubmitted && !isCapturing
+
     val submitEnabled: Boolean
-        get() = videoCaptured && canSubmit && videoStatus.isQueuedForSubmit() && !isCapturing &&
+        get() = !alreadySubmitted && videoCaptured && canSubmit && videoStatus.isQueuedForSubmit() && !isCapturing &&
             result?.status != FeedTransportSubmitStatus.SYNCED &&
             result?.status != FeedTransportSubmitStatus.QUEUED
 }
@@ -381,6 +390,19 @@ fun FeedTransportCaptureScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // ALREADY SUBMITTED: the task went to the verifier (or was decided) elsewhere, so there
+            // is nothing to record. Mirrors FeedPackingCompleteScreen's / FeedDistributionCompleteScreen's
+            // same-shaped gate.
+            if (state.alreadySubmitted) {
+                item {
+                    FeedDistStatusCardBody(
+                        text = stringResource(R.string.feed_complete_already_submitted_body),
+                        tone = MeshaColors.Muted,
+                    )
+                }
+                return@LazyColumn
+            }
+
             item {
                 FeedTransportStatusCard(state = state, committed = committed) {
                     onEvent(FeedTransportCaptureEvent.Submit)
@@ -400,7 +422,7 @@ fun FeedTransportCaptureScreen(
                     loadingLabel = stringResource(R.string.feed_transport_video_uploading),
                     retryLabel = stringResource(R.string.feed_transport_retry_video),
                     replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = !committed && !state.isCapturing,
+                    enabled = !committed && state.captureEnabled,
                     message = state.videoMessage,
                     onClick = {
                         if (state.videoCaptured) {

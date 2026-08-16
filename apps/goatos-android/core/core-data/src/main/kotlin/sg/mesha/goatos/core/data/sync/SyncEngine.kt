@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.network.isTerminalAppApiError
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -48,6 +50,28 @@ fun interface SyncRetryScheduler {
     companion object {
         val Noop = SyncRetryScheduler { }
     }
+}
+
+/**
+ * A generic, sync-engine-driven "the local cache is a whole-page KV blob, not a Room row keyed by
+ * server id" reconcile hook: for opTypes whose observed screen state is a [Resource]-wrapped page
+ * blob (e.g. Milk Feeding/Preparation's `CountsBreakdownMetaCacheDao` page cache — see
+ * [sg.mesha.goatos.core.data.MilkFeedingRepository] / [sg.mesha.goatos.core.data.MilkPreparationRepository]),
+ * there is no server-truth row to write directly into. The correct reconcile is instead "go fetch
+ * the page again" — a plain `repo.refresh(...)`. Registered per-[OutboxOpType] at the repo/DI layer
+ * ([sg.mesha.goatos.di.AppModule]), never in a ViewModel: the moment matching this reconcile's
+ * timing (right after a row reaches SUCCEEDED, alongside every other [reconcileFeatureSuccess] arm)
+ * belongs to [SyncEngine], not to whichever screen happens to be on-screen when it happens.
+ *
+ * Failures are swallowed the same way [reportCacheReconcileFailure] swallows every other
+ * post-success cache-write failure here: the outbox row is already SUCCEEDED on the server, so a
+ * refresh miss must never re-mark it failed or abort the rest of the drain pass. The next
+ * successful list/detail fetch repairs the cache regardless (pull-to-refresh, next screen visit).
+ */
+fun interface PostSuccessRefreshHook {
+    /** [payloadJson] is the SAME [OutboxEntity.payloadJson] this opType was dispatched with —
+     *  the hook decodes whatever payload shape it needs to derive the page key(s) to refresh. */
+    suspend fun onSuccess(payloadJson: String)
 }
 
 /**
@@ -96,6 +120,14 @@ class SyncEngine(
     private val scannedGoatDao: ScannedGoatDao? = null,
     private val weighingObservationDao: WeighingObservationDao? = null,
     private val weighingShedObservationDao: WeighingShedObservationDao? = null,
+    // Advances the SAME transition-epoch mechanism `WeighingRepository.transitionIdempotencyKey`
+    // reads, ONLY after a WEIGHING_SCOPE_SUBMIT row reaches SUCCEEDED here — mirroring the
+    // repository's own "called only after the server confirmed" contract for reopen/close, which
+    // stayed direct-HTTP and unmoved (see docs/decisions/weighing-rework-task-cards.md; the close
+    // gate itself is unconditional and out of scope for this change).
+    private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
+    private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
+    private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
      * [OutboxTelemetryReporter.Noop] so every existing test/fake construction keeps compiling;
@@ -107,6 +139,12 @@ class SyncEngine(
      * emit can be forgotten by the next feature someone writes; a seam cannot.
      */
     private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
+    /**
+     * Per-[OutboxOpType] whole-page-blob reconcile hooks — see [PostSuccessRefreshHook] kdoc.
+     * Empty by default so every existing test/fake construction keeps compiling; production
+     * wiring registers the Milk Feeding/Preparation refresh callbacks in `AppModule`.
+     */
+    private val postSuccessRefreshHooks: Map<OutboxOpType, PostSuccessRefreshHook> = emptyMap(),
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -319,6 +357,24 @@ class SyncEngine(
         runCatching { telemetry.onOutboxWrite(event) }
     }
 
+    /** Logs a post-success local-cache reconcile failure (e.g. the Room mirror write in
+     *  [reconcileFeatureSuccess] threw) without ever rethrowing: the golden rule is "never
+     *  swallow an exception", but this one item is already SUCCEEDED on the server, so it must
+     *  never be re-marked failed and must never abort the rest of a drain pass. Reused as
+     *  [OutboxWritePhase.ATTEMPT_FAILED] telemetry (attempt/maxAttempts left at 0) — the closest
+     *  existing signal that reaches the same Crashlytics/analytics sink as every other outbox
+     *  failure, rather than adding a new wire-format phase for one call site. */
+    private fun reportCacheReconcileFailure(item: OutboxEntity, error: Throwable) {
+        report(
+            OutboxTelemetryEvent(
+                phase = OutboxWritePhase.ATTEMPT_FAILED,
+                opType = item.opType,
+                itemId = item.id,
+                failureClass = error.javaClass.simpleName,
+            ),
+        )
+    }
+
     /** Calls the app-api for [item], reusing its stored idempotency key verbatim (never a new
      *  key on retry). Returns the raw JSON response on success, echoed back via
      *  [OutboxEntity.resultJson] so a later observer can decode the original server result
@@ -355,6 +411,7 @@ class SyncEngine(
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
+        OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
     }
 
     private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
@@ -374,7 +431,72 @@ class SyncEngine(
                 weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
             OutboxOpType.WEIGHING_SHED_OBSERVATION ->
                 weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.WEIGHING_SCOPE_SUBMIT -> {
+                val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
+                val scopeId = "submit:${payload.campaignId}:${payload.campaignShedId}"
+                // Only NOW -- the row is SUCCEEDED -- does the epoch rotate, exactly matching
+                // WeighingRepository.advanceTransitionEpoch's "called only after the server
+                // confirmed" contract it replaces. A failed/still-retrying row keeps sending the
+                // SAME key.
+                weighingTransitionEpochDao?.upsert(
+                    WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+                )
+                // Every OTHER epoch writer (WeighingRepository.advanceTransitionEpoch for
+                // reopen/close-shed/close-campaign/update) prunes to the same bound right after
+                // upserting; this one was skipped, leaving the transition-epoch table growing
+                // unboundedly by one row per scope ever submitted. Same bound, same table.
+                weighingTransitionEpochDao?.pruneOutsideNewest(WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES)
+            }
+            OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // The server already accepted this write (item is SUCCEEDED) — a failure
+                        // HERE is only "local Room mirror didn't refresh", never a reason to mark
+                        // the outbox row failed or abort the rest of this drain pass (this runs
+                        // both per-item in processItem's try and in bulk in drainOnce's startup
+                        // reconcile loop, which has no surrounding try/catch of its own). Caught
+                        // locally and reported so it is never silently lost; the next successful
+                        // preview/worklist fetch repairs the cache regardless.
+                        runCatching {
+                            feedRepository?.persistDirectionSessionStatus(
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = payload.workflow,
+                                sessionNo = payload.sessionNo,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
+            OutboxOpType.FEED_PACKING_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedPackingCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // Same rationale as FEED_DISTRIBUTION_COMPLETE above: never let a local
+                        // cache-write failure look like (or behave like) a dispatch failure.
+                        runCatching {
+                            feedRepository?.persistPackingRowStatus(
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = payload.workflow,
+                                sessionNo = payload.sessionNo,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
             else -> Unit
+        }
+        // Whole-page-blob opTypes (no server-truth row to write directly into a Room table) — run
+        // AFTER the opType-specific arm above so any row-shaped reconcile still happens first.
+        postSuccessRefreshHooks[OutboxOpType.valueOf(item.opType)]?.let { hook ->
+            runCatching { hook.onSuccess(item.payloadJson) }
+                .onFailure { reportCacheReconcileFailure(item, it) }
         }
     }
 
@@ -924,11 +1046,26 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    // The close gate is UNCONDITIONAL server-side (verification pending -> the submit itself is
+    // rejected, never bypassed by a client flag). Reusing the row's stable idempotencyKey verbatim
+    // on every attempt is what lets a server-committed-but-client-unrecorded retry dedupe instead
+    // of double-submitting; WeighingRepository advances its transition epoch only after this
+    // returns successfully (via reconcileFeatureSuccess below), so a failed/retried attempt keeps
+    // sending the SAME key until the server actually confirms it.
+    private suspend fun dispatchWeighingScopeSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
+        api.submitWeighingScope(payload.campaignId, payload.campaignShedId, item.idempotencyKey, payload.request)
+        return "{}"
+    }
+
     private companion object {
         const val SUCCESS_RECONCILE_LIMIT = 20
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
         const val NO_RETRY_DUE = Long.MAX_VALUE
+        // Mirrors WeighingRepository's private WEIGHING_CACHED_TRANSITION_SCOPES bound for the
+        // SAME weighing_transition_epoch table -- every writer of that table prunes to this bound.
+        const val WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES = 50
     }
 }

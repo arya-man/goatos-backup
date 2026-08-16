@@ -93,7 +93,20 @@ _gradle_lock_host() { hostname 2>/dev/null || echo unknown-host; }
 # thing that identifies the lockdir a stale decision was made ABOUT: `mkdir`
 # gives a fresh inode at the same path, so a path comparison cannot tell a
 # recreated lock from the corrupt one it replaced (case r).
-_gradle_lock_ino() { stat -f %i "$1" 2>/dev/null || stat -c %i "$1" 2>/dev/null || true; }
+# Platform-specific: macOS uses stat -f %i; Linux uses stat -c %i.
+_gradle_lock_ino() {
+  local path="$1"
+  # Try Linux format first (safer, specific format flag)
+  if stat -c %i "$path" 2>/dev/null; then
+    return 0
+  fi
+  # Fallback to macOS format
+  if stat -f %i "$path" 2>/dev/null; then
+    return 0
+  fi
+  # Neither worked
+  return 1
+}
 
 # _gradle_lock_path_unusable — is the lock path structurally unusable, as
 # opposed to merely HELD? `mkdir` reports both as plain failure, and treating
@@ -127,8 +140,29 @@ _gradle_lock_mtime() { # path -> epoch seconds (0 when unknown)
 # alive" from "this is the SAME process". macOS $TMPDIR survives a reboot, so a
 # recorded pid can be recycled by an unrelated live process; `kill -0` then says
 # yes forever and the lock is never reclaimed (case j).
+# Platform-specific: macOS uses ps -o lstart=; Linux uses /proc/<pid>/stat field 22.
 _gradle_lock_pid_identity() {
-  ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//'
+  local pid="$1" identity
+
+  # Try macOS format first: ps -o lstart= gives exact start time
+  if identity="$(ps -o lstart= -p "$pid" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//')" && [ -n "$identity" ]; then
+    printf '%s' "$identity"
+    return 0
+  fi
+
+  # Linux: use /proc/<pid>/stat field 22 (starttime in clock ticks since boot).
+  # This is exact, container-safe, and immune to pid reuse.
+  if [ -r "/proc/$pid/stat" ]; then
+    identity="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)"
+    if [ -n "$identity" ]; then
+      printf '%s' "$identity"
+      return 0
+    fi
+  fi
+
+  # Process not found or primitives unavailable: fail loudly with context
+  echo "ci-local: WARNING: _gradle_lock_pid_identity($pid) — neither \`ps -o lstart=\` nor \`/proc/$pid/stat\` available. This platform may not support reliable pid identity checks." >&2
+  return 1
 }
 
 # _gradle_lock_num — sanitise a user-facing numeric knob. Shape AND magnitude:

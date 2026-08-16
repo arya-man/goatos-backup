@@ -70,7 +70,10 @@ interface FeedDirectionMetaCacheDao : JsonBlobCacheDao<FeedDirectionMetaCacheEnt
 @Entity(
     tableName = "feed_direction_items",
     primaryKeys = ["queryKey", "grainKey"],
-    indices = [Index(value = ["queryKey", "sortIndex"])],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
 )
 data class FeedDirectionItemEntity(
     val queryKey: String,
@@ -95,6 +98,37 @@ interface FeedDirectionItemDao {
             "ORDER BY sortIndex ASC, grainKey ASC",
     )
     fun pagingSource(queryKey: String): PagingSource<Int, FeedDirectionItemEntity>
+
+    /**
+     * The MOST RECENTLY cached row for a shed-session, across ANY filter scope this app instance
+     * has paged. A shed-session's lifecycle bucket is shared by every ration-grain row of that
+     * session (see [sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.lifecycleStatus]'s kdoc),
+     * so any one matching row is authoritative — there is no need to reconstruct the exact
+     * `queryKey` the list screen happened to be filtered by when it cached the row. `grainKey` is
+     * `shedId|partitionLabel|workflow|rationGroup|experimentArm|shedTag|sessionNo`.
+     *
+     * The prefix is bound with `>= :prefix AND < :prefixEnd` (NOT `LIKE :prefix || '%'`) because a
+     * LIKE pattern built from a concatenated-parameter expression compiles to a full table SCAN —
+     * SQLite's LIKE-optimizes-to-index-seek transform only fires for a LITERAL pattern or a bare
+     * bound parameter, never a runtime-concatenated expression, and this table never enables
+     * `PRAGMA case_sensitive_like` either. A caller-precomputed `[prefix, prefixEnd)` range against
+     * the indexed `grainKey` column is a plain index range seek every SQLite build supports.
+     *
+     * The trailing `sessionNo` match is a SUBSTR equality on the exact `'|' + sessionNo` tail
+     * (position derived from both lengths), NOT a `LIKE '%|' || :sessionNo` — that reads narrower
+     * than the OLD query's mid-string LIKE too: the old pattern could false-match a single-pipe
+     * grainKey containing the session number as a substring; this can only match the true suffix.
+     */
+    @Query(
+        "SELECT * FROM feed_direction_items WHERE grainKey >= :prefix AND grainKey < :prefixEnd " +
+            "AND SUBSTR(grainKey, LENGTH(grainKey) - LENGTH(:sessionNo)) = '|' || :sessionNo " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeRowForShedSessionInRange(
+        prefix: String,
+        prefixEnd: String,
+        sessionNo: String,
+    ): Flow<FeedDirectionItemEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedDirectionItemEntity>)
@@ -174,7 +208,10 @@ interface FeedPackingMetaCacheDao : JsonBlobCacheDao<FeedPackingMetaCacheEntity>
 @Entity(
     tableName = "feed_packing_items",
     primaryKeys = ["queryKey", "grainKey"],
-    indices = [Index(value = ["queryKey", "sortIndex"])],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
 )
 data class FeedPackingItemEntity(
     val queryKey: String,
@@ -199,6 +236,27 @@ interface FeedPackingItemDao {
             "ORDER BY sortIndex ASC, grainKey ASC",
     )
     fun pagingSource(queryKey: String): PagingSource<Int, FeedPackingItemEntity>
+
+    /**
+     * The MOST RECENTLY cached row for one PEN-SESSION, across ANY filter scope this app instance
+     * has paged (not just the exact `queryKey` the worklist happened to be filtered by). `grainKey`
+     * is `shedId|partitionLabel|workflow|sessionNo` — see
+     * [sg.mesha.goatos.core.network.dto.FeedPackingRowDto.grainKey]. Used to observe a session's
+     * live `lifecycleStatus` from the same Room table the worklist renders from, so a completion
+     * screen left open across a status change (verified/rejected elsewhere) sees it without a
+     * screen re-entry.
+     */
+    @Query(
+        "SELECT * FROM feed_packing_items WHERE grainKey = " +
+            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|' || :sessionNo " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeRowForPenSession(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: String,
+    ): Flow<FeedPackingItemEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedPackingItemEntity>)

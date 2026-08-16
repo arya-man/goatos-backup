@@ -817,6 +817,17 @@
       "ciStep": "vaccination-shed-ack-guard"
     },
     {
+      "id": "feed-proof-collaboration",
+      "script": "tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "makeTarget": "feed-proof-collaboration-guard",
+      "realCheck": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test",
+      "owningDoc": "docs/product/feed-proof-collaboration.md",
+      "requiredInCI": true,
+      "ciStep": "feed-proof-collaboration-guard",
+      "notes": "Feed distribution proof slots are a shared PARALLEL workspace (maintainer contract 2026-08-15): one shed-session, three slots (weight photo, feed video, water video), filled by peer operators from different phones in any split; no slot gates another; media always uploads compressed + overlay-burned. Five failure modes: (1) a FeedDistributionUiState slot-enabled getter referencing another slot's captured/status flag (sequential gating); (2) CaptureRepository Gate-3 backstop validating photos with the video probe (mime-blind - forced raw-original fallback three times in the field on 2026-08-15); (3) processed-artifact validation called without the output mime type; (4) AppProofMediaProcessor dropping the audit overlay or JPEG compression from the photo path, or the overlay composition from the video path; (5) deletion of the pinned regression tests (ProcessedPhotoValidatorRegressionTest, FeedDistributionSequenceTest, the gate-3 real-JPEG CaptureRepositoryTest case)."
+    },
+    {
       "id": "weighing-free-flow",
       "script": "tools/agent-hooks/check-weighing-free-flow-guard.mjs",
       "makeTarget": "weighing-free-flow-guard",

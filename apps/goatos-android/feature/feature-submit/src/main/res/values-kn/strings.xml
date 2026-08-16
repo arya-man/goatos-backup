@@ -49,6 +49,7 @@
     <string name="submit_snackbar_succeeded">ಸಲ್ಲಿಕೆ ಸಿಂಕ್ ಆಯಿತು · ಫೈಲ್‌ನಲ್ಲಿ ರೆಕಾರ್ಡ್</string>
     <string name="submit_snackbar_conflict">ಸರ್ವರ್ ಸಲ್ಲಿಕೆಯನ್ನು ನಿರಾಕರಿಸಿದೆ</string>
     <string name="submit_snackbar_dead_letter">ಸಲ್ಲಿಕೆ ವಿಫಲ ಆಯಿತು — ಆನ್‌ಲೈನ್‌ನಲ್ಲಿರುವಾಗ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸುತ್ತದೆ</string>
+    <string name="submit_snackbar_proof_save_failed">ವೀಡಿಯೊ ಸೇವ್ ಆಗಲಿಲ್ಲ — ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="submit_confirm_title">ಈ ಶೆಡ್ ಮುಗಿಸುವುದೇ?</string>
     <string name="submit_confirm_body">ಈ ಶೆಡ್ ವಿಡಿಯೊ ಪರಿಶೀಲನೆಗೆ ಹೋಗುತ್ತದೆ. ನೀವೇ ಇದನ್ನು ಮತ್ತೆ ತೆರೆಯಲು ಆಗುವುದಿಲ್ಲ — ಮ್ಯಾನೇಜರ್ ಅಥವಾ ಡೈರೆಕ್ಟರ್ ತೆರೆಯಬಹುದು.</string>
     <string name="submit_confirm_cancel">ಈಗ ಬೇಡ</string>

@@ -144,12 +144,13 @@ type CapturedProofSlot struct {
 	// "feed_distribution_water_video").
 	FieldKey string
 	ProofID  string
-	// CapturedAt is when the upload completed. Deliberately NO uploader name in this first cut: the
-	// operator's need is "this slot is already done", and resolving a name means a cross-module
-	// workforce lookup. A name field declared here and left empty would be the contract-lie defect
-	// this module was just repaired for -- add it WITH its resolver, or not at all.
+	// CapturedAt is when the upload completed.
 	CapturedAt time.Time
 	MimeType   string
+	// CapturedByName is the display name of the operator who uploaded this proof. Populated from
+	// workforce_members.display_name via uploaded_by user_id. May be empty if the uploader's
+	// workforce record is not found.
+	CapturedByName string
 }
 
 // ApplyDistributionParams flips a distribution completion whose video a verifier APPROVED

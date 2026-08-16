@@ -25,15 +25,17 @@ fun partitionDisplayLabel(partition: String, format: (String) -> String): String
  *
  * Rules:
  *  - null/blank shed name or null/blank/whole partition → bare shed name only, e.g. "Yashoda"
- *  - any real partition → "<shed> - <label>": "Castro - 2", "Godel 1 - Part 3"
+ *  - bare numeric partition → "<shed> <label>": "Castro 1", "Gandhi 2" (space only)
+ *  - worded partition → "<shed> - <label>": "Godel 1 - Part 3" (space-dash-space)
  *  - if shed name is null/blank, fall back to partition label or empty string
  *
  * Never produces "Yashoda whole" — the literal string "whole" is treated as non-partitioned.
  *
- * The separator is " - " for EVERY partition (maintainer decision, 2026-08-06). The old space
- * form was unreadable wherever a shed name itself ends in a digit — "Godel 1" + "1" rendered
- * "Godel 1 1", and "Godel 1" + "10" rendered "Godel 1 10" — which was 98 of 130 real destination
- * options (75%) on STG. Worded labels already used the dash, so this collapses two formats to one.
+ * Separator rule (maintainer decision, 2026-08-16, clarifying farm's real-world naming):
+ *  - Bare numerals use SPACE because the farm's physical sheds ARE NAMED "Castro 1", "Gandhi 2", etc. —
+ *    that is the real name painted on the building, not a display formatting choice.
+ *  - Worded labels use " - " for visual boundary (since 75% of live shed names end in digits and
+ *    "Godel 1 1" space form would be ambiguous without the dash convention distinguishing it).
  * Keep identical to oploc.Display() (Go) and lib/operational-location.ts (admin-web).
  */
 fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String {
@@ -50,10 +52,22 @@ fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String
         return normalizedPartition
     }
 
-    // One separator for every partition, worded or bare. isAlreadyWordedPartition is still used
-    // by partitionDisplayLabel above (the standalone chip, where re-wording "Part 3" would read
-    // "Part Part 3"); only this JOIN stopped branching.
-    return "$normalizedShed - $normalizedPartition"
+    // Select separator based on partition format: bare numerals use space; worded labels use dash.
+    // isAlreadyWordedPartition is still used by partitionDisplayLabel above (the standalone chip,
+    // where re-wording "Part 3" would read "Part Part 3"); only this JOIN checks the format.
+    val separator = if (isBarNumericPartition(normalizedPartition)) " " else " - "
+    return "$normalizedShed$separator$normalizedPartition"
+}
+
+/**
+ * True when the partition label is a bare ordinal (e.g., "1", "42") with no "Part" prefix or other wording.
+ * Used to determine the separator in operationalLocationLabel: bare numerics join with space,
+ * worded labels join with " - ".
+ */
+private fun isBarNumericPartition(label: String): Boolean {
+    val trimmed = label.trim()
+    if (trimmed.isEmpty()) return false
+    return trimmed.all { it.isDigit() }
 }
 
 /**
