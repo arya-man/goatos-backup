@@ -253,9 +253,16 @@ class MilkFeedingViewModel @Inject constructor(
     }
 
     fun onEvent(event: MilkFeedingEvent) {
-        // Block all edits if the task is not available or if this submit is already in-flight/completed
+        // Block all edits if the task is not available or if this submit is already in-flight/completed.
+        // `liveStatusLocked` reads the LIVE backend/Room verification_status (task?.verificationStatus,
+        // wired straight into state.status) rather than the local submitOutboxItemId latch: a fresh
+        // ViewModel that never itself queued a submit (no local latch) must still render read-only the
+        // moment the server already has a submission recorded for this task — the applyLiveStatus
+        // pattern from FeedDistributionCompleteViewModel, where live truth wins over remembered local
+        // state. "not_submitted" and "rework" are the only statuses this screen may edit under.
         val isSubmitInFlightOrCompleted = submitOutboxItemId.value != null
-        if (event != MilkFeedingEvent.Back && (!state.value.available || isSubmitInFlightOrCompleted)) return
+        val liveStatusLocked = state.value.status !in EDITABLE_STATUSES
+        if (event != MilkFeedingEvent.Back && (!state.value.available || isSubmitInFlightOrCompleted || liveStatusLocked)) return
         when (event) {
             is MilkFeedingEvent.SetWatchlistAnswer -> draft.update { it.copy(watchlistAnswers = it.watchlistAnswers + (event.goatId to event.drank)) }
             is MilkFeedingEvent.SetNumber -> draft.update { current -> when (event.field) { "total" -> current.copy(total = event.value); "attempt1" -> current.copy(attempt1 = event.value); "attempt2" -> current.copy(attempt2 = event.value); "udder" -> current.copy(udder = event.value); else -> current.copy(ors = event.value) } }
@@ -513,5 +520,8 @@ class MilkFeedingViewModel @Inject constructor(
         }
     }
 
-    companion object { const val ARG_TASK_ID = "task_id" }
+    companion object {
+        const val ARG_TASK_ID = "task_id"
+        private val EDITABLE_STATUSES = setOf("not_submitted", "rework")
+    }
 }

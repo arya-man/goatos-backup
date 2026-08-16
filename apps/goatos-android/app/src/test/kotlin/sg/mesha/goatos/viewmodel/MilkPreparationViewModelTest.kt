@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
 import sg.mesha.goatos.feature.counts.MilkPreparationEvent
 import kotlinx.coroutines.flow.first
@@ -260,7 +261,7 @@ class MilkPreparationViewModelTest {
     }
 
     @Test
-    fun `process death after submit failure unlocks edits (regression: #1)`() = runTest(dispatcher) {
+    fun `process death after submit failure unlocks edits (regression #1)`() = runTest(dispatcher) {
         // Regression test for HIGH defect #1: submit failure re-locks after restart
         // Before fix: submitOutboxItemId latch cleared in-memory, but durable draft key persisted
         // On re-entry: durable key restored -> screen stays locked -> operator can't retry
@@ -346,6 +347,68 @@ class MilkPreparationViewModelTest {
         assertEquals(
             "after submit failure + process death, screen must be editable so operator can retry",
             "20",
+            viewModel.state.value.morningMilkCollected,
+        )
+    }
+
+    /** Live-status gate (Codex item 4): the backend/Room task already has a submission recorded
+     *  (`verification_status = pending_verification`) even though NOTHING was queued on this
+     *  phone -- no local submitOutboxItemId latch. A fresh ViewModel must still render read-only:
+     *  live server truth (read here via `isEditable`, which derives straight from
+     *  `task.verificationStatus`) wins over the remembered local draft state. Unlike
+     *  MilkFeedingViewModel, this screen already gated `isEditable`/`morningQuestionEnabled` on
+     *  the live `verificationStatus` field before this change -- no production edit was needed
+     *  here, only this test to pin the invariant and guard the symmetry with MilkFeeding. */
+    @Test
+    fun `live pending_verification status blocks edits with no local latch`() = runTest(dispatcher) {
+        val viewModel = MilkPreparationViewModel(
+            sync = FakeMilkPreparationSyncRepository(),
+            repo = FakeMilkPreparationRepository(
+                seedTask = MilkPreparationFarmTaskDto(parkId = "park-1", verificationStatus = "pending_verification"),
+            ),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = FakeMilkPreparationDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkPreparationViewModel.ARG_PARK_ID to "park-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "77"))
+        advanceUntilIdle()
+        org.junit.Assert.assertNotEquals(
+            "a park the server already recorded as submitted must render read-only even with no local latch",
+            "77",
+            viewModel.state.value.morningMilkCollected,
+        )
+    }
+
+    /** The other half of the live-status gate: no server submission recorded (task absent /
+     *  `not_submitted`) must leave the screen editable -- paired with the existing
+     *  `process death with queued submit blocks edits and terminal failed unlocks` test above,
+     *  which already covers the locally-FAILED-latch half of this invariant. */
+    @Test
+    fun `no server submission leaves screen editable with no local latch`() = runTest(dispatcher) {
+        val viewModel = MilkPreparationViewModel(
+            sync = FakeMilkPreparationSyncRepository(),
+            repo = FakeMilkPreparationRepository(
+                seedTask = MilkPreparationFarmTaskDto(parkId = "park-1", verificationStatus = "not_submitted"),
+            ),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = FakeMilkPreparationDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkPreparationViewModel.ARG_PARK_ID to "park-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "77"))
+        advanceUntilIdle()
+        assertEquals(
+            "no server submission recorded must leave the screen editable",
+            "77",
             viewModel.state.value.morningMilkCollected,
         )
     }
@@ -478,8 +541,14 @@ private class FakeMilkPreparationDraftRepository : CaptureDraftRepository {
     override fun observeProgress(flowKey: String, limit: Int): Flow<Map<String, Int>> = MutableStateFlow(emptyMap())
 }
 
-private class FakeMilkPreparationRepository : MilkPreparationRepository {
-    private val status = MutableStateFlow(sg.mesha.goatos.core.common.Resource<MilkPreparationPageDto>(data = null))
+private class FakeMilkPreparationRepository(
+    seedTask: MilkPreparationFarmTaskDto? = null,
+) : MilkPreparationRepository {
+    private val status = MutableStateFlow(
+        sg.mesha.goatos.core.common.Resource<MilkPreparationPageDto>(
+            data = seedTask?.let { MilkPreparationPageDto(farmTasks = listOf(it)) },
+        ),
+    )
 
     override fun observe(preparationDate: String): Flow<sg.mesha.goatos.core.common.Resource<MilkPreparationPageDto>> = status
 
