@@ -968,6 +968,17 @@ func (r *paginatingFakeRepo) ListVaccinationExecutionPage(_ context.Context, q d
 // straddling a page boundary must not report incorrect counts based on the loaded page alone.
 // RED test: pass paginatingFakeRepo with >limit rows for ONE card. Request page 1. Assert summary
 // counts reflect ALL rows (both pages), not just page 1.
+//
+// HONEST SCOPE: computeCardSummariesFromRows (the function this test exercises) is a Go-level
+// fake that mirrors the same page-independent, work_state-filtered aggregation semantics as
+// production's cardSummariesSQL, but production never calls it -- VaccinationExecutionCardSummaries
+// in app/service.go always queries Postgres via repo.VaccinationExecutionCardSummaries. This test
+// therefore covers "does this aggregation LOGIC do the right thing in Go", not "does the SQL do the
+// right thing"; it renders with the same helper it filters with, so it cannot catch a divergence
+// between cardSummariesSQL and vaccinationExecutionSQL. The SQL itself -- including the card-grain
+// work_state/severity classification shared via executionClassifiedCTE -- is pinned against real
+// Postgres by adapters/postgres/card_summaries_integration_test.go (opt-in via
+// GOATOS_RUN_POSTGRES_TESTS=1), which is the source of truth for the query text.
 func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
 	t.Parallel()
 
@@ -1079,6 +1090,13 @@ func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
 // TestCardSummaryRespectsWorkStateFilter verifies that card summaries respect work_state filters.
 // A card may have rows with different work states (e.g., completed and overdue). When filtering by
 // work_state, the summary must count ONLY rows matching that filter, not all rows in the card.
+//
+// HONEST SCOPE: same fake-mirrors-production-semantics caveat as
+// TestCardSummaryReflectsAllRowsNotPaginatedSubset above -- this exercises the Go-level
+// computeCardSummariesFromRows fake, not the production SQL path. The SQL truth (including that
+// work_state can reach 'blocked'/'rejected', which was unreachable through cardSummariesSQL's old
+// per-row eff_status proxy before the executionClassifiedCTE sharing fix) is pinned by
+// adapters/postgres/card_summaries_integration_test.go.
 // RED test: card has 6 rows: 3 completed (done=1) + 3 overdue (done=0). Filter by work_state=overdue.
 // Page shows 3 rows, summary must show TargetCount=3 (only overdue), DoneCount=0, OpenCount=3.
 func TestCardSummaryRespectsWorkStateFilter(t *testing.T) {
