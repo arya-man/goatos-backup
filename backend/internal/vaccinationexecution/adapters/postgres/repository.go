@@ -479,7 +479,7 @@ func driveAssignmentVaccineLabels(keys []string) []string {
 }
 
 const driveAssignmentsSQL = `
--- projection-review: membership=vaccination_drive_assignments unnested to vaccine-rule grain then regrouped after active vaccination_drive_date_overrides; group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_label,animal_count,capacity_status,batch_status); join_cardinality=rule unnest is intentional 1:N, override lookup is unique by tenant+park+vaccine+original date, regrouping prevents sibling vaccines on the same date from duplicating animal counts; pagination=LIMIT applies only after the full effective-date regroup and month filter, so moved vaccines page by their new date; scope=tenant plus optional park, preserved through assignment park_id.
+-- projection-review: membership=vaccination_drive_assignments decorated by exact vaccination_drive_assignment_members obligations when present, falling back to persisted vaccine_rule_ids only for legacy rows without members; group_key=(effective_planned_date,assignment_id,operator_id,park_id,shed_id,physical_shed,partition_label,animal_count,capacity_status,batch_status); join_cardinality=assignment_rule rows are pre-aggregated to one row per assignment+rule and carry exact member dose counts, override lookup is unique by tenant+park+vaccine+original date, regrouping prevents sibling vaccines on the same date from duplicating animal counts; pagination=LIMIT applies only after the full effective-date regroup and month filter, so moved vaccines page by their new date; scope=tenant plus optional park, preserved through assignment park_id.
 WITH assignment_vaccines AS (
   SELECT
     vda.tenant_id,
@@ -497,15 +497,37 @@ WITH assignment_vaccines AS (
     vda.capacity_status,
     batch.status AS batch_status,
     pd.name || E'\x1f' || pr.dose_code AS vaccine_key,
-    NULLIF(prd.vaccine_code, '') AS vaccine_code
+    NULLIF(prd.vaccine_code, '') AS vaccine_code,
+    assignment_rule.dose_count
   FROM vaccination_drive_assignments vda
   LEFT JOIN obligation_batches batch
     ON batch.tenant_id = vda.tenant_id
    AND batch.batch_id = vda.batch_id
-  LEFT JOIN LATERAL unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id) ON true
+  LEFT JOIN LATERAL (
+    SELECT member_rules.rule_id, member_rules.dose_count
+    FROM (
+      SELECT oi.rule_id, COUNT(DISTINCT m.obligation_id)::int AS dose_count
+      FROM vaccination_drive_assignment_members m
+      JOIN obligation_instances oi
+        ON oi.tenant_id = m.tenant_id
+       AND oi.obligation_id = m.obligation_id
+      WHERE m.tenant_id = vda.tenant_id
+        AND m.assignment_id = vda.assignment_id
+      GROUP BY oi.rule_id
+    ) member_rules
+    UNION ALL
+    SELECT assigned_rule.rule_id, NULL::int AS dose_count
+    FROM unnest(vda.vaccine_rule_ids) AS assigned_rule(rule_id)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignment_members m
+      WHERE m.tenant_id = vda.tenant_id
+        AND m.assignment_id = vda.assignment_id
+    )
+  ) assignment_rule ON true
   LEFT JOIN protocol_rules pr
     ON pr.tenant_id = vda.tenant_id
-   AND pr.rule_id = assigned_rule.rule_id
+   AND pr.rule_id = assignment_rule.rule_id
   LEFT JOIN LATERAL (
     SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
     FROM protocol_rule_dimensions dim
@@ -544,11 +566,7 @@ effective_assignments AS (
     ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
     ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
     COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
-    CASE
-      WHEN COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) > 0
-      THEN animal_count * COUNT(DISTINCT vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL)
-      ELSE MAX(total_doses)
-    END::int AS total_doses
+    COALESCE(SUM(COALESCE(dose_count, animal_count)) FILTER (WHERE vaccine_key IS NOT NULL), MAX(total_doses))::int AS total_doses
   FROM assignment_vaccines
   GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
 )
