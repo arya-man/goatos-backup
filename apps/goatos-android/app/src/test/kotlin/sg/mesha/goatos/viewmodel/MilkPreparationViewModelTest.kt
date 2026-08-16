@@ -259,11 +259,103 @@ class MilkPreparationViewModelTest {
         assertEquals("terminal failure must unlock edits", "77", viewModel.state.value.morningMilkCollected)
     }
 
+    @Test
+    fun `process death after submit failure unlocks edits (regression: #1)`() = runTest(dispatcher) {
+        // Regression test for HIGH defect #1: submit failure re-locks after restart
+        // Before fix: submitOutboxItemId latch cleared in-memory, but durable draft key persisted
+        // On re-entry: durable key restored -> screen stays locked -> operator can't retry
+        val syncRepository = FakeMilkPreparationSyncRepository()
+        val draftRepository = FakeMilkPreparationDraftRepository()
+
+        // Session 1: submit fails before enqueueing (no outbox item created)
+        var viewModel = MilkPreparationViewModel(
+            sync = syncRepository,
+            repo = FakeMilkPreparationRepository(),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkPreparationViewModel.ARG_PARK_ID to "park-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        // Set up draft state
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "10"))
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("evening", "10"))
+        viewModel.onEvent(MilkPreparationEvent.SetGoatMilkUsed(true))
+        viewModel.onEvent(MilkPreparationEvent.SetStepAnswer("goat_milk_quantity", "5"))
+        advanceUntilIdle()
+
+        // Capture a proof first
+        val proofRepository = FakeProofCaptureRepository()
+        viewModel = MilkPreparationViewModel(
+            sync = syncRepository,
+            repo = FakeMilkPreparationRepository(),
+            capture = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/qty.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            proofCaptureRepository = proofRepository,
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkPreparationViewModel.ARG_PARK_ID to "park-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(MilkPreparationEvent.CaptureStep("goat_milk_quantity"))
+        advanceUntilIdle()
+
+        // Submit fails (sync error, not outbox)
+        syncRepository.submitResult = AppResult.Err("network error")
+        viewModel.onEvent(MilkPreparationEvent.Submit)
+        advanceUntilIdle()
+
+        // Before my fix: draft still has submitOutboxItemId set (not cleared)
+        // After my fix: both latch and draft are cleared
+
+        // Session 2: process death -> recreate ViewModel
+        // Before fix: durable draft still has old submitIdempotencyKey -> screen stays locked
+        // After fix: draft was cleared -> screen is editable
+        viewModel = MilkPreparationViewModel(
+            sync = syncRepository,
+            repo = FakeMilkPreparationRepository(),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = proofRepository,
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkPreparationViewModel.ARG_PARK_ID to "park-1",
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        // After process death, screen should be editable (submit cleared both latches)
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "20"))
+        advanceUntilIdle()
+        assertEquals(
+            "after submit failure + process death, screen must be editable so operator can retry",
+            "20",
+            viewModel.state.value.morningMilkCollected,
+        )
+    }
+
 }
 
 private class FakeMilkPreparationSyncRepository : SyncRepository {
     private val status = MutableStateFlow(sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = true))
     val deletedOutboxItems = mutableListOf<String>()
+    var submitResult: AppResult<String> = AppResult.Ok("submit-outbox-id")
 
     override fun observeStatus(): MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncStatus> = status
     val itemFlow = MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncQueueItem?>(null)
@@ -335,7 +427,7 @@ private class FakeMilkPreparationSyncRepository : SyncRepository {
         goatMilkUsed: Boolean,
         answers: sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload,
         proofItems: Map<String, String>,
-    ): AppResult<String> = error("unused")
+    ): AppResult<String> = submitResult
 
     override suspend fun enqueueMilkFeedingSubmit(
         groupKey: String,

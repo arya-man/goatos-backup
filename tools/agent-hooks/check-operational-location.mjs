@@ -42,7 +42,10 @@
 //                   CASE statements that compose display strings must use or
 //                   reference oploc.Display() / PartitionLabel.render() /
 //                   operational_location_display(). Hand-rolled CASE duplicates
-//                   risk display-logic divergence: "Castro - Part 2" vs "Castro 2".
+//                   risk display-logic divergence: hand-rolled might produce
+//                   "Castro - 2" (wrong, dashed form for numeric partition) while
+//                   canonical produces "Castro 2" (correct, space form; farm's
+//                   physical naming).
 //   shed-name-keying
 //                   GROUP BY / map-key / list-key expressions must use shed_id,
 //                   never shed NAME. Names repeat across parks (two Castro, two
