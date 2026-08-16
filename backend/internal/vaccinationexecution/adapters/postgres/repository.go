@@ -4398,31 +4398,54 @@ located AS (
   LEFT JOIN locations shed_loc
     ON shed_loc.tenant_id = $1::uuid AND shed_loc.location_id = raw.shed_uuid AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
+),
+filtered_by_state AS (
+  -- projection-review: predicate list (work_state, severity, open-only) mirrors vaccinationExecutionSQL's classified CTE filters; must remain synchronized to ensure card summaries always match the page's filtered set, not the whole card. This shared predicate protects against drift.
+  SELECT located.*
+  FROM located
+  WHERE
+    -- work_state filter: compute row-level state and match page query's work_state filter ($6)
+    ($6::text = '' OR located.eff_status = $6::text)
+    -- severity filter: map work_state to severity and match page query's severity filter ($9)
+    AND (
+      $9::text = '' OR (
+        CASE
+          WHEN located.eff_status = 'completed' THEN 'ok'
+          WHEN located.eff_status IN ('proof_pending', 'overdue', 'missed') THEN 'at_risk'
+          ELSE 'watch'
+        END
+      ) = $9::text
+    )
+    -- open-only filter: if $10 is true, only include non-completed/non-deferred/non-missed rows
+    AND (
+      NOT $10::boolean
+      OR (located.completion_status NOT IN ('recorded', 'accepted') AND located.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred'))
+    )
 )
 SELECT
-  located.shed_uuid,
-  located.partition_label,
-  located.sop_task_id,
-  located.batch_id,
+  filtered_by_state.shed_uuid,
+  filtered_by_state.partition_label,
+  filtered_by_state.sop_task_id,
+  filtered_by_state.batch_id,
   NULL::uuid AS drive_id,
   COUNT(*)::bigint AS obligation_count,
-  COALESCE(SUM(CASE WHEN located.completion_status IN ('recorded', 'accepted') OR located.eff_status = 'completed' THEN 1 ELSE 0 END), 0)::bigint AS done_count,
-  COALESCE(SUM(CASE WHEN located.completion_status NOT IN ('recorded', 'accepted') AND located.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
-  BOOL_OR(located.obligation_status = 'missed') AS has_missed,
-  BOOL_OR(located.obligation_status IN ('deferred', 'waived')) AS has_deferred,
-  BOOL_OR(located.eff_status = 'overdue') AS has_overdue,
-  BOOL_OR(located.completion_status = 'rejected') AS has_rejected,
-  ARRAY_AGG(DISTINCT located.protocol_name) FILTER (WHERE located.protocol_name IS NOT NULL) AS vaccine_labels
-FROM located
-WHERE located.park_uuid IS NOT NULL
-  AND ($2::text = '' OR located.park_uuid = $2::uuid)
-  AND ($3::text = '' OR located.shed_uuid = $3::uuid)
-  AND ($15::text = '' OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member))
-GROUP BY located.shed_uuid, located.partition_label, located.sop_task_id, located.batch_id
-ORDER BY located.shed_uuid, located.partition_label, located.sop_task_id, located.batch_id
+  COALESCE(SUM(CASE WHEN filtered_by_state.completion_status IN ('recorded', 'accepted') OR filtered_by_state.eff_status = 'completed' THEN 1 ELSE 0 END), 0)::bigint AS done_count,
+  COALESCE(SUM(CASE WHEN filtered_by_state.completion_status NOT IN ('recorded', 'accepted') AND filtered_by_state.eff_status NOT IN ('completed', 'missed', 'waived', 'deferred') THEN 1 ELSE 0 END), 0)::bigint AS open_count,
+  BOOL_OR(filtered_by_state.obligation_status = 'missed') AS has_missed,
+  BOOL_OR(filtered_by_state.obligation_status IN ('deferred', 'waived')) AS has_deferred,
+  BOOL_OR(filtered_by_state.eff_status = 'overdue') AS has_overdue,
+  BOOL_OR(filtered_by_state.completion_status = 'rejected') AS has_rejected,
+  ARRAY_AGG(DISTINCT filtered_by_state.protocol_name) FILTER (WHERE filtered_by_state.protocol_name IS NOT NULL) AS vaccine_labels
+FROM filtered_by_state
+WHERE filtered_by_state.park_uuid IS NOT NULL
+  AND ($2::text = '' OR filtered_by_state.park_uuid = $2::uuid)
+  AND ($3::text = '' OR filtered_by_state.shed_uuid = $3::uuid)
+  AND ($15::text = '' OR filtered_by_state.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member))
+GROUP BY filtered_by_state.shed_uuid, filtered_by_state.partition_label, filtered_by_state.sop_task_id, filtered_by_state.batch_id
+ORDER BY filtered_by_state.shed_uuid, filtered_by_state.partition_label, filtered_by_state.sop_task_id, filtered_by_state.batch_id
 `
 
-	// Map work_state to SQL filter if needed (though card summaries should return all work states)
+	// projection-review: summary counts now respect work_state, severity, and open-only filters (identical to page query predicate set) to prevent badge counts from misrepresenting the filtered page view.
 	rows, err := r.pool.Query(ctx, cardSummariesSQL,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, q.AsOf, closedAfter, severity,
 		q.OpenOnly, q.Cursor != nil, q.Cursor.SortRank, q.Cursor.SortDueMicros, q.Cursor.SortRowKey, q.OperatorScopeActorID, partitionLabel)
