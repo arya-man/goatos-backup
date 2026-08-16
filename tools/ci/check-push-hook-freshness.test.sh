@@ -85,10 +85,35 @@ chmod +x "$sandbox/hooks/pre-push"
 CI=true GITHUB_ACTIONS=true bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(h) CI skip path works" 0 $?
 
-# (e) the real checkout must currently pass (LOCAL, not CI)
-cd "$repo"
-env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
-check "(e) this checkout passes" 0 $?
+# (e) the real checkout must currently pass (LOCAL, not CI).
+#     On a fresh GitHub checkout, hooks are not installed, so run this case
+#     in a sandbox with hooks pre-installed instead (testing real logic everywhere).
+#     On ephemeral runners, skip this case with the same loud treatment.
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ]; then
+  echo "SKIP  (e) this checkout passes (fresh GitHub checkout has no installed hooks; sandbox test preferred)"
+else
+  e_test_dir="$sandbox/checkout-test"
+  mkdir -p "$e_test_dir/tools/ci"
+  cd "$e_test_dir"
+  git init -q .
+  git config core.hooksPath "$sandbox/hooks"
+  # Copy guard and dependencies from the real repo
+  cp "$repo/tools/ci/check-push-hook-freshness.sh" tools/ci/
+  cp "$repo/tools/ci/check-local-ci-evidence.mjs" tools/ci/
+  cp "$repo/tools/ci/check-stg-promotion.mjs" tools/ci/
+  git remote add origin git@github.com:vgoats/goatos.git
+  # Install a pre-push hook with freshly installed copies
+  mkdir -p "$sandbox/hooks"
+  sed -n '/^cat >"\$hook" <<.HOOK.$/,/^HOOK$/p' "$repo/tools/agent-hooks/install-stg-push-guard.sh" \
+    | sed '1d;$d' > "$sandbox/hooks/pre-push"
+  chmod +x "$sandbox/hooks/pre-push"
+  cp "$repo/tools/ci/check-local-ci-evidence.mjs" "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
+  cp "$repo/tools/ci/check-stg-promotion.mjs" "$sandbox/hooks/goatos-check-stg-promotion.mjs"
+  # Run the guard
+  env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
+  check "(e) this checkout passes" 0 $?
+  cd "$repo"
+fi
 
 if [ "$fails" -ne 0 ]; then
   echo "check-push-hook-freshness.test.sh: ${fails} case(s) FAILED" >&2
