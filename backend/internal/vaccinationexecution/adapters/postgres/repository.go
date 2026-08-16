@@ -1146,6 +1146,11 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // `+"`classified.work_state`"+`/`+"`classified.severity`"+`/`+"`classified.display_open_count`"+` after embedding this
 // constant, so both appear at the SAME parameter numbers in both queries even though only one
 // query's WHERE clause consumes them at this stage. $5, $11-$14 are page-only (limit, cursor).
+// This is the SAME canonical execution read the page query is already exempted for, extracted verbatim so the page
+// and its card summaries cannot drift apart (they had drifted three times while hand-copied). Both callers stay
+// tenant/park/shed/due-indexed and query-plan-tested (canonical_read_plan_test.go); the summary adds no new scan,
+// it aggregates the rows the page already reads.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const executionClassifiedCTE = `
 WITH completion_candidates AS (
   SELECT
