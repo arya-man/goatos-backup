@@ -265,6 +265,7 @@ data class RfidScanAttemptRow(
 enum class ProofSubject(val wireValue: String) {
     GOAT("goat"),
     SHED("shed"),
+    TASK("task"),
     PARK("park"),
     VIAL_LOT("vial_lot"),
     ADMINISTRATION("administration"),
