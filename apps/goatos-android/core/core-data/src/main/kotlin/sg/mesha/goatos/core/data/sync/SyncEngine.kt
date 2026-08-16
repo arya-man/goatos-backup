@@ -104,6 +104,7 @@ class SyncEngine(
     // stayed direct-HTTP and unmoved (see docs/decisions/weighing-rework-task-cards.md; the close
     // gate itself is unconditional and out of scope for this change).
     private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
+    private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -399,6 +400,36 @@ class SyncEngine(
                 // upserting; this one was skipped, leaving the transition-epoch table growing
                 // unboundedly by one row per scope ever submitted. Same bound, same table.
                 weighingTransitionEpochDao?.pruneOutsideNewest(WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES)
+            }
+            OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        feedRepository?.persistDirectionSessionStatus(
+                            shedId = payload.shedId,
+                            partitionLabel = payload.partitionLabel ?: "",
+                            workflow = payload.workflow,
+                            sessionNo = payload.sessionNo,
+                            lifecycleStatus = response.status,
+                        )
+                    }
+                }
+            }
+            OutboxOpType.FEED_PACKING_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedPackingCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        feedRepository?.persistPackingRowStatus(
+                            shedId = payload.shedId,
+                            partitionLabel = payload.partitionLabel ?: "",
+                            workflow = payload.workflow,
+                            sessionNo = payload.sessionNo,
+                            lifecycleStatus = response.status,
+                        )
+                    }
+                }
             }
             else -> Unit
         }
