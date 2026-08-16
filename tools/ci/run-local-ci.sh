@@ -535,6 +535,7 @@ run_backend() {
   step "operational-partition-identity-guard" make operational-partition-identity-guard
   step "proof-capture-authorization-guard" make proof-capture-authorization-guard
   step "weighing-free-flow-guard" make weighing-free-flow-guard
+  step "feed-submitted-overlay-wiring-guard" make feed-submitted-overlay-wiring-guard
   step "feed-proof-collaboration-guard" make feed-proof-collaboration-guard
   step "weighing-close-gate-guard" make weighing-close-gate-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard

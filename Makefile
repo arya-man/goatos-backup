@@ -138,6 +138,7 @@ guardrails:
 	$(MAKE) operational-partition-identity-guard
 	$(MAKE) proof-capture-authorization-guard
 	$(MAKE) weighing-free-flow-guard
+	$(MAKE) feed-submitted-overlay-wiring-guard
 	$(MAKE) feed-proof-collaboration-guard
 	$(MAKE) weighing-close-gate-guard
 	$(MAKE) weighing-operator-scope-guard
@@ -301,6 +302,10 @@ proof-capture-authorization-guard:
 weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
+
+feed-submitted-overlay-wiring-guard:
+	node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs --self-test
+	node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs
 
 feed-proof-collaboration-guard:
 	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
