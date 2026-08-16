@@ -682,6 +682,26 @@ func (r fakeRepo) VaccinationExecutionCarrySummary(context.Context, domain.Execu
 	return r.carryLines, nil
 }
 
+func (r fakeRepo) VaccinationExecutionCardSummaries(_ context.Context, _ domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	// Compute summaries from ALL rows (not paginated subset).
+	// This is the whole-filter aggregate that the SQL GROUP BY will do.
+	// Convert ExecutionProjection rows to ExecutionRow and compute summaries.
+	var execRows []domain.ExecutionRow
+	for _, p := range r.rows {
+		q := domain.ExecutionQuery{
+			TenantID:  "tenant",
+			AsOf:      time.Now(),
+			DueBefore: time.Now().Add(30 * 24 * time.Hour),
+		}
+		row := rowFromProjection(p, q)
+		execRows = append(execRows, row)
+	}
+	return computeCardSummariesFromRows(execRows), nil
+}
+
 func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDateParkScopeStatusBuckets(t *testing.T) {
 	// CRITICAL: Carry summary must be full-day aggregation, not sum of paginated rows.
 	// Fixture: one day (2026-07-24) with ET+TT vaccine, 3 goats total (200 doses each = 600 total).
@@ -880,6 +900,163 @@ func TestVaccinationCardLockInvariant_FinalizedAllAccepted(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// paginatingFakeRepo extends fakeRepo to properly implement pagination.
+// It computes card summaries from ALL rows (the full filter set, not just the page).
+type paginatingFakeRepo struct {
+	fakeRepo
+}
+
+// ListVaccinationExecutionPage returns paginated results with proper limit enforcement.
+func (r *paginatingFakeRepo) ListVaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
+	if r.fakeRepo.err != nil {
+		return domain.ExecutionProjectionPage{}, r.fakeRepo.err
+	}
+
+	// Filter by work state if specified
+	filtered := r.fakeRepo.rows
+	if q.WorkState != nil {
+		out := make([]domain.ExecutionProjection, 0, len(r.fakeRepo.rows))
+		for _, p := range r.fakeRepo.rows {
+			if workStateFromProjection(p, q) == *q.WorkState {
+				out = append(out, p)
+			}
+		}
+		filtered = out
+	}
+
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+
+	// Paginate: return limit rows, set NextCursor if more exist
+	var nextCursor *domain.ExecutionCursor
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+		// For simplicity, use a basic cursor (in real code, the Postgres adapter creates proper ones)
+		nextCursor = &domain.ExecutionCursor{SortRank: 1, SortDueMicros: 0, SortRowKey: "next"}
+	}
+
+	return domain.ExecutionProjectionPage{
+		Rows:       filtered,
+		TotalCount: int64(len(r.fakeRepo.rows)), // Total count ignores limit (page-independent)
+		NextCursor: nextCursor,
+	}, nil
+}
+
+// TestCardSummaryReflectsAllRowsNotPaginatedSubset verifies that card summaries are computed
+// from ALL matching rows (full-filter aggregate), not just the paginated subset. A card
+// straddling a page boundary must not report incorrect counts based on the loaded page alone.
+// RED test: pass paginatingFakeRepo with >limit rows for ONE card. Request page 1. Assert summary
+// counts reflect ALL rows (both pages), not just page 1.
+func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	shedID := "shed-123"
+	batchID := "batch-456"
+	limit := 10
+
+	// Create 15 rows for ONE card (same shed, batch) — more than limit (10).
+	// Only the first 10 will be returned on page 1, but the summary MUST reflect all 15.
+	rows := make([]domain.ExecutionProjection, 0, 15)
+	for i := 1; i <= 15; i++ {
+		operator := fmt.Sprintf("Operator %d", i)
+		p := projection(shedID, due, 1, func(p *domain.ExecutionProjection) {
+			p.ShedID = shedID
+			p.BatchID = &batchID
+			p.OperatorName = &operator
+			p.ObligationCount = 1
+			// Row 1-10: open (not done)
+			// Row 11-15: done (represents the second page)
+			if i <= 10 {
+				p.DoneCount = 0
+				p.CompletionRecorded = 0
+				p.CompletionAccepted = 0
+			} else {
+				p.DoneCount = 1
+				p.CompletedCount = 1
+				p.CompletionAccepted = 1
+			}
+		})
+		rows = append(rows, p)
+	}
+
+	// Use paginating fake repo to enforce limit
+	fakeRepoImpl := &paginatingFakeRepo{fakeRepo: fakeRepo{rows: rows}}
+	svc := NewService(fakeRepoImpl)
+
+	// Request page 1 with limit=10 (will get rows 1-10 only)
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     limit,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage() error = %v", err)
+	}
+
+	// Page should have 10 rows (the limit)
+	if len(resp.Rows) != limit {
+		t.Fatalf("got %d rows on page 1, want %d", len(resp.Rows), limit)
+	}
+
+	// There must be a next cursor since totalCount (15) > limit (10)
+	if resp.NextCursor == nil {
+		t.Fatal("expected NextCursor to be set when totalCount > limit")
+	}
+
+	// TotalCount should reflect ALL rows, not just the paginated subset
+	if resp.TotalCount != 15 {
+		t.Fatalf("TotalCount = %d, want 15 (all matching rows)", resp.TotalCount)
+	}
+
+	// The critical check: card summary MUST reflect ALL 15 rows, not just the 10 on this page.
+	// Expected: TargetCount=15 (all rows), DoneCount=5 (rows 11-15), OpenCount=10 (rows 1-10)
+	if resp.CardSummaries == nil {
+		t.Fatal("CardSummaries should not be nil")
+	}
+
+	// Build the expected card ID
+	cardID := buildCardID(shedID, "whole", "", batchID, "")
+	summary, ok := resp.CardSummaries[cardID]
+	if !ok {
+		t.Fatalf("card %q not found in summaries. available cards: %v", cardID, len(resp.CardSummaries))
+	}
+
+	// CRITICAL: Card summary must reflect ALL rows across BOTH pages.
+	// The current broken implementation computes the summary from only page 1 rows (1-10),
+	// which have DoneCount=0 and CompletionAccepted=0.
+	// Under maxInt logic (current broken code):
+	// - TargetCount = maxInt(1,1,...,1) = 1 (WRONG: should be 15)
+	// - DoneCount = maxInt(0,0,...,0) = 0 (WRONG: should be 5)
+	//
+	// After the FIX (SQL GROUP BY aggregate):
+	// - TargetCount = SUM(ObligationCount) = 15 (sum across all matching rows)
+	// - DoneCount = SUM(DoneCount) = 5 (rows 11-15 have DoneCount=1)
+	// - OpenCount = SUM(1-DoneCount) = 10 (rows 1-10 have DoneCount=0)
+
+	t.Logf("Card summary: target=%d done=%d open=%d", summary.TargetCount, summary.DoneCount, summary.OpenCount)
+
+	// This will FAIL on current code (before the fix) because the summary aggregates
+	// only the paginated subset (page 1 rows).
+	wantTargetCount := 15 // All 15 rows, each with ObligationCount=1
+	wantDoneCount := 5    // Rows 11-15 have DoneCount=1
+	wantOpenCount := 10   // Rows 1-10 have DoneCount=0 (so open=1)
+
+	if summary.TargetCount != wantTargetCount {
+		t.Errorf("TargetCount = %d, want %d (all rows). BUG: aggregates only paginated subset!", summary.TargetCount, wantTargetCount)
+	}
+	if summary.DoneCount != wantDoneCount {
+		t.Errorf("DoneCount = %d, want %d (rows 11-15). BUG: aggregates only paginated subset!", summary.DoneCount, wantDoneCount)
+	}
+	if summary.OpenCount != wantOpenCount {
+		t.Errorf("OpenCount = %d, want %d (rows 1-10). BUG: aggregates only paginated subset!", summary.OpenCount, wantOpenCount)
+	}
+}
 
 func (fakeRepo) ListAlerts(
 	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
