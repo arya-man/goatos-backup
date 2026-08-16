@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.delay
@@ -74,6 +75,7 @@ class FeedDistributionCompleteLiveStatusTest {
             proofCaptureSource = FakeProofCaptureSource(),
             photoCaptureSource = FakePhotoCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -149,6 +151,7 @@ class FeedDistributionCompleteLiveStatusTest {
             proofCaptureSource = proofCaptureSource,
             photoCaptureSource = photoCaptureSource,
             proofCaptureRepository = proofCaptureRepository,
+            feedCompletionStore = FeedCompletionLocalStore(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),

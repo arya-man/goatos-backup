@@ -177,6 +177,9 @@ class FeedCompleteViewModel @Inject constructor(
                     observeOutboxItem(result.value)
                     // Optimistic offline overlay: the list row shows completed immediately.
                     feedCompletionStore.markCompleted(completionKey)
+                    // ...and its CHIP reads lifecycleStatus, which `completed` alone never moved,
+                    // so record the submit for the badge overlay too (same defect as Feed Packing).
+                    feedCompletionStore.markSubmittedForReview(completionKey)
                     analytics.track(AnalyticsEvents.FEED_DIRECTION_COMPLETED)
                 }
                 is AppResult.Err -> {

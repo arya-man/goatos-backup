@@ -137,10 +137,14 @@ class FeedDirectionViewModel @Inject constructor(
     // backend `completed` flag once the write syncs. A change to either re-subscribes the pager.
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<FeedDirectionRowUi>> =
-        combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
-            .flatMapLatest { (selection, completed) ->
+        combine(
+            _filters,
+            feedCompletionStore.completedKeys,
+            feedCompletionStore.submittedForReviewKeys,
+        ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
+            .flatMapLatest { (selection, completed, submitted) ->
                 repo.directionRows(selection.toQuery())
-                    .map { page -> page.map { it.toRowUi(completed) } }
+                    .map { page -> page.map { it.toRowUi(completed, submitted) } }
             }
             .cachedIn(viewModelScope)
 
@@ -332,6 +336,7 @@ class FeedDirectionViewModel @Inject constructor(
 
     private fun sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.toRowUi(
         locallyCompleted: Set<String>,
+        locallySubmittedForReview: Set<String>,
     ): FeedDirectionRowUi = FeedDirectionRowUi(
         grainKey = grainKey,
         parkId = parkId,
@@ -357,7 +362,16 @@ class FeedDirectionViewModel @Inject constructor(
         overduePending = overduePending,
         // Backend truth OR the optimistic local overlay for a just-completed shed-session.
         completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
-        lifecycleStatus = lifecycleStatus,
+        // The CHIP renders lifecycleStatus, not `completed` — overlaying only the boolean above left
+        // a just-submitted row reading "Pending" (the 254.mp4 defect, same class as Feed Packing).
+        // Direction/Distribution rows carry no rework channel, so that rung passes "".
+        lifecycleStatus = overlayFeedLifecycleStatus(
+            lifecycleStatus = lifecycleStatus,
+            reworkReason = "",
+            isLocallySubmittedForReview = locallySubmittedForReview.contains(
+                FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow),
+            ),
+        ),
     )
 
     private data class FeedDirectionSelection(

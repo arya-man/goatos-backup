@@ -277,9 +277,9 @@ class FeedPackingViewModel @Inject constructor(
         val isLocallyCompleted = locallyCompleted.contains(completionKey)
         val isLocallySubmittedForReview = locallySubmittedForReview.contains(completionKey)
 
-        // Precedence lives in ONE place — [overlayPackingLifecycleStatus] — so a test asserting the
+        // Precedence lives in ONE place — [overlayFeedLifecycleStatus] — so a test asserting the
         // rule and the list projection that renders it can never drift apart.
-        val overlaidLifecycleStatus = overlayPackingLifecycleStatus(
+        val overlaidLifecycleStatus = overlayFeedLifecycleStatus(
             lifecycleStatus = lifecycleStatus,
             reworkReason = reworkReason,
             isLocallySubmittedForReview = isLocallySubmittedForReview,
@@ -362,31 +362,3 @@ class FeedPackingViewModel @Inject constructor(
     }
 }
 
-/**
- * The verification-lifecycle a Feed Packing list row RENDERS, given the backend row and this
- * phone's optimistic "already submitted" hint.
- *
- * A queued-but-unsynced submit still reads "pending" from the backend page (the write is sitting in
- * the outbox), so without this the operator returns to the list and sees "Pending" for work they
- * just submitted — the bug in 254.mp4.
- *
- * Precedence, in order:
- *   a. backend "completed" -> keep it; server acceptance always overrides a local hint.
- *   b. non-blank [reworkReason] -> keep the backend status. A reworked line comes back as "pending"
- *      WITH a reason, so overlaying it would hide the rejection the operator must act on.
- *   c. locally submitted for review -> "pending_verification".
- *   d. otherwise -> the backend status.
- *
- * Top-level and pure on purpose: the list projection and its tests call THIS, so the rule has a
- * single definition and a test cannot pass against a copy of the logic.
- */
-internal fun overlayPackingLifecycleStatus(
-    lifecycleStatus: String,
-    reworkReason: String,
-    isLocallySubmittedForReview: Boolean,
-): String = when {
-    lifecycleStatus == "completed" -> "completed"
-    reworkReason.isNotBlank() -> lifecycleStatus
-    isLocallySubmittedForReview -> "pending_verification"
-    else -> lifecycleStatus
-}
