@@ -44,6 +44,7 @@ import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
 import sg.mesha.goatos.feature.counts.MilkPreparationCardBucket
@@ -134,7 +135,7 @@ class MilkPreparationListViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
         val preparationResult = repo.refresh(selectedDate.value)
-        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
+        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.exceptionOrNull().isConnectivityFailure())
     }
 }
 
@@ -435,7 +436,7 @@ class MilkPreparationViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
         val preparationResult = repo.refresh(preparationDate)
-        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
+        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.exceptionOrNull().isConnectivityFailure())
     }
 
     /**

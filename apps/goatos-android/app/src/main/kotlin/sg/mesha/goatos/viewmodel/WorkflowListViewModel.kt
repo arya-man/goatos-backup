@@ -19,6 +19,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.WorkflowsRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.WorkflowCardDto
 import sg.mesha.goatos.core.network.dto.WorkflowChipsDto
 import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
@@ -141,7 +142,7 @@ abstract class WorkflowListViewModel(
 
     fun onRowsLoadFailed(error: Throwable) {
         _isRefreshing.value = false
-        _isOffline.value = true
+        _isOffline.value = error.isConnectivityFailure()
         crashReporter.recordException(error, "$moduleKey workflow list page load failed")
         analytics.track(
             AnalyticsEvents.COUNTS_READ_FAILURE,
