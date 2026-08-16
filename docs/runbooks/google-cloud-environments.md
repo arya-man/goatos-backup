@@ -238,6 +238,34 @@ In another shell, read the secret-backed DSN without printing it, override the
 host/port to the local proxy, and run read-only SQL. `psql` may not be installed
 on every Codex host; Python with `psycopg2` is an acceptable local client.
 
+Fast `psql` path on Ravi's Mac:
+
+```bash
+DB_URL="$(gcloud secrets versions access latest \
+  --secret=goatos-stg-database-url \
+  --project=goatos-stg)"
+
+DB_PASS="$(DB_URL="$DB_URL" python3 - <<'PY'
+import os
+from urllib.parse import urlparse, unquote
+
+print(unquote(urlparse(os.environ["DB_URL"]).password or ""))
+PY
+)"
+
+PGPASSWORD="$DB_PASS" /opt/homebrew/opt/libpq/bin/psql \
+  -h 127.0.0.1 \
+  -p 5455 \
+  -U goatos_app \
+  -d goatos
+```
+
+Do not rebuild the secret URL by hand. The secret uses a Cloud SQL Unix-socket
+host (`host=/cloudsql/...`), and its password is percent-encoded; naive URL
+rewrites commonly fail with `password authentication failed`. If port `5455` is
+already occupied by a stale proxy, start your own proxy on a clearly named
+alternate port such as `5456` and change only the `-p` value above.
+
 ```bash
 DB_URL="$(gcloud secrets versions access latest \
   --secret=goatos-stg-database-url \
