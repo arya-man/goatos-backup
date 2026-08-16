@@ -529,7 +529,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 val blocked = workflowBlockedForOperator(action, isDeathModule, predecessorsReady)
                 action.toActionUi(now, blocked, locallyRecorded).copy(
                     hasVideoDraft = hasDraft,
-                    canRecordVideo = canRecordWorkflowVideo(action, blocked, draftsSubmitting, predecessorsReady),
+                    canRecordVideo = canRecordWorkflowVideo(action, blocked, draftsSubmitting),
                 )
             }.sortedBy { it.sectionOrder() },
             subjectGoatId = subject.goatId,
@@ -731,17 +731,39 @@ internal fun workflowBlockedForOperator(
 ): Boolean = action.blocked &&
     !(isDeath && action.blockedReason == WORKFLOW_BLOCKED_PREVIOUS_ACTION && predecessorsReady)
 
+/**
+ * Whether this row may open the camera.
+ *
+ * The sequencing answer is [blocked] and NOTHING ELSE. [workflowPredecessorsReady] must not be
+ * ANDed in here: it is computed over the rows THIS SCREEN RENDERS, and the Colostrum lens renders
+ * only one business date's feeds. `1st Colostrum` is a `main`-section row due at birth time, so on
+ * every colostrum day AFTER the birth date it is absent from the rendered list, the predecessor
+ * lookup returns null, and the whole day's feeds lost their record control — while the backend
+ * correctly reported `blocked=false` for them.
+ *
+ * Observed on kid G-005335 (born 13 Aug 22:58 IST): its five feeds fall on 14 Aug, `first_colostrum`
+ * on 13 Aug. `GET /app/workflows/{id}?lens=colostrum&date=2026-08-14` returns
+ * `colostrum_day_2_1500` as `pending, blocked=false, requires_video=true`, yet the row rendered with
+ * no camera. The same feed uploaded fine from Birth, where the unlensed read returns all 13 rows.
+ *
+ * The backend already computes `blocked` against the kid's COMPLETE action set on both lenses —
+ * `tasks/app.ColostrumDetail` carries `Detail.Actions` (full) alongside `Visible` (the day) for
+ * exactly this reason. Re-deriving it client-side from the truncated list contradicted the
+ * backend-owns-the-contract rule and could only ever be wrong.
+ *
+ * Death still reaches its camera: its relaxation lives in [workflowBlockedForOperator], which turns
+ * `blocked` off once drafts make the predecessors ready, so the draft-awareness is preserved without
+ * a second gate here.
+ */
 internal fun canRecordWorkflowVideo(
     action: WorkflowActionDto,
     blocked: Boolean,
     draftsSubmitting: Boolean,
-    predecessorsReady: Boolean,
 ): Boolean = action.actionType == "action" &&
     action.requiresVideo &&
     !operatorFinishedWorkflowStatus(action.status) &&
     !blocked &&
-    !draftsSubmitting &&
-    predecessorsReady
+    !draftsSubmitting
 
 internal fun operatorVisibleWorkflowActions(actions: List<WorkflowActionDto>): List<WorkflowActionDto> =
     actions.filter { it.actionType != "approval" }
