@@ -30,13 +30,16 @@ const WholeSentinel = "whole"
 // normalizer byte for byte and must not drift from it.
 var partPrefix = regexp.MustCompile(`^part[[:space:]]+`)
 
-// NOTE (2026-08-06): the display join no longer branches on whether a label is
-// already worded ('Part 3') or bare ('1') -- BOTH now join with " - ", so the
-// regex that used to select between a space form and a dash form is gone. The
-// matching key still normalizes 'Part 3' and '3' to the same value; that is
-// partPrefix above and is unaffected. Android keeps its own
-// ALREADY_WORDED_PARTITION because partitionDisplayLabel (the standalone chip)
-// still needs it; only the JOIN collapsed.
+// NOTE (2026-08-16 supersedes 2026-08-06): the display join DOES branch on
+// whether a label is bare numeric ('1', '2') or already worded ('Part 3').
+// Bare numerals join with a SPACE to reproduce the farm's physical shed names
+// ("Castro 1" painted on the building); worded labels join with " - " for
+// visual boundary (since 75% of live shed names end in digits, "Godel 1" +
+// "Part 3" → "Godel 1 - Part 3" is clear, but "Godel 1" + "1" → "Godel 1 1"
+// would be ambiguous without the dash convention). The matching key still
+// normalizes 'Part 3' and '3' to the same value; that is partPrefix above and
+// is unaffected. Android keeps its own ALREADY_WORDED_PARTITION because
+// partitionDisplayLabel (the standalone chip) still needs it.
 
 // NormalizePartition reduces a raw partition label to its comparison key.
 // It mirrors, exactly, the SQL used by the operator execution reads:
@@ -94,16 +97,17 @@ type OperationalLocation struct {
 // operator reads on screen matches the text painted on the shed; only the
 // SEPARATOR is ours.
 //
-// Separator rule (maintainer decision, 2026-08-14): bare numerals join with a
-// single SPACE to match the farm's physical naming on sheds ("Castro 1" painted
-// on the building). Worded labels ("Part 3", "Parts 1-3") join with " - " to
-// disambiguate from shed names that end in digits: "Godel 1" + "Part 3" reads
+// Separator rule (maintainer decision, 2026-08-16, clarifying farm's real-world
+// naming): Bare numerals join with a single SPACE because the farm's physical
+// sheds ARE NAMED "Castro 1", "Gandhi 2", etc. — that is the real name painted
+// on the building, not a display formatting choice. Worded labels ("Part 3",
+// "Parts 1-3") join with " - " for visual boundary: "Godel 1" + "Part 3" reads
 // "Godel 1 - Part 3" (clear boundary), but "Godel 1" + "1" would read
-// "Godel 1 1" (ambiguous if it is shed "Godel" partition 1, shed "Godel 1"
-// partition 1, or an un-split shed named "Godel 1 1"). On live STG data 98 of
-// 130 destination options (75%) had a digit-terminated shed name, so the space
-// form was not edge-case-only. ONLY worded labels use the dash; this keeps the
-// two naming conventions visually distinct.
+// "Godel 1 1" (ambiguous if it is partition 1 of Godel 1, or a shed literally
+// named "Godel 1 1"). On live STG data 98 of 130 destination options (75%) had
+// a digit-terminated shed name, so the space form remains unambiguous only
+// BECAUSE the worded convention always uses " - ". ONLY worded labels use the
+// dash; this keeps the two naming conventions visually and semantically distinct.
 //
 // Keep this identical to PartitionLabel.kt (Android) and
 // lib/operational-location.ts (admin-web); the same animal must never read two
