@@ -24,7 +24,7 @@ func TestMilkPreparationProofMustMatchFarmStepAndLiveCamera(t *testing.T) {
 	park := "park-1"
 	base := proofdomain.Artifact{
 		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
-		MimeType: "video/mp4", SubjectType: "park", SubjectID: &park,
+		MimeType: "video/mp4", SubjectType: "other", SubjectID: &park,
 		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_preparation_step": countsdomain.MilkPreparationStepUHTMilkQuantity},
 	}
 	tests := []struct {
@@ -52,5 +52,73 @@ func TestMilkPreparationProofMustMatchFarmStepAndLiveCamera(t *testing.T) {
 				t.Fatalf("err=%v want=%v", err, tc.want)
 			}
 		})
+	}
+}
+
+// RED-FIRST: TestMilkPreparationProofAcceptsOtherSubjectType fails with current code (requires SubjectType="park"),
+// but client now sends subject_type='other' for prep proofs (since prep has no backend task uuid).
+// Fix: ValidateMilkPreparationProofs must accept SubjectType="other" with SubjectID=parkID.
+func TestMilkPreparationProofAcceptsOtherSubjectType(t *testing.T) {
+	park := "park-1"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "other", SubjectID: &park,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_preparation_step": countsdomain.MilkPreparationStepUHTMilkQuantity},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-1": artifact}})
+	err := validator.ValidateMilkPreparationProofs(context.Background(), "tenant-1", park, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkPreparationStepUHTMilkQuantity, ProofRef: "proof-1"}})
+	if err != nil {
+		t.Fatalf("prep proof with subject_type='other' should be valid, got err=%v", err)
+	}
+}
+
+// RED-FIRST: TestMilkFeedingProofAcceptsTaskSubjectType fails with current code (requires SubjectType="park"),
+// but client now sends subject_type='task' with subject_id=taskID for feeding proofs.
+// Fix: ValidateMilkFeedingProofs must accept SubjectType="task" with SubjectID=taskID.
+func TestMilkFeedingProofAcceptsTaskSubjectType(t *testing.T) {
+	taskID := "task-123"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-2", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "task", SubjectID: &taskID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_feeding_step": countsdomain.MilkFeedingStepCleanBottles},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-2": artifact}})
+	// Now the validator signature passes taskID (not parkID)
+	err := validator.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-2"}})
+	if err != nil {
+		t.Fatalf("feeding proof with subject_type='task' should be valid, got err=%v", err)
+	}
+}
+
+// TestMilkFeedingProofRejectsWrongTaskID: adversarial negative — must reject if task ID doesn't match.
+func TestMilkFeedingProofRejectsWrongTaskID(t *testing.T) {
+	artifactTaskID := "task-123"
+	wrongTaskID := "task-999"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-2", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "task", SubjectID: &artifactTaskID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_feeding_step": countsdomain.MilkFeedingStepCleanBottles},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-2": artifact}})
+	// Call with different task ID — should fail
+	err := validator.ValidateMilkFeedingProofs(context.Background(), "tenant-1", wrongTaskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-2"}})
+	if err == nil {
+		t.Fatalf("feeding proof with mismatched task ID should fail, but passed")
+	}
+}
+
+// TestMilkPreparationProofRejectsOldParkSubjectType: adversarial negative — the old "park" shape is now invalid.
+// This documents the breaking change from subject_type='park' to subject_type='other'.
+func TestMilkPreparationProofRejectsOldParkSubjectType(t *testing.T) {
+	park := "park-1"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "park", SubjectID: &park,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_preparation_step": countsdomain.MilkPreparationStepUHTMilkQuantity},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-1": artifact}})
+	err := validator.ValidateMilkPreparationProofs(context.Background(), "tenant-1", park, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkPreparationStepUHTMilkQuantity, ProofRef: "proof-1"}})
+	if err == nil {
+		t.Fatalf("old park subject type should now fail (validator requires subject_type='other')")
 	}
 }
