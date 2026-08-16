@@ -168,6 +168,7 @@ class MilkFeedingListViewModel @Inject constructor(
 /** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
  *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
 private fun milkFeedingDateLabel(dateIso: String): String {
+    // exception:exempt display-only fallback — unparseable date renders verbatim; nothing actionable to record
     val parsed = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
     val label = parsed.format(MILK_FEEDING_DAY_LABEL)
     return if (dateIso == LocalDate.now(MILK_FEEDING_IST).toString()) "Today · $label" else label
