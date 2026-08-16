@@ -78,6 +78,7 @@ data class MilkPreparationCardUi(
 data class MilkPreparationListUiState(
     val subtitle: String = "",
     val dateLabel: String = "",
+    val selectedDate: String = "",
     val feedingDateLabel: String = "",
     val chips: List<MilkPreparationChipUi> = emptyList(),
     val selectedFilter: String = "all",
@@ -91,7 +92,7 @@ data class MilkPreparationListUiState(
 sealed interface MilkPreparationListEvent {
     data object Refresh : MilkPreparationListEvent
     data class SelectFilter(val key: String) : MilkPreparationListEvent
-    data class OpenFarm(val parkId: String) : MilkPreparationListEvent
+    data class OpenFarm(val parkId: String, val preparationDate: String = "") : MilkPreparationListEvent
     data class NavigateDate(val delta: Int) : MilkPreparationListEvent
     data object Back : MilkPreparationListEvent
 }
@@ -146,7 +147,7 @@ fun MilkPreparationListScreen(
                 }
             }
             items(state.cards, key = { it.parkId }) { card ->
-                MilkPreparationCard(card) { onEvent(MilkPreparationListEvent.OpenFarm(card.parkId)) }
+                MilkPreparationCard(card) { onEvent(MilkPreparationListEvent.OpenFarm(card.parkId, state.selectedDate)) }
             }
         }
     }

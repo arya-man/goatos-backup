@@ -81,14 +81,14 @@ data class MilkFeedingUiState(
     val isInProgress: Boolean get() = capturedProofCount > 0 && canOpen
 }
 @Immutable data class MilkFeedingListUiState(
-    val subtitle: String = "", val dateLabel: String = "", val chips: List<MilkPreparationChipUi> = emptyList(),
+    val subtitle: String = "", val dateLabel: String = "", val selectedDate: String = "", val chips: List<MilkPreparationChipUi> = emptyList(),
     val selectedFilter: String = "all", val cards: List<MilkFeedingCardUi> = emptyList(), val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null, val isOffline: Boolean = false, val emptyMessage: String? = null,
 )
 sealed interface MilkFeedingListEvent {
     data object Refresh : MilkFeedingListEvent
     data class SelectFilter(val key: String) : MilkFeedingListEvent
-    data class OpenTask(val taskId: String) : MilkFeedingListEvent
+    data class OpenTask(val taskId: String, val feedingDate: String = "") : MilkFeedingListEvent
     data class NavigateDate(val delta: Int) : MilkFeedingListEvent
     data object Back : MilkFeedingListEvent
 }
@@ -118,7 +118,7 @@ fun MilkFeedingListScreen(state: MilkFeedingListUiState, onEvent: (MilkFeedingLi
                 )
             }
             items(state.cards, key = { it.taskId }) { task ->
-                MilkFeedingWorkCard(task) { onEvent(MilkFeedingListEvent.OpenTask(task.taskId)) }
+                MilkFeedingWorkCard(task) { onEvent(MilkFeedingListEvent.OpenTask(task.taskId, state.selectedDate)) }
             }
         }
     }

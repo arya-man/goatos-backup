@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -483,6 +484,48 @@ class MilkFeedingViewModelTest {
         )
     }
 
+    @Test
+    fun `opening a task from a past date resolves the correct task (BUG A fix)`() = runTest(dispatcher) {
+        val feedingRepository = FakeMilkFeedingRepositoryMultiDate()
+        val draftRepository = FakeMilkFeedingDraftRepository()
+        val pastDate = "2026-08-13"
+
+        // Navigate to a task from a past date: the ViewModel receives the date via nav args
+        val viewModel = MilkFeedingViewModel(
+            repo = feedingRepository,
+            sync = FakeMilkFeedingSyncRepository(),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkFeedingViewModel.ARG_TASK_ID to "task-pastday",
+                    MilkFeedingViewModel.ARG_FEEDING_DATE to pastDate,
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        // Verify the task from the past date resolved correctly (not "today's" task or empty)
+        assertEquals(
+            "the detail screen must resolve the task from the tapped date, not today",
+            "task-pastday",
+            viewModel.state.value.taskId,
+        )
+        assertEquals(
+            "sessionNo must come from the correct task, not an empty/missing lookup",
+            2,
+            viewModel.state.value.sessionNo,
+        )
+        assertEquals(
+            "dueTime must come from the correct task",
+            "07:30",
+            viewModel.state.value.dueTime,
+        )
+    }
+
 }
 
 private class FakeMilkFeedingSyncRepository : SyncRepository {
@@ -637,6 +680,49 @@ private class FakeMilkFeedingRepository(
     )
 
     override fun observe(feedingDate: String, parkId: String, sessionNo: Int?): Flow<sg.mesha.goatos.core.common.Resource<MilkFeedingPageDto>> = status
+
+    override suspend fun refresh(feedingDate: String, parkId: String, sessionNo: Int?): Result<Unit> = Result.success(Unit)
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class FakeMilkFeedingRepositoryMultiDate : MilkFeedingRepository {
+    private val statusByDate = mapOf(
+        "2026-08-15" to sg.mesha.goatos.core.common.Resource(
+            data = MilkFeedingPageDto(
+                feedingDate = "2026-08-15",
+                items = listOf(
+                    sg.mesha.goatos.core.network.dto.MilkFeedingTaskDto(
+                        taskId = "task-today",
+                        parkId = "park-1",
+                        feedingDate = "2026-08-15",
+                        sessionNo = 1,
+                        dueTime = "08:00",
+                        available = true,
+                        verificationStatus = "not_submitted",
+                    ),
+                ),
+            ),
+        ),
+        "2026-08-13" to sg.mesha.goatos.core.common.Resource(
+            data = MilkFeedingPageDto(
+                feedingDate = "2026-08-13",
+                items = listOf(
+                    sg.mesha.goatos.core.network.dto.MilkFeedingTaskDto(
+                        taskId = "task-pastday",
+                        parkId = "park-1",
+                        feedingDate = "2026-08-13",
+                        sessionNo = 2,
+                        dueTime = "07:30",
+                        available = true,
+                        verificationStatus = "not_submitted",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    override fun observe(feedingDate: String, parkId: String, sessionNo: Int?): Flow<sg.mesha.goatos.core.common.Resource<MilkFeedingPageDto>> =
+        flowOf(statusByDate[feedingDate] ?: sg.mesha.goatos.core.common.Resource(data = null))
 
     override suspend fun refresh(feedingDate: String, parkId: String, sessionNo: Int?): Result<Unit> = Result.success(Unit)
 }
