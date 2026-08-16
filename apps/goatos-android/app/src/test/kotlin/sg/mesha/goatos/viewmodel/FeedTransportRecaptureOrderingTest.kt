@@ -128,7 +128,8 @@ class FeedTransportRecaptureOrderingTest {
 
         // The re-record's camera call succeeds, but the repository capture/enqueue call itself
         // fails (e.g. a policy cap or a Room write failure) -- the old row must not have been
-        // touched first.
+        // touched first. P1 FIX: this is guaranteed now because captureReplacingLatest only
+        // registers a pending retirement on success; a failed call leaves no action registered.
         proofCaptureRepository.failNextCapture = true
         viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
         advanceUntilIdle()
@@ -180,8 +181,10 @@ class FeedTransportRecaptureOrderingTest {
             2,
             proofCaptureRepository.captureCalls.size,
         )
-        // captureReplacingLatest removes every non-newest active row for the slot once the new
-        // capture succeeds, so exactly one row -- the new one -- remains active.
+        // P1 FIX: captureReplacingLatest defers removal of old rows until the new row reaches
+        // SYNCED (production behavior). Tests that don't explicitly manage sync state can call
+        // driveAllPendingRetirements() to complete the replacement and verify the old row is gone.
+        proofCaptureRepository.driveAllPendingRetirements()
         val survivingRows = proofCaptureRepository.allRows()
         assertEquals(
             "exactly the new proof must remain active after a successful re-record",
@@ -190,6 +193,64 @@ class FeedTransportRecaptureOrderingTest {
         )
         assertEquals("file:///new-video.mp4", survivingRows.first().localUri)
         assertTrue(viewModel.state.value.videoCaptured)
+    }
+
+    @Test
+    fun `old row survives while replacement is uploading`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource(
+            mutableListOf(
+                CapturedVideo(localUri = "file:///old-video.mp4", startedAtMs = 0L, endedAtMs = 1_000L),
+                CapturedVideo(localUri = "file:///new-video.mp4", startedAtMs = 2_000L, endedAtMs = 3_000L),
+            ),
+        )
+        val viewModel = buildViewModel(proofCaptureRepository, proofSource)
+        advanceUntilIdle()
+
+        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        advanceUntilIdle()
+        assertEquals(1, proofCaptureRepository.captureCalls.size)
+        val oldProofId = proofCaptureRepository.allRows().first().id
+
+        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a successful re-record must issue a second capture call",
+            2,
+            proofCaptureRepository.captureCalls.size,
+        )
+        val allRows = proofCaptureRepository.allRows()
+        assertEquals(
+            "REGRESSION: old row must survive after new capture succeeds but before SYNCED",
+            2,
+            allRows.size,
+        )
+        assertTrue("old row must be in the list", allRows.any { it.id == oldProofId })
+
+        val newProofId = allRows.first { it.id != oldProofId }.id
+        // Simulate the new proof uploading (IN_FLIGHT, but not yet SYNCED with serverProofId).
+        proofCaptureRepository.markInFlight(newProofId)
+        var rowsAfterInFlight = proofCaptureRepository.allRows()
+        assertEquals(
+            "old row must still survive while replacement is IN_FLIGHT",
+            2,
+            rowsAfterInFlight.size,
+        )
+
+        // Now simulate the new proof reaching SYNCED — this fires the retirement action.
+        proofCaptureRepository.markSyncedAndDriveRetirement(newProofId, "server-proof-id-1")
+        val rowsAfterSynced = proofCaptureRepository.allRows()
+        assertEquals(
+            "old row must be removed only when replacement reaches SYNCED + serverProofId",
+            1,
+            rowsAfterSynced.size,
+        )
+        assertEquals(
+            "only the new proof survives",
+            newProofId,
+            rowsAfterSynced.first().id,
+        )
     }
 }
 
