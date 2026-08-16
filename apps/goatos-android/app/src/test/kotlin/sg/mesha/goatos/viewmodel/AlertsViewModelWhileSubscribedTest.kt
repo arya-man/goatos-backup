@@ -84,7 +84,11 @@ class AlertsViewModelWhileSubscribedTest {
 
     @Test
     fun `refresh failure with no cache shows no alerts instead of loading forever`() = runTest(dispatcher) {
-        val repo = FakeControlTowerRepository(refreshResult = Result.failure(IllegalStateException("403")))
+        // IOException, not IllegalStateException("403") -- isConnectivityFailure() deliberately
+        // excludes 4xx (server understood and declined; see ConnectivityFailure.kt), so a genuine
+        // no-connectivity scenario must be simulated with an actual connectivity-classified error
+        // or isOffline never flips and this test hangs waiting for a state that can't occur.
+        val repo = FakeControlTowerRepository(refreshResult = Result.failure(java.io.IOException("network unreachable")))
         val viewModel = AlertsViewModel(repo)
 
         val state = viewModel.state.first { it.isOffline }
