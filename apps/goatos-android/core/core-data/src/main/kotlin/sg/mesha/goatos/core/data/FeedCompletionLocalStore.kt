@@ -95,6 +95,15 @@ class FeedCompletionLocalStore {
         /** The optimistic key must carry the PEN for the same reason the backend's natural key
          *  does: Castro 1 and Castro 2 share a shed_id, so a shed-only key made one pen's submit
          *  grey out every pen of that shed on the spot (STG 2026-08-08). */
+        /**
+         * Grain key for a TASK-grain flow (Feed Transport, Milk Feeding). These are not
+         * shed-session grain, so they cannot reuse [key]; [kind] keeps each flow's namespace
+         * separate. Same business-day prefix as [key], so pruning and the logout wipe cover it
+         * unchanged.
+         */
+        fun taskKey(kind: String, taskId: String): String =
+            listOf(businessDate(), kind, taskId).joinToString("|")
+
         fun key(shedId: String, partitionLabel: String?, sessionNo: Int, workflow: String): String =
             listOf(
                 businessDate(),

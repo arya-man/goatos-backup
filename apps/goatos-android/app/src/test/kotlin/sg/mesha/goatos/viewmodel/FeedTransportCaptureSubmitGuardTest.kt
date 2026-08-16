@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +69,7 @@ class FeedTransportCaptureSubmitGuardTest {
             sync = sync,
             capture = proofSource,
             proofCaptureRepository = FakeProofCaptureRepository(),
+            feedCompletionStore = FeedCompletionLocalStore(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -117,6 +119,7 @@ class FeedTransportCaptureSubmitGuardTest {
             sync = sync,
             capture = proofSource,
             proofCaptureRepository = FakeProofCaptureRepository(),
+            feedCompletionStore = FeedCompletionLocalStore(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),

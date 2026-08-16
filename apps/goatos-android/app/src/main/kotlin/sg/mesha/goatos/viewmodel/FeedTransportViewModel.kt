@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.FeedTransportStatusSource
 import sg.mesha.goatos.core.data.FeedTransportQuery
@@ -75,6 +76,7 @@ private const val TRANSPORT_PAGE_SIZE = 20
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class FeedTransportViewModel @Inject constructor(
+    private val feedCompletionStore: FeedCompletionLocalStore,
     private val repo: FeedTransportRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -105,7 +107,12 @@ class FeedTransportViewModel @Inject constructor(
                 FeedTransportQuery(businessDate = today) to FeedTransportTaskPageDto(emptyList(), null),
             )
 
-    val state: StateFlow<FeedTransportUiState> = combine(observedPage, flags, window) { (selected, page), current, size ->
+    val state: StateFlow<FeedTransportUiState> = combine(
+        observedPage,
+        flags,
+        window,
+        feedCompletionStore.submittedForReviewKeys,
+    ) { (selected, page), current, size, locallySubmitted ->
         val parks = page.filters.parks.map { FeedDropdownOption(it.id, it.label) }
         val sheds = page.filters.sheds.map {
             FeedDropdownOption(it.id, it.label)
@@ -135,7 +142,15 @@ class FeedTransportViewModel @Inject constructor(
                     it.shedId,
                     it.operationalLocationDisplay.ifBlank { operationalLocationLabel(it.shedLabel, it.partitionLabel) },
                     it.parkLabel,
-                    it.status,
+                    // A submit that is still only in the outbox leaves the backend status at "due",
+                    // so the chip read "Pending" for work the operator had already sent (254.mp4,
+                    // same defect fixed for Packing/Direction/Distribution). Transport is
+                    // TASK-grain, hence transportKey rather than the shed-session key.
+                    overlayTransportStatus(
+                        it.status,
+                        it.reworkReason,
+                        locallySubmitted.contains(FeedCompletionLocalStore.taskKey("feed-transport", it.taskId)),
+                    ),
                     it.reworkReason,
                 )
             },
@@ -295,7 +310,7 @@ private fun analyticsReason(error: Throwable): String =
  * task: they used to sit in `SavedStateHandle`, so Back + re-entry lost the clip and asked for it
  * again while the first one uploaded anyway (maintainer report 2026-07-30).
  */
-@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val proofCaptureRepository:ProofCaptureRepository,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,private val feedTransportRepository:FeedTransportStatusSource,saved:SavedStateHandle):ViewModel(){
+@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val feedCompletionStore:FeedCompletionLocalStore,private val capture:ProofCaptureSource,private val proofCaptureRepository:ProofCaptureRepository,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,private val feedTransportRepository:FeedTransportStatusSource,saved:SavedStateHandle):ViewModel(){
     private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val parkLabel=saved.get<String>(ARG_PARK_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private var proofRowId:String?=null
     // The server poll (fetchTaskStatus) needs a business date and transport tasks are always
     // TODAY's only (see alreadySubmitted's isToday=true below) -- mirrors FeedTransportViewModel's
@@ -392,7 +407,7 @@ private fun analyticsReason(error: Throwable): String =
     private fun submit(){val current=_state.value;val proof=draft.proofs[STEP_VIDEO];if(submitInFlight||proof.isNullOrBlank()||!current.submitEnabled){_state.update{it.copy(canSubmit=false,videoMessage="Record the transport video before submitting.")};return};submitInFlight=true;viewModelScope.launch{
         val submitIdempotencyKey="feed-transport-submit:$taskId:$proof"
         if(draft.submitIdempotencyKey!=submitIdempotencyKey){drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,null);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)}
-        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMITTED);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->{submitInFlight=false;r.cause?.let{crashReporter.recordException(it,"feed transport complete enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("submit_enqueue_failed")));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
+        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);feedCompletionStore.markSubmittedForReview(FeedCompletionLocalStore.taskKey("feed-transport", taskId));draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMITTED);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->{submitInFlight=false;r.cause?.let{crashReporter.recordException(it,"feed transport complete enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("submit_enqueue_failed")));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
     companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";const val ARG_PARK_LABEL="park_label";const val ARG_LIFECYCLE_STATUS="lifecycle_status";private const val STEP_VIDEO="video";private const val FIELD_FEED_TRANSPORT_VIDEO="feed_transport_video"
         /** How often [startServerStatusPolling] re-checks this task's status directly from the
          *  server while the screen stays open. */
@@ -416,3 +431,20 @@ private fun SyncQueueItem.writeFailureReason(): String = when {
 
 private fun AppResult.Err.analyticsReason(fallback: String): String =
     cause?.let(::analyticsReason) ?: fallback
+
+/**
+ * The status a Feed TRANSPORT row RENDERS. Transport uses its own vocabulary ("due" /
+ * "verification_due" / "completed"), so it cannot reuse [overlayFeedLifecycleStatus] verbatim, but
+ * the precedence is identical: server acceptance wins, then a rework reason (never mask a
+ * rejection), then this phone's queued submit, else the backend status.
+ */
+internal fun overlayTransportStatus(
+    status: String,
+    reworkReason: String?,
+    isLocallySubmittedForReview: Boolean,
+): String = when {
+    status == "completed" -> "completed"
+    !reworkReason.isNullOrBlank() -> status
+    isLocallySubmittedForReview -> "verification_due"
+    else -> status
+}

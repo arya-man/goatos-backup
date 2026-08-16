@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.room.Room
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
@@ -141,6 +142,7 @@ class FeedTransportSequenceTest {
             val analytics = RecordingAnalytics()
             val viewModel = FeedTransportViewModel(
                 repo = FeedTransportRepository(api, database),
+                feedCompletionStore = FeedCompletionLocalStore(),
                 analytics = analytics,
                 crashReporter = NoopCrashReporter(),
             )
@@ -178,6 +180,7 @@ class FeedTransportSequenceTest {
             sync = sync,
             capture = proofCaptureSource,
             proofCaptureRepository = proofCaptureRepository,
+            feedCompletionStore = FeedCompletionLocalStore(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),

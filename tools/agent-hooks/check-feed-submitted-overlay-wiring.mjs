@@ -33,11 +33,19 @@ const LIST_VIEW_MODELS = [
   `${vm}/FeedDirectionViewModel.kt`,
 ];
 
+/** Task-grain lists (Feed Transport, Milk Feeding): own status vocabulary, own overlay rule. */
+const TASK_GRAIN_LISTS = [
+  { file: `${vm}/FeedTransportViewModel.kt`, rule: "overlayTransportStatus(" },
+  { file: `${vm}/MilkFeedingViewModel.kt`, rule: "overlayMilkFeedingStatus(" },
+];
+
 /** Submit ViewModels: must record the grain when the enqueue succeeds. */
 const SUBMIT_VIEW_MODELS = [
   `${vm}/FeedPackingCompleteViewModel.kt`,
   `${vm}/FeedCompleteViewModel.kt`,
   `${vm}/FeedDistributionCompleteViewModel.kt`,
+  `${vm}/FeedTransportViewModel.kt`,
+  `${vm}/MilkFeedingViewModel.kt`,
 ];
 
 // ---- pure analysis (unit-tested by --self-test) ---------------------------------------------
@@ -54,6 +62,15 @@ export function checkListViewModel(source, label) {
       `${label}: row mapping no longer calls overlayFeedLifecycleStatus — the chip renders the ` +
         `raw backend lifecycleStatus and a queued submit reads "Pending"`,
     );
+  }
+}
+
+export function checkTaskGrainList(source, rule, label) {
+  if (!source.includes("submittedForReviewKeys")) {
+    throw new Error(`${label}: task-grain list no longer combines submittedForReviewKeys`);
+  }
+  if (!source.includes(rule)) {
+    throw new Error(`${label}: row mapping no longer calls ${rule} — a queued submit reads stale`);
   }
 }
 
@@ -111,6 +128,12 @@ function selfTest() {
     () => checkListViewModel(goodList.replace("overlayFeedLifecycleStatus(", "passThrough("), "fixture"),
     "a row mapping that dropped the overlay call",
   );
+  checkTaskGrainList("submittedForReviewKeys ... overlayTransportStatus(x)", "overlayTransportStatus(", "fixture");
+  console.log("  ok   accepts a correctly wired task-grain list");
+  expectThrow(
+    () => checkTaskGrainList("submittedForReviewKeys only", "overlayTransportStatus(", "fixture"),
+    "a task-grain list missing its overlay rule",
+  );
   expectThrow(
     () => checkSubmitViewModel("analytics.track(SUBMITTED)", "fixture"),
     "a submit that never records the grain",
@@ -150,11 +173,15 @@ function main() {
     const { label, body } = read(rel);
     checkListViewModel(body, label);
   }
+  for (const { file, rule } of TASK_GRAIN_LISTS) {
+    const { label, body } = read(file);
+    checkTaskGrainList(body, rule, label);
+  }
   for (const rel of SUBMIT_VIEW_MODELS) {
     const { label, body } = read(rel);
     checkSubmitViewModel(body, label);
   }
-  checkSingleRuleDefinition([...LIST_VIEW_MODELS, `${vm}/FeedLifecycleOverlay.kt`].map(read));
+  checkSingleRuleDefinition([...LIST_VIEW_MODELS, ...TASK_GRAIN_LISTS.map((t) => t.file), `${vm}/FeedLifecycleOverlay.kt`].map(read));
 
   console.log("feed-submitted-overlay-wiring: ok");
 }
