@@ -848,7 +848,6 @@ class DefaultProofCaptureRepository(
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"
-                ProofSubject.PARK -> "park"
                 ProofSubject.VIAL_LOT -> "vial"
                 ProofSubject.ADMINISTRATION -> "administration"
                 else -> "subject"

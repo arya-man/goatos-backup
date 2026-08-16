@@ -266,7 +266,12 @@ enum class ProofSubject(val wireValue: String) {
     GOAT("goat"),
     SHED("shed"),
     TASK("task"),
-    PARK("park"),
+    // 'park' was NEVER a valid backend subject_type (validateCreate in
+    // backend/internal/proof/app/service.go only accepts batch/goat/shed/task/vial_lot/
+    // administration/other) -- every proof stamped with it 400'd. Deleted rather than kept
+    // "for backward compatibility": that phrase described a value with no live caller, and its
+    // presence let a future capture site silently regress to the same 400 (cc566278a). If a
+    // proof genuinely has no typed backend subject, use OTHER.
     VIAL_LOT("vial_lot"),
     ADMINISTRATION("administration"),
     OTHER("other"),
