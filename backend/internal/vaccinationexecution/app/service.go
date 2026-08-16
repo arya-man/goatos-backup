@@ -122,9 +122,14 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		filterOptions = &domain.ExecutionFilters{Parks: parks}
 	}
 
-	// For all requests: compute per-card summaries (page-independent, full-result aggregation)
-	// over all rows returned by the query, grouped by (shedId, partitionLabel, taskId/batchId/driveId)
-	cardSummaries := computeCardSummariesFromRows(rows)
+	// For all requests: compute per-card summaries (page-independent, full-filter aggregation)
+	// via a separate SQL GROUP BY query that uses the SAME filter predicates as the page query
+	// but WITHOUT the LIMIT/cursor. This ensures cards spanning page boundaries report correct
+	// counts/status from ALL matching rows, not just the paginated subset.
+	cardSummaries, err := s.repo.VaccinationExecutionCardSummaries(ctx, q)
+	if err != nil {
+		return domain.ExecutionResponse{}, err
+	}
 
 	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions, CardSummaries: cardSummaries}, nil
 }
@@ -175,6 +180,8 @@ func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain
 
 // summarizeCardFromRows computes the authoritative status, counts, and vaccine-group summaries
 // for one shed card from all its ExecutionRow objects.
+// projection-review: grain=(shed_id, partition_label, task_id/batch_id/drive_id); membership=all execution rows matching card identity;
+// counts=sum of obligation_count/done_count/open_count across all rows in the card; parity=status f(redo + final_closed + delayed state).
 func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *domain.ShedCardSummary {
 	if len(rows) == 0 {
 		return nil
@@ -185,11 +192,11 @@ func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *d
 	hasRedo := false
 	vaccineGroupMap := make(map[string]map[int]bool) // label -> (index -> full)
 
-	// Aggregate counts and redo state across all rows
+	// Aggregate counts and redo state across all rows: SUM for counts (not max), ANY for redo state.
 	for idx, r := range rows {
-		targetCount = maxInt(targetCount, r.TargetCount)
-		totalDone = maxInt(totalDone, r.DoneCount)
-		totalOpen = maxInt(totalOpen, r.OpenCount)
+		targetCount += r.TargetCount       // SUM: total obligations across all rows
+		totalDone += r.DoneCount           // SUM: total done across all rows
+		totalOpen += r.OpenCount           // SUM: total open across all rows
 
 		// Check if any row needs redo (rejected/deferred)
 		if r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred {
