@@ -31,10 +31,11 @@ fun partitionDisplayLabel(partition: String, format: (String) -> String): String
  *
  * Never produces "Yashoda whole" — the literal string "whole" is treated as non-partitioned.
  *
- * Separator rule (maintainer decision, 2026-08-14):
- *  - Bare numerals use SPACE (matches farm's physical shed names like "Castro 1" painted on buildings).
- *  - Worded labels use " - " for visual boundary, since many shed names end in digits and
- *    "Godel 1 1" (space) could be confused with "Godel 1 - Part 1" (dash).
+ * Separator rule (maintainer decision, 2026-08-16, clarifying farm's real-world naming):
+ *  - Bare numerals use SPACE because the farm's physical sheds ARE NAMED "Castro 1", "Gandhi 2", etc. —
+ *    that is the real name painted on the building, not a display formatting choice.
+ *  - Worded labels use " - " for visual boundary (since 75% of live shed names end in digits and
+ *    "Godel 1 1" space form would be ambiguous without the dash convention distinguishing it).
  * Keep identical to oploc.Display() (Go) and lib/operational-location.ts (admin-web).
  */
 fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String {

@@ -1742,7 +1742,7 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
-## Operational Location and Partition Convention (maintainer lock, 2026-08-06)
+## Operational Location and Partition Convention (maintainer lock, 2026-08-06; clarified 2026-08-16)
 
 Every goat's ground location is defined as: `park + physical_shed + optional partition_label`.
 
@@ -1758,21 +1758,22 @@ Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh
 
 **NEVER seed raw partition strings as separate physical shed buildings.** The `locations` table is the single source of truth for which partitions exist.
 
-### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05)
+### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05, clarified 2026-08-16)
 
 Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
-- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided
-  sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` +
-  partition `1` and therefore has a partitioned display, `Castro - 1` shown WITH
-  its partition, not an unpartitioned example)
-- Has partition → `Castro - 2` (numeric) or `Godel 1 - Part 3` (prefixed)
+- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` + partition `1` and therefore has a partitioned display shown WITH its partition)
+- Bare numeric partition → `Castro 1`, `Gandhi 2`, `Gandhi 3` (space separator; the farm's actual physical shed names as painted on buildings)
+- Worded/prefixed partition → `Godel 1 - Part 3`, `Mandela 1 - Part 1` (dash separator; visual boundary since 75% of live shed names end in digits)
+
+**Separator rule (2026-08-16 clarification):** Numeric partitions use SPACE because the farm's sheds ARE NAMED `Castro 1`, `Gandhi 2`, etc. — that is the real name painted on the building, not a display formatting choice. Worded labels use " - " (dash) for visual boundary: `Godel 1 - Part 3` is unambiguous from the shed name.
 
 **NEVER render:**
 - `Yashoda whole` — `'whole'` is a matching key, never user copy
+- `Castro - 1` — dash form for numeric partitions (contradicts farm's physical naming)
 - `Godel 1 1` — the worked wrong-example (naive space-numeric join, truncated)
 - Shed name alone when a partition exists (`Godel 1` without the partition) — both halves must always render together
 
-**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule.
+**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule (and the separator reflects the farm's real-world naming).
 
 ### Rule 3: Carry Partition in All Location-Bearing Responses
 
