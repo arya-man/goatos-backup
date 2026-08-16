@@ -1085,8 +1085,8 @@ func TestCardSummaryRespectsWorkStateFilter(t *testing.T) {
 	t.Parallel()
 
 	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
-	pastDue := asOf.Add(-24 * time.Hour)    // Overdue date
-	futureDue := asOf.Add(24 * time.Hour)   // Due (not overdue)
+	pastDue := asOf.Add(-24 * time.Hour)  // Overdue date
+	futureDue := asOf.Add(24 * time.Hour) // Due (not overdue)
 	shedID := "shed-work-filter"
 	batchID := "batch-work-filter"
 
