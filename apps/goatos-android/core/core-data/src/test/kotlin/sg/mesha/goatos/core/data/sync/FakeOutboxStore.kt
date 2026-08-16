@@ -166,6 +166,32 @@ class FakeOutboxStore : OutboxStore {
             )
         }
 
+    override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean {
+        val current = rows.value.firstOrNull { it.id == id } ?: return false
+        val isTerminal = current.status == OutboxStatus.FAILED.name &&
+            (current.conflict || current.attemptCount >= current.maxAttempts)
+        if (!isTerminal) return false
+        rows.update { list ->
+            list.map {
+                if (it.id == id) {
+                    it.copy(
+                        status = OutboxStatus.QUEUED.name,
+                        attemptCount = 0,
+                        conflict = false,
+                        lastError = null,
+                        nextAttemptAt = now,
+                        updatedAt = now,
+                        payloadJson = payloadJson,
+                        requestFingerprint = fingerprint,
+                    )
+                } else {
+                    it
+                }
+            }
+        }
+        return true
+    }
+
     override suspend fun reclaimInFlight(now: Long): Int {
         val stranded = rows.value.count { it.status == OutboxStatus.IN_FLIGHT.name }
         if (stranded > 0) {

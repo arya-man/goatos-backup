@@ -221,6 +221,30 @@ interface OutboxDao {
     )
     suspend fun markRetryReady(id: String, now: Long): Int
 
+    /**
+     * Re-opens a row that reached a TERMINAL failure (dead-letter conflict OR attempt-exhausted)
+     * for a brand-new user-initiated submit under the SAME [OutboxEntity.idempotencyKey] — the
+     * unique index otherwise silently drops a fresh enqueue whose key already belongs to a dead
+     * row (device-proven defect: a task with one permanently-FAILED submit could never be
+     * resubmitted). Resets the row to QUEUED with a fresh attempt budget and replaces the
+     * payload/fingerprint with the caller's latest request (a resubmit may carry corrected data),
+     * while the id and idempotencyKey never change, so the server still sees the same logical
+     * write and any earlier idempotent replay semantics keep working.
+     *
+     * Guarded to ONLY apply to a genuinely terminal row: `status='FAILED' AND (conflict=1 OR
+     * attemptCount>=maxAttempts)`. A row still inside its backoff window (retryable FAILED) or
+     * QUEUED/IN_FLIGHT/SUCCEEDED is untouched — this is not a general-purpose row overwrite, only
+     * the escape hatch for a row the drain loop will otherwise never touch again. Returns rows
+     * affected: 1 = reopened, 0 = the row was not terminal (a concurrent transition already moved
+     * it on — the caller re-reads and falls back to normal replay/conflict handling).
+     */
+    @Query(
+        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, " +
+            "nextAttemptAt = :now, updatedAt = :now, payloadJson = :payloadJson, requestFingerprint = :fingerprint " +
+            "WHERE id = :id AND status = 'FAILED' AND (conflict = 1 OR attemptCount >= maxAttempts)",
+    )
+    suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Int
+
     /** Recovers rows orphaned IN_FLIGHT by a process death / crash mid-dispatch back to QUEUED.
      *  Safe to run at the top of a drain pass: the drain mutex guarantees no other dispatch is
      *  in progress, so any IN_FLIGHT row is necessarily stranded, not actively being sent. */

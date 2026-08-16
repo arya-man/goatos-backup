@@ -97,6 +97,17 @@ interface OutboxStore {
      *  Returns `false` (no-op) if the row is not FAILED (e.g. a drain has it IN_FLIGHT). */
     suspend fun markRetryReady(id: String, now: Long): Boolean
 
+    /** Re-opens a row that reached a TERMINAL failure (dead-letter conflict OR attempt-exhausted)
+     *  for a brand-new enqueue under the SAME [OutboxEntity.idempotencyKey]: resets
+     *  [OutboxEntity.attemptCount] to 0, [OutboxEntity.conflict] to false, status back to QUEUED,
+     *  AND replaces [OutboxEntity.payloadJson]/[OutboxEntity.requestFingerprint] with the caller's
+     *  latest request. Unlike [markRetryReady] (a manual retry of the SAME payload), this is what
+     *  [DefaultSyncRepository]'s `enqueue` calls when a fresh user-tap targets a key whose only
+     *  existing row is dead — see [sg.mesha.goatos.core.database.outbox.OutboxDao.reopenTerminalForRetry]
+     *  for the exact terminal guard. Returns `false` (no-op) if the row is not currently terminal
+     *  (a concurrent transition already moved it on). */
+    suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean
+
     /** Recovers rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch back to
      *  QUEUED. Returns the number reclaimed. Called at the top of every drain pass (safe under
      *  the drain mutex — no dispatch is concurrently in progress). */
@@ -156,6 +167,9 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, now) > 0
 
     override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
+
+    override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean =
+        dao.reopenTerminalForRetry(id, payloadJson, fingerprint, now) > 0
 
     override suspend fun reclaimInFlight(now: Long): Int = dao.reclaimInFlight(now)
 
