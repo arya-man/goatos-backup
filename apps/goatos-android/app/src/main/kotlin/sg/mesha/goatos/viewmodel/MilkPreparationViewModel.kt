@@ -472,7 +472,7 @@ class MilkPreparationViewModel @Inject constructor(
             val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
-                subject = ProofSubject.PARK,
+                subject = ProofSubject.SHED,
                 subjectId = parkId,
                 localUri = video.localUri,
                 mimeType = video.mimeType,
@@ -553,7 +553,7 @@ class MilkPreparationViewModel @Inject constructor(
             val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
-                subject = ProofSubject.PARK,
+                subject = ProofSubject.SHED,
                 subjectId = parkId,
                 localUri = video.localUri,
                 mimeType = video.mimeType,
