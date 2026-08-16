@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.capture.buildMilkFeedingEvidenceSlot
@@ -132,7 +133,7 @@ class MilkFeedingListViewModel @Inject constructor(
                     selectedDate = dateStr,
                     isRefreshing = busy,
                     lastSyncedAt = resource.lastSyncedAt,
-                    isOffline = resource.data == null,
+                    isOffline = resource.error?.isConnectivityFailure() == true,
                 )
             }
         }

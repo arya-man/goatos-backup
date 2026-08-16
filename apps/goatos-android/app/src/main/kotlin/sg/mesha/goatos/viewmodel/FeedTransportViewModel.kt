@@ -47,6 +47,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
@@ -188,7 +189,7 @@ class FeedTransportViewModel @Inject constructor(
         // A refresh replaces the scope's rows, so a previous "nothing left" verdict no longer holds
         // and the window goes back to one page — the same reset a fresh screen entry would give.
         window.value = TRANSPORT_PAGE_SIZE
-        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.isFailure, endReached = false)
+        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.exceptionOrNull().isConnectivityFailure(), endReached = false)
         result.exceptionOrNull()?.let { error ->
             crashReporter.recordException(error, "feed transport refresh failed")
             analytics.track(
@@ -224,7 +225,7 @@ class FeedTransportViewModel @Inject constructor(
             val after = repo.observe(scope, grown).first().items.size
             flags.value = flags.value.copy(
                 isLoadingMore = false,
-                isOffline = result.isFailure,
+                isOffline = result.exceptionOrNull().isConnectivityFailure(),
                 // Only latch the end when the fetch SUCCEEDED and still produced no new row; a
                 // failed network page must stay retryable, not permanently end the list.
                 endReached = result.isSuccess && after <= before,

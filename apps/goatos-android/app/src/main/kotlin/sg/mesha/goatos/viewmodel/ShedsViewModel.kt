@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
+import sg.mesha.goatos.core.network.dto.ShedCardSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
@@ -407,28 +408,58 @@ class ShedsViewModel @Inject constructor(
         // present in ShedRow.id: the same shed/partition/task can arrive as multiple backend rows
         // (for example BT + SP rows, or a task row version/sop version split) but must remain one
         // UI card with one LazyColumn key.
+        // Prefer backend-computed card summaries (page-independent) over row-level folds.
+        val cardSummaries = cardSummaries
         val shedRows = rowsForSelectedDay.groupBy { it.executionCardId() }.map { (cardId, group) ->
             val first = group.first()
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
-            val status = shedStatusForRows(group)
-            val counts = executionCardCounts(group)
-            val vaccineGroups = group.flatMap { row ->
-                row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
-                    .map { humanizeVaccineLabel(it) }
-                    .filter { it.isNotBlank() }
-                    .map { label -> label to row }
-            }
-                .groupBy({ it.first }, { it.second })
-                .map { (label, driveRows) ->
-                    val driveCounts = executionCardCounts(driveRows)
-                    val driveDone = effectiveCardDoneCount(driveRows)
+
+            // Prefer backend-computed card summary (page-independent, covers all rows for the card).
+            // Fall back to row-level computation for older API responses without cardSummaries.
+            val cardSummary = cardSummaries?.get(cardId)
+            val status: ShedStatus
+            val counts: ExecutionCounts
+            val vaccineGroups: List<VaccineGroup>
+            val effectiveDone: Int
+
+            if (cardSummary != null) {
+                // Use backend summary: it's authoritative and page-independent
+                status = cardSummaryStatusToShedStatus(cardSummary.status, cardSummary.needsRedo)
+                counts = ExecutionCounts(
+                    target = cardSummary.targetCount,
+                    open = cardSummary.openCount,
+                    done = cardSummary.doneCount,
+                )
+                effectiveDone = cardSummary.doneCount
+                vaccineGroups = cardSummary.vaccineGroups.map { summary ->
                     VaccineGroup(
-                        label = label,
-                        countLabel = "$driveDone/${driveCounts.target}",
-                        full = driveCounts.open == 0 && driveRows.none { it.needsRedo() },
+                        label = summary.label,
+                        countLabel = "", // Backend summary doesn't include per-vaccine counts; client computes if needed
+                        full = summary.full,
                     )
                 }
-            val effectiveDone = effectiveCardDoneCount(group)
+            } else {
+                // Fall back to row-level computation for backward compat
+                status = shedStatusForRows(group)
+                counts = executionCardCounts(group)
+                effectiveDone = effectiveCardDoneCount(group)
+                vaccineGroups = group.flatMap { row ->
+                    row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
+                        .map { humanizeVaccineLabel(it) }
+                        .filter { it.isNotBlank() }
+                        .map { label -> label to row }
+                }
+                    .groupBy({ it.first }, { it.second })
+                    .map { (label, driveRows) ->
+                        val driveCounts = executionCardCounts(driveRows)
+                        val driveDone = effectiveCardDoneCount(driveRows)
+                        VaccineGroup(
+                            label = label,
+                            countLabel = "$driveDone/${driveCounts.target}",
+                            full = driveCounts.open == 0 && driveRows.none { it.needsRedo() },
+                        )
+                    }
+            }
             ShedRow(
                 id = cardId,
                 // The shed CARD TITLE. It must carry the backend-composed operational location,
@@ -637,6 +668,20 @@ internal fun protocolAdherenceSummary(
         acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
         isComplete = isComplete,
     )
+}
+
+/**
+ * Convert backend status string + redo state to ShedStatus enum.
+ * Backend maps: rejected→SENT_BACK, overdue→DELAYED, completed→DONE, due→PENDING
+ */
+internal fun cardSummaryStatusToShedStatus(backendStatus: String, needsRedo: Boolean): ShedStatus {
+    if (needsRedo) return ShedStatus.SENT_BACK
+    return when (backendStatus.lowercase()) {
+        "rejected", "deferred" -> ShedStatus.SENT_BACK
+        "overdue", "missed", "blocked" -> ShedStatus.DELAYED
+        "completed" -> ShedStatus.DONE
+        else -> ShedStatus.PENDING
+    }
 }
 
 internal fun shedStatusForRows(rows: List<VaccinationExecutionRowDto>): ShedStatus {
