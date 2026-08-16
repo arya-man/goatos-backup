@@ -92,6 +92,7 @@ sealed interface MilkPreparationListEvent {
     data object Refresh : MilkPreparationListEvent
     data class SelectFilter(val key: String) : MilkPreparationListEvent
     data class OpenFarm(val parkId: String) : MilkPreparationListEvent
+    data class NavigateDate(val delta: Int) : MilkPreparationListEvent
     data object Back : MilkPreparationListEvent
 }
 
@@ -122,7 +123,12 @@ fun MilkPreparationListScreen(
             isOffline = state.isOffline,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
-        MilkWorkDateBar(state.dateLabel, state.feedingDateLabel.takeIf(String::isNotBlank)?.let { "Feeds $it" }.orEmpty())
+        MilkWorkDateBar(
+            state.dateLabel,
+            state.feedingDateLabel.takeIf(String::isNotBlank)?.let { "Feeds $it" }.orEmpty(),
+            onPreviousDate = { onEvent(MilkPreparationListEvent.NavigateDate(-1)) },
+            onNextDate = { onEvent(MilkPreparationListEvent.NavigateDate(1)) },
+        )
         MilkStatusChips(state.chips, state.selectedFilter) { onEvent(MilkPreparationListEvent.SelectFilter(it)) }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -147,13 +153,18 @@ fun MilkPreparationListScreen(
 }
 
 @Composable
-internal fun MilkWorkDateBar(dateLabel: String, secondaryLabel: String = "") {
+internal fun MilkWorkDateBar(
+    dateLabel: String,
+    secondaryLabel: String = "",
+    onPreviousDate: () -> Unit = {},
+    onNextDate: () -> Unit = {},
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        MilkDateButton(MeshaIcons.ChevronLeft)
+        MilkDateButton(MeshaIcons.ChevronLeft, onClick = onPreviousDate)
         Column(
             modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(MeshaColors.Surf2)
                 .padding(vertical = 9.dp),
@@ -168,14 +179,21 @@ internal fun MilkWorkDateBar(dateLabel: String, secondaryLabel: String = "") {
                 Text(secondaryLabel, color = MeshaColors.Faint, fontSize = 10.sp)
             }
         }
-        MilkDateButton(MeshaIcons.Chevron)
+        MilkDateButton(MeshaIcons.Chevron, onClick = onNextDate)
     }
 }
 
 @Composable
-private fun MilkDateButton(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun MilkDateButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit = {},
+) {
     Box(
-        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MeshaColors.Surf2),
+        modifier = Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Surf2)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = MeshaColors.Faint, modifier = Modifier.size(16.dp))
