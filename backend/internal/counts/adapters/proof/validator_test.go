@@ -122,3 +122,39 @@ func TestMilkPreparationProofRejectsOldParkSubjectType(t *testing.T) {
 		t.Fatalf("old park subject type should now fail (validator requires subject_type='other')")
 	}
 }
+
+// TestMilkProofStepFromCanonicalFieldKey pins the wire shape that actually exists: the canonical
+// capture pipeline stamps metadata["field_key"]="milk_feeding_<step>" (never the legacy
+// "milk_feeding_step" key, which no shipped client wrote). Device-found 2026-08-16: the validator
+// read only the legacy key, so every real submit failed even after the subject-type fix.
+func TestMilkProofStepFromCanonicalFieldKey(t *testing.T) {
+	taskID := "task-123"
+	feeding := proofdomain.Artifact{
+		ProofID: "proof-f", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "task", SubjectID: &taskID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "field_key": "milk_feeding_" + countsdomain.MilkFeedingStepCleanBottles},
+	}
+	v := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-f": feeding}})
+	if err := v.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-f"}}); err != nil {
+		t.Fatalf("feeding proof with canonical field_key metadata should be valid, got err=%v", err)
+	}
+
+	parkID := "park-1"
+	prep := proofdomain.Artifact{
+		ProofID: "proof-p", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "other", SubjectID: &parkID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "field_key": "milk_preparation_citric_acid_mixing"},
+	}
+	v = NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-p": prep}})
+	if err := v.ValidateMilkPreparationProofs(context.Background(), "tenant-1", parkID, []countsdomain.MilkPreparationStepProof{{StepCode: "citric_acid_mixing", ProofRef: "proof-p"}}); err != nil {
+		t.Fatalf("prep proof with canonical field_key metadata should be valid, got err=%v", err)
+	}
+
+	// Wrong-flow field_key must NOT satisfy a feeding step (prefix guard).
+	wrong := feeding
+	wrong.Metadata = map[string]any{"capture_source": "in_app_camera", "field_key": "milk_preparation_" + countsdomain.MilkFeedingStepCleanBottles}
+	v = NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-f": wrong}})
+	if err := v.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-f"}}); err == nil {
+		t.Fatalf("prep-flow field_key must not satisfy a feeding step")
+	}
+}
