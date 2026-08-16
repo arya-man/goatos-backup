@@ -188,8 +188,8 @@ class ShiftingExecuteRecaptureOrderingTest {
             2,
             proofCaptureRepository.captureCalls.size,
         )
-        // captureReplacingLatest removes every non-newest active row for the slot once the new
-        // capture succeeds, so exactly one row -- the new one -- remains active.
+        // P1 FIX: captureReplacingLatest defers removal of old rows until the new row reaches SYNCED.
+        proofCaptureRepository.driveAllPendingRetirements()
         val survivingRows = proofCaptureRepository.allRows()
         assertEquals(
             "exactly the new proof must remain active after a successful re-record",
