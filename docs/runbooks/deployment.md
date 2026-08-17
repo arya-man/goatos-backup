@@ -158,6 +158,24 @@ that time, clicking the panel replaces it with an "already running" status card
 and Cloud Build / Cloud Deploy links; the deploy buttons return only after the
 running build posts success or failure.
 
+For an STG+mobile run, Slack must show the stages in this order:
+
+```text
+STG deploy started
+STG deploy succeeded
+STG release bookkeeping completed or warning
+Android STG distribution started
+Android STG distribution succeeded or failed
+Deploy button ready
+```
+
+Do not treat the combined deploy as fully complete until both the STG rollout
+and Android distribution have terminal cards. The Android terminal card must
+state whether Firebase App Distribution, Google Play Internal Testing, and
+`https://mesha.sg/app.apk` all completed. If Android fails after STG succeeds,
+the status is `STG: SUCCESS` and `Android mobile: FAILED`; do not say the
+Firebase/Play/app.apk channels completed.
+
 STG release-tag bookkeeping is intentionally separate from deploy status. A
 deploy is successful only after Cloud Deploy rollout succeeds and live service
 and job images match the commit. The later `stg-release-tag-bookkeeping` Cloud
@@ -186,6 +204,11 @@ all-or-nothing release: Firebase App Distribution upload, Google Play Internal
 Testing upload to package `sg.mesha.goatos.stg`, and the `mesha.sg/app.apk`
 Storage mirror must all pass or the Cloud Build is failed and Slack reports the
 mobile distribution as failed.
+
+The Cloud Build timeout for this combined path is 2 hours. If Cloud Build times
+out during `android-mobile-distribution`, assume the Android release did not
+finish unless the logs independently show Firebase, Play Internal, and direct
+APK success.
 
 ## Dev Layer 1 foundation plan
 

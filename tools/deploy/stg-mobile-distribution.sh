@@ -2,6 +2,8 @@
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-goatos-stg}"
+PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
+REGION="${REGION:-asia-south1}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 GOOGLE_PLAY_PACKAGE="${GOOGLE_PLAY_PACKAGE:-sg.mesha.goatos.stg}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-1:514832198871:android:0cb898377ba4f7f7f19492}"
@@ -31,16 +33,17 @@ notify_slack() {
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$status" "$text" "$commit_sha" "$build_id" "$triggered_by" "$include_panel" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$status" "$text" "$commit_sha" "$build_id" "$triggered_by" "$include_panel" "$PROJECT_NUMBER" "$REGION" "$CONSOLE_AUTHUSER" "$FIREBASE_APP_ID" "$GOOGLE_PLAY_PACKAGE" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
+import urllib.parse
 
-status, text, sha, build_id, triggered_by, include_panel = sys.argv[1:]
+status, text, sha, build_id, triggered_by, include_panel, project_number, region, authuser, firebase_app_id, package_name = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
-authuser = "ravi%40mesha.sg"
-build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?authuser={authuser}&project=goatos-stg"
-firebase_url = "https://console.firebase.google.com/u/0/project/goatos-stg/appdistribution/app/android:1:514832198871:android:0cb898377ba4f7f7f19492/releases"
-play_url = "https://play.google.com/apps/testing/sg.mesha.goatos.stg"
+build_query = urllib.parse.urlencode({"project": project_number, "authuser": authuser})
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region={region}/{build_id}?{build_query}"
+firebase_url = f"https://console.firebase.google.com/u/0/project/goatos-stg/appdistribution/app/android:{firebase_app_id}/releases"
+play_url = f"https://play.google.com/apps/testing/{package_name}"
 apk_url = "https://mesha.sg/app.apk"
 payload = {
     "attachments": [{
@@ -125,10 +128,11 @@ on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
     if [[ "${DEPLOY_STG:-false}" == "true" ]]; then
-      notify_slack "FAILED" "STG rollout already succeeded, but Android mobile distribution failed. Firebase, Play Internal, and mesha.sg/app.apk were not all completed."
+      notify_slack "FAILED" "STG rollout succeeded. Android mobile distribution failed. Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
     else
-      notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass." 1
+      notify_slack "FAILED" "Android mobile distribution failed. Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
     fi
+    post_deploy_panel
   fi
 }
 trap on_exit EXIT
@@ -236,11 +240,8 @@ mirror_sha="$(shasum -a 256 .local/verify-latest-app.apk | awk '{print $1}')"
 curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/latest/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 
-if [[ "${DEPLOY_STG:-false}" == "true" ]]; then
-  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
-else
-  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}." 1
-fi
+notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+post_deploy_panel
 trap - EXIT
 
 echo "MOBILE_DISTRIBUTED ${commit_sha} ${ANDROID_VERSION_NAME} ${ANDROID_VERSION_CODE}"

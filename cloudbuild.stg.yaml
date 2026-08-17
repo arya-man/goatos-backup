@@ -108,6 +108,7 @@ steps:
       - GOATOS_SKIP_IMAGE_BUILD=1
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - DEPLOY_STG=${_DEPLOY_STG}
+      - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - TRIGGERED_BY=${_TRIGGERED_BY}
     args:
       - -ceu
@@ -120,11 +121,35 @@ steps:
         apt-get install -y --no-install-recommends ca-certificates curl git python3
         tools/deploy/stg-cloudbuild-release.sh
 
+  - id: stg-release-tag-bookkeeping
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - PROJECT_NUMBER=514832198871
+      - REGION=asia-south1
+      - BUILD_ID=$BUILD_ID
+      - COMMIT_SHA=$COMMIT_SHA
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
+      - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
+    args:
+      - -ceu
+      - |
+        if [[ "${_DEPLOY_STG}" != "true" ]]; then
+          echo "STG release tag bookkeeping not requested."
+          exit 0
+        fi
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git python3
+        tools/deploy/stg-release-tag-bookkeeping.sh
+
   - id: android-mobile-distribution
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
     env:
       - PROJECT_ID=goatos-stg
+      - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
       - DEPLOY_STG=${_DEPLOY_STG}
@@ -143,24 +168,4 @@ steps:
         apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk unzip
         tools/deploy/stg-mobile-distribution.sh
 
-  - id: stg-release-tag-bookkeeping
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
-    entrypoint: bash
-    env:
-      - PROJECT_ID=goatos-stg
-      - BUILD_ID=$BUILD_ID
-      - COMMIT_SHA=$COMMIT_SHA
-      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
-      - TRIGGERED_BY=${_TRIGGERED_BY}
-    args:
-      - -ceu
-      - |
-        if [[ "${_DEPLOY_STG}" != "true" ]]; then
-          echo "STG release tag bookkeeping not requested."
-          exit 0
-        fi
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git python3
-        tools/deploy/stg-release-tag-bookkeeping.sh
-
-timeout: 3600s
+timeout: 7200s
