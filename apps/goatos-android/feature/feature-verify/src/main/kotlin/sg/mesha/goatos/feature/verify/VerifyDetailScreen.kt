@@ -589,7 +589,7 @@ private fun VerifyEntryCard(
         entry.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
             RejectionReasonCard(reason = reason)
         }
-        // Rendered ONLY when the backend attached a correctable measurement to this item -- weighing
+        // Shown ONLY when the backend attached a correctable measurement to this item -- weighing
         // today. It sits ABOVE the verdict row because the order matches the act: she watches the
         // video, fixes the number if it is wrong, then decides. Deliberately NOT hidden once a
         // verdict exists: she may correct before deciding or after, until the bucket closes.
@@ -940,7 +940,7 @@ private fun VerifyVideoPlayer(
     // Pause + free the decoder once this row is no longer (mostly) visible in the shed list.
     //
     // Every row used to keep playing forever once tapped: composition never tears the player down
-    // until the row leaves COMPOSITION (LazyColumn recycling), which is later than leaving the
+    // until the row leaves COMPOSITION (scroll-list recycling), which is later than leaving the
     // VIEWPORT, and never happens at all for a row merely scrolled half off-screen. With several
     // animals per shed and several sheds per park, that meant several hardware decoders running
     // (and audio playing) off-screen at once — the exact condition that silently starved the
