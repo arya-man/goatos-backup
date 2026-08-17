@@ -60,14 +60,19 @@ data class FeedDirectionQuery(
     // Verification-lifecycle filter (pending | pending_verification | completed); null = every status.
     // Part of roomKey so a status change caches its own page/summary, never mixing two status scopes.
     val status: String? = null,
+    // Cache-only refresh namespace. The backend has no refresh_nonce parameter; this only forces a
+    // new Room/Paging scope so manual refresh/resume cannot keep serving a fresh-but-stale cache.
+    val refreshNonce: Int = 0,
 ) {
     fun roomKey(): String = cacheKey(
+        DIRECTION_CACHE_SHAPE,
         parkId,
         targetDate,
         shedId,
         session?.toString(),
         workflow,
         status,
+        refreshNonce.toString(),
         FEED_PAGE_SIZE.toString(),
     )
 }
@@ -104,6 +109,14 @@ data class FeedPackingQuery(
  * every other field.
  */
 private const val PACKING_CACHE_SHAPE = "session-v3"
+
+/**
+ * Bump whenever the cached direction row JSON or cache semantics change incompatibly.
+ *
+ * v2 = refresh/resume has its own cache namespace via FeedDirectionQuery.refreshNonce, so phones do
+ * not keep reading an old fresh Room page after STG/API has gained a missing shed-partition row.
+ */
+private const val DIRECTION_CACHE_SHAPE = "direction-v2"
 
 /**
  * Feed vertical reads: the generated Feed Direction sheet and the Feed Packing worklist.
