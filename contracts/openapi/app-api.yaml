@@ -3772,6 +3772,70 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-analytics/directed:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsDirected
+      summary: Windowed rollup of directed feed for the Feed Analytics page.
+      description: >-
+        Aggregates the FROZEN feed sheet (`feed_direction_issue_rows`) over a business-date window:
+        per-day totals and per-(day, feed item) series of DIRECTED kg, head-days, and grams per
+        head per day. Normal workflow only -- experiment sheets author absolute kg with
+        informational head counts and are served by their own read.
+
+
+        DIRECTED, NOT CONSUMED. Every figure is what the sheet instructed, never a measured
+        weight; completions carry proofs, not kg. Clients render the word "directed".
+
+
+        Head-days count each pen-grain (shed, partition, shed tag, breed) ONCE per feed day --
+        never once per session or per feed-item cell. A per-item figure divides by the heads whose
+        sheet carried that item; the day figure divides by the day's distinct heads.
+
+
+        Blocked cells (`quantity_kg` null on the sheet) contribute nothing and are not counted
+        here; config gaps surface on the Feed Direction screen instead. A day with no issued sheet
+        is ABSENT from `days`, never fabricated as zero.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrow to one park. Absent means every park the caller is authorized for -- a
+            park-scoped principal can never widen past their grant.
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before
+            `date_to`. The window is capped at 92 days, keeping the most recent days.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: >-
+            Inclusive window end. Defaults to YESTERDAY: today's sheet is still being executed, so
+            the backend owns the exclude-today rule rather than each client subtracting a day.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Day totals and per-item series, ordered by feed day ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsDirectedResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
   /feed-direction/preview:
     get:
       tags:
@@ -10255,6 +10319,68 @@ components:
           description: >-
             The exact missing coordinate in human-readable form. A gap an operator cannot locate is
             a gap they cannot close.
+    FeedAnalyticsDirectedDay:
+      type: object
+      description: One feed day of the normal workflow across every feed item.
+      required: [feed_day, directed_kg, head_days, per_head_grams]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        directed_kg:
+          type: string
+          description: >-
+            Summed resolved quantity as a decimal string. "0" means every resolved cell authored
+            zero -- blocked cells contribute nothing and are never coerced to zero.
+        head_days:
+          type: integer
+          format: int64
+          description: Distinct pen-grain heads that day; experiment pens excluded.
+        per_head_grams:
+          type: string
+          description: directed_kg x 1000 / head_days, one decimal; empty when head_days is zero.
+    FeedAnalyticsDirectedItem:
+      type: object
+      description: One (feed day, feed item) of the normal workflow.
+      required: [feed_day, feed_item_label, feed_item_key, directed_kg, head_days, per_head_grams]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        directed_kg:
+          type: string
+        head_days:
+          type: integer
+          format: int64
+          description: Heads in pens whose sheet carried THIS item that day, pen-grain counted once.
+        per_head_grams:
+          type: string
+    FeedAnalyticsDirectedResponse:
+      type: object
+      description: >-
+        The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a
+        measured weight.
+      required: [date_from, date_to, days, items]
+      properties:
+        date_from:
+          type: string
+          format: date
+          description: The served window start after clamping (92-day cap, most recent kept).
+        date_to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsDirectedDay"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsDirectedItem"
     FeedDirectionRow:
       type: object
       additionalProperties: false
