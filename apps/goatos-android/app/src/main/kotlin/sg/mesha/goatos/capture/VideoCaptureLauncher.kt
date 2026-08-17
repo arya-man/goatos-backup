@@ -29,7 +29,9 @@ import sg.mesha.goatos.R
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.proofedit.ProofClip
+import sg.mesha.goatos.core.proofedit.ProofEditDecision
 import sg.mesha.goatos.core.proofedit.ProofEditGate
+import sg.mesha.goatos.core.proofedit.ProofEditOutcome
 import sg.mesha.goatos.core.proofedit.ProofEditTelemetry
 import sg.mesha.goatos.core.proofedit.ProofTrimEditor
 import sg.mesha.goatos.core.proofedit.ProofVideoStitcher
@@ -349,25 +351,34 @@ private fun ProofCaptureFlow(
                 val stitched = runCatching {
                     ProofVideoStitcher(context).stitch(current.video.localUri, current.clips)
                 }
+                // The outcome table is shared with ProofEditDecisionTest, so the rules that decide
+                // whether an operator keeps or loses filmed footage are exercised by tests rather
+                // than living only in this composable's branching.
+                val decided = ProofEditDecision.edited(
+                    keptClips = current.clips,
+                    stitchOutputUri = stitched.getOrNull()?.outputUri,
+                    stitchOutputMimeType = stitched.getOrNull()?.outputMimeType,
+                    stitchFailed = stitched.isFailure,
+                    outputValid = stitched.getOrNull()
+                        ?.let { artifactValidator.validateVideoFile(it.outputUri).isValid } ?: false,
+                )
                 stitched.fold(
                     onSuccess = { result ->
-                        // Same gate a picked/imported artifact passes: a zero-byte or unreadable
-                        // output must never reach the upload queue as this operator's evidence.
-                        val validation = artifactValidator.validateVideoFile(result.outputUri)
-                        if (!validation.isValid) {
+                        if (decided !is ProofEditOutcome.UseEdited) {
                             onTelemetry(
                                 ProofEditTelemetry.Events.STITCH_FAILED,
                                 baseProps(ProofEditTelemetry.Step.STITCHING) +
                                     mapOf(
                                         ProofEditTelemetry.Params.OUTCOME to ProofEditTelemetry.Outcome.FAILED,
-                                        ProofEditTelemetry.Params.REASON to "invalid_output",
+                                        ProofEditTelemetry.Params.REASON to
+                                            ProofEditDecision.REASON_INVALID_OUTPUT,
                                     ),
                             )
                             finish(
                                 current.video,
                                 ProofEditTelemetry.Step.DELIVERING,
                                 ProofEditTelemetry.Outcome.UNEDITED,
-                                reason = "invalid_output",
+                                reason = ProofEditDecision.REASON_INVALID_OUTPUT,
                             )
                             return@fold
                         }
@@ -380,12 +391,18 @@ private fun ProofCaptureFlow(
                                         ProofEditTelemetry.durationBucket(result.outputDurationMs),
                                 ),
                         )
+                        // The untrimmed recording is now superseded and nothing downstream
+                        // references it (the delivered uri becomes both localUri and originalUri).
+                        // Left in place it would accumulate a full-length video per edited proof,
+                        // with no code path ever reclaiming it. Deleted only AFTER the replacement
+                        // has been validated, so a bad export never costs the operator both files.
+                        discardOrphanCapture(context, current.video)
                         finish(
                             // Capture start/stop are PRESERVED: they are the freshness metadata for
                             // when the work was filmed, not for when it was edited.
                             current.video.copy(
-                                localUri = result.outputUri,
-                                mimeType = result.outputMimeType,
+                                localUri = decided.outputUri,
+                                mimeType = decided.outputMimeType,
                             ),
                             ProofEditTelemetry.Step.DELIVERING,
                             ProofEditTelemetry.Outcome.EDITED,
@@ -406,7 +423,7 @@ private fun ProofCaptureFlow(
                             current.video,
                             ProofEditTelemetry.Step.DELIVERING,
                             ProofEditTelemetry.Outcome.UNEDITED,
-                            reason = "stitch_failed",
+                            reason = ProofEditDecision.REASON_STITCH_FAILED,
                         )
                     },
                 )

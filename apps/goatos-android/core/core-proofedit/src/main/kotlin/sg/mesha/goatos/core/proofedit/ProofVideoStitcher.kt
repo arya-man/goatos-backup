@@ -123,13 +123,33 @@ class ProofVideoStitcher(private val context: Context) {
             start(composition, outputPath)
         }
 
+    /**
+     * Resolves the source and REFUSES anything outside this app's own capture/proof directories.
+     *
+     * The caller today always passes a file the recorder produced, but this is a shared module and
+     * its `stitch(sourceUri, ...)` signature invites a future caller to hand it an externally
+     * sourced uri. Without this check such a caller would re-encode any app-readable file into
+     * `filesDir/proofs/edited`, and from there it would be uploaded as audit evidence — laundering
+     * arbitrary content into a proof. Mirrors the owned-roots check `discardOrphanCapture` already
+     * applies on the delete side.
+     */
     private fun resolveLocalFile(uriText: String): File {
         val uri = Uri.parse(uriText)
-        return when (uri.scheme) {
+        val file = when (uri.scheme) {
             null -> File(uriText)
             "file" -> File(URI(uriText))
             else -> error("proof editor requires an app-private file uri")
-        }.takeIf { it.exists() } ?: error("proof source file not found")
+        }
+        val ownedRoots = listOf(
+            File(context.filesDir, "captures"),
+            File(context.filesDir, "proofs"),
+            File(context.cacheDir, "proof-videos"),
+        )
+        val canonical = file.canonicalPath
+        require(ownedRoots.any { canonical.startsWith(it.canonicalPath + File.separator) }) {
+            "proof editor refuses a source outside this app's own capture storage"
+        }
+        return file.takeIf { it.exists() } ?: error("proof source file not found")
     }
 
     companion object {

@@ -402,7 +402,7 @@ fun ProofTrimEditor(
                     .fillMaxWidth()
                     .aspectRatio(16f / 10f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black),
+                    .background(MeshaColors.ViewfinderBackdrop),
             ) {
                 AndroidView(
                     factory = { ctx -> PlayerView(ctx).apply { useController = false; this.player = player } },
@@ -794,9 +794,9 @@ private fun Filmstrip(
                     val startX = (selStartMs.toFloat() / durationMs) * size.width
                     val endX = (selEndMs.toFloat() / durationMs) * size.width
 
-                    drawRect(Color.Black.copy(alpha = 0.62f), size = Size(startX, size.height))
+                    drawRect(MeshaColors.ViewfinderBackdrop.copy(alpha = 0.62f), size = Size(startX, size.height))
                     drawRect(
-                        Color.Black.copy(alpha = 0.62f),
+                        MeshaColors.ViewfinderBackdrop.copy(alpha = 0.62f),
                         topLeft = Offset(endX, 0f),
                         size = Size(size.width - endX, size.height),
                     )
@@ -818,7 +818,7 @@ private fun Filmstrip(
                     }
 
                     val px = (playheadMs.toFloat() / durationMs) * size.width
-                    drawRect(Color.White, topLeft = Offset(px - 1.5f, 0f), size = Size(3f, size.height))
+                    drawRect(MeshaColors.Ink, topLeft = Offset(px - 1.5f, 0f), size = Size(3f, size.height))
                 }
             }
 
