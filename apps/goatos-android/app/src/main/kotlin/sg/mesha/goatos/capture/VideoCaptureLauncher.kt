@@ -1,6 +1,7 @@
 package sg.mesha.goatos.capture
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -274,8 +275,9 @@ private fun ProofCaptureFlow(
                 buildMap {
                     put(ProofEditTelemetry.Params.OUTCOME, outcome)
                     reason?.let { put(ProofEditTelemetry.Params.REASON, it) }
-                    result?.let { put(ProofEditTelemetry.Params.CAPTURE_SOURCE, it.captureSource) }
-                    result?.let { put(ProofEditTelemetry.Params.MIME_TYPE, it.mimeType) }
+                    // `source` is allowlisted; capture_source/mime_type are NOT and would be
+                    // dropped before reaching GA4.
+                    result?.let { put(ProofEditTelemetry.Params.SOURCE, it.captureSource) }
                 },
         )
         onFinished(result)
@@ -312,6 +314,12 @@ private fun ProofCaptureFlow(
 
         is CaptureStage.Editing -> ProofTrimEditor(
             sourceUri = current.video.localUri,
+            // Abandoning here cancels the whole capture, exactly as back during recording does.
+            // The recorder's own cancel deletes its file; an abandoned edit leaves the recording
+            // for the relay to discard as an orphan, which is the existing cleanup path.
+            onCancel = {
+                finish(null, ProofEditTelemetry.Step.EDITING, ProofEditTelemetry.Outcome.CANCELLED)
+            },
             onTelemetry = { event, props -> onTelemetry(event, baseProps(ProofEditTelemetry.Step.EDITING) + props) },
             onDone = { clips ->
                 if (clips.isEmpty()) {
@@ -403,6 +411,10 @@ private fun ProofCaptureFlow(
                     },
                 )
             }
+            // Back is deliberately swallowed WHILE the export runs: cancelling mid-encode would
+            // leave a partial file and the step is seconds long. It is a considered block, not a
+            // missing handler — the editor behind it is fully cancellable.
+            BackHandler {}
             ProofSavingStep(clipCount = current.clips.size)
         }
     }

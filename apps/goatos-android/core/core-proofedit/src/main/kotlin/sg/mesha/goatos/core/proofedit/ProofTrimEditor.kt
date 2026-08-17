@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.proofedit
 
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -113,6 +114,13 @@ private enum class PreviewMode { Selection, Stitched }
 fun ProofTrimEditor(
     sourceUri: String,
     onDone: (List<ProofClip>) -> Unit,
+    /**
+     * Abandon the capture entirely. REQUIRED, not optional: the recorder stage intercepts system
+     * back as an explicit cancel, and the enclosing capture window sets `dismissOnBackPress = false`,
+     * so without a handler here the operator would reach this screen and have no way out except
+     * Done — which always proceeds. Confirmed before firing, since the recording is real work.
+     */
+    onCancel: () -> Unit,
     onTelemetry: (event: String, props: Map<String, String>) -> Unit = { _, _ -> },
 ) {
     val sourceFile = remember(sourceUri) { File(URI(sourceUri)) }
@@ -130,6 +138,7 @@ fun ProofTrimEditor(
     var stitchedIndex by remember { mutableStateOf(0) }
     var thumbs by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val player = remember {
@@ -250,6 +259,52 @@ fun ProofTrimEditor(
 
     val selectionBlocked = overlapsKept(selStartMs, selEndMs)
     val selectionTooShort = (selEndMs - selStartMs) < MIN_CLIP_MS
+
+    // System back must never be a dead key. It asks before discarding, because the operator has
+    // already filmed the work by the time they are here.
+    BackHandler { showDiscardConfirm = true }
+
+    if (showDiscardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirm = false },
+            containerColor = MeshaColors.Surf,
+            title = {
+                Text(
+                    stringResource(R.string.proof_trim_discard_title),
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardTitle,
+                )
+            },
+            text = {
+                Text(
+                    stringResource(R.string.proof_trim_discard_body),
+                    color = MeshaColors.Muted,
+                    style = MeshaType.caption,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardConfirm = false
+                    onCancel()
+                }) {
+                    Text(
+                        stringResource(R.string.proof_trim_discard_confirm),
+                        color = MeshaColors.Danger,
+                        style = MeshaType.bodyStrong,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirm = false }) {
+                    Text(
+                        stringResource(R.string.proof_trim_discard_keep),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.bodyStrong,
+                    )
+                }
+            },
+        )
+    }
 
     if (showClearConfirm) {
         AlertDialog(
