@@ -23,6 +23,7 @@ const maxSlackSkew = 5 * time.Minute
 
 type config struct {
 	ProjectID       string
+	ProjectNumber   string
 	Location        string
 	TriggerID       string
 	SigningSecret   string
@@ -86,6 +87,7 @@ type cloudBuildGetBuild struct {
 func main() {
 	cfg := config{
 		ProjectID:       env("PROJECT_ID", "goatos-stg"),
+		ProjectNumber:   env("PROJECT_NUMBER", "514832198871"),
 		Location:        env("TRIGGER_LOCATION", "global"),
 		TriggerID:       mustEnv("TRIGGER_ID"),
 		SigningSecret:   mustEnv("SLACK_SIGNING_SECRET"),
@@ -293,7 +295,7 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 130*time.Minute)
 	defer cancel()
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -318,6 +320,9 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 			}
 			if !isTerminalBuildStatus(build.Status) {
 				continue
+			}
+			if build.Status == "SUCCESS" {
+				return
 			}
 			cfg.postSlackResponse(responseURL, map[string]any{
 				"response_type":    "in_channel",
@@ -607,7 +612,7 @@ func slackUserLabel(userID, username, name string) string {
 
 func (cfg config) cloudBuildURL(buildID string) string {
 	values := url.Values{}
-	values.Set("project", cfg.ProjectID)
+	values.Set("project", cfg.consoleProject())
 	if cfg.ConsoleAuthUser != "" {
 		values.Set("authuser", cfg.ConsoleAuthUser)
 	}
@@ -616,11 +621,18 @@ func (cfg config) cloudBuildURL(buildID string) string {
 
 func (cfg config) cloudDeployURL() string {
 	values := url.Values{}
-	values.Set("project", cfg.ProjectID)
+	values.Set("project", cfg.consoleProject())
 	if cfg.ConsoleAuthUser != "" {
 		values.Set("authuser", cfg.ConsoleAuthUser)
 	}
 	return fmt.Sprintf("https://console.cloud.google.com/deploy/delivery-pipelines/%s/goatos-stg?%s", cfg.Location, values.Encode())
+}
+
+func (cfg config) consoleProject() string {
+	if cfg.ProjectNumber != "" {
+		return cfg.ProjectNumber
+	}
+	return cfg.ProjectID
 }
 
 func (payload slackActionPayload) deployMode() (deploySTG, mobileDistribution bool, actionLabel string, err error) {

@@ -2,10 +2,14 @@
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-goatos-stg}"
+PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
+REGION="${REGION:-asia-south1}"
+CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 GITHUB_PAT_SECRET="${GITHUB_PAT_SECRET:-goatos-github-pat}"
 DEPLOY_METADATA_FILE="${GOATOS_STG_DEPLOY_METADATA_FILE:-/workspace/goatos-stg-deploy.env}"
 TAG_WORKSPACE="${GOATOS_RELEASE_TAG_WORKSPACE:-/workspace}"
+DEPLOY_MOBILE="${DEPLOY_MOBILE:-false}"
 
 if [[ ! -f "$DEPLOY_METADATA_FILE" ]]; then
   echo "release-tag-bookkeeping: no deploy metadata file at $DEPLOY_METADATA_FILE; skipping"
@@ -48,13 +52,15 @@ notify_slack_final() {
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$color" "$title" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$color" "$title" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" "$PROJECT_NUMBER" "$REGION" "$CONSOLE_AUTHUSER" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
 import sys
+from urllib.parse import urlencode
 
-color, title, text, sha, release, build_id, triggered_by = sys.argv[1:]
-build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
-deploy_url = "https://console.cloud.google.com/deploy/delivery-pipelines/asia-south1/goatos-stg/releases?project=goatos-stg"
+color, title, text, sha, release, build_id, triggered_by, project_number, region, authuser = sys.argv[1:]
+query = urlencode({"project": project_number, "authuser": authuser})
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region={region}/{build_id}?{query}"
+deploy_url = f"https://console.cloud.google.com/deploy/delivery-pipelines/{region}/goatos-stg/releases/{release}?{query}"
 payload = {
     "attachments": [{
         "color": color,
@@ -121,11 +127,13 @@ if [[ -z "${notify_reason:-}" && -n "$pat" ]] && (
     ./tools/release/create-release-tag.sh
 ); then
   echo "release-tag-bookkeeping: release tag recorded for $commit_sha"
-  post_deploy_panel
   notify_slack_final \
     "#2EB67D" \
-    "Goat OS STG deploy succeeded" \
-    "STG rollout succeeded, live images were verified, and release-tag bookkeeping completed."
+    "Goat OS STG release bookkeeping completed" \
+    "Release tag bookkeeping completed for the verified STG rollout."
+  if [[ "$DEPLOY_MOBILE" != "true" ]]; then
+    post_deploy_panel
+  fi
   exit 0
 fi
 
@@ -134,9 +142,11 @@ git status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: dirty status in clean tag checkout, if any:"
 git -C "$tag_checkout" status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: ${notify_reason:-release tag failed after verified STG rollout; STG remains deployed.}"
-post_deploy_panel
 notify_slack_final \
   "#ECB22E" \
-  "Goat OS STG deploy succeeded with release-tag warning" \
-  "${notify_reason:-STG rollout succeeded and live images were verified, but release-tag bookkeeping failed. STG remains deployed; deploy status is green.}"
+  "Goat OS STG release bookkeeping warning" \
+  "${notify_reason:-Release-tag bookkeeping failed after verified STG rollout. STG remains deployed; deploy status is green.}"
+if [[ "$DEPLOY_MOBILE" != "true" ]]; then
+  post_deploy_panel
+fi
 exit 0

@@ -2,8 +2,11 @@
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-goatos-stg}"
+PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
+CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
+DEPLOY_MOBILE="${DEPLOY_MOBILE:-false}"
 
 if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   :
@@ -36,15 +39,16 @@ notify_slack() {
   webhook="$(slack_webhook_url)"
   [[ -n "$webhook" ]] || return 0
 
-  python3 - "$status" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" "$include_panel" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+  python3 - "$status" "$text" "$commit_sha" "$release_id" "$build_id" "$triggered_by" "$include_panel" "$PROJECT_NUMBER" "$REGION" "$CONSOLE_AUTHUSER" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
 import json
-import os
 import sys
+import urllib.parse
 
-status, text, sha, release, build_id, triggered_by, include_panel = sys.argv[1:]
+status, text, sha, release, build_id, triggered_by, include_panel, project_number, region, authuser = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
-build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
-deploy_url = "https://console.cloud.google.com/deploy/delivery-pipelines/asia-south1/goatos-stg/releases?project=goatos-stg"
+query = urllib.parse.urlencode({"project": project_number, "authuser": authuser})
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region={region}/{build_id}?{query}"
+deploy_url = f"https://console.cloud.google.com/deploy/delivery-pipelines/{region}/goatos-stg/releases/{release}?{query}"
 payload = {
     "attachments": [{
         "color": color,
@@ -142,16 +146,18 @@ already_deployed() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    post_deploy_panel
     notify_slack "FAILED" "Cloud Build failed before STG rollout completed."
+    post_deploy_panel
   fi
 }
 
 trap on_exit EXIT
 
 if already_deployed; then
-  post_deploy_panel
   notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
+  if [[ "$DEPLOY_MOBILE" != "true" ]]; then
+    post_deploy_panel
+  fi
   trap - EXIT
   echo "ALREADY_DEPLOYED ${commit_sha} on goatos-stg"
   exit 0
@@ -168,6 +174,11 @@ notify_slack "STARTED" "Building images and creating Cloud Deploy release for ST
 
 tools/deploy/stg-clouddeploy-release.sh
 
+if [[ "$DEPLOY_MOBILE" == "true" ]]; then
+  notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified. Android mobile distribution will start next."
+else
+  notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified." 1
+fi
 trap - EXIT
 
 echo "DEPLOYED ${commit_sha} to goatos-stg"
