@@ -485,6 +485,10 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"weighing_execute":            canExecuteWeighing(grants, grantedModules),
 			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
+			// Operator trim editor for proof video. OFF until a maintainer turns it on:
+			// the client gate additionally restricts it to the feed-packing capture surface,
+			// and treats an absent flag as off, so shipping it false changes nothing.
+			"proof_video_editing":         proofVideoEditingEnabled(),
 		},
 		VisibleNavigation:       visibleNav,
 		Modules:                 bootstrapModules,
@@ -848,4 +852,17 @@ func optionSourcesFor(grants []domain.GrantSummary) []domain.BootstrapOptionSour
 		}
 	}
 	return items
+}
+
+// proofVideoEditingEnabled reports whether the operator proof-video trim editor is offered.
+//
+// Deliberately a single constant rather than a grant/permission check: editing is not an
+// authority an operator holds, it is a capability the farm switches on once the workflow is
+// signed off. Keeping it here means enabling it is a reviewed change in this file rather than a
+// silent consequence of someone gaining a role.
+//
+// The client refuses to show the editor for any surface except feed packing regardless of this
+// value, and refuses outright when the flag is absent, so both ends fail closed.
+func proofVideoEditingEnabled() bool {
+	return false
 }
