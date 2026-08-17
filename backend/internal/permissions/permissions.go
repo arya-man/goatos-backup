@@ -524,6 +524,20 @@ const (
 	// module's queue, oversight watches ALL of them) and never inferred from a role string --
 	// callers must be checked for this permission, not for RoleCEOInternal/RolePCDirector by name.
 	VerificationOversee = "verification.oversee"
+
+	// VerificationFilterByCaptureDate gates the CAPTURE-DATE RANGE picker on /verify, on every
+	// page of the verifier's workspace (maintainer decision 2026-08-17).
+	//
+	// It is SPLIT OUT of VerificationOversee because the two are different rules that the
+	// 2026-08-12 incident happened to bundle. That incident was about CROSS-MODULE chrome
+	// rendering for every role: module chips let a caller reshape the queue across modules she has
+	// no duty in, and they stay leadership-only. A date range crosses no module boundary -- it
+	// narrows the caller's OWN queue to the days she is working -- so the verifier holds this one
+	// while VerificationOversee stays with leadership.
+	//
+	// Held by RoleVerifier, RolePCDirector and RoleCEOInternal. It adds NO verdict authority, no
+	// cross-module reach, and no analytics: it only filters rows the holder could already see.
+	VerificationFilterByCaptureDate = "verification.filter_capture_date"
 	// VerificationEvidenceTimeline gates the VIDEO LOG on /verify: for ONE business day, per shed,
 	// the time each proof was uploaded (feed distribution's three, feed packing's one, feed
 	// transport's one, and the vaccination/weighing/birth/death/shifting proofs beside them).
@@ -582,6 +596,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// see that constant and VerificationEvidenceTimeline for why the two are separate. This
 		// adds no verdict authority and no queue-reshaping filter.
 		VerificationEvidenceTimeline: {},
+		// The capture-date range on her own queue (maintainer decision 2026-08-17). Deliberately
+		// granted even though VerificationOversee is not -- see that constant for why the two are
+		// separate. It reshapes nothing across modules and adds no authority.
+		VerificationFilterByCaptureDate: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
@@ -638,6 +656,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// capability instead of an inference over grant shape. See VerificationOversee's doc
 		// comment.
 		VerificationOversee: {},
+		// Leadership keeps the date range it already had, now under its own capability.
+		VerificationFilterByCaptureDate: {},
 		// The VIDEO LOG (maintainer decision 2026-08-14): one day, per shed, when each proof
 		// arrived. See VerificationEvidenceTimeline -- a separate capability from the oversight
 		// chrome above, held here because leadership must see every built surface.
@@ -912,6 +932,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// receives the unrestricted, cross-category branch of resolveVerifierCategories. See
 		// VerificationOversee's doc comment.
 		VerificationOversee: {},
+		// Leadership keeps the date range it already had, now under its own capability.
+		VerificationFilterByCaptureDate: {},
 		// The VIDEO LOG on /verify (maintainer decision 2026-08-14), same founder/builder
 		// visibility invariant. See VerificationEvidenceTimeline: a separate capability from the
 		// oversight chrome above, and the verifier holds it too.

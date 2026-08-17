@@ -101,6 +101,21 @@ type ListQueueParams struct {
 	// This is the DATA gate; oversight_filters in the /verify page contract is the matching UI
 	// gate. Both must hold for the same rule -- the gate guards data, not pixels.
 	OversightFiltersEnabled bool
+	// CaptureDateFilterEnabled reports whether the caller may narrow the queue to a
+	// CAPTURE-DATE RANGE (BusinessDateFrom/BusinessDateTo).
+	//
+	// It is SPLIT OUT of OversightFiltersEnabled (maintainer decision 2026-08-17) because the two
+	// answer different questions. The 2026-08-12 incident was about CROSS-MODULE chrome leaking to
+	// every role: module chips let a verifier reshape the queue across modules she has no duty in,
+	// and that stays oversight-only. A date range does not cross a module boundary at all -- it
+	// narrows the caller's OWN queue to the days she is working -- so the verifier gets it while
+	// NavigationModule stays clamped for her.
+	//
+	// Held by permissions.VerificationFilterByCaptureDate. Same contract as its sibling: this is
+	// the DATA gate, capture_date_filter in the /verify page contract is the matching UI gate, and
+	// a caller without it is IGNORED rather than 403'd so a stale bookmark degrades to her normal
+	// queue instead of taking the board down.
+	CaptureDateFilterEnabled bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
