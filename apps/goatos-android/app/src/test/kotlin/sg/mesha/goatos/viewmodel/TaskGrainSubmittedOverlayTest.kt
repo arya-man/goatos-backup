@@ -116,4 +116,56 @@ class TaskGrainSubmittedOverlayTest {
         assertEquals("due", transportStatus("due", store, "task-1"))
         assertEquals("not_submitted", milkStatus("not_submitted", store, "task-1"))
     }
+
+    // ---- Milk Preparation (farm-day grain) ---------------------------------------------------
+
+    private fun prepStatus(status: String, store: FeedCompletionLocalStore, parkId: String, date: String, rework: String? = null) =
+        overlayMilkPreparationStatus(
+            verificationStatus = status,
+            reworkReason = rework,
+            isLocallySubmittedForReview = store.submittedForReviewKeys.value
+                .contains(FeedCompletionLocalStore.taskKey("milk-preparation", "$parkId|$date")),
+        )
+
+    @Test
+    fun `REGRESSION - queued milk prep submit renders pending_verification`() {
+        val store = FeedCompletionLocalStore()
+        assertEquals("not_submitted", prepStatus("not_submitted", store, "park-1", "2026-08-16"))
+
+        store.markSubmittedForReview(FeedCompletionLocalStore.taskKey("milk-preparation", "park-1|2026-08-16"))
+
+        assertEquals("pending_verification", prepStatus("not_submitted", store, "park-1", "2026-08-16"))
+    }
+
+    @Test
+    fun `GRAIN_SCOPE - milk prep submit does not flip another farm or another day`() {
+        val store = FeedCompletionLocalStore()
+        store.markSubmittedForReview(FeedCompletionLocalStore.taskKey("milk-preparation", "park-1|2026-08-16"))
+
+        assertEquals("pending_verification", prepStatus("not_submitted", store, "park-1", "2026-08-16"))
+        assertEquals("not_submitted", prepStatus("not_submitted", store, "park-2", "2026-08-16"))
+        assertEquals("not_submitted", prepStatus("not_submitted", store, "park-1", "2026-08-17"))
+    }
+
+    @Test
+    fun `milk prep - completed and rework are never overlaid`() {
+        val store = FeedCompletionLocalStore()
+        store.markSubmittedForReview(FeedCompletionLocalStore.taskKey("milk-preparation", "park-1|2026-08-16"))
+
+        assertEquals("completed", prepStatus("completed", store, "park-1", "2026-08-16"))
+        assertEquals("not_submitted", prepStatus("not_submitted", store, "park-1", "2026-08-16", rework = "Redo"))
+    }
+
+    @Test
+    fun `TERMINAL_CLEAR - clearing the key drops the badge back to the backend status`() {
+        val store = FeedCompletionLocalStore()
+        val key = FeedCompletionLocalStore.taskKey("milk-preparation", "park-1|2026-08-16")
+        store.markSubmittedForReview(key)
+        assertEquals("pending_verification", prepStatus("not_submitted", store, "park-1", "2026-08-16"))
+
+        // What SyncEngine does when the outbox row dies.
+        store.clearSubmittedForReview(key)
+
+        assertEquals("not_submitted", prepStatus("not_submitted", store, "park-1", "2026-08-16"))
+    }
 }

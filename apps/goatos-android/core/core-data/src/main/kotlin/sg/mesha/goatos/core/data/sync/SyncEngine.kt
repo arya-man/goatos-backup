@@ -127,6 +127,12 @@ class SyncEngine(
     // gate itself is unconditional and out of scope for this change).
     private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
     private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
+    /**
+     * The optimistic "already submitted" badge set. Cleared HERE — the one place a queued write is
+     * terminalized — when a submit fails for good, so the list stops claiming "In review" for work
+     * the server never took. Nullable so existing test constructions keep compiling.
+     */
+    private val feedCompletionStore: sg.mesha.goatos.core.data.FeedCompletionLocalStore? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -317,6 +323,13 @@ class SyncEngine(
                     failureClass = failureClass,
                 ),
             )
+            if (terminal) {
+                // The optimistic badge must not outlive the write it stands for: a rejected or
+                // attempts-exhausted submit has to fall back to the backend status so the operator
+                // sees it still needs doing. Never on a RETRYABLE failure -- that row is still going
+                // to be sent, and flapping the chip would be worse than leaving it.
+                submittedOverlayKeyOf(item)?.let { feedCompletionStore?.clearSubmittedForReview(it) }
+            }
             report(
                 if (terminal) {
                     OutboxTelemetryEvent(
@@ -413,6 +426,43 @@ class SyncEngine(
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
     }
+
+    /**
+     * The optimistic-badge grain key a terminally-failed [item] must clear, or null when that
+     * opType has no list overlay. Mirrors EXACTLY the key each submit ViewModel marks -- a mismatch
+     * here silently strands the badge, which is the bug this function exists to prevent.
+     */
+    internal fun submittedOverlayKeyOf(item: OutboxEntity): String? = runCatching {
+        val store = sg.mesha.goatos.core.data.FeedCompletionLocalStore
+        when (OutboxOpType.valueOf(item.opType)) {
+            OutboxOpType.FEED_PACKING_COMPLETE -> {
+                val p = syncJson.decodeFromString<FeedPackingCompletePayload>(item.payloadJson)
+                // sessionNo 0 means "queued by the pen-day build" and dispatches as session 1.
+                store.key(p.shedId, p.partitionLabel, p.sessionNo.takeIf { it != 0 } ?: 1, p.workflow)
+            }
+            OutboxOpType.FEED_DIRECTION_COMPLETE -> {
+                val p = syncJson.decodeFromString<FeedDirectionCompletePayload>(item.payloadJson)
+                store.key(p.shedId, null, p.sessionNo, p.workflow)
+            }
+            OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> {
+                val p = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+                store.key(p.shedId, p.partitionLabel, p.sessionNo, p.workflow)
+            }
+            OutboxOpType.FEED_TRANSPORT_SUBMIT -> {
+                val p = syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson)
+                store.taskKey("feed-transport", p.taskId)
+            }
+            OutboxOpType.MILK_FEEDING_SUBMIT -> {
+                val p = syncJson.decodeFromString<MilkFeedingSubmitPayload>(item.payloadJson)
+                store.taskKey("milk-feeding", p.taskId)
+            }
+            OutboxOpType.MILK_PREPARATION_SUBMIT -> {
+                val p = syncJson.decodeFromString<MilkPreparationSubmitPayload>(item.payloadJson)
+                store.taskKey("milk-preparation", p.parkId + "|" + p.preparationDate)
+            }
+            else -> null
+        }
+    }.getOrNull()
 
     private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
         when (OutboxOpType.valueOf(item.opType)) {

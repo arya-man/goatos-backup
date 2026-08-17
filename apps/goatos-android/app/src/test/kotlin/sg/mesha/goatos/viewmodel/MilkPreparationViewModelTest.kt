@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,7 @@ class MilkPreparationViewModelTest {
         val milkRepository = FakeMilkPreparationRepository()
 
         val viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = milkRepository,
             capture = videoSource,
@@ -126,6 +128,7 @@ class MilkPreparationViewModelTest {
         val milkRepository = FakeMilkPreparationRepository()
 
         val viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = milkRepository,
             capture = videoSource,
@@ -183,6 +186,7 @@ class MilkPreparationViewModelTest {
         val milkRepository = FakeMilkPreparationRepository()
 
         val viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = milkRepository,
             capture = videoSource,
@@ -242,6 +246,7 @@ class MilkPreparationViewModelTest {
         val syncRepository = FakeMilkPreparationSyncRepository()
         syncRepository.itemFlow.value = item(sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED)
         val viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = FakeMilkPreparationRepository(),
             capture = FakeProofCaptureSource(),
@@ -280,6 +285,7 @@ class MilkPreparationViewModelTest {
 
         // Session 1: submit fails before enqueueing (no outbox item created)
         var viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = FakeMilkPreparationRepository(),
             capture = FakeProofCaptureSource(),
@@ -304,6 +310,7 @@ class MilkPreparationViewModelTest {
         // Capture a proof first
         val proofRepository = FakeProofCaptureRepository()
         viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = FakeMilkPreparationRepository(),
             capture = FakeProofCaptureSource(
@@ -336,6 +343,7 @@ class MilkPreparationViewModelTest {
         // Before fix: durable draft still has old submitIdempotencyKey -> screen stays locked
         // After fix: draft was cleared -> screen is editable
         viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = syncRepository,
             repo = FakeMilkPreparationRepository(),
             capture = FakeProofCaptureSource(),
@@ -372,6 +380,7 @@ class MilkPreparationViewModelTest {
     @Test
     fun `live pending_verification status blocks edits with no local latch`() = runTest(dispatcher) {
         val viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = FakeMilkPreparationSyncRepository(),
             repo = FakeMilkPreparationRepository(
                 seedTask = MilkPreparationFarmTaskDto(parkId = "park-1", verificationStatus = "pending_verification"),
@@ -401,6 +410,7 @@ class MilkPreparationViewModelTest {
     @Test
     fun `no server submission leaves screen editable with no local latch`() = runTest(dispatcher) {
         val viewModel = MilkPreparationViewModel(
+            feedCompletionStore = FeedCompletionLocalStore(),
             sync = FakeMilkPreparationSyncRepository(),
             repo = FakeMilkPreparationRepository(
                 seedTask = MilkPreparationFarmTaskDto(parkId = "park-1", verificationStatus = "not_submitted"),

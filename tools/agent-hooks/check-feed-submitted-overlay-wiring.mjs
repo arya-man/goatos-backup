@@ -37,6 +37,7 @@ const LIST_VIEW_MODELS = [
 const TASK_GRAIN_LISTS = [
   { file: `${vm}/FeedTransportViewModel.kt`, rule: "overlayTransportStatus(" },
   { file: `${vm}/MilkFeedingViewModel.kt`, rule: "overlayMilkFeedingStatus(" },
+  { file: `${vm}/MilkPreparationViewModel.kt`, rule: "overlayMilkPreparationStatus(" },
 ];
 
 /** Submit ViewModels: must record the grain when the enqueue succeeds. */
@@ -46,7 +47,12 @@ const SUBMIT_VIEW_MODELS = [
   `${vm}/FeedDistributionCompleteViewModel.kt`,
   `${vm}/FeedTransportViewModel.kt`,
   `${vm}/MilkFeedingViewModel.kt`,
+  `${vm}/MilkPreparationViewModel.kt`,
 ];
+
+/** The engine that must RETRACT the badge when a submit dies. */
+const SYNC_ENGINE =
+  "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/sync/SyncEngine.kt";
 
 // ---- pure analysis (unit-tested by --self-test) ---------------------------------------------
 
@@ -84,6 +90,23 @@ export function checkSubmitViewModel(source, label) {
 }
 
 /** The rule itself must stay a single shared definition, not be copied per flow. */
+/**
+ * The badge is a CLAIM that work was sent. When the outbox row dies (rejected, or attempts
+ * exhausted) the claim must be retracted, or the list keeps lying about sent work — worse than the
+ * stale "Pending" the overlay exists to fix. Enforced structurally because nothing else fails.
+ */
+export function checkTerminalClear(source, label) {
+  if (!source.includes("clearSubmittedForReview(")) {
+    throw new Error(
+      `${label}: nothing clears the optimistic badge on terminal failure — a rejected or ` +
+        `exhausted submit would keep reading "In review" until logout or the next business day`,
+    );
+  }
+  if (!source.includes("submittedOverlayKeyOf(")) {
+    throw new Error(`${label}: the opType -> grain-key mapping used to clear the badge is gone`);
+  }
+}
+
 export function checkSingleRuleDefinition(sources) {
   const definitions = sources.filter((s) => s.body.includes("internal fun overlayFeedLifecycleStatus"));
   if (definitions.length !== 1) {
@@ -134,6 +157,12 @@ function selfTest() {
     () => checkTaskGrainList("submittedForReviewKeys only", "overlayTransportStatus(", "fixture"),
     "a task-grain list missing its overlay rule",
   );
+  checkTerminalClear("submittedOverlayKeyOf(item) ... clearSubmittedForReview(it)", "fixture");
+  console.log("  ok   accepts an engine that retracts the badge on terminal failure");
+  expectThrow(
+    () => checkTerminalClear("report(TERMINAL)", "fixture"),
+    "an engine that never clears the badge on terminal failure",
+  );
   expectThrow(
     () => checkSubmitViewModel("analytics.track(SUBMITTED)", "fixture"),
     "a submit that never records the grain",
@@ -180,6 +209,10 @@ function main() {
   for (const rel of SUBMIT_VIEW_MODELS) {
     const { label, body } = read(rel);
     checkSubmitViewModel(body, label);
+  }
+  {
+    const { label, body } = read(SYNC_ENGINE);
+    checkTerminalClear(body, label);
   }
   checkSingleRuleDefinition([...LIST_VIEW_MODELS, ...TASK_GRAIN_LISTS.map((t) => t.file), `${vm}/FeedLifecycleOverlay.kt`].map(read));
 

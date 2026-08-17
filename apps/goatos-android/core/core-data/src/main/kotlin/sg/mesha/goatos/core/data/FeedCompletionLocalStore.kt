@@ -64,6 +64,19 @@ class FeedCompletionLocalStore {
         _submittedForReviewKeys.update { current -> current.filterTo(mutableSetOf()) { it.startsWith(prefix) } + key }
     }
 
+    /**
+     * Drops ONE submitted-for-review key.
+     *
+     * Called from [sg.mesha.goatos.core.data.sync.SyncEngine] the moment that grain's outbox row
+     * terminalizes as FAILED (rejected outright, or attempts exhausted). Without this the optimistic
+     * badge is a LIE that outlives the failure: the row keeps reading "In review" for work the
+     * server never accepted, until logout or the next business day — strictly worse than the stale
+     * "Pending" this overlay exists to fix, because the operator stops chasing it.
+     */
+    fun clearSubmittedForReview(key: String) {
+        _submittedForReviewKeys.update { current -> current - key }
+    }
+
     fun isCompleted(key: String): Boolean = _completedKeys.value.contains(key)
 
     /**
