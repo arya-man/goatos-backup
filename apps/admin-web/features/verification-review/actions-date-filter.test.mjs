@@ -34,9 +34,20 @@ test("the shared date params live OUTSIDE the client boundary", () => {
   assert.doesNotMatch(filterSource, /export const DATE_(FROM|TO)_PARAM/);
 });
 
-test("today is the landing default and is expressed by absence, not by a written-out date", () => {
-  // parseDateRange falls through to today when no params are present...
-  assert.match(pageSource, /return \{ from: today, to: today \};/);
+// The landing default is a recent WINDOW, not today (maintainer decision 2026-08-17). Proof arrives
+// on the day it is captured and is reviewed later, so a queue pinned to today shows an empty board
+// on top of a full backlog -- observed on real data: 402 pending weighing proofs across the previous
+// twelve days, and a board reading "No actions to review". The backend already said this in
+// ports.ListQueueParams.IsVerifierQueueRead ("does NOT clamp to today"); this page was overriding it.
+test("the landing default is a recent window, not today alone, and is expressed by absence", () => {
+  // parseDateRange falls through to the window when no params are present...
+  assert.match(pageSource, /return \{ from: businessDaysBefore\(today, DEFAULT_QUEUE_WINDOW_DAYS\), to: today \};/);
+  assert.match(pageSource, /const DEFAULT_QUEUE_WINDOW_DAYS = \d+;/);
+  assert.doesNotMatch(
+    pageSource,
+    /return \{ from: today, to: today \};/,
+    "landing on today alone hides the backlog the verifier is meant to be working",
+  );
   assert.match(pageSource, /const today = todayIso\(\);/);
   // ...and selecting today CLEARS the params rather than pinning the date into the URL, so a
   // bookmark keeps meaning "today" instead of freezing on the day it was taken.

@@ -59,6 +59,18 @@ export const ReviewVideoPlayer = React.forwardRef<
     // flash an option that then vanishes.
     const [durationSeconds, setDurationSeconds] = useState(0);
     const [isDoubleSpeed, setIsDoubleSpeed] = useState(false);
+    // The skip guard lives in an EFFECT, so between the browser having a playable element and React
+    // running that effect there is a window in which the seek listeners and the clamp poll are not
+    // attached yet. A seek landing in that window is not rolled back by anything. Measured in a real
+    // browser: seeking immediately after `loadedmetadata` STOOD at the target, while the identical
+    // seek a few hundred ms later was clamped to 0.
+    //
+    // The window is short and a human is unlikely to win the race, but "unlikely" is not a guard on
+    // an evidence-integrity control, and a slow machine widens it. So the native scrubber is not
+    // handed to the verifier until the guard is provably armed: `controls` is withheld until the
+    // effect below has bound. Withholding the control is the safe direction -- she waits a moment
+    // for the scrubber, rather than getting an unguarded one.
+    const [guardArmed, setGuardArmed] = useState(false);
 
     // All watch/seek logic lives in WatchTracker (player-telemetry.ts) so it is unit-testable
     // without a browser; this component only wires DOM events to it and applies the revert it asks
@@ -131,6 +143,8 @@ export const ReviewVideoPlayer = React.forwardRef<
       video.addEventListener("seeked", onProgress);
       video.addEventListener("timeupdate", onProgress);
       video.addEventListener("ended", onEnded);
+      // Everything above is bound and the clamp poll is running: the scrubber is now safe to offer.
+      setGuardArmed(true);
 
       return () => {
         clearInterval(clampTimer);
@@ -141,6 +155,8 @@ export const ReviewVideoPlayer = React.forwardRef<
         video.removeEventListener("seeked", onProgress);
         video.removeEventListener("timeupdate", onProgress);
         video.removeEventListener("ended", onEnded);
+        // A new proof mounts a new element; it must re-arm on its own rather than inherit this one's.
+        setGuardArmed(false);
       };
     }, [tracker, videoEl]);
 
@@ -160,7 +176,7 @@ export const ReviewVideoPlayer = React.forwardRef<
 
     return (
       <div ref={ref} {...divProps}>
-        <video ref={setVideoEl} controls preload="metadata">
+        <video ref={setVideoEl} controls={guardArmed} preload="metadata">
           <source src={src} type={mimeType} />
         </video>
         {mayDoubleSpeed ? (
