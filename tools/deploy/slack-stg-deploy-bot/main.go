@@ -304,8 +304,9 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 				"response_type":    "in_channel",
 				"replace_original": false,
 				"text":             fmt.Sprintf("%s monitor timed out for build `%s`; check Cloud Build logs.", actionLabel, buildID),
-				"blocks":           deployTerminalBlocks("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil),
+				"attachments":      deployTerminalAttachments("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil),
 			})
+			cfg.postDeployPanel(responseURL)
 			return
 		case <-ticker.C:
 			build, err := cfg.getBuild(ctx, buildID)
@@ -320,8 +321,9 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 				"response_type":    "in_channel",
 				"replace_original": false,
 				"text":             fmt.Sprintf("%s finished with Cloud Build status `%s` for `%s`.", actionLabel, build.Status, buildID),
-				"blocks":           deployTerminalBlocks(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps),
+				"attachments":      deployTerminalAttachments(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps),
 			})
+			cfg.postDeployPanel(responseURL)
 			return
 		}
 	}
@@ -365,16 +367,19 @@ func isTerminalBuildStatus(status string) bool {
 	}
 }
 
-func deployTerminalBlocks(status, triggeredBy, actionLabel, buildID string, deploySTG, mobileDistribution bool, buildURL, deployURL string, steps []struct {
+func deployTerminalAttachments(status, triggeredBy, actionLabel, buildID string, deploySTG, mobileDistribution bool, buildURL, deployURL string, steps []struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 }) []map[string]any {
 	title := "Goat OS deploy finished"
+	color := "#AAAAAA"
 	switch status {
 	case "SUCCESS":
 		title = "Goat OS deploy succeeded"
+		color = "#2EB67D"
 	case "FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED", "TIMED_OUT":
 		title = "Goat OS deploy needs attention"
+		color = "#E01E5A"
 	}
 	stepText := "Cloud Build reached a terminal state."
 	if len(steps) > 0 {
@@ -389,23 +394,98 @@ func deployTerminalBlocks(status, triggeredBy, actionLabel, buildID string, depl
 		}
 	}
 
-	elements := []map[string]any{
-		{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Build logs"}, "url": buildURL},
+	actions := []map[string]any{
+		{"type": "button", "text": "Cloud Build logs", "url": buildURL},
 	}
 	if deploySTG {
-		elements = append(elements, map[string]any{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Deploy"}, "url": deployURL})
+		actions = append(actions, map[string]any{"type": "button", "text": "Cloud Deploy", "url": deployURL})
 	}
 
 	return []map[string]any{
 		{
-			"type": "section",
-			"text": map[string]string{
-				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s*\nStatus: `%s`\nBuild: `%s`\nTriggered by: %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n%s", title, status, buildID, triggeredBy, deploySTG, mobileDistribution, stepText),
+			"color": color,
+			"title": title,
+			"text":  stepText,
+			"fields": []map[string]any{
+				{"title": "Build", "value": buildID, "short": true},
+				{"title": "Status", "value": status, "short": true},
+				{"title": "Triggered by", "value": triggeredBy, "short": false},
+				{"title": "Mode", "value": deployModeLabel(deploySTG, mobileDistribution), "short": false},
+			},
+			"actions": actions,
+		},
+	}
+}
+
+func deployModeLabel(deploySTG, mobileDistribution bool) string {
+	switch {
+	case deploySTG && mobileDistribution:
+		return "STG + Android mobile"
+	case deploySTG:
+		return "STG"
+	case mobileDistribution:
+		return "Android mobile"
+	default:
+		return "unknown"
+	}
+}
+
+func (cfg config) postDeployPanel(responseURL string) {
+	cfg.postSlackResponse(responseURL, map[string]any{
+		"response_type":    "in_channel",
+		"replace_original": false,
+		"text":             "Goat OS STG deploy",
+		"blocks": []map[string]any{
+			{
+				"type": "section",
+				"text": map[string]string{
+					"type": "mrkdwn",
+					"text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+				},
+			},
+			{
+				"type":     "actions",
+				"block_id": "deploy_options",
+				"elements": []map[string]any{
+					{
+						"type":      "checkboxes",
+						"action_id": "deploy_options",
+						"options": []map[string]any{
+							{
+								"text": map[string]string{
+									"type": "plain_text",
+									"text": "Also distribute Android mobile",
+								},
+								"description": map[string]string{
+									"type": "plain_text",
+									"text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+								},
+								"value": "mobile_distribution",
+							},
+						},
+					},
+				},
+			},
+			{
+				"type": "actions",
+				"elements": []map[string]any{
+					{
+						"type":      "button",
+						"text":      map[string]string{"type": "plain_text", "text": "Deploy main to STG"},
+						"style":     "primary",
+						"action_id": "deploy_goatos_stg_main",
+						"value":     "main",
+					},
+					{
+						"type":      "button",
+						"text":      map[string]string{"type": "plain_text", "text": "Distribute Android only"},
+						"action_id": "deploy_goatos_mobile_only",
+						"value":     "mobile",
+					},
+				},
 			},
 		},
-		{"type": "actions", "elements": elements},
-	}
+	})
 }
 
 func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool, slackUserID, triggeredBy string) (string, error) {
