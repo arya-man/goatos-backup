@@ -397,6 +397,7 @@ class FeedDirectionViewModel @Inject constructor(
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
             status = status.takeIf { it.isNotBlank() },
+            refreshNonce = refreshNonce,
         )
     }
 
