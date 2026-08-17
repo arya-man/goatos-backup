@@ -95,27 +95,70 @@ class ObservationFormViewModel @Inject constructor(
      * So the row is observed, and the run id is read off the response the sync
      * engine stored when it finally went through.
      *
-     * A FAILED row emits nothing. The operator's work is safe in the queue and will
-     * retry; opening an assessment that does not exist would be worse than waiting.
+     * A row that is still being retried emits nothing: the operator's work is safe in
+     * the queue, and opening an assessment that does not exist would be worse than
+     * waiting.
+     *
+     * A row the queue has GIVEN UP ON is a different thing entirely, and used to be
+     * treated as the same. `isActive` is false once the write is a business rejection
+     * (`conflict`) or has burned its retry budget -- in both cases no drain will ever
+     * claim it again. Waiting on that silently left "Recorded. The assessment will
+     * appear once this syncs." on screen forever, in the affirmative, for a check the
+     * server had already refused. An operator in a shed cannot tell that apart from a
+     * slow sync, so they stand there waiting on an assessment that is never coming.
+     * Surfacing the server's own refusal is the honest answer.
      */
     private fun awaitAssessment(outboxItemId: String) {
         viewModelScope.launch {
             syncRepository.observeItem(outboxItemId)
                 .mapNotNull { item ->
-                    if (item?.status != SyncItemStatus.SUCCEEDED) return@mapNotNull null
-                    val result = item.resultJson ?: return@mapNotNull null
-                    // exception:exempt navigation trigger; an undecodable result simply does not
-                    // navigate, leaving the manager on the form with the submission still queued.
-                    runCatching {
-                        wireJson.decodeFromString<HealthDiagnosisProposalResponseDto>(result)
-                    }.getOrNull()?.diagnosisRunId?.takeIf { it.isNotBlank() }
+                    if (item == null) return@mapNotNull null
+                    if (item.status == SyncItemStatus.SUCCEEDED) {
+                        val result = item.resultJson ?: return@mapNotNull null
+                        // exception:exempt navigation trigger; an undecodable result simply does
+                        // not navigate, leaving the manager on the form with the submission
+                        // still queued.
+                        return@mapNotNull runCatching {
+                            wireJson.decodeFromString<HealthDiagnosisProposalResponseDto>(result)
+                        }.getOrNull()?.diagnosisRunId?.takeIf { it.isNotBlank() }
+                            ?.let(AwaitOutcome::Assessed)
+                    }
+                    // Not succeeded and never going to be retried.
+                    if (!item.isActive) AwaitOutcome.Refused(item.lastError) else null
                 }
                 .first()
-                .let { runId ->
-                    _state.value = _state.value.copy(message = null)
-                    _assessed.send(runId)
+                .let { outcome ->
+                    when (outcome) {
+                        is AwaitOutcome.Assessed -> {
+                            _state.value = _state.value.copy(message = null)
+                            _assessed.send(outcome.runId)
+                        }
+                        is AwaitOutcome.Refused -> {
+                            analytics.track(
+                                AnalyticsEvents.HEALTH_WRITE_FAILURE,
+                                mapOf(
+                                    AnalyticsEvents.Params.KIND to "observation_refused",
+                                    AnalyticsEvents.Params.REASON to (outcome.reason ?: "unknown"),
+                                ),
+                            )
+                            _state.value = _state.value.copy(
+                                submitting = false,
+                                // The server's own words when it gave them: it is the only side
+                                // that knows WHY this animal was refused, and a generic sentence
+                                // would send the manager back to re-tick the same form.
+                                message = outcome.reason?.takeIf { it.isNotBlank() }
+                                    ?: "This check could not be assessed. Try again.",
+                            )
+                        }
+                    }
                 }
         }
+    }
+
+    /** What the queued observation finally resolved to: an assessment, or a refusal. */
+    private sealed interface AwaitOutcome {
+        data class Assessed(val runId: String) : AwaitOutcome
+        data class Refused(val reason: String?) : AwaitOutcome
     }
 
     /**

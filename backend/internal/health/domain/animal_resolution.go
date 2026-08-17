@@ -60,7 +60,11 @@ const (
 // ErrGoatNotDiagnosable is returned when the animal's own record cannot produce
 // a usable Animal. It fails loudly rather than defaulting: a defaulted sex would
 // silently disable half the register.
-var ErrGoatNotDiagnosable = fmt.Errorf("health: goat record cannot be resolved for diagnosis")
+// The sentinel's own text is a user-facing prefix, not a log line: every message wrapping
+// it is returned verbatim to the phone as the 422 body (see writeDiagnosisError). It reads
+// as the farm fact -- this animal cannot be checked -- with the reason supplied by the
+// wrapping message.
+var ErrGoatNotDiagnosable = fmt.Errorf("this animal cannot be checked")
 
 // ResolveAnimal maps a GoatOS goat onto the engine's Animal.
 func ResolveAnimal(facts GoatFacts) (diagnosis.Animal, error) {
@@ -82,39 +86,96 @@ func ResolveAnimal(facts GoatFacts) (diagnosis.Animal, error) {
 		return diagnosis.Animal{}, fmt.Errorf("%w: unknown sex %q", ErrGoatNotDiagnosable, facts.Sex)
 	}
 
-	// CLASS RESOLUTION FAILS CLOSED FOR KIDS, and this is deliberate.
+	// CLASS RESOLUTION STILL FAILS CLOSED, but on the STAGE rather than on the age band.
 	//
-	// The engine now carries four registers -- adult, kid_milk, kid_weaning,
-	// kid_fattening -- and they differ in ways that make picking the wrong one
-	// worse than picking none. A fattening kid diagnosed off the milk register
-	// would never be checked for acidosis, the single thing most likely to kill
-	// it; a milk kid diagnosed off the weaning register would never get the drop
-	// test, which is the only way floppy kid is caught while it is still cheap
-	// to treat.
+	// The engine carries four registers -- adult, kid_milk, kid_weaning, kid_fattening --
+	// and they differ in ways that make picking the wrong one worse than picking none. A
+	// fattening kid diagnosed off the milk register would never be checked for acidosis,
+	// the single thing most likely to kill it; a milk kid diagnosed off the weaning
+	// register would never get the drop test, which is the only way floppy kid is caught
+	// while it is still cheap to treat.
 	//
-	// GoatOS cannot currently tell the three apart. `age_band` is only
-	// `kid` | `adult`, and nothing maps `management_stage` onto the milk /
-	// weaning / fattening split or onto the K0-K3 sub-stage the milk and weaning
-	// registers read. Until that mapping exists as a MAINTAINER decision, a kid
-	// is refused rather than guessed.
+	// This used to refuse EVERY kid, on the belief that GoatOS records nothing that could
+	// tell the three apart. That belief is no longer true: `animal_stage_lookup` is a
+	// seeded, tenant-scoped catalog whose codes line up with the spec's own class stages
+	// almost one for one (K0 Newborn / K1 Milk training / K2 Milk drinking -> kid_milk,
+	// K3 Weaned kids -> kid_weaning, F2* Fattening -> kid_fattening), and `loadGoatFacts`
+	// already reads `management_stage` into the facts. The mapping was sitting on the
+	// animal's own record, unread. Maintainer decision 2026-08-17.
 	//
-	// The old code defaulted every kid to `kid_milk`. That was harmless while
-	// kids were out of diagnostic scope entirely -- the class only had to exist
-	// so emergencies could fire -- and it became dangerous the moment the milk
-	// register started producing diagnoses.
+	// The safety property is preserved by keeping the mapping EXPLICIT and closed: a stage
+	// this table does not name is refused, not defaulted. That is what stops a newly-seeded
+	// stage from silently inheriting some other cohort's medicine. Note especially that
+	// clinical placements (ICU-Kid, Quarantine kids) are deliberately absent -- they say
+	// WHERE an animal is, not what it eats or how old it is, so they cannot choose a
+	// register and must not guess one.
+	//
+	// The old code defaulted every kid to `kid_milk`. That was harmless while kids were out
+	// of diagnostic scope entirely -- the class only had to exist so emergencies could fire
+	// -- and it became dangerous the moment the milk register started producing diagnoses.
 	ageBand := strings.ToLower(strings.TrimSpace(facts.AgeBand))
-	if ageBand != AgeBandAdult {
+	if ageBand == AgeBandAdult {
+		return diagnosis.Animal{
+			Class:   diagnosis.ClassAdult,
+			Species: species,
+			Sex:     sex,
+			Status:  resolveStatus(facts),
+		}, nil
+	}
+
+	class, stage, ok := kidClassForStage(facts.ManagementStage)
+	if !ok {
+		// The refusal text is what the OPERATOR reads: writeDiagnosisError sends err.Error()
+		// straight out as the 422 body, and the phone renders it verbatim. So it names the
+		// farm fact and the stage that caused it, and leaves the register mechanics above
+		// where the next developer needs them and the manager does not.
 		return diagnosis.Animal{}, fmt.Errorf(
-			"%w: age band %q cannot be resolved to a diagnosis class -- kids need the milk / weaning / fattening split and the K0-K3 stage, which GoatOS does not yet record",
-			ErrGoatNotDiagnosable, facts.AgeBand)
+			"%w: its stage %q does not say whether it is on milk, weaning or fattening",
+			ErrGoatNotDiagnosable, strings.TrimSpace(facts.ManagementStage))
 	}
 
 	return diagnosis.Animal{
-		Class:   diagnosis.ClassAdult,
+		Class:   class,
+		Stage:   stage,
 		Species: species,
 		Sex:     sex,
 		Status:  resolveStatus(facts),
 	}, nil
+}
+
+// kidStageClasses maps a GoatOS management stage onto the engine class that treats it,
+// plus the sub-stage that class reads.
+//
+// The sub-stage is not decoration: inside kid_milk the register runs a DIFFERENT ladder for
+// a week-old K1 (three milk-bar sessions a day) than for a K2 on the free-choice bar, and
+// `offer_ors` / `session_bottle` / `force_milk` all branch on it. Passing the class without
+// the stage would produce a confident diagnosis off the wrong half of one register.
+//
+// Keyed on the stage CODE from `animal_stage_lookup`, compared case-insensitively because the
+// same catalog already holds both `kid` and `Kid` age bands from two different import runs.
+var kidStageClasses = map[string]struct {
+	class string
+	stage string
+}{
+	"k0": {diagnosis.ClassKidMilk, "K0"},
+	"k1": {diagnosis.ClassKidMilk, "K1"},
+	"k2": {diagnosis.ClassKidMilk, "K2"},
+	"k3": {diagnosis.ClassKidWeaning, "K3"},
+	// Fattening carries no sub-stage: its register has one cohort and reads no K value.
+	"f2":        {diagnosis.ClassKidFattening, ""},
+	"f2-male":   {diagnosis.ClassKidFattening, ""},
+	"f2-female": {diagnosis.ClassKidFattening, ""},
+}
+
+// kidClassForStage resolves a kid's management stage to (class, sub-stage). The bool is false
+// for any stage not named above -- including a blank one and a clinical placement -- and the
+// caller must refuse rather than default.
+func kidClassForStage(managementStage string) (class string, stage string, ok bool) {
+	entry, found := kidStageClasses[strings.ToLower(strings.TrimSpace(managementStage))]
+	if !found {
+		return "", "", false
+	}
+	return entry.class, entry.stage, true
 }
 
 // resolveStatus picks the ONE status the engine accepts, most specific first.

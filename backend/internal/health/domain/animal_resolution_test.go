@@ -179,19 +179,94 @@ func TestMissingKiddingHistoryIsReportedNotFatal(t *testing.T) {
 // This replaces an earlier test that asserted a kid resolved to `kid_milk`. That
 // default was harmless while kids were out of diagnostic scope entirely, and
 // became dangerous the moment the milk register started producing diagnoses.
-func TestResolveAnimalRefusesAKidRatherThanGuessingItsClass(t *testing.T) {
-	facts := adultDoe()
-	facts.AgeBand = AgeBandKid
+// A kid whose stage cannot choose a register is still refused. This is the safety half of
+// the 2026-08-17 mapping: knowing an animal is a kid is NOT enough, because the three kid
+// registers disagree about the things most likely to kill it.
+//
+// The cases are the ones the live catalog actually produces: no stage at all, and a clinical
+// placement. ICU-Kid is the one to keep: it is a real seeded stage on real animals, and it
+// describes WHERE the kid is rather than what it eats, so it can never pick a register.
+func TestResolveAnimalRefusesAKidWhoseStageCannotChooseARegister(t *testing.T) {
+	for _, stage := range []string{"", "   ", "ICU-Kid", "Quarantine kids", "Warmup", "F3-Male"} {
+		t.Run("stage="+stage, func(t *testing.T) {
+			facts := adultDoe()
+			facts.AgeBand = AgeBandKid
+			facts.ManagementStage = stage
 
-	got, err := ResolveAnimal(facts)
-	if err == nil {
-		t.Fatalf("a kid was resolved to class %q instead of being refused", got.Class)
+			got, err := ResolveAnimal(facts)
+			if err == nil {
+				t.Fatalf("stage %q was resolved to class %q instead of being refused", stage, got.Class)
+			}
+			if !errors.Is(err, ErrGoatNotDiagnosable) {
+				t.Errorf("error = %v, want it to wrap ErrGoatNotDiagnosable", err)
+			}
+			if got.Class != "" {
+				t.Errorf("a refused animal must carry no class, got %q", got.Class)
+			}
+		})
 	}
-	if !errors.Is(err, ErrGoatNotDiagnosable) {
-		t.Errorf("error = %v, want it to wrap ErrGoatNotDiagnosable", err)
+}
+
+// Each kid stage reaches the register that actually treats it. Written as a table of the
+// live `animal_stage_lookup` codes rather than of the engine's class ids, because the
+// failure being guarded is a MIS-MAPPING -- a fattening kid sent to the milk register is
+// never checked for acidosis, and a milk kid sent to the weaning register never gets the
+// drop test. Both would return a confident, wrong "nothing found".
+func TestResolveAnimalMapsEachKidStageToItsOwnRegister(t *testing.T) {
+	cases := []struct {
+		stage     string
+		wantClass string
+		wantStage string
+	}{
+		{"K0", diagnosis.ClassKidMilk, "K0"},
+		{"K1", diagnosis.ClassKidMilk, "K1"},
+		{"K2", diagnosis.ClassKidMilk, "K2"},
+		{"K3", diagnosis.ClassKidWeaning, "K3"},
+		{"F2", diagnosis.ClassKidFattening, ""},
+		{"F2-Male", diagnosis.ClassKidFattening, ""},
+		{"F2-Female", diagnosis.ClassKidFattening, ""},
+		// The catalog holds the same codes in more than one casing across import runs.
+		{"k2", diagnosis.ClassKidMilk, "K2"},
+		{"f2-female", diagnosis.ClassKidFattening, ""},
 	}
-	if got.Class != "" {
-		t.Errorf("a refused animal must carry no class, got %q", got.Class)
+	for _, tc := range cases {
+		t.Run(tc.stage, func(t *testing.T) {
+			facts := adultDoe()
+			facts.AgeBand = AgeBandKid
+			facts.ManagementStage = tc.stage
+
+			got, err := ResolveAnimal(facts)
+			if err != nil {
+				t.Fatalf("stage %q: %v", tc.stage, err)
+			}
+			if got.Class != tc.wantClass {
+				t.Errorf("class = %q, want %q", got.Class, tc.wantClass)
+			}
+			// The sub-stage is what splits the milk register's K1 ladder from its K2 bar;
+			// dropping it would diagnose off the wrong half of the right register.
+			if got.Stage != tc.wantStage {
+				t.Errorf("stage = %q, want %q", got.Stage, tc.wantStage)
+			}
+		})
+	}
+}
+
+// The three kid classes must stay DISTINCT. A mapping that collapsed two of them would pass
+// every per-stage assertion above while quietly treating weaning kids as milk kids.
+func TestKidRegistersDoNotCollapseIntoEachOther(t *testing.T) {
+	classOf := func(stage string) string {
+		facts := adultDoe()
+		facts.AgeBand = AgeBandKid
+		facts.ManagementStage = stage
+		got, err := ResolveAnimal(facts)
+		if err != nil {
+			t.Fatalf("stage %q: %v", stage, err)
+		}
+		return got.Class
+	}
+	milk, weaning, fattening := classOf("K2"), classOf("K3"), classOf("F2-Male")
+	if milk == weaning || milk == fattening || weaning == fattening {
+		t.Fatalf("kid classes collapsed: milk=%q weaning=%q fattening=%q", milk, weaning, fattening)
 	}
 }
 
