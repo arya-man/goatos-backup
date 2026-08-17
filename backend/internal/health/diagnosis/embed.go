@@ -63,6 +63,18 @@ var classRegisters = []classRegister{
 	{ClassKidFattening, "kid-fattening-1", kidFatteningRegisterYAML},
 }
 
+// Classes is every animal class this engine can diagnose, in the order the packs are
+// declared above. Callers that must hold ALL registers (the diagnosis service resolves
+// each one at startup so a malformed table fails the deploy, not a manager's first
+// weaning kid) range over this rather than re-listing the ids and drifting from it.
+var Classes = func() []string {
+	out := make([]string, 0, len(classRegisters))
+	for _, cr := range classRegisters {
+		out = append(out, cr.class)
+	}
+	return out
+}()
+
 type loadedRegister struct {
 	reg *Register
 	err error

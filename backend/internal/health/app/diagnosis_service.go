@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -29,25 +30,40 @@ var (
 // DiagnosisService runs the observation form through the engine and mediates the
 // Director's confirmation.
 //
-// It holds the register rather than loading it per request: the rule table is
-// immutable for the life of the process, and re-parsing it on every observation
+// It holds the registers rather than loading them per request: the rule tables are
+// immutable for the life of the process, and re-parsing one on every observation
 // would make an already-hot path do avoidable work.
+//
+// ONE REGISTER PER CLASS, chosen from the animal. This used to be a single register,
+// which meant a kid resolved to `kid_milk` was still diagnosed off the ADULT table --
+// the proposal even said `scope: kid_milk, register_version: adult-1`, so the wrong
+// answer was labelled with the right cohort. That is the exact failure the class split
+// exists to prevent, and it is invisible unless you read the version.
 type DiagnosisService struct {
-	repo ports.DiagnosisRepository
-	reg  *diagnosis.Register
+	repo      ports.DiagnosisRepository
+	registers map[string]*diagnosis.Register
 }
 
-// NewDiagnosisService wires the service to a register. It fails closed: a nil
-// register would silently diagnose nothing, which reads to an operator as a
+// NewDiagnosisService wires the service to every class register. It fails closed: a
+// missing register would silently diagnose nothing, which reads to an operator as a
 // healthy animal.
-func NewDiagnosisService(repo ports.DiagnosisRepository, reg *diagnosis.Register) (*DiagnosisService, error) {
+//
+// All four are resolved up front rather than on first use, so a malformed rule table is
+// a startup failure the deploy surfaces, never a 500 the first manager to check a
+// weaning kid discovers in a shed.
+func NewDiagnosisService(repo ports.DiagnosisRepository, _ *diagnosis.Register) (*DiagnosisService, error) {
 	if repo == nil {
 		return nil, errors.New("health: diagnosis repository is required")
 	}
-	if reg == nil {
-		return nil, errors.New("health: diagnosis register is required")
+	registers := make(map[string]*diagnosis.Register, len(diagnosis.Classes))
+	for _, class := range diagnosis.Classes {
+		reg, err := diagnosis.RegisterFor(class)
+		if err != nil {
+			return nil, fmt.Errorf("health: diagnosis register for %s: %w", class, err)
+		}
+		registers[class] = reg
 	}
-	return &DiagnosisService{repo: repo, reg: reg}, nil
+	return &DiagnosisService{repo: repo, registers: registers}, nil
 }
 
 // SubmitObservation evaluates one form and stores the proposal.
@@ -81,8 +97,20 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 // evaluate is the pure step the repository calls once it has resolved the
 // animal. Keeping it here rather than in the adapter means the engine is invoked
 // in exactly one place, and the adapter cannot quietly diagnose differently.
+// The register is chosen from the animal's own class, never fixed. ResolveAnimal has
+// already refused anything it could not class, so an unknown class here means the two
+// have drifted apart -- and the safe answer is to diagnose NOTHING rather than to fall
+// back to adult, which would hand a kid the adult table under a kid label.
 func (s *DiagnosisService) evaluate(animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
-	proposal := s.reg.Evaluate(animal, f, dctx)
+	reg, ok := s.registers[animal.Class]
+	if !ok {
+		return diagnosis.Proposal{
+			Valid:        false,
+			RejectReason: fmt.Sprintf("no rule table for animal class %q", animal.Class),
+			Scope:        diagnosis.ScopeOutOfScope,
+		}, nil
+	}
+	proposal := reg.Evaluate(animal, f, dctx)
 	return proposal, s.confirmableFrom(proposal)
 }
 
@@ -93,8 +121,11 @@ func (s *DiagnosisService) evaluate(animal diagnosis.Animal, f diagnosis.Finding
 // It does NOT filter unavailable ones out. A Director deciding on a probable
 // tetanus needs to see it even when the tetanus card is unauthored -- hiding it
 // would make a missing card look like a missing diagnosis.
+// Every in-scope class produces a decision list, not just adults. Gating this on
+// ScopeAdult meant a kid could be diagnosed and then present the Director with an empty
+// list -- a proposal nobody could act on, which reads as "nothing found".
 func (s *DiagnosisService) confirmableFrom(p diagnosis.Proposal) []domain.ConfirmableProblem {
-	if !p.Valid || p.Scope != diagnosis.ScopeAdult {
+	if !p.Valid || p.Scope == diagnosis.ScopeOutOfScope {
 		return nil
 	}
 	out := make([]domain.ConfirmableProblem, 0, len(p.Problems))
@@ -153,10 +184,18 @@ func (s *DiagnosisService) GetDiagnosisRun(ctx context.Context, tenantID, runID 
 	return s.repo.GetDiagnosisRun(ctx, tenantID, runID)
 }
 
-// RegisterVersion reports the rule table this service diagnoses from. Every
-// stored run carries it, and it is surfaced so an operator screen can show which
-// version produced an old proposal.
-func (s *DiagnosisService) RegisterVersion() string { return s.reg.Version }
+// RegisterVersion reports the rule table for ONE animal class. There is no
+// service-wide answer any more: each class pins its own version (adult-1,
+// kid-milk-7, kid-weaning-1, kid-fattening-1), and every stored run carries the
+// one that actually produced it, so an operator screen can show which version
+// produced an old proposal. An unknown class returns "" rather than the adult
+// version, because naming the wrong table is worse than naming none.
+func (s *DiagnosisService) RegisterVersion(class string) string {
+	if reg, ok := s.registers[class]; ok {
+		return reg.Version
+	}
+	return ""
+}
 
 // Queue paging bounds. Twenty is one phone viewport with a little headroom; the
 // hard ceiling stops a caller asking for a page that is no longer a page.
