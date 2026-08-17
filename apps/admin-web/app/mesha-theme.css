@@ -2432,6 +2432,20 @@ select:disabled { opacity: .45; }
    against the bars above it. */
 .wchart .wbars + .muted,
 .wchart .wbars-empty + .muted{margin-top:10px}
+/* The full-width shed chart's two ranked columns — one per park, or the single
+   selected park's list split across both. The columns carry the header gap
+   themselves, so the generic `.wchart .wbars` top margin is zeroed inside: the gap
+   above the bars belongs between the caption and the COLUMN ROW, not under each
+   column heading. */
+.wcols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 24px;margin-top:12px}
+.wcols .wbars,
+.wcols .wbars-empty{margin-top:8px}
+.wcol-h{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+/* Half the page is wider than the old half-width card, so the label column can afford
+   the full "Castro 2 (shed avg, 29d)" instead of clipping at the generic 132px. */
+.wcols .wbar{grid-template-columns:200px minmax(0,1fr) 68px}
+@media(max-width:1200px){.wcols .wbar{grid-template-columns:150px minmax(0,1fr) 62px}}
+@media(max-width:900px){.wcols{grid-template-columns:1fr;gap:14px}}
 /* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
    their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the
    top border and the pager touching the bottom-left corner.
