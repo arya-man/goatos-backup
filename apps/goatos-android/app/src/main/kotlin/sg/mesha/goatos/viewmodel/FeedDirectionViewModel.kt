@@ -376,9 +376,12 @@ class FeedDirectionViewModel @Inject constructor(
             // Direction/Distribution rows carry no rework channel.
             reworkReason = "",
             isLocallySubmitted = locallySubmittedForReview.contains(
-                // Direction's payload has no partition, so the projection keys it "whole" —
-                // pass null here so BOTH sides normalise identically.
-                shedSessionKey(targetDate, shedId, null, sessionNo, workflow),
+                // Tapping a Feed Direction row opens the DISTRIBUTION capture, which enqueues
+                // FEED_DISTRIBUTION_COMPLETE *with this row's partitionLabel* (see
+                // FeedDistributionCompleteViewModel). The lookup MUST use the same partition or the
+                // keys never match on a partitioned shed — Castro 1 and Castro 2 share a shed_id —
+                // and the badge silently never appears: 254.mp4, reopened.
+                shedSessionKey(targetDate, shedId, partitionLabel, sessionNo, workflow),
             ),
             inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
         ),
