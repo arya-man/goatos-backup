@@ -2441,9 +2441,9 @@ select:disabled { opacity: .45; }
 .wcols .wbars,
 .wcols .wbars-empty{margin-top:8px}
 .wcol-h{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
-/* Half the page is wider than the old half-width card, so the label column can afford
-   the full "Castro 2 (shed avg, 29d)" instead of clipping at the generic 132px. */
-.wcols .wbar{grid-template-columns:200px minmax(0,1fr) 68px}
+/* Half the page is wider than the old half-width card, so the label column can carry
+   the shed's breed and sex context instead of clipping it at the generic 132px. */
+.wcols .wbar{grid-template-columns:260px minmax(0,1fr) 68px}
 @media(max-width:1200px){.wcols .wbar{grid-template-columns:150px minmax(0,1fr) 62px}}
 @media(max-width:900px){.wcols{grid-template-columns:1fr;gap:14px}}
 /* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
