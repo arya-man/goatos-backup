@@ -6,10 +6,12 @@ import {
   getFeedAnalyticsDirected,
   getFeedAnalyticsExecution,
   getFeedAnalyticsExperiment,
+  getFeedAnalyticsStock,
   type ApiResult,
   type FeedAnalyticsDirectedResponse,
   type FeedAnalyticsExecutionResponse,
   type FeedAnalyticsExperimentResponse,
+  type FeedAnalyticsStockResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { backendScope, parseScope } from "@/lib/scope";
@@ -152,7 +154,7 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
     }),
   );
 
-  const perHeadSeries: LineSeries[] = top.map(([key, v], s) => ({
+  const perHeadSeries: LineSeries[] = ranked.map(([key, v], s) => ({
     label: v.label,
     colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
     points: dayKeys.map((day) => {
@@ -203,7 +205,8 @@ export async function FeedAnalyticsPage({
   const wantDirected = tab === "overview" || tab === "items" || tab === "peranimal";
   const wantExecution = tab === "overview" || tab === "execution";
   const wantExperiment = tab === "experiment";
-  const [directed, execution, experiment] = await Promise.all([
+  const wantStock = tab === "overview" || tab === "items";
+  const [directed, execution, experiment, stock] = await Promise.all([
     wantDirected
       ? getFeedAnalyticsDirected(params)
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
@@ -213,10 +216,15 @@ export async function FeedAnalyticsPage({
     wantExperiment
       ? getFeedAnalyticsExperiment(params)
       : Promise.resolve<ApiResult<FeedAnalyticsExperimentResponse> | null>(null),
+    wantStock
+      ? getFeedAnalyticsStock(params)
+      : Promise.resolve<ApiResult<FeedAnalyticsStockResponse> | null>(null),
   ]);
-  const nonNull = [directed, execution, experiment].filter((r) => r !== null);
+  const nonNull = [directed, execution, experiment, stock].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
 
+  // Stock is deliberately absent from the failure gate: the rest of the page
+  // must stay useful when the purchase ledger is not bootstrapped yet.
   const failed = [directed, execution, experiment].some((r) => r !== null && !r.ok);
 
   return (
@@ -259,6 +267,7 @@ export async function FeedAnalyticsPage({
           tab={tab}
           data={directed.data}
           execution={execution?.ok ? execution.data : null}
+          stock={stock?.ok ? stock.data : null}
           pageContract={pageContract}
         />
       ) : null}
@@ -278,11 +287,13 @@ function DirectedTabs({
   tab,
   data,
   execution,
+  stock,
   pageContract,
 }: {
   tab: Tab;
   data: FeedAnalyticsDirectedResponse;
   execution: FeedAnalyticsExecutionResponse | null;
+  stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), fa(pageContract, "unit.heads"));
@@ -344,10 +355,11 @@ function DirectedTabs({
         </section>
       ) : null}
 
+      {tab === "items" ? <StockCards stock={stock} pageContract={pageContract} /> : null}
+
       {tab === "items" ? (
         // The artifact's Feed Items tab: one small chart per feed item, each in
-        // its ranked colour, over the same window. Stock & Cost joins this tab
-        // once the purchase ledger lands (Phase 3).
+        // its ranked colour, over the same window, below the stock cards.
         // Two charts per row (single column on narrow), sized up from the
         // .charts 3-up column flow so each item's day-to-day movement is
         // readable, with breathing room under the tab bar.
@@ -395,6 +407,26 @@ function DirectedTabs({
         </section>
       ) : null}
 
+      {tab === "overview" && stock && stock.expenditure.length > 0 ? (
+        <section className="card wchart" aria-label={fa(pageContract, "chart.spend.title")}>
+          <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
+          <p className="muted small">{fa(pageContract, "chart.spend.hint")}</p>
+          <ChartHover>
+            <FeedLines
+              series={[{
+                label: fa(pageContract, "chart.spend.title"),
+                colorVar: FEED_SERIES_VARS[2],
+                points: stock.expenditure.map((d) => num(d.rupees)),
+              }]}
+              dayLabels={stock.expenditure.map((d) => d.feed_day)}
+              valueNoun={fa(pageContract, "unit.rupees")}
+              chartLabel={fa(pageContract, "chart.spend.title")}
+              emptyLabel={fa(pageContract, "stock.empty")}
+            />
+          </ChartHover>
+        </section>
+      ) : null}
+
       {tab === "overview" ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.mix.title")}>
           <h2 className="h">{fa(pageContract, "chart.mix.title")}</h2>
@@ -427,22 +459,37 @@ function DirectedTabs({
       ) : null}
 
       {tab === "peranimal" ? (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.perhead.title")}>
-          <h2 className="h">{fa(pageContract, "chart.perhead.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.perhead.hint")}</p>
-          <ChartHover>
-            <FeedLines
-              series={view.perHead}
-              dayLabels={view.dayLabels}
-              valueNoun={fa(pageContract, "unit.g_per_head")}
-              chartLabel={fa(pageContract, "chart.perhead.title")}
-              emptyLabel={fa(pageContract, "empty.body")}
-            />
-          </ChartHover>
-          <FeedChartLegend
-            entries={view.perHead.map((s) => ({ label: s.label, colorVar: s.colorVar }))}
-          />
-        </section>
+        // One RATION CARD per feed item: the current figure a director actually
+        // asks for ("how many grams is each animal getting?") big, with the
+        // item's own trend on its own scale — a shared-scale multi-line let the
+        // 950 g Masoor line flatten every concentrate into the baseline.
+        <div
+          className="grid"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginTop: 14 }}
+        >
+          {view.perHead.map((series) => {
+            const lastIdx = series.points.reduce<number>((acc, point, index) => (point === null ? acc : index), -1);
+            const latest = lastIdx >= 0 ? (series.points[lastIdx] as number) : null;
+            return (
+              <div className="chartcard" key={series.label}>
+                <h4>{series.label}</h4>
+                <div className="cap">{fa(pageContract, "chart.perhead.hint")}</div>
+                <div className="val" style={{ fontSize: 26, fontWeight: 700, margin: "2px 0 6px" }}>
+                  {latest === null ? "—" : `${nf(latest)} ${fa(pageContract, "unit.g_per_head")}`}
+                </div>
+                <ChartHover>
+                  <FeedLines
+                    series={[series]}
+                    dayLabels={view.dayLabels}
+                    valueNoun={fa(pageContract, "unit.g_per_head")}
+                    chartLabel={series.label}
+                    emptyLabel={fa(pageContract, "empty.body")}
+                  />
+                </ChartHover>
+              </div>
+            );
+          })}
+        </div>
       ) : null}
     </>
   );
@@ -654,5 +701,45 @@ function ExperimentTab({
         <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
       </section>
     </div>
+  );
+}
+
+
+function StockCards({
+  stock,
+  pageContract,
+}: {
+  stock: FeedAnalyticsStockResponse | null;
+  pageContract: AdminUiPageContract;
+}) {
+  if (!stock || stock.items.length === 0) {
+    return (
+      <section className="card" style={{ marginTop: 14 }}>
+        <h2 className="h">{fa(pageContract, "stock.title")}</h2>
+        <p className="muted small">{fa(pageContract, "stock.empty")}</p>
+      </section>
+    );
+  }
+  return (
+    <section style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.title")}>
+      <h2 className="h">{fa(pageContract, "stock.title")}</h2>
+      <p className="muted small">{fa(pageContract, "stock.hint")}</p>
+      <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
+        {stock.items.map((item) => (
+          <div className="kpi card" key={item.feed_item_key}>
+            <div className="dl" title={item.feed_item_label}>{item.feed_item_label}</div>
+            <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
+              {item.days_left === null || item.days_left === undefined
+                ? fa(pageContract, "stock.never_directed")
+                : `${nf(item.days_left)} ${fa(pageContract, "stock.days_left")}`}
+            </div>
+            <div className="muted small">
+              {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
+            </div>
+            {item.low_stock ? <span className="tag t-dng">{fa(pageContract, "stock.low")}</span> : null}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -3922,6 +3922,55 @@ paths:
           description: Malformed date or park id.
         "403":
           description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/stock:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsStock
+      summary: Feed stock positions and daily expenditure for the Feed Analytics page.
+      description: >-
+        Per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time
+        sheet import; entry screens arrive with the Procurement vertical) plus the window's daily
+        expenditure series.
+
+
+        STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) -
+        directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left
+        divides the balance by the item's average directed kg over its 7 most recent locked feed
+        days; a negative balance is served as-is, saying the ledger is missing a load.
+        Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on
+        or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive expenditure-window end, defaulting to yesterday; capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Stock cards (all items) and the expenditure series for the window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsStockResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
   /feed-direction/preview:
     get:
       tags:
@@ -10557,6 +10606,58 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsExperimentArm"
+    FeedAnalyticsStockItem:
+      type: object
+      description: One feed item's current stock position off the purchase ledger.
+      required: [feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
+      properties:
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        balance_kg:
+          type: string
+          description: May be negative -- the ledger is missing a load, never clamped.
+        avg_daily_kg:
+          type: string
+          description: Average directed kg over the item's 7 most recent locked feed days; empty when never directed.
+        days_left:
+          type: integer
+          format: int64
+          nullable: true
+        latest_batch_no:
+          type: integer
+          format: int64
+        low_stock:
+          type: boolean
+    FeedAnalyticsExpenditureDay:
+      type: object
+      required: [feed_day, rupees]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        rupees:
+          type: string
+          description: Directed kg priced at each item's most recent load rate on or before the day.
+    FeedAnalyticsStockResponse:
+      type: object
+      required: [date_from, date_to, items, expenditure]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsStockItem"
+        expenditure:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExpenditureDay"
     FeedDirectionRow:
       type: object
       additionalProperties: false

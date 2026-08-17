@@ -1554,6 +1554,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Feed stock positions and daily expenditure for the Feed Analytics page.
+         * @description Per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time sheet import; entry screens arrive with the Procurement vertical) plus the window's daily expenditure series.
+         *
+         *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 7 most recent locked feed days; a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+         */
+        get: operations["getFeedAnalyticsStock"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/preview": {
         parameters: {
             query?: never;
@@ -4027,6 +4049,34 @@ export interface components {
             /** Format: date */
             date_to: string;
             arms: components["schemas"]["FeedAnalyticsExperimentArm"][];
+        };
+        /** @description One feed item's current stock position off the purchase ledger. */
+        FeedAnalyticsStockItem: {
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description May be negative -- the ledger is missing a load, never clamped. */
+            balance_kg: string;
+            /** @description Average directed kg over the item's 7 most recent locked feed days; empty when never directed. */
+            avg_daily_kg: string;
+            /** Format: int64 */
+            days_left?: number | null;
+            /** Format: int64 */
+            latest_batch_no: number;
+            low_stock: boolean;
+        };
+        FeedAnalyticsExpenditureDay: {
+            /** Format: date */
+            feed_day: string;
+            /** @description Directed kg priced at each item's most recent load rate on or before the day. */
+            rupees: string;
+        };
+        FeedAnalyticsStockResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            items: components["schemas"]["FeedAnalyticsStockItem"][];
+            expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
@@ -13375,6 +13425,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedAnalyticsExperimentResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsStock: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                date_from?: string;
+                /** @description Inclusive expenditure-window end, defaulting to yesterday; capped at 92 days. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stock cards (all items) and the expenditure series for the window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsStockResponse"];
                 };
             };
             /** @description Malformed date or park id. */

@@ -101,3 +101,17 @@ func (s *Service) ExperimentAnalytics(ctx context.Context, in DirectedAnalyticsI
 		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
 	})
 }
+
+// StockAnalytics serves the purchase-ledger stock cards and expenditure series.
+func (s *Service) StockAnalytics(ctx context.Context, in DirectedAnalyticsInput) (domain.StockAnalytics, error) {
+	if s.analytics == nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.StockAnalytics{}, err
+	}
+	return s.analytics.StockAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+	})
+}

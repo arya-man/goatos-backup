@@ -425,3 +425,9 @@ func (transportFilterService) ExperimentAnalytics(
 ) (domain.ExperimentAnalytics, error) {
 	return domain.ExperimentAnalytics{}, nil
 }
+
+func (transportFilterService) StockAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.StockAnalytics, error) {
+	return domain.StockAnalytics{}, nil
+}
