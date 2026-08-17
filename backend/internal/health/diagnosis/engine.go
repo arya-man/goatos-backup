@@ -1,5 +1,7 @@
 package diagnosis
 
+import "encoding/json"
+
 // Housing values. Housing is a DIRECTIVE. This package never moves an animal;
 // the policy-pack workflow that owns location is the only writer.
 const (
@@ -137,6 +139,45 @@ type Proposal struct {
 
 	NoMeloxicam bool `json:"no_meloxicam"`
 	Club        bool `json:"club"`
+}
+
+// MarshalJSON emits every list as a JSON ARRAY, never null.
+//
+// A Go nil slice marshals to `null`, and app-api.yaml declares each of these as
+// `type: array`. Clients read the contract and type them as non-optional lists, which is
+// correct -- so a rejected form, whose lists are all nil, produced a response the phone
+// could not decode at all. The sync engine saw a decode failure rather than an answer,
+// classed it retryable, and re-sent the same observation on a backoff; the server replayed
+// the same undecodable body idempotently each time, so the screen sat on "Recorded. The
+// assessment will appear once this syncs." forever for a form the engine had already
+// judged. The defect surfaces ONLY on the rejected path, which is why an accepted
+// diagnosis looked fine.
+//
+// Normalising here rather than at one handler covers every path that serialises a
+// proposal -- both endpoints, the stored `proposal` jsonb, and any future reader -- so the
+// contract cannot be violated again by a new caller.
+func (p Proposal) MarshalJSON() ([]byte, error) {
+	// The alias drops the method set, so json.Marshal below does NOT recurse into this one.
+	type alias Proposal
+	a := alias(p)
+	for _, list := range []*[]string{
+		&a.Emergencies, &a.Problems, &a.Covered, &a.Rechecks, &a.FieldActions, &a.Unexplained,
+		&a.Ongoing, &a.New, &a.ProposeClose, &a.ProposeExtend, &a.DirectorFlags, &a.Hints,
+	} {
+		if *list == nil {
+			*list = []string{}
+		}
+	}
+	if a.Tiers == nil {
+		a.Tiers = map[string]Tier{}
+	}
+	if a.SOP == nil {
+		a.SOP = map[string]string{}
+	}
+	if a.CourseType == nil {
+		a.CourseType = map[string]string{}
+	}
+	return json.Marshal(a)
 }
 
 // Housing is the directive: where the animal should be, and which shift lists it
