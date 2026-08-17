@@ -35,7 +35,16 @@ export interface MediaLike {
   paused?: boolean;
 }
 
-/** A forward jump is allowed this far past the watched mark: ordinary playback/buffering jitter. */
+/**
+ * A forward jump is allowed this far past the watched mark: ordinary playback/buffering jitter.
+ *
+ * It applies ONLY once something has actually been watched — see seekAllowanceMs. The allowance is
+ * absolute, so on a short clip it is proportionally enormous: 1500ms is 0.8% of a three-minute proof
+ * but 12.7% of an 11.8s one. Measured in WebKit, a cold scrubber click at 85% of an 11.8s clip
+ * landed at 1.49s — a verifier who had watched nothing was 1.5 seconds in, which reads (correctly)
+ * as "I can skip ahead". Chromium happened to clamp the same click to 0; the rule must not depend on
+ * which engine she opens.
+ */
 export const SEEK_TOLERANCE_MS = 1500;
 /** A `timeupdate` further ahead than this did not play. Real ticks are ~250ms apart; this leaves room
  * for a stalled tab or a slow frame without leaving room for a jump. Must stay <= SEEK_TOLERANCE_MS so
@@ -69,6 +78,22 @@ export class WatchTracker {
 
   get watchedMs(): number {
     return this.maxWatchedMs;
+  }
+
+  /**
+   * How far past the watched mark a forward seek may land.
+   *
+   * ZERO until something has actually been watched. The tolerance is there to absorb playback and
+   * buffering jitter, and there is no jitter to absorb before a single frame has played — so a cold
+   * jump gets no allowance at all and is rolled back to the start. Once real progress exists the
+   * full tolerance applies, exactly as before, so a mid-watch nudge is not fought.
+   *
+   * maxWatchedMs is the right signal rather than a separate "has played" flag: it advances only on
+   * natural playback progress (onTimeUpdate refuses to advance it on a seek), so it is already the
+   * authoritative answer to "has any of this clip actually been watched".
+   */
+  private seekAllowanceMs(): number {
+    return this.maxWatchedMs > 0 ? SEEK_TOLERANCE_MS : 0;
   }
 
   onPlay(video: MediaLike): void {
@@ -132,7 +157,7 @@ export class WatchTracker {
    */
   overshootBeyondWatched(video: MediaLike): number | null {
     const landedMs = ms(video.currentTime);
-    if (landedMs <= this.maxWatchedMs + SEEK_TOLERANCE_MS) return null;
+    if (landedMs <= this.maxWatchedMs + this.seekAllowanceMs()) return null;
     return this.maxWatchedMs;
   }
 
@@ -145,7 +170,7 @@ export class WatchTracker {
     // Flagged for EVERY seek, including one small enough to allow: the following tick must not be
     // mistaken for playback progress.
     this.seekPending = true;
-    if (targetMs <= this.maxWatchedMs + SEEK_TOLERANCE_MS) return null;
+    if (targetMs <= this.maxWatchedMs + this.seekAllowanceMs()) return null;
     this.sink.record("video_seek_attempt", {
       seek_from_ms: this.lastTickMs,
       seek_to_ms: targetMs,

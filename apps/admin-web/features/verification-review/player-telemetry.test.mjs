@@ -150,3 +150,45 @@ test("a genuine playback tick right after an allowed rewind still advances once 
   t.onTimeUpdate(playing(9.0));   // a >1s leap is not a tick
   assert.equal(t.watchedMs, 2250, "and a leap dressed as a tick is still refused");
 });
+
+// A COLD forward seek gets NO tolerance at all.
+//
+// Regression, measured in WebKit 2026-08-17: a scrubber click at 85% of an 11.8s proof landed at
+// 1.49s -- inside the 1500ms tolerance, so nothing rolled it back, and a verifier who had watched
+// nothing was a second and a half in. Chromium clamped the identical click to 0, so the rule
+// silently depended on the engine she opened. The tolerance absorbs playback/buffering jitter, and
+// there is no jitter before a frame has played.
+//
+// It matters most on exactly the clips this product records: 1500ms is 0.8% of a three-minute proof
+// but 12.7% of an 11.8s one.
+test("a forward seek before anything is watched gets no tolerance and is refused", () => {
+  const events = [];
+  const tracker = new WatchTracker({ record: (type, payload) => events.push({ type, payload }) });
+  const video = { currentTime: 1.4, duration: 11.79, paused: true };
+
+  // 1.4s is INSIDE the absolute tolerance and used to be allowed.
+  assert.equal(tracker.onSeeking(video), 0, "a cold forward seek must be reverted to the start");
+  assert.equal(
+    events.filter((e) => e.type === "video_seek_attempt").length,
+    1,
+    "and it must be recorded as a seek attempt, not silently permitted",
+  );
+  assert.equal(
+    tracker.overshootBeyondWatched(video),
+    0,
+    "the level-triggered clamp must also treat a cold forward position as an overshoot",
+  );
+});
+
+test("the tolerance returns once real playback progress exists", () => {
+  const tracker = new WatchTracker({ record: () => {} });
+  const video = { currentTime: 0.5, duration: 11.79, paused: false };
+  tracker.onTimeUpdate(video); // natural progress: the mark advances to 500ms
+  assert.equal(tracker.watchedMs, 500);
+
+  // 500 + 1500 = 2000ms is now allowed again, so ordinary jitter is not fought.
+  video.currentTime = 1.9;
+  assert.equal(tracker.onSeeking(video), null, "a nudge within tolerance must stay allowed once watching");
+  video.currentTime = 9;
+  assert.equal(tracker.onSeeking(video), 500, "a real skip past the watched mark must still be refused");
+});
