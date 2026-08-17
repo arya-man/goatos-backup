@@ -22,7 +22,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
-import sg.mesha.goatos.core.data.sync.shedSessionKey
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedPackingQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -286,7 +286,7 @@ class FeedPackingViewModel @Inject constructor(
         val isLocallyCompleted = locallyCompleted.contains(completionKey)
         // The SAME builder the outbox projection uses — one definition, so the two cannot disagree.
         val isLocallySubmittedForReview = locallySubmittedForReview.contains(
-            shedSessionKey(feedDay, shedId, partitionLabel, sessionNo, workflow),
+            submittedGrainKey(feedDay),
         )
 
         // Precedence lives in ONE place — [overlayFeedLifecycleStatus] — so a test asserting the
