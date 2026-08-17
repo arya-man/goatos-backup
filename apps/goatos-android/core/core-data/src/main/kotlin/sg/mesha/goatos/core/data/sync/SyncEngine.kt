@@ -462,6 +462,15 @@ class SyncEngine(
             }
             else -> null
         }
+    }.onFailure {
+        // A payload that will not decode means we cannot name the grain, so the badge cannot be
+        // retracted and the row will keep reading "In review" for a dead write. Never silenced:
+        // this is the exact failure mode this function exists to prevent, so it must be visible.
+        android.util.Log.w(
+            "GoatOsOutbox",
+            "submitted_overlay_key_undecodable opType=${'$'}{item.opType} item=${'$'}{item.id}",
+            it,
+        )
     }.getOrNull()
 
     private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
