@@ -122,6 +122,54 @@ function MetricToggle({
   );
 }
 
+// One row of the full-width shed chart: a WeightBars bar plus the park it belongs to.
+type ShedChartBar = { key: string; park_name: string; label: string; value: number };
+
+/**
+ * The shed chart's two columns. With rows from more than one park, each park gets its
+ * own column (heading = park), so the two farms stop interleaving in one long list.
+ * With one park — the park filter, or a period only one park weighed in — the single
+ * park's ranked list is split in half across both columns instead of leaving the
+ * right half of a full-width card empty; the ranking reads down the left column and
+ * continues down the right. Rows arrive sorted best-first and grouping preserves
+ * that order.
+ *
+ * Grouped by park NAME, not id, because the growth leaderboard rows carry no park id
+ * — the contract requires `park_name` on both series specifically so they name a
+ * park identically. Parks are unique by name within a tenant (unlike sheds, 39 of
+ * which exist in both parks), so name-grouping cannot merge two parks here.
+ */
+function shedChartColumns(
+  rows: readonly ShedChartBar[],
+): { heading: string; rows: ShedChartBar[] }[] {
+  const byPark = new Map<string, ShedChartBar[]>();
+  for (const row of rows) {
+    const list = byPark.get(row.park_name);
+    if (list) list.push(row);
+    else byPark.set(row.park_name, [row]);
+  }
+  // Sorted so the column order is stable across reloads and metric toggles — Map
+  // order would follow whichever park happens to hold the fastest pen today.
+  const parkNames = [...byPark.keys()].sort();
+  if (parkNames.length >= 2) {
+    return parkNames.map((name) => ({ heading: name, rows: byPark.get(name) as ShedChartBar[] }));
+  }
+  if (parkNames.length === 1) {
+    const all = byPark.get(parkNames[0]) as ShedChartBar[];
+    const half = Math.ceil(all.length / 2);
+    const right = all.slice(half);
+    // A one-row list gets one column: a second column holding an empty-state note
+    // would read as "this park has a problem", which is not what an empty slice means.
+    return right.length === 0
+      ? [{ heading: parkNames[0], rows: all }]
+      : [
+          { heading: parkNames[0], rows: all.slice(0, half) },
+          { heading: parkNames[0], rows: right },
+        ];
+  }
+  return [];
+}
+
 export async function WeighingWeightsPage({
   searchParams,
   pageContract,
@@ -297,6 +345,11 @@ export async function WeighingWeightsPage({
     .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
     .map((row) => ({
       key: `${row.location_id}|${row.partition_label ?? ""}`,
+      // The park is carried as its own field, not a label prefix: the shed chart
+      // renders one column per park, and the column heading names the park once
+      // instead of every row repeating it. 39 shed names exist in BOTH parks, so
+      // the park must still travel with the row — it just travels as data.
+      park_name: row.park_name,
       label: row.operational_location_display || row.shed_display_name,
       value: Number(row.average_weight_kg.toFixed(1)),
     }));
@@ -346,33 +399,45 @@ export async function WeighingWeightsPage({
         // a duplicate-key crash, not a cosmetic warning. Matches the sibling series below and
         // the shed-weights chart above, both of which already key on the pair.
         key: `${shed.location_id}|${shed.partition_label ?? ""}`,
-        // Park-qualified for the same reason the shed-average series below already is, and it
-        // was the one series on this chart missing it: 39 shed names exist in BOTH parks, so
-        // "Mandela 1 - Part 5" alone names two different pens and the chart silently compared
-        // one park's pen against the other's. `operational_location_display` is the canonical
-        // shed+pen string; `display_name` is the weighing bucket's free-text planning label,
-        // which has held "M1P5" and "C1" for sheds whose real names are "Mandela 1 - Part 5"
+        // The park travels as a FIELD, never a label prefix (it used to be one): 39
+        // shed names exist in BOTH parks, so "Mandela 1 - Part 5" alone names two
+        // different pens — but the chart now renders one column per park and the
+        // column heading names the park once. `park_name` is required on both series
+        // by contract precisely so they group identically here.
+        // `operational_location_display` is the canonical shed+pen string;
+        // `display_name` is the weighing bucket's free-text planning label, which has
+        // held "M1P5" and "C1" for sheds whose real names are "Mandela 1 - Part 5"
         // and "Castro 1".
-        label: `${shed.park_name} ${shed.operational_location_display || shed.display_name}`,
+        park_name: shed.park_name,
+        label: shed.operational_location_display || shed.display_name,
         value: Math.round(shed.median_adg_g_per_day),
       })),
     ...visibleRows
       .filter((row) => row.shed_average_gain_g_per_day != null)
       .map((row) => ({
         key: `${row.location_id}|${row.partition_label ?? ""}-shed`,
-        // Park-qualified, and carrying the span it was measured over. Two parks both
-        // hold a "Castro 2", so an unqualified shed name puts two different sheds on
-        // the chart under one name. The span is on the label because a figure drawn
-        // from two days deserves to be discounted on sight — Channapatna's Castro 2
-        // reads +1,532 g/day over a 2-day gap, which is 1.5 kg per kid per day and
-        // impossible. It is shown rather than filtered: the number is real, its span
-        // is the reason not to trust it.
-        label: `${row.park_name} ${row.operational_location_display || row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
+        park_name: row.park_name,
+        // The span rides on the label because a figure drawn from two days deserves
+        // to be discounted on sight — Channapatna's Castro 2 reads +1,532 g/day over
+        // a 2-day gap, which is 1.5 kg per kid per day and impossible. It is shown
+        // rather than filtered: the number is real, its span is the reason not to
+        // trust it.
+        label: `${row.operational_location_display || row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
         value: Math.round(row.shed_average_gain_g_per_day as number),
       })),
   ].sort((a, b) => b.value - a.value);
 
   const hasAnyData = summary.animals_weighed > 0;
+
+  // The full-width shed chart's columns for the active metric, on ONE shared scale:
+  // computed across every column's rows before the split, so a bar's length means the
+  // same thing whichever column it lands in.
+  const shedChartBars: readonly ShedChartBar[] = shedMetric === "adg" ? gainChartData : chartData;
+  const shedChartCols = shedChartColumns(shedChartBars);
+  const shedChartDomain = {
+    lo: Math.min(0, ...shedChartBars.map((bar) => bar.value)),
+    hi: Math.max(0, ...shedChartBars.map((bar) => bar.value)),
+  };
 
   // A dimension has a weight series and, separately, a gain series over the smaller
   // set of animals weighed twice. Selecting between them here keeps the two
@@ -520,22 +585,25 @@ export async function WeighingWeightsPage({
         ))}
       </section>
 
-      {/* Row 1 — shed and breed side by side, equal width, fixed height with the
-          list scrolling inside so neither card grows with its row count. */}
-      <div className="grid g2">
-        <section className="card wchart" aria-label={copy(pageContract, "chart.average.aria")}>
-          <h2 className="h">
-            <Scale className="ic" size={15} aria-hidden />{" "}
-            {shedMetric === "adg" ? copy(pageContract, "chart.gain.title") : copy(pageContract, "chart.average.title")}
-            <MetricToggle param="shed_metric" current={shedMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <p className="muted small">
-            {shedMetric === "adg"
-              ? copy(pageContract, "chart.gain.caption_shed")
-              : copy(pageContract, "chart.average.caption")}
-          </p>
+      {/* Row 1 — the shed chart alone at full width (maintainer, 2026-08-17): it is the
+          page's most important chart and was unreadable at half width once both parks'
+          pens were on it. Two ranked columns inside — one per park, or the single
+          selected park's list split across both — sharing one scale so a bar's length
+          means the same thing in either column. */}
+      <section className="card wchart" aria-label={copy(pageContract, "chart.average.aria")}>
+        <h2 className="h">
+          <Scale className="ic" size={15} aria-hidden />{" "}
+          {shedMetric === "adg" ? copy(pageContract, "chart.gain.title") : copy(pageContract, "chart.average.title")}
+          <MetricToggle param="shed_metric" current={shedMetric} params={params} pageContract={pageContract} />
+        </h2>
+        <p className="muted small">
+          {shedMetric === "adg"
+            ? copy(pageContract, "chart.gain.caption_shed")
+            : copy(pageContract, "chart.average.caption")}
+        </p>
+        {shedChartCols.length === 0 ? (
           <WeightBars
-            data={shedMetric === "adg" ? gainChartData : chartData}
+            data={[]}
             emptyLabel={
               shedMetric === "adg"
                 ? copy(pageContract, "empty.metric.no_gain")
@@ -545,7 +613,35 @@ export async function WeighingWeightsPage({
             chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
             size="tall"
           />
-        </section>
+        ) : (
+          <div className="wcols">
+            {shedChartCols.map((col, index) => (
+              // Index in the key on purpose: a single-park split renders the same
+              // heading twice, so the heading alone is not unique.
+              <div key={`${col.heading}|${index}`}>
+                <h3 className="wcol-h">{col.heading}</h3>
+                <WeightBars
+                  data={col.rows}
+                  domain={shedChartDomain}
+                  emptyLabel={
+                    shedMetric === "adg"
+                      ? copy(pageContract, "empty.metric.no_gain")
+                      : copy(pageContract, "empty.no_data.body")
+                  }
+                  unit={shedMetric === "adg" ? "g" : "kg"}
+                  chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
+                  size="tall"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Row 2 — the three herd-register dimensions in one row, moved below the shed
+          chart when it went full width. Short boxes: sex and stage are a handful of
+          rows, and a long breed list scrolls inside its box like the shed lists do. */}
+      <div className="grid g3">
         <section className="card wchart" aria-label={copy(pageContract, "chart.breed.aria")}>
           <h2 className="h">
             {copy(pageContract, "chart.breed.title")}
@@ -557,13 +653,9 @@ export async function WeighingWeightsPage({
             emptyLabel={copy(pageContract, breedMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
             unit={breedMetric === "adg" ? "g" : "kg"}
             chartLabel={copy(pageContract, "chart.breed.aria")}
-            size="tall"
+            size="short"
           />
         </section>
-      </div>
-
-      {/* Row 2 — sex and stage. Few rows each, so a shorter box. */}
-      <div className="grid g2">
         <section className="card wchart" aria-label={copy(pageContract, "chart.sex.aria")}>
           <h2 className="h">
             {copy(pageContract, "chart.sex.title")}
