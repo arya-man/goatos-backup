@@ -19,7 +19,7 @@ fun List<ProofClip>.totalDurationMs(): Long = sumOf { it.durationMs }
  */
 fun List<ProofClip>.normalized(): List<ProofClip> {
     val sorted = sortedBy { it.startMs }
-    val out = mutableListOf<ProofClip>()
+    val out = mutableListOf<ProofClip>() // mobile-guard:ignore: per-call local bounded by the caller's keep-range count, returned and GC'd; not a cache.
     sorted.forEach { clip ->
         val last = out.lastOrNull()
         if (last != null && clip.startMs <= last.endMs) {

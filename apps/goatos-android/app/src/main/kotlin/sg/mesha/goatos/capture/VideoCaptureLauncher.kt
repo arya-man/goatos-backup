@@ -5,12 +5,34 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import sg.mesha.goatos.R
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.proofedit.ProofClip
+import sg.mesha.goatos.core.proofedit.ProofEditGate
+import sg.mesha.goatos.core.proofedit.ProofEditTelemetry
+import sg.mesha.goatos.core.proofedit.ProofTrimEditor
+import sg.mesha.goatos.core.proofedit.ProofVideoStitcher
+import sg.mesha.goatos.core.proofedit.totalDurationMs
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +60,13 @@ fun BindVideoCaptureSource(
     source: DelegatingProofCaptureSource,
     // MEDIUM: Accept validator as dependency instead of constructing inline
     artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
+    /**
+     * Backend bootstrap `feature_flags`, verbatim. Empty (the default) means the trim editor is
+     * never offered, so a host that has not opted in keeps today's capture flow exactly.
+     */
+    featureFlags: Map<String, Boolean> = emptyMap(),
+    /** Step-by-step capture telemetry. No-op by default so existing hosts are unchanged. */
+    onTelemetry: (event: String, props: Map<String, String>) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     // The ONE capture request the recorder is currently open for, or null when no camera is up.
@@ -102,9 +131,12 @@ fun BindVideoCaptureSource(
             // composes a fresh one. `request.token` is captured by this composition, so whatever
             // that recorder eventually reports is stamped with the request it was shot for.
             key(request.token) {
-                InAppVideoRecorderOverlay(
+                ProofCaptureFlow(
                     captureContext = request.captureContext,
-                    onResult = { result ->
+                    artifactValidator = artifactValidator,
+                    featureFlags = featureFlags,
+                    onTelemetry = onTelemetry,
+                    onFinished = { result ->
                         // Dismiss the recorder immediately, but only if this request still owns
                         // the camera -- a superseded recorder must not close the live one.
                         if (activeRequest?.token == request.token) {
@@ -112,7 +144,6 @@ fun BindVideoCaptureSource(
                         }
                         relay.deliverResult(request.token, result)
                     },
-                    artifactValidator = artifactValidator,  // MEDIUM: pass injected validator
                 )
             }
         }
@@ -169,3 +200,236 @@ private fun copyPickedVideoToPrivateCache(
         captureSource = "gallery_picker",
     )
 }.getOrNull()
+
+/** Where a capture currently is. Only [Recording] exists when the trim editor is not offered. */
+private sealed interface CaptureStage {
+    data object Recording : CaptureStage
+    data class Editing(val video: CapturedVideo) : CaptureStage
+    data class Saving(val video: CapturedVideo, val clips: List<ProofClip>) : CaptureStage
+}
+
+/**
+ * The whole capture flow the operator sees inside the camera window: record, then — ONLY when
+ * [ProofEditGate] allows it for this surface — trim, then a progress step while the kept parts are
+ * joined, then back to the screen that asked for the proof.
+ *
+ * This composable owns every step so the operator never returns to the proofs screen mid-work and
+ * never sees a screen with no explanation of what the app is doing.
+ *
+ * IMPORTANT: whatever this hands to [onFinished] re-enters the EXISTING pipeline in the same shape
+ * an untrimmed capture does. Compression and the audit overlay still happen downstream in
+ * `ProofMediaProcessor`, so editing adds no branch there and cannot double-process a proof.
+ *
+ * Every exit path calls [onFinished] exactly once — including a failed join, which falls back to
+ * the untrimmed recording rather than losing the operator's work.
+ */
+@Composable
+private fun ProofCaptureFlow(
+    captureContext: ProofCaptureContext?,
+    artifactValidator: ProofArtifactValidator,
+    featureFlags: Map<String, Boolean>,
+    onTelemetry: (String, Map<String, String>) -> Unit,
+    onFinished: (CapturedVideo?) -> Unit,
+) {
+    val context = LocalContext.current
+    val surface = captureContext?.featureSurface
+    val editingOffered = remember(featureFlags, surface) {
+        ProofEditGate.isEditingOffered(featureFlags, surface)
+    }
+    var stage by remember { mutableStateOf<CaptureStage>(CaptureStage.Recording) }
+
+    /** Params every step of this capture reports. All keys are already on the Firebase allowlist. */
+    fun baseProps(step: String): Map<String, String> = buildMap {
+        put(ProofEditTelemetry.Params.PROCESSING_STATE, step)
+        surface?.takeIf { it.isNotBlank() }?.let { put(ProofEditTelemetry.Params.FEATURE_SURFACE, it) }
+        // The scanned identity, when this surface has one — so a stuck capture is traceable to the
+        // exact animal rather than to "some proof".
+        captureContext?.primaryTag?.takeIf { it.isNotBlank() }
+            ?.let { put(ProofEditTelemetry.Params.RFID_TAG, it) }
+    }
+
+    LaunchedEffect(Unit) {
+        onTelemetry(
+            ProofEditTelemetry.Events.CAPTURE_OPENED,
+            baseProps(ProofEditTelemetry.Step.RECORDING) +
+                mapOf(
+                    ProofEditTelemetry.Params.OUTCOME to
+                        if (editingOffered) {
+                            ProofEditTelemetry.Outcome.OK
+                        } else {
+                            ProofEditTelemetry.Outcome.EDIT_NOT_OFFERED
+                        },
+                ),
+        )
+    }
+
+    fun finish(result: CapturedVideo?, step: String, outcome: String, reason: String? = null) {
+        onTelemetry(
+            if (result == null) {
+                ProofEditTelemetry.Events.CAPTURE_ABANDONED
+            } else {
+                ProofEditTelemetry.Events.CAPTURE_DELIVERED
+            },
+            baseProps(step) +
+                buildMap {
+                    put(ProofEditTelemetry.Params.OUTCOME, outcome)
+                    reason?.let { put(ProofEditTelemetry.Params.REASON, it) }
+                    result?.let { put(ProofEditTelemetry.Params.CAPTURE_SOURCE, it.captureSource) }
+                    result?.let { put(ProofEditTelemetry.Params.MIME_TYPE, it.mimeType) }
+                },
+        )
+        onFinished(result)
+    }
+
+    when (val current = stage) {
+        CaptureStage.Recording -> InAppVideoRecorderOverlay(
+            captureContext = captureContext,
+            onResult = { result ->
+                when {
+                    result == null -> finish(
+                        null,
+                        ProofEditTelemetry.Step.RECORDING,
+                        ProofEditTelemetry.Outcome.CANCELLED,
+                    )
+                    editingOffered -> {
+                        onTelemetry(
+                            ProofEditTelemetry.Events.CAPTURE_RECORDED,
+                            baseProps(ProofEditTelemetry.Step.RECORDING) +
+                                mapOf(ProofEditTelemetry.Params.OUTCOME to ProofEditTelemetry.Outcome.OK),
+                        )
+                        stage = CaptureStage.Editing(result)
+                    }
+                    // Editor not offered: today's path, unchanged.
+                    else -> finish(
+                        result,
+                        ProofEditTelemetry.Step.DELIVERING,
+                        ProofEditTelemetry.Outcome.EDIT_NOT_OFFERED,
+                    )
+                }
+            },
+            artifactValidator = artifactValidator,  // MEDIUM: pass injected validator
+        )
+
+        is CaptureStage.Editing -> ProofTrimEditor(
+            sourceUri = current.video.localUri,
+            onTelemetry = { event, props -> onTelemetry(event, baseProps(ProofEditTelemetry.Step.EDITING) + props) },
+            onDone = { clips ->
+                if (clips.isEmpty()) {
+                    // Nothing cut: deliver the recording as-is. Re-encoding an untouched clip
+                    // would cost a generation of quality for no change.
+                    finish(
+                        current.video,
+                        ProofEditTelemetry.Step.DELIVERING,
+                        ProofEditTelemetry.Outcome.UNEDITED,
+                    )
+                } else {
+                    stage = CaptureStage.Saving(current.video, clips)
+                }
+            },
+        )
+
+        is CaptureStage.Saving -> {
+            LaunchedEffect(current.video.localUri, current.clips) {
+                onTelemetry(
+                    ProofEditTelemetry.Events.STITCH_STARTED,
+                    baseProps(ProofEditTelemetry.Step.STITCHING) +
+                        mapOf(
+                            ProofEditTelemetry.Params.DURATION_BUCKET to
+                                ProofEditTelemetry.durationBucket(current.clips.totalDurationMs()),
+                        ),
+                )
+                val stitched = runCatching {
+                    ProofVideoStitcher(context).stitch(current.video.localUri, current.clips)
+                }
+                stitched.fold(
+                    onSuccess = { result ->
+                        // Same gate a picked/imported artifact passes: a zero-byte or unreadable
+                        // output must never reach the upload queue as this operator's evidence.
+                        val validation = artifactValidator.validateVideoFile(result.outputUri)
+                        if (!validation.isValid) {
+                            onTelemetry(
+                                ProofEditTelemetry.Events.STITCH_FAILED,
+                                baseProps(ProofEditTelemetry.Step.STITCHING) +
+                                    mapOf(
+                                        ProofEditTelemetry.Params.OUTCOME to ProofEditTelemetry.Outcome.FAILED,
+                                        ProofEditTelemetry.Params.REASON to "invalid_output",
+                                    ),
+                            )
+                            finish(
+                                current.video,
+                                ProofEditTelemetry.Step.DELIVERING,
+                                ProofEditTelemetry.Outcome.UNEDITED,
+                                reason = "invalid_output",
+                            )
+                            return@fold
+                        }
+                        onTelemetry(
+                            ProofEditTelemetry.Events.STITCH_SUCCEEDED,
+                            baseProps(ProofEditTelemetry.Step.STITCHING) +
+                                mapOf(
+                                    ProofEditTelemetry.Params.OUTCOME to ProofEditTelemetry.Outcome.OK,
+                                    ProofEditTelemetry.Params.DURATION_BUCKET to
+                                        ProofEditTelemetry.durationBucket(result.outputDurationMs),
+                                ),
+                        )
+                        finish(
+                            // Capture start/stop are PRESERVED: they are the freshness metadata for
+                            // when the work was filmed, not for when it was edited.
+                            current.video.copy(
+                                localUri = result.outputUri,
+                                mimeType = result.outputMimeType,
+                            ),
+                            ProofEditTelemetry.Step.DELIVERING,
+                            ProofEditTelemetry.Outcome.EDITED,
+                        )
+                    },
+                    onFailure = { error ->
+                        onTelemetry(
+                            ProofEditTelemetry.Events.STITCH_FAILED,
+                            baseProps(ProofEditTelemetry.Step.STITCHING) +
+                                mapOf(
+                                    ProofEditTelemetry.Params.OUTCOME to ProofEditTelemetry.Outcome.FAILED,
+                                    ProofEditTelemetry.Params.REASON to (error::class.java.simpleName),
+                                ),
+                        )
+                        // Never lose the operator's work to an export failure: the untrimmed
+                        // recording is still valid evidence and still gets processed downstream.
+                        finish(
+                            current.video,
+                            ProofEditTelemetry.Step.DELIVERING,
+                            ProofEditTelemetry.Outcome.UNEDITED,
+                            reason = "stitch_failed",
+                        )
+                    },
+                )
+            }
+            ProofSavingStep(clipCount = current.clips.size)
+        }
+    }
+}
+
+/** Progress while the kept parts are joined. Says what is happening in farm language only. */
+@Composable
+private fun ProofSavingStep(clipCount: Int) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MeshaColors.PageBg),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator(color = MeshaColors.Brand)
+        Spacer(Modifier.height(18.dp))
+        Text(
+            text = stringResource(R.string.proof_capture_saving_title),
+            color = MeshaColors.Ink,
+            style = MeshaType.cardTitle,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.proof_capture_saving_body, clipCount),
+            color = MeshaColors.Muted,
+            style = MeshaType.caption,
+        )
+    }
+}

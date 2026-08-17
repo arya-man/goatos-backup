@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proof_trim_title">వీడియో కత్తిరించండి</string>
+    <string name="proof_trim_subtitle">అవసరమైన భాగాలు మాత్రమే ఉంచండి</string>
+    <string name="proof_trim_play">ఎంచుకున్న భాగం ప్లే చేయండి</string>
+    <string name="proof_trim_pause">ఆపండి</string>
+    <string name="proof_trim_handle_start">ప్రారంభం</string>
+    <string name="proof_trim_handle_end">ముగింపు</string>
+    <string name="proof_trim_keep_range">ఈ భాగం ఉంచండి</string>
+    <string name="proof_trim_already_kept">ఈ భాగం ఇప్పటికే ఉంచబడింది. మళ్లీ ఎంచుకోవాలంటే దాన్ని తీసివేయండి.</string>
+    <string name="proof_trim_too_short">ఉంచడానికి పెద్ద భాగం ఎంచుకోండి.</string>
+    <string name="proof_trim_kept_header">ఉంచిన భాగాలు (%1$d)</string>
+    <string name="proof_trim_kept_row">%1$s ఉంచబడింది</string>
+    <string name="proof_trim_remove_range">భాగం %1$d తీసివేయండి</string>
+    <string name="proof_trim_preview_joined">▶  అన్ని భాగాలు ప్లే చేయండి</string>
+    <string name="proof_trim_clear_all">అన్నీ తీసివేయండి</string>
+    <string name="proof_trim_part_of">భాగం %1$d / %2$d</string>
+    <string name="proof_trim_empty_help">స్ట్రిప్‌పై వేలు లాగి భాగాన్ని గుర్తించండి, తర్వాత “ఈ భాగం ఉంచండి” నొక్కండి. కావలసినన్ని భాగాలకు పునరావృతం చేయండి.</string>
+    <string name="proof_trim_output_summary">వీడియో %2$s లో %1$s ఉంటుంది</string>
+    <string name="proof_trim_clear_title">అన్ని భాగాలు తీసివేయాలా?</string>
+    <string name="proof_trim_clear_body">ఉంచిన %1$d భాగాలు తొలగించబడతాయి. మీ రికార్డింగ్ తొలగించబడదు.</string>
+    <string name="proof_trim_clear_confirm">అన్నీ తీసివేయండి</string>
+    <string name="proof_trim_cancel">రద్దు చేయండి</string>
+    <string name="proof_trim_done_whole">పూర్తి వీడియో · పూర్తయింది</string>
+    <string name="proof_trim_done_length">పూర్తయింది · %1$s</string>
+</resources>

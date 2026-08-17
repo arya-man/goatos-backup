@@ -45,6 +45,16 @@ data class ProofCaptureContext(
     val workLabel: String = "",
     val prompt: ProofCapturePrompt? = null,
     val headerTitle: String? = null,
+    /**
+     * Which feature opened the camera, as a stable snake_case key (`feed_packing`,
+     * `vaccination`, ...). Two uses, and both fail closed when it is absent:
+     *  - `ProofEditGate` checks it against the editable-surface allowlist, so an unidentified
+     *    surface never gets the trim editor;
+     *  - it is the `feature_surface` analytics param, so a stuck capture can be traced back to
+     *    the feature that started it.
+     * Defaulted so every existing caller keeps its current behaviour untouched.
+     */
+    val featureSurface: String? = null,
 )
 
 /**

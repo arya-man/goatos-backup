@@ -54,4 +54,6 @@
     <string name="bootstrap_action_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
     <string name="bootstrap_error_access_not_provisioned">ನಿಮ್ಮ ಪ್ರವೇಶ ಇನ್ನೂ ಸಿದ್ಧವಾಗಿಲ್ಲ. ನಿಮ್ಮ ಮ್ಯಾನೇಜರ್‌ಗೆ ಸೇರಿಸಲು ಹೇಳಿ, ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s ಈಗಾಗಲೇ ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="proof_capture_saving_title">ನಿಮ್ಮ ವಿಡಿಯೋ ಉಳಿಸಲಾಗುತ್ತಿದೆ</string>
+    <string name="proof_capture_saving_body">%1$d ಭಾಗಗಳನ್ನು ಸೇರಿಸಲಾಗುತ್ತಿದೆ</string>
 </resources>

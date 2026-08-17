@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proof_trim_title">वीडियो छोटा करें</string>
+    <string name="proof_trim_subtitle">सिर्फ़ ज़रूरी हिस्से रखें</string>
+    <string name="proof_trim_play">चुना हुआ हिस्सा चलाएँ</string>
+    <string name="proof_trim_pause">रोकें</string>
+    <string name="proof_trim_handle_start">शुरुआत</string>
+    <string name="proof_trim_handle_end">अंत</string>
+    <string name="proof_trim_keep_range">यह हिस्सा रखें</string>
+    <string name="proof_trim_already_kept">यह हिस्सा पहले से रखा है। दोबारा चुनने के लिए इसे हटाएँ।</string>
+    <string name="proof_trim_too_short">रखने के लिए बड़ा हिस्सा चुनें।</string>
+    <string name="proof_trim_kept_header">रखे गए हिस्से (%1$d)</string>
+    <string name="proof_trim_kept_row">%1$s रखा</string>
+    <string name="proof_trim_remove_range">हिस्सा %1$d हटाएँ</string>
+    <string name="proof_trim_preview_joined">▶  सभी हिस्से चलाएँ</string>
+    <string name="proof_trim_clear_all">सब हटाएँ</string>
+    <string name="proof_trim_part_of">हिस्सा %1$d / %2$d</string>
+    <string name="proof_trim_empty_help">पट्टी पर उँगली खींचकर हिस्सा चुनें, फिर “यह हिस्सा रखें” दबाएँ। जितने हिस्से चाहिए, दोहराएँ।</string>
+    <string name="proof_trim_output_summary">वीडियो %2$s में से %1$s का होगा</string>
+    <string name="proof_trim_clear_title">सभी हिस्से हटाएँ?</string>
+    <string name="proof_trim_clear_body">रखे गए %1$d हिस्से हट जाएँगे। आपकी रिकॉर्डिंग नहीं मिटेगी।</string>
+    <string name="proof_trim_clear_confirm">सब हटाएँ</string>
+    <string name="proof_trim_cancel">रद्द करें</string>
+    <string name="proof_trim_done_whole">पूरा वीडियो · पूरा हुआ</string>
+    <string name="proof_trim_done_length">पूरा हुआ · %1$s</string>
+</resources>

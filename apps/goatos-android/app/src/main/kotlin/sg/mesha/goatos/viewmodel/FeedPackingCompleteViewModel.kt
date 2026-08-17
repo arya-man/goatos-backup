@@ -226,6 +226,9 @@ class FeedPackingCompleteViewModel @Inject constructor(
                         primaryTag = shedLabel.ifBlank { shedId },
                         workLabel = sessionLabel.ifBlank { "Session $sessionNo" },
                         prompt = ProofCapturePrompt.FEED_PACKING,
+                        // Names the surface for the trim-editor gate and for `feature_surface`
+                        // telemetry. Feed packing is the only surface signed off for editing.
+                        featureSurface = FEED_PACKING_SURFACE,
                     ),
                 )
             } catch (error: Exception) {
@@ -531,3 +534,6 @@ class FeedPackingCompleteViewModel @Inject constructor(
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 }
+
+/** `feature_surface` key for feed packing; matches ProofEditGate.EDITABLE_SURFACES. */
+private const val FEED_PACKING_SURFACE = "feed_packing"
