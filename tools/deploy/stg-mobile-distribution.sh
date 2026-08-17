@@ -16,6 +16,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 commit_sha="$(git rev-parse --short=12 HEAD)"
+commit_count="$(git rev-list --count HEAD)"
 build_id="${BUILD_ID:-local}"
 triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 firebase_uploaded=false
@@ -167,6 +168,10 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 
 make restore-stg-android-release-env
 source .local/android-signing/stg-release-env.sh
 
+DEPLOY_VERSION_CODE="${GOATOS_ANDROID_VERSION_CODE:-$commit_count}"
+DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-0.1.20.${commit_sha}}"
+echo "Android STG version: ${DEPLOY_VERSION_NAME}-stg (${DEPLOY_VERSION_CODE})"
+
 cd apps/goatos-android
 ./gradlew \
   :app:assembleStgRelease \
@@ -176,6 +181,8 @@ cd apps/goatos-android
   -x lintVitalAnalyzeStgRelease \
   --no-configuration-cache \
   -PallowDirtyFirebaseDistribution=true \
+  -PgoatosVersionCode="$DEPLOY_VERSION_CODE" \
+  -PgoatosVersionName="$DEPLOY_VERSION_NAME" \
   -PfadReleaseNotes="Goat OS (Mesha) STG release from main ${commit_sha}"
 firebase_uploaded=true
 
