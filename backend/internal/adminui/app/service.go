@@ -178,6 +178,11 @@ func navigation() domain.NavigationContract {
 				ID: "feed", Label: "Feed", Icon: "wheat", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("feed-config", "Feed Config", "/feed/config", nil),
+					// Feed Analytics is the leadership read of the feed chain: directed
+					// quantities off the frozen sheet, execution adherence off the proof
+					// gates, and the trial arms. DIRECTED, never "consumed" — completions
+					// carry proofs, not weights (maintainer scope decision 2026-08-17).
+					navLeaf("feed-analytics", "Feed Analytics", "/feed/analytics", nil),
 					// Feed Direction is an app-only (operator + verifier) workflow — the operator
 					// captures the mandatory feed-distribution video + water proof per shed-session
 					// and a verifier approves it in the mobile verifier queue. It is deliberately not
@@ -253,6 +258,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/feed/direction", Label: "Feed Direction", Match: "exact"},
 		{Pattern: "/feed/packing", Label: "Feed Packing", Match: "exact"},
 		{Pattern: "/feed/config", Label: "Feed Config — Ration Rules", Match: "exact"},
+		{Pattern: "/feed/analytics", Label: "Feed Analytics", Match: "exact"},
 		{Pattern: "/health/config", Label: "Health Config — Treatment Protocols", Match: "exact"},
 		{Pattern: "/operations/audit", Label: "Audit Log", Match: "exact"},
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
@@ -493,6 +499,8 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{tableP("direction-rows", "Feed Direction rows", "/feed-direction/generation-preview", []string{"shed", "shed_tag", "breed", "session", "head_count", "feed_item", "quantity_kg", "session_total_kg", "status"}, "direction_row", []int{10, 25, 50})}),
 		page("feed-packing", "/feed/packing", "/feed/packing", "Feed Packing", "Per-shed packing worklist for the selected day: what the store weighs out per shed, session and feed item.", "module-surface",
 			[]domain.TableContract{tableP("packing-worklist", "Packing worklist", "/feed-direction/generation-preview", []string{"shed", "session", "feed_item", "expected_kg", "status"}, "packing_row", []int{10, 25, 50})}),
+		page("feed-analytics", "/feed/analytics", "/feed/analytics", "Feed Analytics", "Directed feed, ration per animal and execution adherence across the farms — served from the frozen daily sheet and the proof-gated completions. Figures run up to yesterday and state what the sheet DIRECTED, not what was eaten.", "module-surface",
+			[]domain.TableContract{tableP("directed-items", "Directed feed by item", "/feed-analytics/directed", []string{"feed_day", "feed_item", "directed_kg", "head_days", "per_head_grams"}, "directed_item_row", []int{31, 62, 92})}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
@@ -2957,6 +2965,62 @@ func pageSpecificCopy(id string) map[string]string {
 	//   EXPERIMENT vs NORMAL. Experiment sheds carry hand-entered ABSOLUTE kg for the
 	//   whole shed; head count there is informational and is never multiplied in.
 	// -------------------------------------------------------------------------------
+	case "feed-analytics":
+		return map[string]string{
+			"crumb": "Feed",
+			// The one word this page lives or dies on: DIRECTED. The sheet's
+			// instruction, never a measured weight — leftovers are not captured.
+			"banner.basis":           "Figures show feed as DIRECTED on the daily sheet, up to yesterday. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
+			"tab.overview":           "Overview",
+			"tab.items":              "Feed Items",
+			"tab.peranimal":          "Per Animal",
+			"tab.execution":          "Execution",
+			"tab.experiment":         "Experiment",
+			"range.30":               "30 days",
+			"range.61":               "2 months",
+			"range.92":               "3 months",
+			"range.aria":             "Choose the date range",
+			"kpi.directed.label":     "Directed yesterday",
+			"kpi.directed.sub":       "kg on the issued sheet",
+			"kpi.head_days.label":    "Animals fed yesterday",
+			"kpi.head_days.sub":      "Distinct pen head count on the sheet",
+			"kpi.per_head.label":     "Avg ration per animal",
+			"kpi.per_head.sub":       "g per head per day, whole herd",
+			"kpi.adherence.label":    "Execution verified",
+			"kpi.adherence.sub":      "Packing + distribution approved by the verifier",
+			"chart.daily.title":      "Daily directed feed",
+			"chart.daily.hint":       "Total kg on the issued sheet per day, stacked by feed item",
+			"chart.mix.title":        "Feed mix",
+			"chart.mix.hint":         "Share of directed kg over the window",
+			"chart.heads.title":      "Animals fed vs feed directed",
+			"chart.heads.hint":       "Daily head count on the sheet with directed kg",
+			"chart.item.hint":        "Directed kg per day",
+			"chart.perhead.title":    "Ration per animal",
+			"chart.perhead.hint":     "Grams per head per day by feed item",
+			"chart.execution.title":  "Daily execution status",
+			"chart.execution.hint":   "Pen-session completions by verification outcome",
+			"chart.latency.title":    "Verification latency",
+			"chart.latency.hint":     "Median minutes from proof submission to verdict, per day",
+			"chart.experiment.title": "Trial pens — absolute feed",
+			"chart.experiment.hint":  "Authored kg per trial arm per day (never multiplied by head count)",
+			"legend.verified":        "Verified",
+			"legend.awaiting":        "Awaiting verdict",
+			"legend.rework":          "Rework",
+			"legend.transport_open":  "Not yet submitted",
+			"unit.kg":                "kg",
+			"unit.g_per_head":        "g / head / day",
+			"unit.minutes":           "min",
+			"unit.pens":              "pens",
+			"unit.heads":             "animals",
+			"table.items.aria":       "Directed feed by item",
+			"table.items.noun":       "row",
+			"empty.title":            "No feed sheet in this window",
+			"empty.body":             "No issued feed direction covers the selected dates. The sheet is issued each morning for the next feed day.",
+			"empty.execution.body":   "No packing, distribution or transport completions in the selected dates.",
+			"empty.experiment.body":  "No experiment sheet was issued in the selected dates.",
+			"error.title":            "Feed analytics is unavailable",
+			"error.body":             "The rollup read failed. The feed screens themselves are unaffected; try again shortly.",
+		}
 	case "feed-direction":
 		return map[string]string{
 			"crumb":                      "Feed",
@@ -4760,7 +4824,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(nil)
 	case "weighing-weights":
 		return withGenericOptionGroups(weighingWeightsOptionGroups())
-	case "feed-direction", "feed-packing", "feed-config":
+	case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
 		return withGenericOptionGroups(feedOptionGroups())
 	case "calendar":
 		return withGenericOptionGroups(calendarOptionGroups())
