@@ -1,0 +1,252 @@
+// Server-rendered SVG charts for the Feed Analytics page, following the mock's
+// `svgBars` anatomy and the repo chart rules: pure SERVER components, no
+// charting library (recharts stays at zero importers), CSS-custom-property
+// fills only (no hex literals), a <title> per mark, and NO copy of their own —
+// every visible string arrives resolved from the backend page contract.
+//
+// Series colours reuse the exact ordering of components/svg-bars.tsx so the
+// same feed item keeps the same colour on every chart of the page (color
+// follows the entity, never its rank on one chart).
+
+export const FEED_SERIES_VARS = [
+  "var(--brand)",
+  "var(--info)",
+  "var(--amber)",
+  "var(--purple)",
+  "var(--teal)",
+  "var(--danger)",
+  "var(--ok)",
+] as const;
+
+const VIEW_W = 560;
+const VIEW_H = 168;
+const PAD_X = 34;
+const PAD_TOP = 10;
+const BASELINE = VIEW_H - 18;
+
+const nf = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+
+export type StackedDay = {
+  key: string;
+  /** Tooltip label for the day, resolved by the caller. */
+  label: string;
+  /** Segment values in series order; the caller aligns them with its legend. */
+  segments: number[];
+};
+
+/**
+ * Day-by-day stacked columns (directed kg by feed item). One shared scale; a
+ * 1px panel gap between segments per the mark spec so adjacent fills never
+ * bleed together.
+ */
+export function FeedStackedColumns({
+  days,
+  seriesLabels,
+  valueNoun,
+  chartLabel,
+  emptyLabel,
+}: {
+  days: StackedDay[];
+  seriesLabels: string[];
+  valueNoun: string;
+  chartLabel: string;
+  emptyLabel: string;
+}) {
+  if (days.length === 0) {
+    return (
+      <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
+        {emptyLabel}
+      </div>
+    );
+  }
+  const totals = days.map((d) => d.segments.reduce((a, b) => a + b, 0));
+  const max = Math.max(1, ...totals);
+  const slot = (VIEW_W - 2 * PAD_X) / days.length;
+  const barW = Math.max(2, Math.min(14, slot - 3));
+  return (
+    <svg
+      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+      role="img"
+      aria-label={chartLabel}
+      style={{ width: "100%", height: "auto", display: "block" }}
+    >
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <line
+          key={f}
+          x1={PAD_X}
+          x2={VIEW_W - 6}
+          y1={BASELINE - (BASELINE - PAD_TOP) * f}
+          y2={BASELINE - (BASELINE - PAD_TOP) * f}
+          stroke="var(--line)"
+          strokeWidth="1"
+        />
+      ))}
+      {[0.5, 1].map((f) => (
+        <text
+          key={f}
+          x={PAD_X - 5}
+          y={BASELINE - (BASELINE - PAD_TOP) * f + 3}
+          fontSize="9"
+          textAnchor="end"
+          fill="var(--faint)"
+        >
+          {nf(max * f)}
+        </text>
+      ))}
+      <line x1={PAD_X} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
+      {days.map((d, i) => {
+        const x = PAD_X + i * slot + (slot - barW) / 2;
+        let y = BASELINE;
+        return (
+          <g key={d.key}>
+            <title>
+              {d.label}
+              {": "}
+              {d.segments
+                .map((v, s) => `${seriesLabels[s] ?? ""} ${nf(v)} ${valueNoun}`)
+                .join(" · ")}
+            </title>
+            {d.segments.map((v, s) => {
+              const h = ((BASELINE - PAD_TOP) * v) / max;
+              y -= h;
+              return h <= 0 ? null : (
+                <rect
+                  key={s}
+                  x={x}
+                  y={y + 0.5}
+                  width={barW}
+                  height={Math.max(0.5, h - 1)}
+                  rx={s === d.segments.length - 1 ? 2 : 0}
+                  fill={FEED_SERIES_VARS[s % FEED_SERIES_VARS.length]}
+                />
+              );
+            })}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+export type LineSeries = {
+  label: string;
+  colorVar: string;
+  /** One point per day slot; null = no figure that day (line breaks, honestly). */
+  points: (number | null)[];
+};
+
+/** Multi-series line chart on one shared scale, endpoint dot per series. */
+export function FeedLines({
+  series,
+  dayLabels,
+  valueNoun,
+  chartLabel,
+  emptyLabel,
+}: {
+  series: LineSeries[];
+  dayLabels: string[];
+  valueNoun: string;
+  chartLabel: string;
+  emptyLabel: string;
+}) {
+  const values = series.flatMap((s) => s.points.filter((p): p is number => p !== null));
+  if (values.length === 0 || dayLabels.length === 0) {
+    return (
+      <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
+        {emptyLabel}
+      </div>
+    );
+  }
+  const max = Math.max(1, ...values);
+  const stepX = (VIEW_W - 2 * PAD_X) / Math.max(1, dayLabels.length - 1);
+  const yOf = (v: number) => BASELINE - ((BASELINE - PAD_TOP) * v) / max;
+  return (
+    <svg
+      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+      role="img"
+      aria-label={chartLabel}
+      style={{ width: "100%", height: "auto", display: "block" }}
+    >
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <line
+          key={f}
+          x1={PAD_X}
+          x2={VIEW_W - 6}
+          y1={BASELINE - (BASELINE - PAD_TOP) * f}
+          y2={BASELINE - (BASELINE - PAD_TOP) * f}
+          stroke="var(--line)"
+          strokeWidth="1"
+        />
+      ))}
+      {[0.5, 1].map((f) => (
+        <text
+          key={f}
+          x={PAD_X - 5}
+          y={BASELINE - (BASELINE - PAD_TOP) * f + 3}
+          fontSize="9"
+          textAnchor="end"
+          fill="var(--faint)"
+        >
+          {nf(max * f)}
+        </text>
+      ))}
+      <line x1={PAD_X} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
+      {series.map((s) => {
+        const segments: string[] = [];
+        let current: string[] = [];
+        s.points.forEach((p, i) => {
+          if (p === null) {
+            if (current.length > 0) segments.push(current.join(" "));
+            current = [];
+            return;
+          }
+          current.push(`${current.length === 0 ? "M" : "L"}${(PAD_X + i * stepX).toFixed(1)} ${yOf(p).toFixed(1)}`);
+        });
+        if (current.length > 0) segments.push(current.join(" "));
+        const lastIdx: number = s.points.reduce<number>((acc, p, i) => (p === null ? acc : i), -1);
+        const lastVal = lastIdx >= 0 ? s.points[lastIdx] : null;
+        return (
+          <g key={s.label}>
+            <title>{`${s.label}${lastVal === null ? "" : `: ${nf(lastVal)} ${valueNoun}`}`}</title>
+            {segments.map((d, i) => (
+              <path key={i} d={d} fill="none" stroke={s.colorVar} strokeWidth="2" strokeLinejoin="round" />
+            ))}
+            {lastVal !== null && lastIdx >= 0 ? (
+              <circle
+                cx={PAD_X + lastIdx * stepX}
+                cy={yOf(lastVal)}
+                r="3.5"
+                fill={s.colorVar}
+                stroke="var(--panel)"
+                strokeWidth="2"
+              />
+            ) : null}
+          </g>
+        );
+      })}
+      <text x={PAD_X} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
+        {dayLabels[0]}
+      </text>
+      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
+        {dayLabels[dayLabels.length - 1]}
+      </text>
+    </svg>
+  );
+}
+
+/** Shared legend row; the caller resolves labels and keeps series order stable. */
+export function FeedChartLegend({ entries }: { entries: { label: string; colorVar: string }[] }) {
+  return (
+    <div className="lg">
+      {entries.map((entry) => (
+        <span key={entry.label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span
+            aria-hidden
+            style={{ width: 9, height: 9, borderRadius: 3, background: entry.colorVar, display: "inline-block" }}
+          />
+          {entry.label}
+        </span>
+      ))}
+    </div>
+  );
+}
