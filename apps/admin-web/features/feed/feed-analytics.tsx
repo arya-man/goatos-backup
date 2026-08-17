@@ -106,6 +106,7 @@ type DirectedView = {
   itemLabels: string[];
   stacked: StackedDay[];
   mix: { key: string; label: string; value: number }[];
+  itemSeries: LineSeries[];
   perHead: LineSeries[];
   headsLine: LineSeries[];
   latestDay?: FeedAnalyticsDirectedResponse["days"][number];
@@ -138,6 +139,19 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
     if (idx >= 0) slots[idx] += num(item.directed_kg);
   }
 
+  // One small-multiple series per feed item, in ranked order so each item's
+  // colour matches its slot on the stacked chart and legend.
+  const itemSeries: { label: string; colorVar: string; points: (number | null)[] }[] = ranked.map(
+    ([key, v], s) => ({
+      label: v.label,
+      colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
+      points: dayKeys.map((day) => {
+        const row = data.items.find((it) => it.feed_day === day && it.feed_item_key === key);
+        return row ? num(row.directed_kg) : null;
+      }),
+    }),
+  );
+
   const perHeadSeries: LineSeries[] = top.map(([key, v], s) => ({
     label: v.label,
     colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
@@ -156,6 +170,7 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
       segments: byDayItem.get(day) ?? [],
     })),
     mix: ranked.map(([key, v]) => ({ key, label: v.label, value: Math.round(v.total) })),
+    itemSeries,
     perHead: perHeadSeries,
     headsLine: [
       {
@@ -329,7 +344,30 @@ function DirectedTabs({
         </section>
       ) : null}
 
-      {tab === "overview" || tab === "items" ? (
+      {tab === "items" ? (
+        // The artifact's Feed Items tab: one small chart per feed item, each in
+        // its ranked colour, over the same window. Stock & Cost joins this tab
+        // once the purchase ledger lands (Phase 3).
+        <div className="charts">
+          {view.itemSeries.map((series) => (
+            <div className="chartcard" key={series.label}>
+              <h4>{series.label}</h4>
+              <div className="cap">{fa(pageContract, "chart.item.hint")}</div>
+              <ChartHover>
+                <FeedLines
+                  series={[series]}
+                  dayLabels={view.dayLabels}
+                  valueNoun={fa(pageContract, "unit.kg")}
+                  chartLabel={series.label}
+                  emptyLabel={fa(pageContract, "empty.body")}
+                />
+              </ChartHover>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {tab === "overview" ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>
           <h2 className="h">{fa(pageContract, "chart.daily.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.daily.hint")}</p>
@@ -351,7 +389,7 @@ function DirectedTabs({
         </section>
       ) : null}
 
-      {tab === "overview" || tab === "items" ? (
+      {tab === "overview" ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.mix.title")}>
           <h2 className="h">{fa(pageContract, "chart.mix.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.mix.hint")}</p>
