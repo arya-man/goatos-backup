@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.capture.BindPhotoCaptureSource
 import sg.mesha.goatos.capture.BindVideoCaptureSource
+import sg.mesha.goatos.capture.rememberProofCaptureFeatureFlags
+import sg.mesha.goatos.capture.rememberProofCaptureTelemetry
 import sg.mesha.goatos.capture.CaptureAccessGate
 import sg.mesha.goatos.capture.rememberDelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
@@ -2631,7 +2633,13 @@ fun AppNavHost(
                 }
             }
             CaptureAccessGate {
-                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindVideoCaptureSource(
+                    source = rememberDelegatingProofCaptureSource(),
+                    // Feed packing is the ONLY surface that opts into the trim editor.
+                    // Every other host leaves these defaulted and keeps today's flow.
+                    featureFlags = rememberProofCaptureFeatureFlags(),
+                    onTelemetry = rememberProofCaptureTelemetry(),
+                )
                 FeedPackingCompleteScreen(state = state, onEvent = onEvent)
             }
         }

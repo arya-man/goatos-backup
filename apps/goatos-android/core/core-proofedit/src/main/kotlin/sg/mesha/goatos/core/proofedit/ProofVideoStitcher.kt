@@ -24,10 +24,15 @@ import kotlin.coroutines.resumeWithException
 /**
  * Joins the operator's kept ranges into ONE clip.
  *
- * Deliberately does NOT compress and does NOT draw an overlay: by the time this runs the source
- * has already been through the app's proof media processor, so it already carries the audit
- * overlay and its target bitrate. Re-applying either here would stamp a second overlay card and
- * reduce an already-reduced bitrate a second time.
+ * Runs on the RAW capture, BEFORE the proof pipeline processes it. It deliberately does NOT
+ * compress and does NOT draw an overlay, because `ProofMediaProcessor` still does both to this
+ * file afterwards exactly as it does for an unedited capture. Compressing here would hand that
+ * processor an already-reduced clip and stack two reductions; drawing an overlay here would be
+ * stamped over by the real one.
+ *
+ * That ordering is what keeps this an ADD-ON: the trimmed file re-enters the existing pipeline in
+ * the same shape an untrimmed capture does, so nothing downstream needs to know editing happened
+ * and no suppression flag is required anywhere.
  *
  * It re-encodes rather than remuxing because a keep-range boundary generally falls mid-GOP; a
  * sample-copy export can only cut on sync frames and would silently hand back extra footage
@@ -63,8 +68,8 @@ class ProofVideoStitcher(private val context: Context) {
                         .build(),
                 )
                 .build()
-            // No Effects: the overlay and the presentation scaling are already burned into the
-            // source by the proof media processor.
+            // No Effects on purpose: ProofMediaProcessor applies the overlay and the
+            // presentation scaling to this file afterwards, exactly as for an untrimmed capture.
             EditedMediaItem.Builder(item).build()
         }
 

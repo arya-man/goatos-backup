@@ -54,4 +54,6 @@
     <string name="bootstrap_action_retry">మళ్లీ ప్రయత్నించండి</string>
     <string name="bootstrap_error_access_not_provisioned">మీ యాక్సెస్ ఇంకా సెట్ కాలేదు. మిమ్మల్ని చేర్చమని మీ మేనేజర్‌ను అడిగి, మళ్లీ ప్రయత్నించండి.</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s ఇప్పటికే ధృవీకరణ కోసం సమర్పించబడింది</string>
+    <string name="proof_capture_saving_title">మీ వీడియో సేవ్ అవుతోంది</string>
+    <string name="proof_capture_saving_body">%1$d భాగాలు కలుపుతున్నాము</string>
 </resources>

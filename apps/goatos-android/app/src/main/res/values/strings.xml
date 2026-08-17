@@ -57,4 +57,6 @@
          verification, or already accepted/closed): the shed stays visible until its drive
          closes, but must not re-open the scan screen. See ShedRow.opensRecordOnly. -->
     <string name="sheds_toast_already_submitted_fmt">%1$s is already submitted for verification</string>
+    <string name="proof_capture_saving_title">Saving your video</string>
+    <string name="proof_capture_saving_body">Joining %1$d part(s)</string>
 </resources>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proof_trim_title">ವಿಡಿಯೋ ಕತ್ತರಿಸಿ</string>
+    <string name="proof_trim_subtitle">ಬೇಕಾದ ಭಾಗಗಳನ್ನು ಮಾತ್ರ ಇರಿಸಿ</string>
+    <string name="proof_trim_play">ಆಯ್ದ ಭಾಗ ಚಲಾಯಿಸಿ</string>
+    <string name="proof_trim_pause">ನಿಲ್ಲಿಸಿ</string>
+    <string name="proof_trim_handle_start">ಪ್ರಾರಂಭ</string>
+    <string name="proof_trim_handle_end">ಅಂತ್ಯ</string>
+    <string name="proof_trim_keep_range">ಈ ಭಾಗ ಇರಿಸಿ</string>
+    <string name="proof_trim_already_kept">ಈ ಭಾಗ ಈಗಾಗಲೇ ಇರಿಸಲಾಗಿದೆ. ಮತ್ತೆ ಆಯ್ಕೆ ಮಾಡಲು ಅದನ್ನು ತೆಗೆದುಹಾಕಿ.</string>
+    <string name="proof_trim_too_short">ಇರಿಸಲು ಹೆಚ್ಚು ಉದ್ದದ ಭಾಗ ಆಯ್ಕೆ ಮಾಡಿ.</string>
+    <string name="proof_trim_kept_header">ಇರಿಸಿದ ಭಾಗಗಳು (%1$d)</string>
+    <string name="proof_trim_kept_row">%1$s ಇರಿಸಲಾಗಿದೆ</string>
+    <string name="proof_trim_remove_range">ಭಾಗ %1$d ತೆಗೆದುಹಾಕಿ</string>
+    <string name="proof_trim_preview_joined">▶  ಎಲ್ಲ ಭಾಗ ಚಲಾಯಿಸಿ</string>
+    <string name="proof_trim_clear_all">ಎಲ್ಲ ತೆಗೆದುಹಾಕಿ</string>
+    <string name="proof_trim_part_of">ಭಾಗ %1$d / %2$d</string>
+    <string name="proof_trim_empty_help">ಪಟ್ಟಿಯ ಮೇಲೆ ಬೆರಳು ಎಳೆದು ಭಾಗ ಗುರುತಿಸಿ, ನಂತರ “ಈ ಭಾಗ ಇರಿಸಿ” ಒತ್ತಿ. ಬೇಕಾದಷ್ಟು ಭಾಗಗಳಿಗೆ ಪುನರಾವರ್ತಿಸಿ.</string>
+    <string name="proof_trim_output_summary">ವಿಡಿಯೋ %2$s ರಲ್ಲಿ %1$s ಆಗಿರುತ್ತದೆ</string>
+    <string name="proof_trim_clear_title">ಎಲ್ಲ ಭಾಗ ತೆಗೆದುಹಾಕುವುದೇ?</string>
+    <string name="proof_trim_clear_body">ಇರಿಸಿದ %1$d ಭಾಗಗಳು ಅಳಿಸಲಾಗುತ್ತವೆ. ನಿಮ್ಮ ರೆಕಾರ್ಡಿಂಗ್ ಅಳಿಸುವುದಿಲ್ಲ.</string>
+    <string name="proof_trim_clear_confirm">ಎಲ್ಲ ತೆಗೆದುಹಾಕಿ</string>
+    <string name="proof_trim_cancel">ರದ್ದುಮಾಡಿ</string>
+    <string name="proof_trim_done_whole">ಪೂರ್ಣ ವಿಡಿಯೋ · ಮುಗಿಯಿತು</string>
+    <string name="proof_trim_done_length">ಮುಗಿಯಿತು · %1$s</string>
+</resources>

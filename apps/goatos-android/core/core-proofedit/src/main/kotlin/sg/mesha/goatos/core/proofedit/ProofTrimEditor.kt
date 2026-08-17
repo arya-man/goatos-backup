@@ -95,7 +95,7 @@ private val STRIP_H = 92.dp
 private enum class PreviewMode { Selection, Stitched }
 
 /**
- * Operator trim surface for an already-processed proof clip.
+ * Operator trim surface for a freshly recorded proof clip.
  *
  * The operator marks one or more keep-ranges and taps Done; [onDone] receives them in source
  * order. An empty list means nothing was cut and the processed clip should be used whole — the
@@ -105,8 +105,8 @@ private enum class PreviewMode { Selection, Stitched }
  * Only shown when [ProofEditGate] allows it, so this composable never decides policy itself.
  *
  * Compression and the audit overlay are deliberately absent from this screen's copy and
- * behaviour: they already happened, they are not operator choices, and naming them here would
- * leak pipeline mechanics into field copy.
+ * behaviour: the proof pipeline applies both AFTER this screen, they are not operator choices,
+ * and naming them here would leak pipeline mechanics into field copy.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -164,9 +164,9 @@ fun ProofTrimEditor(
                 retriever.setDataSource(sourceFile.absolutePath)
                 (0 until THUMB_COUNT).mapNotNull { i ->
                     val atUs = (durationMs * 1000L * i) / THUMB_COUNT
-                    runCatching {
+                    runCatching { // exception:exempt one filmstrip thumbnail failing is cosmetic — the strip renders with fewer frames and trimming still works; nothing to report
                         retriever.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 120, 200)
-                    }.getOrNull() // exception:exempt one filmstrip thumbnail failing is cosmetic; the strip renders with fewer frames and the editor stays usable
+                    }.getOrNull()
                 }
             } finally {
                 retriever.release()
