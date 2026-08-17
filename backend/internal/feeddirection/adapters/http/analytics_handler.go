@@ -211,3 +211,52 @@ func (h *Handler) analyticsInput(w http.ResponseWriter, r *http.Request) (app.Di
 		DateTo:            dateTo,
 	}, true
 }
+
+type stockItemDTO struct {
+	FeedItemLabel string `json:"feed_item_label"`
+	FeedItemKey   string `json:"feed_item_key"`
+	BalanceKg     string `json:"balance_kg"`
+	AvgDailyKg    string `json:"avg_daily_kg"`
+	DaysLeft      *int64 `json:"days_left"`
+	LatestBatchNo int64  `json:"latest_batch_no"`
+	LowStock      bool   `json:"low_stock"`
+}
+
+type expenditureDayDTO struct {
+	FeedDay string `json:"feed_day"`
+	Rupees  string `json:"rupees"`
+}
+
+type stockAnalyticsDTO struct {
+	DateFrom    string              `json:"date_from"`
+	DateTo      string              `json:"date_to"`
+	Items       []stockItemDTO      `json:"items"`
+	Expenditure []expenditureDayDTO `json:"expenditure"`
+}
+
+// GetStockAnalytics serves GET /feed-analytics/stock.
+func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.analyticsInput(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.service.StockAnalytics(r.Context(), in)
+	if err != nil {
+		h.writeServiceError(w, r, "feed analytics stock", err)
+		return
+	}
+	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
+	dto := stockAnalyticsDTO{
+		DateFrom:    from.Format("2006-01-02"),
+		DateTo:      to.Format("2006-01-02"),
+		Items:       make([]stockItemDTO, 0, len(result.Items)),
+		Expenditure: make([]expenditureDayDTO, 0, len(result.Expenditure)),
+	}
+	for _, it := range result.Items {
+		dto.Items = append(dto.Items, stockItemDTO(it))
+	}
+	for _, d := range result.Expenditure {
+		dto.Expenditure = append(dto.Expenditure, expenditureDayDTO(d))
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}

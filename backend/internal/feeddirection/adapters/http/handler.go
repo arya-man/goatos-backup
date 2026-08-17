@@ -48,6 +48,7 @@ type Service interface {
 	DirectedAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.DirectedAnalytics, error)
 	ExecutionAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExecutionAnalytics, error)
 	ExperimentAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExperimentAnalytics, error)
+	StockAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.StockAnalytics, error)
 }
 
 type Handler struct {
@@ -64,6 +65,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-analytics/directed", h.GetDirectedAnalytics)
 	mux.HandleFunc("GET /feed-analytics/execution", h.GetExecutionAnalytics)
 	mux.HandleFunc("GET /feed-analytics/experiment", h.GetExperimentAnalytics)
+	mux.HandleFunc("GET /feed-analytics/stock", h.GetStockAnalytics)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
 	// Which of a pen-session's proof slots are already recorded, by ANY operator. Read-only; it is
 	// what lets three people split one pen-session's three proofs.

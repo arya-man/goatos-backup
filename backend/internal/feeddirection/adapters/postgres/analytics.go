@@ -388,3 +388,141 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 	}
 	return out, nil
 }
+
+// ---------------------------------------------------------------------------
+// Stock & expenditure
+// ---------------------------------------------------------------------------
+
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, and locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=feed_item_key on every side — purchases, depletion and the recent-day average all collapse to the item before joining, so the three sides meet strictly 1:1; join_cardinality=bought LEFT JOIN directed LEFT JOIN recent, each pre-aggregated to one row per item; pagination=none, a tenant's feed catalog is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded per-item aggregates over the
+// small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
+const stockItemsSQL = `
+WITH bought AS (
+    SELECT feed_item_key,
+           MAX(feed_item_label)                          AS feed_item_label,
+           SUM(quantity_kg - consumed_at_import_kg)      AS net_kg,
+           MAX(batch_no)                                 AS latest_batch,
+           MIN(depletes_from)                            AS depletes_from
+    FROM feed_purchases
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+    GROUP BY feed_item_key
+),
+locked_cells AS (
+    SELECT r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.state = 'locked'
+    GROUP BY r.feed_item_key, i.feed_day
+),
+directed AS (
+    SELECT b.feed_item_key, COALESCE(SUM(lc.kg), 0) AS kg
+    FROM bought b
+    LEFT JOIN locked_cells lc
+      ON lc.feed_item_key = b.feed_item_key AND lc.feed_day >= b.depletes_from
+    GROUP BY b.feed_item_key
+),
+recent AS (
+    SELECT feed_item_key, AVG(kg) AS avg_kg
+    FROM (
+        SELECT feed_item_key, kg,
+               ROW_NUMBER() OVER (PARTITION BY feed_item_key ORDER BY feed_day DESC) AS rn
+        FROM locked_cells
+    ) ranked
+    WHERE rn <= 7
+    GROUP BY feed_item_key
+)
+SELECT b.feed_item_label,
+       b.feed_item_key,
+       round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
+       COALESCE(round(r.avg_kg, 1)::text, '')             AS avg_daily_kg,
+       CASE WHEN COALESCE(r.avg_kg, 0) > 0
+            THEN floor((b.net_kg - d.kg) / r.avg_kg)::bigint
+       END                                                AS days_left,
+       b.latest_batch
+FROM bought b
+JOIN directed d USING (feed_item_key)
+LEFT JOIN recent r USING (feed_item_key)
+ORDER BY days_left NULLS LAST, b.feed_item_label`
+
+// Expenditure: each (day, item)'s directed kg priced at the item's most recent
+// load rate on or before that day. The LATERAL probes one indexed row per
+// (day, item) pair of an already-collapsed bounded set.
+const stockExpenditureSQL = `
+WITH day_item AS (
+    SELECT i.feed_day, r.feed_item_key, SUM(r.quantity_kg) AS kg
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.state IN ('issued', 'amended', 'locked')
+      AND i.feed_day BETWEEN $3 AND $4
+    GROUP BY i.feed_day, r.feed_item_key
+)
+SELECT di.feed_day::text,
+       round(SUM(di.kg * price.per_kg), 0)::text AS rupees
+FROM day_item di
+JOIN LATERAL (
+    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
+    FROM feed_purchases p
+    WHERE p.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR p.park_id = ANY ($2::uuid[]))
+      AND p.feed_item_key = di.feed_item_key
+      AND p.purchase_date <= di.feed_day
+    ORDER BY p.purchase_date DESC, p.batch_no DESC
+    LIMIT 1
+) price ON price.per_kg IS NOT NULL
+GROUP BY di.feed_day
+ORDER BY di.feed_day`
+
+// StockAnalytics serves the stock cards and the expenditure series.
+func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	from, to := domain.ClampAnalyticsWindow(q.DateFrom, q.DateTo)
+	var parkIDs []uuid.UUID
+	if len(q.ParkIDs) > 0 {
+		parkIDs = q.ParkIDs
+	}
+	out := domain.StockAnalytics{Items: []domain.StockItem{}, Expenditure: []domain.ExpenditureDay{}}
+
+	itemRows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
+	if err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock items: %w", err)
+	}
+	defer itemRows.Close()
+	for itemRows.Next() {
+		var it domain.StockItem
+		if err := itemRows.Scan(&it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
+			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock scan: %w", err)
+		}
+		it.LowStock = it.DaysLeft != nil && *it.DaysLeft < domain.LowStockDays
+		out.Items = append(out.Items, it)
+	}
+	if err := itemRows.Err(); err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock rows: %w", err)
+	}
+
+	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure: %w", err)
+	}
+	defer expRows.Close()
+	for expRows.Next() {
+		var d domain.ExpenditureDay
+		if err := expRows.Scan(&d.FeedDay, &d.Rupees); err != nil {
+			return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure scan: %w", err)
+		}
+		out.Expenditure = append(out.Expenditure, d)
+	}
+	if err := expRows.Err(); err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure rows: %w", err)
+	}
+	return out, nil
+}

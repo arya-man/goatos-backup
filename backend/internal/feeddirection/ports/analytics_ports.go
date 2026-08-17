@@ -24,4 +24,8 @@ type DirectedAnalyticsReader interface {
 	// ExperimentAnalytics returns the experiment workflow's authored absolute kg
 	// per (feed day, arm). No per-head figure exists for these rows.
 	ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error)
+	// StockAnalytics returns per-item stock positions from the bootstrapped
+	// purchase ledger (depleting at sheet lock) and the daily expenditure
+	// series for the query window. Empty when the ledger is unpopulated.
+	StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error)
 }

@@ -876,6 +876,7 @@ export async function getFeedDirectionPreview(
 export type FeedAnalyticsDirectedResponse = AppApiComponents["schemas"]["FeedAnalyticsDirectedResponse"];
 export type FeedAnalyticsExecutionResponse = AppApiComponents["schemas"]["FeedAnalyticsExecutionResponse"];
 export type FeedAnalyticsExperimentResponse = AppApiComponents["schemas"]["FeedAnalyticsExperimentResponse"];
+export type FeedAnalyticsStockResponse = AppApiComponents["schemas"]["FeedAnalyticsStockResponse"];
 
 export type FeedAnalyticsParams = {
   /** Optional: absent means every authorized park. */
@@ -921,6 +922,20 @@ export async function getFeedAnalyticsExperiment(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<FeedAnalyticsExperimentResponse>("/feed-analytics/experiment", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedAnalyticsStock(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsStockResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsStockResponse>("/feed-analytics/stock", {
       cache: "no-store",
       query: compactQuery(params),
     }),

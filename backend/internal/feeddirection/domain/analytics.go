@@ -141,3 +141,45 @@ type ExperimentDayArm struct {
 type ExperimentAnalytics struct {
 	Arms []ExperimentDayArm
 }
+
+// ---------------------------------------------------------------------------
+// Stock & expenditure analytics, backed by the bootstrapped feed_purchases
+// ledger (migration 000173). Stock depletes at SHEET LOCK: balance =
+// (purchased − consumed-at-import) − directed kg of LOCKED sheets from the
+// bootstrap cutoff onward. Both workflows deplete — experiment feed leaves the
+// same store.
+// ---------------------------------------------------------------------------
+
+// StockItem is one feed item's current stock position.
+type StockItem struct {
+	FeedItemLabel string
+	FeedItemKey   string
+	// BalanceKg may go negative when directed kg overruns the ledger — shown as
+	// is, never clamped: a negative balance says the ledger is missing a load.
+	BalanceKg string
+	// AvgDailyKg averages the item's directed kg over its 7 most recent locked
+	// feed days; empty when the item was never directed.
+	AvgDailyKg string
+	// DaysLeft is BalanceKg ÷ AvgDailyKg, nil when the item has no recent
+	// directed days to divide by.
+	DaysLeft      *int64
+	LatestBatchNo int64
+	// LowStock flags fewer than LowStockDays days left.
+	LowStock bool
+}
+
+// LowStockDays mirrors the legacy sheet's warning threshold.
+const LowStockDays = 5
+
+// ExpenditureDay is one feed day's spend: directed kg priced at each item's
+// most recent load rate on or before that day.
+type ExpenditureDay struct {
+	FeedDay string
+	Rupees  string
+}
+
+// StockAnalytics is the /feed-analytics/stock payload.
+type StockAnalytics struct {
+	Items       []StockItem
+	Expenditure []ExpenditureDay
+}
