@@ -13,14 +13,13 @@ package sg.mesha.goatos.core.proofedit
  * the allowlist, with new values:
  *
  *   feature_surface     which feature opened the camera (feed_packing, vaccination, ...)
- *   rfid_tag / rfid     the animal identity, when the surface has one
+ *   rfid_tag            the animal identity, when the surface has one
  *   proof_id / task_id  the proof row and its task
- *   proof_subject       what the proof is of
+ *   field_key           the evidence slot
  *   processing_state    which STEP this event reports (see [Step])
  *   outcome / reason    how the step ended, and why when it failed
  *   duration_bucket     coarse output length
- *   original_size_bucket / processed_size_bucket
- *   capture_source / mime_type
+ *   source              where the footage came from
  *
  * Richer editing detail (exact clip count, kept share, per-clip ranges) goes to the BACKEND proof
  * event, which has no 25-key ceiling — see `recordProofEvent` in `CaptureRepository`.
@@ -88,20 +87,33 @@ object ProofEditTelemetry {
         const val EDIT_NOT_OFFERED = "edit_not_offered"
     }
 
-    /** Existing allowlisted param keys this flow writes. NEVER add a key that is not already
-     *  on the Firebase allowlist; see the class comment for why. */
+    /**
+     * Param keys this flow writes. EVERY ONE must already be present in
+     * `FIREBASE_PARAM_ALLOWLIST` (`core-analytics/FirebaseAnalyticsAdapter.kt`) — a key that is
+     * absent there is silently discarded before the event reaches GA4, which looks instrumented
+     * and reports nothing. `capture_source`, `mime_type` and `proof_subject` were assumed to be on
+     * that list and are NOT; they are deliberately absent here. Verified by
+     * `ProofEditTelemetryParamBudgetTest`.
+     */
     object Params {
         const val FEATURE_SURFACE = "feature_surface"
-        const val PROOF_SUBJECT = "proof_subject"
         const val RFID_TAG = "rfid_tag"
         const val PROOF_ID = "proof_id"
         const val TASK_ID = "task_id"
+        const val FIELD_KEY = "field_key"
         const val PROCESSING_STATE = "processing_state"
         const val OUTCOME = "outcome"
         const val REASON = "reason"
         const val DURATION_BUCKET = "duration_bucket"
-        const val CAPTURE_SOURCE = "capture_source"
-        const val MIME_TYPE = "mime_type"
+
+        /** Where the footage came from (`in_app_camera`). Allowlisted as `source`. */
+        const val SOURCE = "source"
+
+        /** Every key above, for the budget test to assert against the Firebase allowlist. */
+        val ALL: Set<String> = setOf(
+            FEATURE_SURFACE, RFID_TAG, PROOF_ID, TASK_ID, FIELD_KEY,
+            PROCESSING_STATE, OUTCOME, REASON, DURATION_BUCKET, SOURCE,
+        )
     }
 
     /** Coarse duration bucket, so an exact length never becomes a high-cardinality param. */

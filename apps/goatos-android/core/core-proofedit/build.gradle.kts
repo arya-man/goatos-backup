@@ -31,6 +31,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    // BackHandler: the editor MUST intercept system back (see ProofTrimEditor).
+    implementation(libs.androidx.activity.compose)
 
     // Trim + stitch is one media3 Transformer export; the preview player is ExoPlayer.
     api(libs.androidx.media3.exoplayer)

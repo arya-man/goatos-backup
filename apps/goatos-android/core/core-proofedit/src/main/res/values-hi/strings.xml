@@ -23,4 +23,8 @@
     <string name="proof_trim_cancel">रद्द करें</string>
     <string name="proof_trim_done_whole">पूरा वीडियो · पूरा हुआ</string>
     <string name="proof_trim_done_length">पूरा हुआ · %1$s</string>
+    <string name="proof_trim_discard_title">यह रिकॉर्डिंग हटाएँ?</string>
+    <string name="proof_trim_discard_body">आपको वीडियो दोबारा रिकॉर्ड करना पड़ेगा।</string>
+    <string name="proof_trim_discard_confirm">हटाएँ</string>
+    <string name="proof_trim_discard_keep">बदलाव जारी रखें</string>
 </resources>

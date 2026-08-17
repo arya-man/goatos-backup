@@ -42,4 +42,8 @@
 
     <string name="proof_trim_done_whole">Done · full video</string>
     <string name="proof_trim_done_length">Done · %1$s</string>
+    <string name="proof_trim_discard_title">Discard this recording?</string>
+    <string name="proof_trim_discard_body">You will need to record the video again.</string>
+    <string name="proof_trim_discard_confirm">Discard</string>
+    <string name="proof_trim_discard_keep">Keep editing</string>
 </resources>
