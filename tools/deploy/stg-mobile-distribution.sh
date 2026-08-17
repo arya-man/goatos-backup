@@ -18,6 +18,9 @@ cd "$repo_root"
 commit_sha="$(git rev-parse --short=12 HEAD)"
 build_id="${BUILD_ID:-local}"
 triggered_by="${TRIGGERED_BY:-unknown Slack user}"
+firebase_uploaded=false
+play_uploaded=false
+apk_mirrored=false
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -127,10 +130,15 @@ post_deploy_panel() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    if [[ "${DEPLOY_STG:-false}" == "true" ]]; then
-      notify_slack "FAILED" "STG rollout succeeded. Android mobile distribution failed. Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
+    local prefix="Android mobile distribution failed."
+    [[ "${DEPLOY_STG:-false}" == "true" ]] && prefix="STG rollout succeeded. Android mobile distribution failed."
+
+    if [[ "$firebase_uploaded" == "true" && "$play_uploaded" != "true" ]]; then
+      notify_slack "FAILED" "${prefix} Firebase App Distribution uploaded, but Play Internal Testing did not complete."
+    elif [[ "$firebase_uploaded" == "true" && "$play_uploaded" == "true" && "$apk_mirrored" != "true" ]]; then
+      notify_slack "FAILED" "${prefix} Firebase App Distribution and Play Internal Testing completed, but mesha.sg/app.apk did not update."
     else
-      notify_slack "FAILED" "Android mobile distribution failed. Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
+      notify_slack "FAILED" "${prefix} Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
     fi
     post_deploy_panel
   fi
@@ -169,6 +177,7 @@ cd apps/goatos-android
   --no-configuration-cache \
   -PallowDirtyFirebaseDistribution=true \
   -PfadReleaseNotes="Goat OS (Mesha) STG release from main ${commit_sha}"
+firebase_uploaded=true
 
 cd "$repo_root"
 APK="apps/goatos-android/app/build/outputs/apk/stg/release/app-stg-release.apk"
@@ -215,6 +224,7 @@ curl -fsS -X PUT \
 curl -fsS -X POST \
   -H "Authorization: Bearer ${play_access_token}" \
   "${play_base}/edits/${edit_id}:commit" >/dev/null
+play_uploaded=true
 
 gcloud storage cp "$APK" \
   "gs://goatos-stg-public-downloads/operator/releases/${DOWNLOAD_NAME}" \
@@ -242,6 +252,7 @@ mirror_sha="$(shasum -a 256 .local/verify-latest-app.apk | awk '{print $1}')"
 
 curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/latest/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
+apk_mirrored=true
 
 notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
 post_deploy_panel
