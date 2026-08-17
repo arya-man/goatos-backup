@@ -21,6 +21,17 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.GoatOs" />
 
+        <!-- Debug-only harness for the capture -> trim -> join flow. Drives the REAL capture
+             composables with the editing flag forced on locally, so the editor's device
+             behaviour can be verified without standing up the whole phone-QA stack. Declared
+             only in the debug source set, so release APKs never ship it. -->
+        <activity
+            android:name=".ProofTrimFlowSampleActivity"
+            android:exported="true"
+            android:label="Proof Trim Flow"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GoatOs" />
+
         <!-- Debug-only deterministic BT-HID/RFID E2E seam. Physical-device tests broadcast a
              tag while the real scan route is active; the receiver feeds the SAME singleton
              RfidReaderPort/key-event buffer as a hardware keyboard wedge. Release variants do
