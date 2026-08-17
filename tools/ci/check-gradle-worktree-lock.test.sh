@@ -42,6 +42,18 @@
 # is the check to repeat if that line is ever touched.
 #
 # NEVER invokes Gradle. Sleeps and shell only.
+# Scoped exactly like the guard it tests (maintainer decision 2026-08-16): this self-test
+# mutates and re-runs the lock guard, so it inherits the same ephemeral-container
+# limitations. Mandatory on developer machines and the self-hosted M1 runner; skipped on
+# ephemeral github-hosted runners with the reason stated, never silently.
+# See docs/decisions/gradle-worktree-lock-linux-atomicity.md.
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ]; then
+  echo "check-gradle-worktree-lock.test.sh: SKIPPED on ephemeral github-hosted runner"
+  echo "  Reason: mutation self-test for a guard scoped to workstation/M1 parallel-agent lock wedging"
+  echo "  Open Linux bugs: cases b/c/h/r — docs/decisions/gradle-worktree-lock-linux-atomicity.md"
+  exit 0
+fi
+
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

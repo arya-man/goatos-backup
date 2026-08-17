@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
 import sg.mesha.goatos.core.data.CalendarScheduleQuery
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.CalendarDateMarkerDto
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
@@ -349,7 +350,7 @@ class CalendarViewModel @Inject constructor(
                 vaccine = filters.vaccine,
                 limit = CALENDAR_PAGE_SIZE,
             )
-            _offline.value = result.isFailure
+            _offline.value = result.exceptionOrNull().isConnectivityFailure()
             if (result.isSuccess) {
                 analytics.track(AnalyticsEvents.CALENDAR_REFRESH_SUCCEEDED)
             } else {
@@ -378,7 +379,7 @@ class CalendarViewModel @Inject constructor(
             vaccine = filters.vaccine,
             limit = CALENDAR_PAGE_SIZE,
         )
-        _offline.value = result.isFailure
+        _offline.value = result.exceptionOrNull().isConnectivityFailure()
         if (result.isSuccess) {
             analytics.track(AnalyticsEvents.CALENDAR_LOAD_MORE_SUCCEEDED)
         } else {

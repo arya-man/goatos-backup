@@ -70,6 +70,7 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /verification/review-events", h.RecordReviewEvents)
 	mux.HandleFunc("GET /verification/items/{item_id}/review-facts", h.GetItemReviewFacts)
 	mux.HandleFunc("GET /verification/oversight-analytics", h.GetOversightAnalytics)
+	mux.HandleFunc("GET /verification/video-log", h.GetVideoLog)
 }
 
 type queueItemResponse struct {

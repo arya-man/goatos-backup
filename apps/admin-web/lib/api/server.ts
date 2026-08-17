@@ -2288,6 +2288,40 @@ export async function getVerificationOversightAnalytics(): Promise<ApiResult<Ver
   );
 }
 
+export type VerificationVideoLogResponse = AppApiComponents["schemas"]["VerificationVideoLogResponse"];
+
+// The VIDEO LOG (GET /verification/video-log): for one business day, per shed, when each proof
+// arrived. Gated on permissions.VerificationEvidenceTimeline -- the same capability as the /verify
+// page contract's video_log control, and a DIFFERENT one from verification.oversee, so the verifier
+// reaches this while the oversight analytics stay leadership-only. The page must only call this
+// when controlEnabled(pageContract, "video_log", false) is true, so a caller without the capability
+// never renders a bare error card.
+export async function getVerificationVideoLog(params: {
+  businessDate?: string;
+  parkId?: string;
+  shedId?: string;
+  /**
+   * Whole-day EXPORT: every shed's rows, each carrying its own location. Reserved for the CSV
+   * download — the panel never renders this, because a park-day can carry several hundred items.
+   */
+  allSheds?: boolean;
+}): Promise<ApiResult<VerificationVideoLogResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VerificationVideoLogResponse>("/verification/video-log", {
+      cache: "no-store",
+      query: compactQuery({
+        business_date: params.businessDate,
+        park_id: params.parkId,
+        shed_id: params.shedId,
+        all_sheds: params.allSheds ? "true" : undefined,
+      }),
+    }),
+  );
+}
+
 /**
  * Record the Verifier's approve/reject decision on one verification item
  * (POST /verification/items/{item_id}/verdict, gated on verification.verdict -- the verifier role

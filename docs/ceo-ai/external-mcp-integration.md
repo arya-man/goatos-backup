@@ -134,11 +134,43 @@ intentional. The safe automatic path is:
 
 ```text
 new Mesha question
-  -> external MCP ask_goatos
-  -> Goat OS /ceo-ai/ask
-  -> existing covered read APIs, Cube metrics, MCP Toolbox tools, ceo_ai views,
-     or validated read-only SQL fallback
+  -> external MCP typed tool when one exists, otherwise ask_goatos fallback
+  -> existing covered Goat OS read APIs, Cube metrics, MCP Toolbox tools,
+     ceo_ai views, or validated read-only SQL fallback
 ```
+
+Typed tools take priority over free-text fallback. For example,
+`get_vaccination_today` calls the canonical Goat OS
+`GET /vaccination/live-tracker` API and returns exact drive-day facts:
+scheduled administrations, assigned operators, shed/partition/vaccine progress,
+proof videos, scan captures, closed administrations, remaining work, unassigned
+scheduled administrations, attention, and verification state. A question like
+"What vaccination work is scheduled today and what is the progress?" must use
+that typed tool. The generic `ask_goatos` fallback must not be treated as
+authoritative for that class because broad assistant fallback can mix overall
+dashboard totals with today's drive-day schedule.
+
+Current external typed tool catalog:
+
+| CEO question class | External MCP tool | Canonical source | Grain guard |
+| --- | --- | --- | --- |
+| Today's vaccination schedule/progress | `get_vaccination_today` | `GET /vaccination/live-tracker` | Administration grain: scheduled administrations, operator assignment, proof/scans, closed/remaining. Do not mix all-history due totals. |
+| Cross-module exceptions/action queue | `get_action_center` | `GET /action-center/obligations` | Process-integrity obligation grain. Do not mix with operator schedule totals or verifier verdicts. |
+| Proof/evidence backlog | `get_verification_backlog` | `GET /verification/queue` | Verification item grain. Pending verification is not completed work. |
+| Feed needed/blocked today | `get_feed_today` | `GET /feed-direction/preview` | Issued feed sheet grain. Blocked/null quantity is a config gap, not zero feed. |
+| Procurement source-entry pipeline | `get_procurement_pipeline` | `GET /procurement/source-entry/loads` | Load grain. Keep expected, received, accepted, rejected, and holding distinct. |
+| Herd/census counts | `get_counts_summary` | `GET /counts/breakdown` | Aggregate census grain. Keep lifecycle status explicit. |
+| Health work/cases | `get_health_today`, `get_health_work_items`, `get_milk_feeding_today` | `GET /app/health/work-items`, `GET /app/counts/milk-feeding/tasks` | Treatment-session plus kid milk-feeding task grain. Use `get_health_today` for broad questions so adult health, kids health, and kid milk-feeding work are all included. Open sick work is not a death event unless health state says so. |
+| Workforce/backup coverage | `get_workforce_coverage` | `GET /admin/roster/coverage` | Roster coverage grain. Use for uncovered/weakly covered sheds, roles, and backup-manager seats. Do not substitute Action Center obligations. |
+| Weighing campaign progress | `get_weighing_progress` | `GET /weighing/campaigns` | Campaign/shed progress grain. Pending verification weight is not verified weight. |
+| Weighing growth/ADG trend | `get_weighing_growth_adg` | `GET /weighing/leadership/growth` | Growth aggregate grain. Use for "are weights improving" and ADG questions. |
+| Weighing shed lag/coverage | `get_weighing_shed_weights` | `GET /weighing/shed-weights` | Shed KPI row grain. Use for lagging sheds and latest shed weights. |
+| Weighing process gaps | `get_weighing_process_state` | `GET /weighing/process-state` | Calendar/control-tower process grain. Use for overdue, pending proof/review, and process health. |
+| Weighing demographics | `get_weighing_weight_demographics` | `GET /weighing/weight-demographics` | Breed/sex/stage demographic grain. Use for group comparisons. |
+
+When a user asks a question in one of these classes, Claude, Codex, or ChatGPT
+should call the typed tool directly. `ask_goatos` remains a read-only fallback
+for questions not yet covered by a typed external tool.
 
 If a future change adds a new leadership-relevant API, OpenAPI path, table,
 view, reporting read, KPI, mobile workflow, admin-web route, or domain event, it
@@ -149,6 +181,8 @@ That means one of:
 - add or update a `ceo_ai.*` reporting view,
 - add or update a curated MCP Toolbox tool,
 - add a validated read-only SQL fallback/query class, or
+- add an external MCP typed tool when an external client should answer the class
+  without free-text fallback, or
 - add an explicit exclusion row in `docs/ceo-ai/coverage-matrix.md` explaining
   why leadership should not see it.
 
@@ -204,11 +238,12 @@ goes in the config:
 After restart, ask a normal question such as:
 
 ```text
-Which sheds are overdue for vaccination today?
+What vaccination work is scheduled today and what is the progress?
 ```
 
 Do not ask Claude to call `mesha_vaccination_due_summary` or any other internal
-tool name. Tool selection is part of the MCP/client/runtime contract.
+tool name. Tool selection is part of the MCP/client/runtime contract. The client
+should discover and call `get_vaccination_today` for the question above.
 
 ## Codex Configuration
 
@@ -244,21 +279,50 @@ tokens, SQL, tenant IDs, or internal tool arguments into chat.
 
 ## ChatGPT-Style Custom GPT / App Usage
 
-For a ChatGPT-style custom GPT, app, or connector:
+For ChatGPT, there are two separate flows.
 
-1. Register the external MCP endpoint URL:
+### Admin publishes the Mesha app
+
+1. Open ChatGPT settings and enable Developer Mode if the workspace requires it.
+2. Create a new app/connector named `Mesha Goat OS`.
+3. Add the remote MCP endpoint:
    ```text
    https://mcp.mesha.sg/mcp
    ```
-2. The connector should use the MCP OAuth discovery flow and show Goat OS login.
-3. Sign in with an allowlisted leadership email.
-4. Describe the connector to users as "Mesha Goat OS leadership read-only
+4. Let ChatGPT discover OAuth and tools from the endpoint.
+5. Click the auth/connect step. ChatGPT should open `Connect Mesha Goat OS`.
+6. Sign in with an allowlisted leadership email.
+7. Scan/test the tools with one operating question before sharing it:
+   ```text
+   What vaccination work is scheduled today and what is the progress?
+   ```
+8. Describe the connector to users as "Mesha Goat OS leadership read-only
    operations assistant."
-5. Test with one normal operating question before sharing it with other
-   allowlisted users.
+
+When tool descriptions change, refresh/rescan the app before approval/sharing so
+ChatGPT sees the latest MCP catalog. Treat approval as a publishing step: do not
+assume a previously approved app automatically picked up new tools.
+
+### CEO connects the Mesha app
+
+1. Open ChatGPT.
+2. Choose the `Mesha Goat OS` app/connector.
+3. Click Connect.
+4. On the Mesha page, enter the approved Mesha leadership email and password.
+5. Ask normal questions. The CEO should not paste tokens, SQL, tenant IDs, or
+   endpoint URLs into chat.
 
 Do not embed database credentials, long-lived static bearer tokens, tenant IDs,
 or raw SQL examples in the GPT/app instructions.
+
+Current read-boundary reminders for ChatGPT, Claude, and Codex:
+
+- Feed MCP answers planned/issued feed. It does not prove actual feeding was
+  completed until the `feed_adherence` source/API ships.
+- Inventory reorder thresholds are not configured yet. Do not rank or alert on
+  `reorder_flag`; answer that reorder thresholds are not covered/configured.
+- Procurement Action Center/Control Tower remains intentionally excluded until
+  the top-level read routes are mounted.
 
 ## Troubleshooting
 

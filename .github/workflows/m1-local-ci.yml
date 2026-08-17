@@ -1,0 +1,69 @@
+name: m1-local-ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "ci-local mode to run after preflight"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - all
+          - backend
+          - admin-web
+          - android
+      run_postgres_tests:
+        description: "Run Docker/Postgres integration gates on the M1 runner"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: m1-local-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: M1 fast preflight
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Toolchain
+        run: |
+          git --version
+          node --version
+          npm --version
+          go version
+          java -version
+          rg --version
+      - name: Fast common gates
+        run: make ci-local JOB=common
+
+  ci-local:
+    name: M1 ci-local
+    needs: preflight
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run scoped local CI
+        run: |
+          mode="${{ inputs.mode || 'auto' }}"
+          postgres="${{ inputs.run_postgres_tests || false }}"
+          export GOATOS_RUN_POSTGRES_TESTS=0
+          if [ "$postgres" = "true" ]; then
+            export GOATOS_RUN_POSTGRES_TESTS=1
+          fi
+          if [ "$mode" = "auto" ]; then
+            make ci-local
+          else
+            tools/ci/run-local-ci.sh "$mode"
+          fi

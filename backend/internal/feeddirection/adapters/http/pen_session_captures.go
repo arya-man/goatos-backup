@@ -14,18 +14,25 @@ import (
 
 // capturedSlotDTO is ONE already-recorded proof slot of a pen-session.
 //
-// It deliberately carries NO media url and NO uploader name. The operator's need is "this slot is
-// already done, and here is the reference I can submit with"; the media itself stays a verifier
-// surface, so this route adds no new way to view another operator's footage.
+// It carries NO media url. The operator's need is "this slot is already done, and here is the
+// reference I can submit with"; the media itself stays a verifier surface, so this route adds no new
+// way to view another operator's footage. The uploader's display name is included so the UI can show
+// "Captured by <name>" for teammate proofs.
 type capturedSlotDTO struct {
-	FieldKey   string `json:"field_key"`
-	ProofRef   string `json:"proof_ref"`
-	CapturedAt string `json:"captured_at"`
-	MimeType   string `json:"mime_type,omitempty"`
+	FieldKey       string `json:"field_key"`
+	ProofRef       string `json:"proof_ref"`
+	CapturedAt     string `json:"captured_at"`
+	MimeType       string `json:"mime_type,omitempty"`
+	CapturedByName string `json:"captured_by_name,omitempty"`
 }
 
 type distributionCapturesResponse struct {
 	Items []capturedSlotDTO `json:"items"`
+	// SessionStatus is the pen-session's completion status ("pending_verification", "completed",
+	// "rework"), empty when nothing was submitted yet. Travels WITH the slots so the mobile
+	// proof screen paints its read-only gate and the slot list from one consistent answer
+	// (field bug 2026-08-15: a stale list-row hint opened a submitted session editable).
+	SessionStatus string `json:"session_status,omitempty"`
 }
 
 // GetDistributionCaptures serves the pen-session's already-recorded proof slots.
@@ -63,7 +70,7 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	slots, err := h.service.ListPenSessionCaptures(r.Context(), app.PenSessionCapturesInput{
+	result, err := h.service.ListPenSessionCaptures(r.Context(), app.PenSessionCapturesInput{
 		TenantID: tenantID,
 		ParkID:   scope.ParkID,
 		ShedID:   strings.TrimSpace(q.Get("shed_id")),
@@ -80,14 +87,15 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	items := make([]capturedSlotDTO, 0, len(slots))
-	for _, slot := range slots {
+	items := make([]capturedSlotDTO, 0, len(result.Slots))
+	for _, slot := range result.Slots {
 		items = append(items, capturedSlotDTO{
-			FieldKey:   slot.FieldKey,
-			ProofRef:   slot.ProofID,
-			CapturedAt: slot.CapturedAt.UTC().Format(time.RFC3339),
-			MimeType:   slot.MimeType,
+			FieldKey:       slot.FieldKey,
+			ProofRef:       slot.ProofID,
+			CapturedAt:     slot.CapturedAt.UTC().Format(time.RFC3339),
+			MimeType:       slot.MimeType,
+			CapturedByName: slot.CapturedByName,
 		})
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{Items: items})
+	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{Items: items, SessionStatus: result.SessionStatus})
 }

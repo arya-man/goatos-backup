@@ -2026,7 +2026,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
         };
         GoatSummary: {
@@ -2237,7 +2237,7 @@ export interface components {
             shed_name: string;
             /** @description Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here. */
             partition_label: string | null;
-            /** @description Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it. */
+            /** @description Backend-composed ("Castro 2"). Clients render it verbatim and never recompose it. */
             operational_location_display: string;
             /** @description The canonical resolved target tag. */
             management_stage: string;

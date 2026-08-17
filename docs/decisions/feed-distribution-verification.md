@@ -78,11 +78,15 @@ generated session (the ration; operator sees only the two proof prompts, not the
   the upload (`/app/proofs/uploads` then `/app/proofs/{id}/complete`) and can genuinely disagree. The
   weight photo additionally requires `capture_source = in_app_camera`: it is the capture that carries
   a NUMBER, and a gallery still of a scale is a reading from some other day.
-- **Capture is sequential and camera-only.** Each step unlocks the next (weight → feed → water). Feed
-  Distribution exposes no gallery/import control for any proof. Automatic outbox upload remains
-  unchanged. Vaccination is explicitly outside this rule and retains gallery upload.
+- **Capture is camera-only; slots are independent and parallel (SUPERSEDED: "sequential").** The
+  original 2026-07-26 wording said each step unlocks the next (weight → feed → water). Superseded
+  2026-08-15 by `docs/product/feed-proof-collaboration.md`: the three proof slots belong to one
+  shared shed-session that multiple peer operators fill simultaneously from their own phones, in any
+  split — no slot gates another. Camera-only stands: Feed Distribution exposes no gallery/import
+  control for any proof. Automatic outbox upload remains unchanged. Vaccination is explicitly
+  outside this rule and retains gallery upload.
 - **One Accept per session covers all three proofs.** The three media travel on a single verification
-  item, in capture order; the verifier approves (or rejects) the set together.
+  item; the verifier approves (or rejects) the set together.
 - **Rejection bounces to `rework`.** The operator re-records and re-submits, which returns the row to
   `pending_verification` (row_version bumped) and enqueues a fresh verification item.
 

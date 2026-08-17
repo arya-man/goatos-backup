@@ -152,6 +152,20 @@ enum class OutboxOpType {
     HEALTH_DIAGNOSIS_CONFIRM,
     WEIGHING_ANIMAL_OBSERVATION,
     WEIGHING_SHED_OBSERVATION,
+
+    /**
+     * Weighing scope SUBMIT transition (`POST /app/weighing/campaigns/{id}/sheds/{id}/submit`).
+     * Previously a direct, non-durable HTTP call from `WeighingRepository.submitIndividualScope`:
+     * a killed process or a dropped connection mid-call lost the write entirely, with no retry and
+     * no record it was ever attempted — the operator's confirm tap vanished. Routing it through the
+     * outbox like every other weighing/observation write gives it the same durability + backoff
+     * retry as the rest of the module. [idempotencyKey] is the existing Room-backed transition-epoch
+     * key (`WeighingRepository.transitionIdempotencyKey`), unchanged by this move: the epoch only
+     * advances after the row reaches [sg.mesha.goatos.core.database.outbox.OutboxStatus.SUCCEEDED],
+     * so a retried attempt still dedupes server-side. The CAMPAIGN_SHED id is the outbox group key,
+     * so two submit attempts for the same shed drain strictly oldest-first.
+     */
+    WEIGHING_SCOPE_SUBMIT,
 }
 
 /**

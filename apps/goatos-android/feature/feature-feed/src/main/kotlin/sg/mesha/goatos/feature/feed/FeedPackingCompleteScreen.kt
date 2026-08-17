@@ -207,8 +207,10 @@ private fun FeedPackingStatusCard(
     }
 }
 
+/** internal (not private): also used by FeedDistributionCompleteScreen and FeedTransportScreen for
+ *  the same-shaped "already submitted" body. */
 @Composable
-private fun FeedDistStatusCardBody(text: String, tone: Color) {
+internal fun FeedDistStatusCardBody(text: String, tone: Color) {
     androidx.compose.foundation.layout.Column(
         modifier = Modifier
             .fillMaxWidth()

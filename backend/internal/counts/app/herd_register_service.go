@@ -45,7 +45,7 @@ func NewHerdRegisterService(repo ports.Repository) *HerdRegisterService {
 }
 
 type MilkFeedingProofValidator interface {
-	ValidateMilkFeedingProofs(ctx context.Context, tenantID, parkID string, proofs []domain.MilkPreparationStepProof) error
+	ValidateMilkFeedingProofs(ctx context.Context, tenantID, taskID string, proofs []domain.MilkPreparationStepProof) error
 }
 
 type MilkFeedingVerificationEnqueueRequest struct {
@@ -200,7 +200,7 @@ func (s *HerdRegisterService) SubmitMilkFeeding(ctx context.Context, in domain.M
 		return domain.MilkFeedingSubmissionResult{}, err
 	}
 	steps := in.Proofs.OrderedStepProofs()
-	if err := s.milkFeedingProofs.ValidateMilkFeedingProofs(ctx, in.TenantID, in.ParkID, steps); err != nil {
+	if err := s.milkFeedingProofs.ValidateMilkFeedingProofs(ctx, in.TenantID, in.TaskID, steps); err != nil {
 		return domain.MilkFeedingSubmissionResult{}, err
 	}
 	if in.SubmittedAt.IsZero() {

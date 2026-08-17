@@ -129,4 +129,5 @@
     <string name="feed_proof_recapture">ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ಸೆರೆಹಿಡಿಯಿರಿ</string>
     <string name="feed_complete_already_submitted_title">ಈಗಾಗಲೇ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="feed_complete_already_submitted_body">ಈ ವೀಡಿಯೋ ಪರಿಶೀಲಕರಿಗೆ ಹೋಗಿದೆ. ಇಲ್ಲಿ ಇನ್ನೇನೂ ರೆಕಾರ್ಡ್ ಮಾಡಬೇಕಿಲ್ಲ.</string>
+    <string name="feed_dist_session_submitted_body">ಈ ಸೆಷನ್‌ನ ಪ್ರೂಫ್‌ಗಳು ಪರಿಶೀಲಕರಿಗೆ ಹೋಗಿವೆ. ಇಲ್ಲಿ ಇನ್ನೇನೂ ರೆಕಾರ್ಡ್ ಮಾಡಬೇಕಿಲ್ಲ — ಪರಿಶೀಲನೆ ನಂತರ ಫಲಿತಾಂಶ ಕಾಣಿಸುತ್ತದೆ.</string>
 </resources>

@@ -76,6 +76,7 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ProofDownloadUrlResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -477,6 +478,11 @@ interface AppApiService {
         @Query("limit") limit: Int?,
     ): UploadedProofListResponseDto
 
+    @GET("app/proofs/{proof_id}/download")
+    suspend fun getProofDownloadUrl(
+        @Path("proof_id") proofId: String,
+    ): ProofDownloadUrlResponseDto
+
     @DELETE("app/proofs/{proof_id}")
     suspend fun deleteProof(@Path("proof_id") proofId: String)
 
@@ -626,6 +632,7 @@ interface AppApiService {
         @Query("park_id") parkId: String,
         @Query("target_date") targetDate: String,
         @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
         @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
         @Query("status") status: String?,
@@ -637,6 +644,8 @@ interface AppApiService {
     suspend fun getFeedPackingWorklist(
         @Query("park_id") parkId: String,
         @Query("target_date") targetDate: String,
+        @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
         @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
         @Query("status") status: String?,
@@ -862,6 +871,7 @@ interface AppApiService {
 class RetrofitAppApi(
     private val service: AppApiService,
     private val blobUploader: ProofBlobUploader,
+    private val baseUrl: String = "",
 ) : AppApi {
     override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) =
         service.recordAuthSessionEvent(request)
@@ -1154,6 +1164,13 @@ class RetrofitAppApi(
         limit: Int?,
     ): UploadedProofListResponseDto = service.listUploadedProofs(scopeType, scopeId, clientTaskKey, fieldKey, limit)
 
+    override suspend fun getProofDownloadUrl(proofId: String): String {
+        val url = service.getProofDownloadUrl(proofId).downloadUrl
+        // Local storage signs a RELATIVE path; a raw URL loader needs it absolute or the
+        // teammate thumbnail silently never renders (device finding 2026-08-15).
+        return if (url.startsWith("/")) baseUrl.trimEnd('/') + url else url
+    }
+
     override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 
     override suspend fun uploadProofBlob(
@@ -1353,24 +1370,27 @@ class RetrofitAppApi(
         parkId: String,
         targetDate: String,
         shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedDirectionPreviewPageDto =
-        service.getFeedDirectionPreview(parkId, targetDate, shedId, session, workflow, status, limit, offset)
+        service.getFeedDirectionPreview(parkId, targetDate, shedId, partitionLabel, session, workflow, status, limit, offset)
 
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto =
-        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, status, limit, offset)
+        service.getFeedPackingWorklist(parkId, targetDate, shedId, partitionLabel, session, workflow, status, limit, offset)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,
@@ -1671,6 +1691,7 @@ object NetworkFactory {
         RetrofitAppApi(
             retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider, telemetryInterceptor)).create(),
             proofBlobUploader(baseUrl, tokenProvider),
+            baseUrl,
         )
 }
 

@@ -1180,10 +1180,10 @@ private class FakeScannedGoatDao : ScannedGoatDao {
             it.obligationId == obligationId
     }
 
-    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
+    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String, obligationRowVersion: Int) {
         rows.replaceAll { row ->
             if (row.id == id) {
-                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus)
+                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus, obligationRowVersion = obligationRowVersion)
             } else {
                 row
             }
@@ -1297,6 +1297,8 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override suspend fun insert(entity: OutboxEntity) = inner.insert(entity)
     override suspend fun findById(id: String) = inner.findById(id)
     override suspend fun findByIdempotencyKey(key: String) = inner.findByIdempotencyKey(key)
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String) =
+        inner.findLatestForGroupAndOpType(groupKey, opType)
 
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
         drainLimits += limit
@@ -1304,6 +1306,14 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     }
 
     override fun observeActive() = inner.observeActive()
+    override fun observeActiveByOpType(opType: String): kotlinx.coroutines.flow.Flow<List<OutboxEntity>> {
+        val base = observeActive()
+        return kotlinx.coroutines.flow.flow {
+            base.collect { rows -> emit(rows.filter { row -> row.opType == opType }) }
+        }
+    }
+    override fun observeActiveCounts() = inner.observeActiveCounts()
+    override fun observeActiveWindow(limit: Int) = inner.observeActiveWindow(limit)
     override fun observeById(id: String) = inner.observeById(id)
     override suspend fun observeRecentTerminals(recentLimit: Int) = inner.observeRecentTerminals(recentLimit)
     override suspend fun pruneSucceeded(retentionMs: Long, now: Long) = inner.pruneSucceeded(retentionMs, now)
@@ -1313,6 +1323,8 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, now: Long) =
         inner.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, now)
     override suspend fun markRetryReady(id: String, now: Long) = inner.markRetryReady(id, now)
+    override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long) =
+        inner.reopenTerminalForRetry(id, payloadJson, fingerprint, now)
     override suspend fun reclaimInFlight(now: Long) = inner.reclaimInFlight(now)
     override suspend fun delete(id: String) = inner.delete(id)
 }

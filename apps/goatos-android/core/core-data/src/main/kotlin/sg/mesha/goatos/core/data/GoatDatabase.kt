@@ -270,13 +270,13 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
     ],
-    // v43 (see [MIGRATION_42_43]) adds the three diagnosis tables. `health_diagnosis_runs` is the
+    // v48 (see [MIGRATION_47_48]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
     // has just recorded an observation can re-open what came back without a request that may never
     // complete. `health_diagnosis_queue_items` + `health_diagnosis_queue_keys` are the Director's
     // QUEUE: a bounded keyset window plus its server-issued cursor. Deliberately separate tables —
     // a refresh of a paged list must not evict a detail cache that shares its rows.
-    version = 43,
+    version = 48,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -351,6 +351,18 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v38 (see [MIGRATION_37_38]) adds shared proof-video processing state, metrics, and
     // append-only state events for support/debug breadcrumbs.
     // v39 (see [MIGRATION_38_39]) persists the actual capture location/address burned into proof media.
+    // v40 (see [MIGRATION_39_40]) adds rfidTag to proof_capture.
+    // v41 (see [MIGRATION_40_41]) adds obligationId to the scanned_goat_capture unique index constraint.
+    // v42 (see [MIGRATION_41_42]) persists gallerySavedUri on proof_capture.
+    // v43 (see [MIGRATION_42_43]) adds performance indexes on live-status observer columns: grainKey
+    // for feed direction/packing items and taskId for feed transport scoped items.
+    // v44 (see [MIGRATION_43_44]) persists obligation_instances.row_version on scanned_goat_capture
+    // so reconciliation can distinguish "never submitted" from "submitted then reopened".
+    // v45 (see [MIGRATION_44_45]) persists scopeType/scopeId on proof_capture (R50-060) so
+    // startup recovery re-registers weighing free-flow proofs with their original scope.
+    // v46 (see [MIGRATION_45_46]) adds supersedesRowId to proof_capture — a durable
+    // captureReplacingLatest supersession marker (P1 fix) so the replaced row's retirement
+    // survives process death instead of living only in an in-memory ticket.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

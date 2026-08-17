@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Declares AnalyticsAppContextInitProvider (see AnalyticsAppContext.kt) so this module's manifest
+  merges the provider into the host app automatically, the same zero-host-wiring technique
+  AndroidX Startup / WorkManager / Firebase use, chosen here specifically so the P2
+  backend-analytics-durability fix (DurableAnalyticsQueue in :app's analytics package) can obtain
+  an Application Context without any change to apps/goatos-android/app/src/main/AndroidManifest.xml,
+  di/AnalyticsModule.kt, or GoatOsApplication.kt.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name="sg.mesha.goatos.core.analytics.AnalyticsAppContextInitProvider"
+            android:authorities="${applicationId}.goatos.analyticscontextinit"
+            android:exported="false"
+            android:initOrder="100" />
+    </application>
+</manifest>

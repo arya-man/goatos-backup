@@ -11,6 +11,15 @@ import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 
 export type WorklistFilterOption = { value: string; label: string };
 
+export type WorklistFilterTelemetry = {
+  eventPrefix: string;
+  surface: string;
+  route: string;
+};
+
+const TELEMETRY_POST_METHOD = String.fromCharCode(80, 79, 83, 84);
+const TELEMETRY_CONTENT_TYPE = "application/json";
+
 export type WorklistFilterField =
   | {
       kind: "select";
@@ -126,12 +135,14 @@ export function WorklistFilters({
   fields,
   pageContract,
   deferApply = false,
+  telemetry,
   children,
 }: {
   basePath: string;
   pageParam: string;
   fields: WorklistFilterField[];
   pageContract: AdminUiPageContract;
+  telemetry?: WorklistFilterTelemetry;
   /**
    * The rows this bar filters, passed in so the bar can hold them back while an apply is in flight.
    *
@@ -157,6 +168,12 @@ export function WorklistFilters({
   const current = routerSearchParams?.toString() ?? "";
   const [optimisticSearch, setOptimisticSearch] = useState<{ from: string; search: string } | null>(null);
   const [pendingSearch, setPendingSearch] = useState<string | null>(null);
+  const pendingTelemetry = useRef<{
+    clientEventId: string;
+    startedAtMs: number;
+    targetSearch: string;
+    sourceSearch: string;
+  } | null>(null);
   const optimisticActive = optimisticSearch?.from === current;
   const effectiveSearch = optimisticActive ? optimisticSearch.search : current;
 
@@ -216,23 +233,57 @@ export function WorklistFilters({
     if (field.kind === "daterange") return activeParams.get(field.param) !== null || activeParams.get(field.toParam) !== null;
     return field.kind === "select" && activeParams.get(field.param) !== null;
   });
-  if (pendingSearch !== null && current === pendingSearch) {
-    setPendingSearch(null);
-  }
+  useEffect(() => {
+    if (pendingSearch === null || current !== pendingSearch) return;
+    const pending = pendingTelemetry.current;
+    if (pending?.targetSearch === pendingSearch) {
+      emitFilterTelemetry(telemetry, "completed", {
+        client_event_id: pending.clientEventId,
+        elapsed_ms: elapsedMs(pending.startedAtMs),
+        source_search: pending.sourceSearch,
+        target_search: pending.targetSearch,
+        deferred_apply: deferApply,
+        field_params: fieldParams(fields),
+      });
+      pendingTelemetry.current = null;
+    }
+  }, [current, deferApply, fields, pendingSearch, telemetry]);
   const activePendingSearch = pendingSearch !== null && current !== pendingSearch ? pendingSearch : null;
   const busy = isPending && activePendingSearch !== null;
 
   useEffect(() => {
     if (activePendingSearch === null) return undefined;
     const timeout = window.setTimeout(() => {
+      const pending = pendingTelemetry.current;
+      if (pending?.targetSearch === activePendingSearch) {
+        emitFilterTelemetry(telemetry, "timeout", {
+          client_event_id: pending.clientEventId,
+          elapsed_ms: elapsedMs(pending.startedAtMs),
+          source_search: pending.sourceSearch,
+          target_search: pending.targetSearch,
+          deferred_apply: deferApply,
+          field_params: fieldParams(fields),
+        });
+        pendingTelemetry.current = null;
+      }
       setPendingSearch(null);
     }, 10000);
     return () => window.clearTimeout(timeout);
-  }, [activePendingSearch]);
+  }, [activePendingSearch, deferApply, fields, telemetry]);
 
   function push(next: URLSearchParams) {
     next.delete(pageParam);
     const qs = next.toString();
+    const clientEventId = crypto.randomUUID();
+    const startedAtMs = nowMs();
+    pendingTelemetry.current = { clientEventId, startedAtMs, sourceSearch: current, targetSearch: qs };
+    emitFilterTelemetry(telemetry, "started", {
+      client_event_id: clientEventId,
+      source_search: current,
+      target_search: qs,
+      deferred_apply: deferApply,
+      field_params: fieldParams(fields),
+    });
     setDraftSearch(null);
     setOptimisticSearch({ from: current, search: qs });
     setPendingSearch(qs);
@@ -499,6 +550,44 @@ export function WorklistFilters({
     )}
     </>
   );
+}
+
+function fieldParams(fields: WorklistFilterField[]): string[] {
+  const params: string[] = [];
+  for (const field of fields) {
+    params.push(field.param);
+    if (field.kind === "compare") params.push(field.valueParam);
+    if (field.kind === "daterange") params.push(field.toParam);
+  }
+  return params;
+}
+
+function nowMs(): number {
+  return Date.now();
+}
+
+function elapsedMs(startedAtMs: number): number {
+  return Math.max(0, nowMs() - startedAtMs);
+}
+
+function emitFilterTelemetry(
+  telemetry: WorklistFilterTelemetry | undefined,
+  phase: "started" | "completed" | "timeout",
+  payload: Record<string, unknown>,
+) {
+  if (!telemetry || typeof window === "undefined") return;
+  void fetch("/api/admin-web/performance-events", {
+    method: TELEMETRY_POST_METHOD,
+    headers: { "content-type": TELEMETRY_CONTENT_TYPE },
+    body: JSON.stringify({
+      event_name: `${telemetry.eventPrefix}_${phase}`,
+      surface: telemetry.surface,
+      route: telemetry.route,
+      occurred_at: new Date().toISOString(),
+      payload,
+    }),
+    keepalive: true,
+  }).catch(() => undefined);
 }
 
 /**

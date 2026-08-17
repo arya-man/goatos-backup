@@ -20,6 +20,7 @@
     <string name="scan_many_animals_need_proof">%1$d జంతువులకు ప్రూఫ్ కావాలి. సబ్మిట్ చేసే ముందు వీడియో రికార్డ్ చేయడానికి వాటిని మళ్లీ స్కాన్ చేయండి.</string>
     <string name="scan_proof_retry_action">మళ్లీ ప్రయత్నించండి</string>
     <string name="scan_proof_replace_action">మార్చండి</string>
+    <string name="scan_proof_capture_busy">ముందుగా ప్రస్తుత జంతువు వీడియోను పూర్తి చేయండి.</string>
     <string name="scan_proof_replace_armed">ప్రూఫ్ మార్చడానికి ఇదే ట్యాగ్‌ను మళ్లీ స్కాన్ చేయండి</string>
     <string name="scan_add_clip">కెమెరా క్లిప్ జోడించండి</string>
     <string name="scan_proof_needed">కెమెరా ప్రూఫ్ అవసరం</string>

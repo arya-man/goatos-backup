@@ -1684,6 +1684,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/source-entry/loads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List procurement source-entry loads.
+         * @description One bounded page of source-entry loads for leadership and operator follow-up. This is the read side for supplier warmup, source health, pre-dispatch, in-transit, arrival review, accepted intake, rejected, deferred, and blocked load states. `expected_count` is the planned animals on each load; do not treat a single page as a company total when `next_cursor` is present.
+         */
+        get: operations["listProcurementSourceEntryLoads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/vendors": {
         parameters: {
             query?: never;
@@ -2240,6 +2260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workforce coverage rows for leadership roster coverage questions. */
+        get: operations["adminRosterCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/vaccination/obligations/{obligation_id}/reschedule": {
         parameters: {
             query?: never;
@@ -2647,6 +2684,29 @@ export interface paths {
          * @description Server-computed aggregates rendered ABOVE the /verify queue table when the caller's page contract carries the oversight_analytics control: a KPI strip (videos waiting, oldest pending age, review speed, estimated days to clear the backlog, per-module median review latency, reject rate), pending backlog by module, and per-verifier last-14-day activity plus a watch-integrity aggregate. Gated on permissions.VerificationOversee -- the SAME capability as the oversight_analytics/oversight_filters page-contract controls, never a role string. A verifier who holds verification.review/verdict but not verification.oversee receives 403 here even though she can read the plain queue. All numbers are bounded, tenant-scoped aggregate reads, never a client-side mega-fetch or per-verifier fan-out.
          */
         get: operations["getVerificationOversightAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/video-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-shed video arrival log for one business day.
+         * @description For ONE Asia/Kolkata business day, which sheds had proof arrive and at what time each proof was uploaded -- feed distribution's three captures, feed packing's one, feed transport's one, and the vaccination, weighing, birth, death and shifting proofs beside them. Maintainer decision 2026-08-14.
+         *     Gated on permissions.verification.evidence_timeline, which is a DIFFERENT capability from verification.oversee: the VERIFIER holds this one and not that one, so she sees the video log while the module chips, the capture-date range picker and the oversight analytics stay leadership-only. The log is cross-module for every caller who holds the capability, because the question is "what arrived from this shed today" and a shed's day spans modules. It grants no verdict authority and reshapes no queue. A caller whose grant is park-scoped is clamped to their parks, exactly as on the queue read.
+         *     TWO LEVELS, both bounded. Without shed_id the response carries the day's per-shed summary (counts, first and last arrival, which modules contributed) and an empty rows array. With shed_id it additionally carries that one location's work in full. A flat list of every proof for a day is deliberately not offered: a vaccination drive raises one item per animal, so a park-day can hold several hundred items before any feed work is counted.
+         *     Times are when the SERVER accepted the upload (proof_artifacts.uploaded_at), not a device capture time -- no per-proof capture timestamp exists in the schema, and inventing one from the registration time would present a guess as a fact. registered_at is exposed alongside so a reader can see real upload lag.
+         */
+        get: operations["getVerificationVideoLog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4791,7 +4851,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             drive_name: string;
             expected_count: number;
@@ -5276,7 +5336,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
         };
         EvidenceRef: {
@@ -5436,7 +5496,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label for shed_id. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label for shed_id. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             /** Format: uuid */
             cohort_id: string | null;
@@ -5540,7 +5600,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
             total_animals: number;
         };
@@ -5740,7 +5800,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             stage?: string | null;
             lifecycle_status?: string | null;
@@ -5952,7 +6012,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
             expected: string;
             actual: string;
@@ -6082,7 +6142,7 @@ export interface components {
             partition_label: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
             animalStage: string;
             /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
@@ -6126,6 +6186,13 @@ export interface components {
             sopTaskRowVersion?: number;
             /** Format: uuid */
             completionId?: string;
+            /** @description Backend-owned gate: true iff tapping this card may open the scan/capture flow. CORE INVARIANT — only a FINAL SUBMIT locks the card (false); partial review/proof/verification state never locks while openCount > 0. */
+            operatorCanContinue: boolean;
+            /**
+             * @description Why operatorCanContinue is false, or "none" when it is true.
+             * @enum {string}
+             */
+            operatorLockedReason: "none" | "final_submitted" | "assigned_elsewhere" | "scheduled_later";
         };
         VaccinationProjectionFreshness: {
             /** Format: int64 */
@@ -6150,6 +6217,43 @@ export interface components {
             totalCount: number;
             nextCursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
+            /** @description Authoritative per-card summaries (status, counts, vaccine groups) keyed by execution card ID. Page-independent: computed from all rows matching the query, not from paginated subsets. Ensures correct status when rows straddle page boundaries. */
+            cardSummaries?: {
+                [key: string]: components["schemas"]["ShedCardSummary"];
+            };
+        };
+        VaccineGroupSummary: {
+            /** @description Display label for the vaccine group */
+            label: string;
+            /** @description True if all animals done and none pending redo */
+            full: boolean;
+        };
+        ShedCardSummary: {
+            /** Format: uuid */
+            shedId: string;
+            /** @description Partition identifier if present (null for "whole" shed) */
+            partitionLabel?: string | null;
+            /** Format: uuid */
+            taskId?: string | null;
+            /** Format: uuid */
+            batchId?: string | null;
+            /** Format: uuid */
+            driveId?: string | null;
+            /**
+             * @description Authoritative card status computed from all rows. Client maps: rejected→SENT_BACK, overdue→DELAYED, completed→DONE, due→PENDING
+             * @enum {string}
+             */
+            status: "due" | "overdue" | "missed" | "blocked" | "rejected" | "in_progress" | "proof_pending" | "verification_pending" | "completed";
+            /** @description Max doneCount across all rows for this card */
+            doneCount: number;
+            /** @description Max targetCount across all rows for this card */
+            targetCount: number;
+            /** @description Max openCount across all rows for this card */
+            openCount: number;
+            /** @description True if any row has work sent back (rejected/deferred) */
+            needsRedo: boolean;
+            /** @description Per-vaccine group summaries for this card */
+            vaccineGroups: components["schemas"]["VaccineGroupSummary"][];
         };
         VaccinationOperationsProtocol: {
             /** Format: uuid */
@@ -6275,7 +6379,7 @@ export interface components {
             tag1?: string;
             /** @description Second physical tag (animal_identifier_2) when the animal carries two. */
             tag2?: string;
-            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro - 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. Backend-composed via oploc.Display(); clients render verbatim. */
+            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. Backend-composed via oploc.Display(); clients render verbatim. */
             operational_location_display: string;
             parkName: string;
             /** @description Physical shed name. Not a ground location on its own when a partition exists. */
@@ -6313,7 +6417,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
             doseRule: string;
@@ -6378,7 +6482,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Dose rule identifier or human label. */
             doseRule: string;
@@ -7359,7 +7463,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
             animals: number;
@@ -7417,7 +7521,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Backend-resolved assignee name, carried ON the bucket so a client never has to join it against a separately paged operator vocabulary. Empty WITH a non-empty operator_user_id is a roster gap, not "not assigned". */
             operator_display_name: string;
@@ -7634,6 +7738,8 @@ export interface components {
         GrowthDirectorFeedVsGrowthShed: {
             /** Format: uuid */
             location_id: string;
+            /** @description The PEN within location_id, blank for an undivided shed. Half of this row's identity, not decoration: the row grain is one pen, so a partitioned shed returns up to ten rows under ONE location_id and location_id alone identifies none of them. */
+            partition_label: string;
             shed_display_name: string;
             /** Format: double */
             feed_g_per_head_per_day: number | null;
@@ -7709,7 +7815,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             kid_count: number;
             /** @description True when an open weighing task already claims this shed on the requested weigh date. Absent/false means the shed is free on that date. */
@@ -7770,7 +7876,7 @@ export interface components {
             expected_location_label: string;
             /** @description Raw stored partition label for expected_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
             expected_location_partition_label?: string | null;
-            /** @description User-facing label for expected_location_id. No partition -> bare shed name; numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for expected_location_id. No partition -> bare shed name; numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             expected_operational_location_display?: string;
             /** @enum {string} */
             status: "pending" | "weighed" | "unavailable" | "missed" | "canceled" | "closed_by_override";
@@ -7781,7 +7887,7 @@ export interface components {
             current_location_label?: string;
             /** @description Raw stored partition label for current_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
             current_location_partition_label?: string | null;
-            /** @description User-facing label for current_location_id. No partition -> bare shed name; numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for current_location_id. No partition -> bare shed name; numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             current_operational_location_display?: string;
             current_lifecycle_status?: string;
             seq: number;
@@ -8027,7 +8133,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** Format: uuid */
             park_id: string;
@@ -8120,6 +8226,8 @@ export interface components {
             display_name: string;
             partition_label?: string;
             operational_location_display: string;
+            /** @description The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name -- the same convention the shed-weights rows use, so both series of the gain chart name a park identically. Required rather than optional: 39 shed names exist in BOTH parks, so a row without it names two different sheds at once. */
+            park_name: string;
             /** @description Animal count. */
             n: number;
             median_weight_kg: number;
@@ -8353,7 +8461,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             animals: number;
             due: number;
@@ -8410,7 +8518,7 @@ export interface components {
             shed_name: string;
             /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
             partition_label: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not shed-scoped. */
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Empty if not shed-scoped. */
             operational_location_display: string;
         };
         VaccinationPassportHistoryItem: {
@@ -8434,7 +8542,7 @@ export interface components {
             shed_name: string;
             /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
             partition_label: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not available. */
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Empty if not available. */
             operational_location_display: string;
         };
         LastAcceptedVaccinationDose: {
@@ -8455,7 +8563,7 @@ export interface components {
             shed_name?: string;
             /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
             partition_label?: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown. */
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown. */
             operational_location_display?: string;
             next_due: components["schemas"]["VaccinationPassportDue"] | null;
             open_obligations: components["schemas"]["VaccinationPassportDue"][];
@@ -8502,6 +8610,27 @@ export interface components {
         };
         MyCoverageResponse: {
             coverage: components["schemas"]["MyCoverage"];
+            trace_id: string;
+        };
+        Coverage: {
+            /** Format: uuid */
+            position_id: string;
+            covered_position_code: string;
+            covered_position_title?: string | null;
+            /** Format: uuid */
+            covering_member_id?: string | null;
+            covering_member_name?: string | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            /** @enum {string} */
+            source: "leave" | "week_off" | "escalation";
+            escalation_state?: string | null;
+            status: string;
+        };
+        CoverageListResponse: {
+            items: components["schemas"]["Coverage"][];
             trace_id: string;
         };
         RescheduleObligationRequest: {
@@ -8613,7 +8742,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label for currentLocationId. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label for currentLocationId. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             breed?: string | null;
             sex: string;
@@ -8645,7 +8774,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             /** @description Raw goats.management_stage. Free text with no CHECK constraint — near-duplicate source labels are reported verbatim, not normalized. */
             management_stage: string;
@@ -8679,7 +8808,7 @@ export interface components {
             park_id: string;
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
             partition_label?: string | null;
-            /** @description User-facing location label for this operational location. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label for this operational location. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
         };
         CountsBreakdownFacets: {
@@ -8728,7 +8857,7 @@ export interface components {
             shed_label: string;
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Empty or absent means the shed is non-partitioned. Never the literal string "whole". */
             partition_label?: string;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @enum {string} */
             management_stage: "K1" | "K2" | "K3";
@@ -8997,7 +9126,7 @@ export interface components {
             shed_id?: string;
             /** @description Raw partition label ('1', 'Part 3') for sheds with partitions, or null/absent for non-partitioned sheds. Used alongside shed_label to identify operational location. */
             partition_label?: string;
-            /** @description Backend-owned composed display label for the operational location (shed + partition). Examples: 'Castro - 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned). Render this field verbatim; do NOT compose it on the client. */
+            /** @description Backend-owned composed display label for the operational location (shed + partition). Examples: 'Castro 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned). Render this field verbatim; do NOT compose it on the client. */
             operational_location_display?: string;
             /** @description Backend-owned display label for shed_id. Never a raw UUID. */
             shed_label?: string;
@@ -9290,6 +9419,122 @@ export interface components {
             /** @description Items this verifier decided with no video_play telemetry event beforehand. */
             verdict_without_play_count: number;
         };
+        VerificationVideoLogResponse: {
+            /**
+             * Format: date
+             * @description The Asia/Kolkata day this log covers.
+             */
+            business_date: string;
+            /** @description One row per operational location that had proof arrive on the day, ordered by park then shed then partition. Always present, including when it is empty. */
+            sheds: components["schemas"]["VerificationVideoLogShed"][];
+            /** @description Echoes the requested shed_id. Absent when no shed was selected. */
+            selected_shed_id?: string;
+            /** @description Work in full, ordered by shed then earliest arrival. Populated for a selected shed, or for the whole day when all_sheds is set. EMPTY for the ordinary summary read -- that level deliberately does not carry every row. */
+            rows: components["schemas"]["VerificationVideoLogRow"][];
+            /** @description True when the selected shed held more work than limit allowed, so a partial day is never presented as a complete one. */
+            rows_truncated: boolean;
+            trace_id: string;
+        };
+        VerificationVideoLogShed: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Composite "<shed_uuid>#<normalized partition>" identity for this location. Send it back as shed_id to open the detail; a bare shed uuid cannot distinguish partitions. */
+            shed_key: string;
+            /** @description Raw shed name. Carried for filtering; never rendered on its own. */
+            shed_label?: string;
+            /** @description Raw partition label ("Part 3"). Absent for a non-partitioned shed AND for weighing, shifting, birth and death items, whose producers do not record it. Never rendered on its own -- use operational_location_display. */
+            partition_label?: string;
+            /** @description The ONLY location string a screen may render, composed backend-side by oploc.Display() ("Godel 1 - Part 3", or "Yashoda" when unpartitioned). */
+            operational_location_display: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_label?: string;
+            /** @description Every proof that arrived for this location on the day, across all modules. */
+            proof_count: number;
+            /** @description How many pieces of work those proofs belong to. Always <= proof_count; the gap is the multi-proof categories (feed distribution's three, death's two). */
+            item_count: number;
+            /** @description Proofs registered but not yet received. Included IN proof_count, not counted beside it. */
+            awaiting_upload_count: number;
+            /**
+             * Format: date-time
+             * @description Earliest arrival for this location on the day. Absent when nothing has landed.
+             */
+            first_upload_at?: string;
+            /**
+             * Format: date-time
+             * @description Latest arrival for this location on the day. Absent when nothing has landed.
+             */
+            last_upload_at?: string;
+            /** @description Backend-owned display labels of the modules that contributed ("Feed", "Vaccination"), sorted. A module the registry does not know is omitted rather than shown as a raw code. */
+            modules: string[];
+        };
+        VerificationVideoLogRow: {
+            /** Format: uuid */
+            item_id: string;
+            /** @description Raw source module code ("feed"). Carried for links only; never rendered as copy. */
+            module: string;
+            /** @description Backend-owned display label for module ("Feed"). */
+            module_label?: string;
+            /** @description The queue's own module-filter key for this module ("feed_direction" where module is "feed"), so a row can link back to the queue filtered to its module. */
+            nav_module?: string;
+            /** @description Raw category code ("feed_packing"). Never rendered as copy. */
+            category: string;
+            /** @description Backend-owned display label for category ("Feed packing"). */
+            category_label?: string;
+            /**
+             * @description Whether this work was about specific ANIMALS (vaccination's per-goat clip, weighing's individual observation, a birth/death workflow, a shed move) or about a LOCATION (feed distribution, packing, transport, a lump-sum weigh). Derived backend-side from the producer's declared source_ref_type, never parsed out of the label. A client uses it to decide which column an identity belongs in and must not re-derive it.
+             * @enum {string}
+             */
+            grain: "animal" | "shed";
+            /**
+             * Format: uuid
+             * @description The shed this work happened in.
+             */
+            shed_id?: string;
+            /** @description Raw shed name. Never rendered on its own. */
+            shed_label?: string;
+            /** @description Raw partition label. Never rendered on its own. */
+            partition_label?: string;
+            /** @description Backend-composed location for THIS row. Redundant while one shed's detail is on screen, and essential in the whole-day export, where a row could otherwise not say which shed its video came from. */
+            operational_location_display?: string;
+            /** @description Disambiguates the location in the whole-day export: shed NAMES repeat across parks, so a file carrying only the shed display renders two different sheds identically. */
+            park_label?: string;
+            /** @description The producing module's own composed description of the work ("Session 1 · Castro 2", "Godel 1 · Goat 4821 · PPR"). Rendered VERBATIM. Legitimately ABSENT for feed transport, whose producer writes no label because the shed header already names it -- render nothing there, not a placeholder. */
+            subject_label?: string;
+            /** @description The item's verdict state, so the log can show that an arrival was later rejected. The video log offers no verdict control; it is a read. */
+            status: string;
+            /** @description Backend-resolved display name of whoever captured the work. Absent when the id resolves to no active roster member; an unresolved id is dropped, never rendered raw. */
+            operator_name?: string;
+            /**
+             * Format: date-time
+             * @description The producing module's own anchor for the work, and what the business day is cut on. NOT the upload time. Approximate for shifting, birth and death, whose producers stamp the enqueue instant.
+             */
+            captured_at: string;
+            proofs: components["schemas"]["VerificationVideoLogProof"][];
+        };
+        VerificationVideoLogProof: {
+            /** Format: uuid */
+            proof_id: string;
+            /** @description 1-based position in the producing item's declared proof order. Feed distribution writes [weight photo, distribution video, water video] and the labels are positional against it. */
+            ordinal: number;
+            /** @description Backend-owned header for this proof ("Water distribution video"), resolved from the artifact's own metadata first and the category registry second. Never composed by a client. */
+            label?: string;
+            /**
+             * @description Feed distribution is the one category that mixes photo and video, so a screen must not call every proof on this log a video.
+             * @enum {string}
+             */
+            media_kind: "photo" | "video" | "attachment";
+            /**
+             * Format: date-time
+             * @description When the server accepted the bytes. ABSENT for a proof registered but never finished uploading -- a real state the log shows rather than hiding. Deliberately not a device capture time; no such column exists.
+             */
+            uploaded_at?: string;
+            /**
+             * Format: date-time
+             * @description When the client took an upload URL. On mobile the outbox registers at capture and retries the upload later, so the gap to uploaded_at is real upload lag.
+             */
+            registered_at: string;
+        };
         VerificationCloseSubmissionResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
             trace_id: string;
@@ -9325,10 +9570,14 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing label for this destination option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for this destination option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Live animal count for this operational location option (shed or partition), used to render dropdown option counts. */
             animal_count?: number;
+            /** @description The tag a movement into this pen would stamp when the raiser picks the "use destination tag" side of the raise form's tag toggle. Empty when the pen cannot supply one - then destination_stage_reason says why. Backend-resolved: the client must NOT derive this from management_stages, which is the residents' raw list rather than the resolved answer. */
+            destination_stage?: string;
+            /** @description Farm-worded reason the "use destination tag" option is unavailable for this pen, rendered VERBATIM under the greyed-out option. Empty when destination_stage is set; exactly one of the two is ever non-empty. One of "This destination has no tag set" (nothing authored, nothing living in it), "This destination holds a mix of tags" (several cohorts, no single answer), or "This destination's tag can only be set by the health team" (a clinical state such as ICU or Quarantine, which a movement may never assert). */
+            destination_stage_reason?: string;
         };
         RecordShiftingEventRequest: {
             /**
@@ -9365,6 +9614,11 @@ export interface components {
              * @enum {string}
              */
             category?: "growth" | "health" | "breeding" | "delivery";
+            /**
+             * @description The raiser's tag toggle. 'destination_stage' makes the animals adopt the destination pen's tag; 'keep_current' leaves each animal on the tag it already carries. OMIT to accept the default, 'destination_stage', which is what every client sent implicitly before this field existed - so an older build keeps its current behaviour. A present but unrecognized value is rejected with invalid_stage_mode, never rewritten to the default, because silently defaulting would stamp the pen's tag on a movement whose raiser asked for the opposite. The client sends only the MODE: the server still resolves the actual tag itself from the destination catalog, so a client can never name a cohort of its own (target_management_stage remains rejected as an unknown field). When the chosen pen cannot supply a tag, 'destination_stage' falls back to keep-current rather than failing the raise - see ShiftingDestinationShed.destination_stage_reason, which the form uses to grey the option out up front.
+             * @enum {string}
+             */
+            stage_mode?: "destination_stage" | "keep_current";
             /** @description Optional free-text note from the operator raising the movement, explaining why the animals are being shifted. Shown to the park head deciding the approval and to the verifier reviewing the evidence. Blank or whitespace-only input normalizes to absent. A value longer than maxLength is rejected with comment_too_long, never truncated. */
             comment?: string;
             /** @description Optional reference to captured proof media for this movement. */
@@ -10274,9 +10528,9 @@ export interface components {
             source_partition_label?: string | null;
             /** @description The pen this movement runs INTO. */
             destination_partition_label?: string | null;
-            /** @description Backend-composed operator-facing label for the source end ("Castro - 1"). Render this verbatim; do not rebuild it from shed name + partition on the client. Absent when the movement has no tracked origin. */
+            /** @description Backend-composed operator-facing label for the source end ("Castro 1"). Render this verbatim; do not rebuild it from shed name + partition on the client. Absent when the movement has no tracked origin. */
             source_operational_location_display?: string | null;
-            /** @description Backend-composed operator-facing label for the destination end ("Castro - 2"). Added 2026-08-06: this item previously shipped shed names only, so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already declared the partition fields and deserialized them to null. */
+            /** @description Backend-composed operator-facing label for the destination end ("Castro 2"). Added 2026-08-06: this item previously shipped shed names only, so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already declared the partition fields and deserialized them to null. */
             destination_operational_location_display?: string;
             /**
              * Format: uuid
@@ -13414,6 +13668,63 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listProcurementSourceEntryLoads: {
+        parameters: {
+            query?: {
+                /** @description Optional load status filter. */
+                status?: string;
+                /** @description Opaque keyset cursor from a previous response. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of source-entry loads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            load_id: string;
+                            tenant_id: string;
+                            source_party_id: string;
+                            source_party_name?: string;
+                            source_location_id?: string | null;
+                            source_location_code?: string | null;
+                            source_location_name?: string | null;
+                            expected_count: number;
+                            /** Format: date-time */
+                            purchase_date?: string | null;
+                            /** Format: date-time */
+                            planned_dispatch_at?: string | null;
+                            status: string;
+                            notes?: string;
+                            context?: {
+                                [key: string]: unknown;
+                            };
+                            /** Format: date-time */
+                            created_at: string;
+                            /** Format: date-time */
+                            updated_at: string;
+                            row_version: number;
+                        }[];
+                        next_cursor?: string | null;
+                        trace_id: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     listProcurementVendors: {
         parameters: {
             query?: {
@@ -14488,6 +14799,35 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    adminRosterCoverage: {
+        parameters: {
+            query?: {
+                scope_type?: string;
+                scope_id?: string;
+                active?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workforce coverage rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverageListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appRescheduleObligation: {
         parameters: {
             query?: never;
@@ -15203,6 +15543,41 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationVideoLog: {
+        parameters: {
+            query?: {
+                /** @description Asia/Kolkata calendar day, YYYY-MM-DD. Defaults to today. A future date is rejected (422 future_business_date) rather than returning an empty log that reads as "nothing was filmed". */
+                business_date?: string;
+                /** @description Optional park filter, applied ON TOP of the caller's authorized park scope. */
+                park_id?: string;
+                /** @description Selects one operational location for the detail level. Carries the composite "<shed_uuid>#<normalized partition>" form the queue's shed filter uses -- a bare shed uuid cannot tell Castro 1 from Castro 2, and is accepted as "any partition of this shed". Use the shed_key returned on each summary row. */
+                shed_id?: string;
+                /** @description Whole-day EXPORT: returns rows for every shed in scope, each carrying its own location, instead of only the selected shed. Ignores shed_id. This is the one caller allowed to read the day at row grain and is intended for a CSV download, never for rendering a screen -- the panel stays two-level because a park-day can carry several hundred items. Bounded at 20000 rows, with rows_truncated set if the day exceeds that. */
+                all_sheds?: boolean;
+                /** @description Bounds the row read (default 200, maximum 500; for all_sheds the default and maximum are both 20000). When more work exists than the limit allows, rows_truncated is true so a partial day is never presented as a whole one. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The day's per-shed arrival summary, plus one shed's detail when requested. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationVideoLogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

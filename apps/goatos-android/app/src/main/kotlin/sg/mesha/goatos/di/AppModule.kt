@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
@@ -115,6 +116,17 @@ import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.milkFeedingSubmitRefreshHook
+import sg.mesha.goatos.core.data.sync.milkPreparationSubmitRefreshHook
+import sg.mesha.goatos.core.data.sync.countsShiftingRefreshHook
+import sg.mesha.goatos.core.data.sync.countsBirthRefreshHook
+import sg.mesha.goatos.core.data.sync.countsDeathRefreshHook
+import sg.mesha.goatos.core.data.sync.countsApprovalApproveRefreshHook
+import sg.mesha.goatos.core.data.sync.countsApprovalRejectRefreshHook
+import sg.mesha.goatos.core.data.sync.shiftingCompleteRefreshHook
+import sg.mesha.goatos.core.data.sync.shiftingCancelRefreshHook
+import sg.mesha.goatos.core.data.sync.countsPromoteIdentifierRefreshHook
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
@@ -147,6 +159,7 @@ import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.push.PushLogoutCleanup
 import sg.mesha.goatos.sync.AndroidForegroundSyncController
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
 
@@ -477,6 +490,11 @@ object AppModule {
 
     @Provides @Singleton fun provideFeedTransportRepository(api: AppApi, database: GoatDatabase): FeedTransportRepository = FeedTransportRepository(api,database)
 
+    /** The narrow live-status surface FeedTransportCaptureViewModel depends on — same singleton
+     *  instance as [provideFeedTransportRepository], bound to its slimmer interface so tests can
+     *  fake just that surface without a real [GoatDatabase]. */
+    @Provides @Singleton fun provideFeedTransportStatusSource(repository: FeedTransportRepository): sg.mesha.goatos.core.data.FeedTransportStatusSource = repository
+
     @Provides
     @Singleton
     fun provideControlTowerRepository(api: AppApi, dao: ControlTowerCacheDao): ControlTowerRepository =
@@ -606,6 +624,7 @@ object AppModule {
         appScope = appScope,
         mediaProcessor = mediaProcessor,
         locationProvider = locationProvider,
+        proofArtifactValidator = FileSystemProofArtifactValidator(),
         galleryProofSaver = MediaStoreGalleryProofSaver(context),
         telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
@@ -706,6 +725,12 @@ object AppModule {
         retryScheduler: SyncRetryScheduler,
         database: GoatDatabase,
         outboxTelemetry: OutboxTelemetryReporter,
+        feedRepository: FeedRepository,
+        milkFeedingRepository: MilkFeedingRepository,
+        milkPreparationRepository: MilkPreparationRepository,
+        countsRepository: CountsRepository,
+        countsApprovalRepository: CountsApprovalRepository,
+        shiftingPendingRepository: ShiftingPendingRepository,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -715,7 +740,31 @@ object AppModule {
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
         healthDiagnosisRunDao = database.healthDiagnosisRunDao(),
+        weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
+        // Without this, feedRepository defaults to null in the constructor and
+        // FEED_DISTRIBUTION_COMPLETE/FEED_PACKING_COMPLETE reconciliation silently no-ops in
+        // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
+        feedRepository = feedRepository,
         telemetry = outboxTelemetry,
+        // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
+        // row to write directly into. The reconcile is "refresh the page" or "forget the row",
+        // never "write a result". Registered here (repo/DI layer), never in a ViewModel — see
+        // PostSuccessRefreshHook. Counts-family operations (birth/death/shifting/approval) + Milk
+        // operations (feeding/preparation) all follow this pattern.
+        postSuccessRefreshHooks = mapOf(
+            // Milk operations
+            OutboxOpType.MILK_FEEDING_SUBMIT to milkFeedingSubmitRefreshHook(milkFeedingRepository),
+            OutboxOpType.MILK_PREPARATION_SUBMIT to milkPreparationSubmitRefreshHook(milkPreparationRepository),
+            // Counts family operations
+            OutboxOpType.COUNTS_SHIFTING to countsShiftingRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_BIRTH to countsBirthRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_DEATH to countsDeathRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_APPROVAL_APPROVE to countsApprovalApproveRefreshHook(countsApprovalRepository),
+            OutboxOpType.COUNTS_APPROVAL_REJECT to countsApprovalRejectRefreshHook(countsApprovalRepository),
+            OutboxOpType.SHIFTING_COMPLETE to shiftingCompleteRefreshHook(shiftingPendingRepository),
+            OutboxOpType.SHIFTING_CANCEL to shiftingCancelRefreshHook(shiftingPendingRepository),
+            OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(countsRepository),
+        ),
     )
 
     /**
@@ -779,6 +828,7 @@ object AppModule {
         engine: SyncEngine,
         syncRepository: SyncRepository,
         connectivityGate: ConnectivityGate,
+        backendAnalyticsAdapter: BackendAnalyticsAdapter,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
         return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { platformOnline ->
@@ -791,7 +841,10 @@ object AppModule {
             // rendered freshly fetched data.
             val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
-            if (online) appScope.launch { engine.drainOnce() }
+            if (online) appScope.launch {
+                engine.drainOnce()
+                runCatching { backendAnalyticsAdapter.drainQueue() }
+            }
         }
     }
 }

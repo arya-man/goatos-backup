@@ -757,6 +757,11 @@ export async function FeedConfigPage({
           fields={filterFields}
           pageContract={pageContract}
           deferApply
+          telemetry={{
+            eventPrefix: "feed_config_filter_apply",
+            surface: "ration_grid",
+            route: PAGE_PATH,
+          }}
         >
         {/* The grid is passed to the bar so ONE pending state drives both the bar's busy ring and
             these rows being held back. They stay readable while the new page is fetched — the old
@@ -910,6 +915,11 @@ export async function FeedConfigPage({
           fields={experimentFilterFields}
           pageContract={pageContract}
           deferApply
+          telemetry={{
+            eventPrefix: "feed_config_filter_apply",
+            surface: "experiment_config",
+            route: PAGE_PATH,
+          }}
         >
         <div
           className="bd feed-scroll"

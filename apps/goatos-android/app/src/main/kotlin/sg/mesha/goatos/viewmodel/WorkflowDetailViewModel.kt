@@ -19,7 +19,11 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.WorkflowVideoDraft
+import sg.mesha.goatos.core.data.capture.buildWorkflowEvidenceSlot
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -71,6 +75,13 @@ class WorkflowDetailViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
+
+    /** Canonical slot grain for a workflow action-video capture. identity.taskId/fieldKey resolve
+     *  to the SAME strings ([workflowId] passthrough / the existing [workflowProofFieldKey]
+     *  literal) already produced, so routing captures through this slot changes no on-disk value
+     *  while keying these rows into the shared retirement/recovery/referee machinery. */
+    internal fun workflowEvidenceSlot(actionId: String, goatId: String): EvidenceSlot =
+        buildWorkflowEvidenceSlot(workflowId, goatId, actionId)
 
     /**
      * The lens this drill-in was opened through, supplied by the route.
@@ -282,7 +293,13 @@ class WorkflowDetailViewModel @Inject constructor(
                     ),
                 )
                 previous?.localUri?.let(::deletePrivateDraftFile)
-                analytics.track(AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED)
+                analytics.track(
+                    AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                    mapOf(
+                        AnalyticsEvents.Params.ITEM_ID to workflowId,
+                        AnalyticsEvents.Params.ACTION to "death_draft",
+                    ),
+                )
                 _state.update {
                     it.copy(
                         isCapturingVideo = false,
@@ -292,9 +309,9 @@ class WorkflowDetailViewModel @Inject constructor(
                 }
                 return@launch
             }
-            val proofResult = proofCaptureRepository.capture(
-                taskId = workflowId,
-                fieldKey = workflowProofFieldKey(actionId),
+            val slot = workflowEvidenceSlot(actionId, goatId)
+            val proofResult = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
                 subject = ProofSubject.GOAT,
                 subjectId = goatId,
                 localUri = captured.localUri,
@@ -320,7 +337,13 @@ class WorkflowDetailViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false, message = "Video upload could not be queued.", isErrorMessage = true) }
                 return@launch
             }
-            analytics.track(AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED)
+            analytics.track(
+                AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                mapOf(
+                    AnalyticsEvents.Params.ITEM_ID to workflowId,
+                    AnalyticsEvents.Params.ACTION to actionId,
+                ),
+            )
             val writeResult = if (answerValue != null) {
                 syncRepository.enqueueWorkflowActionAnswer(
                     groupKey = workflowId,
@@ -375,9 +398,9 @@ class WorkflowDetailViewModel @Inject constructor(
             }
             for (action in actions) {
                 val draft = drafts.getValue(action.actionId)
-                val proof = proofCaptureRepository.capture(
-                    taskId = workflowId,
-                    fieldKey = workflowProofFieldKey(action.actionId),
+                val slot = workflowEvidenceSlot(action.actionId, draft.subjectGoatId)
+                val proof = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.GOAT,
                     subjectId = draft.subjectGoatId,
                     localUri = draft.localUri,
@@ -506,7 +529,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 val blocked = workflowBlockedForOperator(action, isDeathModule, predecessorsReady)
                 action.toActionUi(now, blocked, locallyRecorded).copy(
                     hasVideoDraft = hasDraft,
-                    canRecordVideo = canRecordWorkflowVideo(action, blocked, draftsSubmitting, predecessorsReady),
+                    canRecordVideo = canRecordWorkflowVideo(action, blocked, draftsSubmitting),
                 )
             }.sortedBy { it.sectionOrder() },
             subjectGoatId = subject.goatId,
@@ -708,17 +731,39 @@ internal fun workflowBlockedForOperator(
 ): Boolean = action.blocked &&
     !(isDeath && action.blockedReason == WORKFLOW_BLOCKED_PREVIOUS_ACTION && predecessorsReady)
 
+/**
+ * Whether this row may open the camera.
+ *
+ * The sequencing answer is [blocked] and NOTHING ELSE. [workflowPredecessorsReady] must not be
+ * ANDed in here: it is computed over the rows THIS SCREEN RENDERS, and the Colostrum lens renders
+ * only one business date's feeds. `1st Colostrum` is a `main`-section row due at birth time, so on
+ * every colostrum day AFTER the birth date it is absent from the rendered list, the predecessor
+ * lookup returns null, and the whole day's feeds lost their record control — while the backend
+ * correctly reported `blocked=false` for them.
+ *
+ * Observed on kid G-005335 (born 13 Aug 22:58 IST): its five feeds fall on 14 Aug, `first_colostrum`
+ * on 13 Aug. `GET /app/workflows/{id}?lens=colostrum&date=2026-08-14` returns
+ * `colostrum_day_2_1500` as `pending, blocked=false, requires_video=true`, yet the row rendered with
+ * no camera. The same feed uploaded fine from Birth, where the unlensed read returns all 13 rows.
+ *
+ * The backend already computes `blocked` against the kid's COMPLETE action set on both lenses —
+ * `tasks/app.ColostrumDetail` carries `Detail.Actions` (full) alongside `Visible` (the day) for
+ * exactly this reason. Re-deriving it client-side from the truncated list contradicted the
+ * backend-owns-the-contract rule and could only ever be wrong.
+ *
+ * Death still reaches its camera: its relaxation lives in [workflowBlockedForOperator], which turns
+ * `blocked` off once drafts make the predecessors ready, so the draft-awareness is preserved without
+ * a second gate here.
+ */
 internal fun canRecordWorkflowVideo(
     action: WorkflowActionDto,
     blocked: Boolean,
     draftsSubmitting: Boolean,
-    predecessorsReady: Boolean,
 ): Boolean = action.actionType == "action" &&
     action.requiresVideo &&
     !operatorFinishedWorkflowStatus(action.status) &&
     !blocked &&
-    !draftsSubmitting &&
-    predecessorsReady
+    !draftsSubmitting
 
 internal fun operatorVisibleWorkflowActions(actions: List<WorkflowActionDto>): List<WorkflowActionDto> =
     actions.filter { it.actionType != "approval" }
@@ -790,6 +835,13 @@ internal fun operatorFinishedWorkflowStatus(status: String): Boolean =
 internal fun workflowProofUploadKey(actionId: String, capturedStartedAtMs: Long): String =
     "wf-proof:$actionId:$capturedStartedAtMs"
 
+// The fieldKey vocabulary stays backend-declared per workflow definition (actionId is
+// open-ended and server-defined), but the IDENTITY wrapping it is now canonical: see
+// workflowEvidenceSlot() below, which builds an EvidenceSlot(ProofIdentity(flow =
+// ProofFlow.WORKFLOW_DETAIL, taskId = workflowId), fieldKey = workflowProofFieldKey(actionId)).
+// taskId/fieldKey resolve to the SAME strings this function already produced, so shared
+// retirement/recovery/referee machinery now keys these rows like every other flow with no
+// change to any on-disk value.
 internal fun workflowProofFieldKey(actionId: String): String =
     "workflow_${actionId}_video"
 

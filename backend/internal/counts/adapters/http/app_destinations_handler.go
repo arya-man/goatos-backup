@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 
+	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -47,6 +48,22 @@ type appShiftingDestinationShed struct {
 	// because the screen re-derived the label locally, which is the defect this field exists to
 	// prevent.
 	OperationalLocationDisplay string `json:"operational_location_display"`
+
+	// DestinationStage is the tag a movement INTO this pen would stamp, and
+	// DestinationStageReason is the farm-worded explanation when it would stamp none. Exactly one
+	// of the two is ever non-empty (domain.DestinationStageResolution guarantees it).
+	//
+	// These exist for the raise form's TAG TOGGLE (maintainer decision 2026-08-15): the operator
+	// chooses "keep current tag" or "use destination tag", so the form has to show WHICH tag the pen
+	// would give and grey the option out, with a reason, when the pen cannot give one.
+	//
+	// BACKEND OWNS BOTH STRINGS. The phone renders them verbatim -- it must not re-derive the tag
+	// from management_stages (that is the residents' raw list, not the resolved answer, and the
+	// resolution rules -- authored-pen-tag-first, mixed, empty, clinical -- live in
+	// counts/domain), and it must not compose its own reason from a blank tag, because a blank tag
+	// does not say WHY it is blank.
+	DestinationStage       string `json:"destination_stage"`
+	DestinationStageReason string `json:"destination_stage_reason"`
 }
 
 // ListShiftingDestinations returns the active park -> shed cascade for the caller's tenant.
@@ -78,12 +95,21 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 	for _, park := range catalog.Parks {
 		sheds := make([]appShiftingDestinationShed, 0, len(park.Sheds))
 		for _, shed := range park.Sheds {
+			// Resolved with the SAME function the raise handler uses, against the SAME catalog, so
+			// the tag the form shows on the toggle is byte-for-byte the tag the raise will stamp.
+			// Two implementations of "what tag does this pen give" would drift, and the operator
+			// would approve one answer while the movement recorded another.
+			stage := domain.ResolveShiftingDestinationPenStageDetailed(
+				shed.ConfiguredStage, shed.ManagementStages, catalog.ManagementStages,
+			)
 			sheds = append(sheds, appShiftingDestinationShed{
 				ShedID:                     shed.ShedID,
 				Name:                       shed.Name,
 				ManagementStages:           shed.ManagementStages,
 				PartitionLabel:             shed.PartitionLabel,
 				OperationalLocationDisplay: shed.Display,
+				DestinationStage:           stage.Stage,
+				DestinationStageReason:     stage.Reason,
 			})
 		}
 		parks = append(parks, appShiftingDestinationPark{

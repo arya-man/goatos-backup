@@ -87,6 +87,14 @@
     <string name="counts_group_recording_death_for">ಈ ಪ್ರಾಣಿಯ ಮರಣವನ್ನು ದಾಖಲಿಸಲಾಗುತ್ತಿದೆ</string>
     <string name="counts_group_to">ಇಲ್ಲಿಗೆ ಸ್ಥಳಾಂತರಿಸಿ</string>
     <string name="counts_group_current_location">ಪ್ರಸ್ತುತ ಸ್ಥಳ</string>
+    <!--
+      Shifting raise form's tag toggle. Farm words only: "ಟ್ಯಾಗ್" (tag), never a technical term.
+      The pen's own tag and the reason it cannot be used arrive from the server already worded, so
+      they are deliberately not translated here.
+    -->
+    <string name="counts_group_stage_mode">ಈ ಪ್ರಾಣಿಗೆ ಟ್ಯಾಗ್</string>
+    <string name="counts_stage_mode_keep_current">ಈಗಿನ ಟ್ಯಾಗ್ ಇರಿಸಿ</string>
+    <string name="counts_stage_mode_destination">ಗಮ್ಯದ ಟ್ಯಾಗ್ ಬಳಸಿ</string>
     <string name="counts_group_priority">ಆದ್ಯತೆ</string>
     <string name="counts_group_category">ವರ್ಗ</string>
     <string name="counts_group_comment">ಟಿಪ್ಪಣಿ</string>

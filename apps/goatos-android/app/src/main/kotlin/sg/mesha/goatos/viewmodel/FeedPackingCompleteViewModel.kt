@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +25,10 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -65,6 +69,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val drafts: CaptureDraftRepository,
+    private val feedRepository: FeedRepository,
+    private val feedCompletionStore: FeedCompletionLocalStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -80,11 +86,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
-    // already with the verifier: the capture draft is local and a reinstall wipes it, which is how
-    // an operator was shown an empty form for work already submitted (STG 2026-08-09).
-    private val alreadySubmitted: Boolean =
-        !feedSessionCanCapture(savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty(), isToday = true)
+    // The row's backend-owned lifecycle bucket AT THE MOMENT the row was tapped. This is only the
+    // FIRST-PAINT hint: it is a nav-arg snapshot, so a status change while this screen stays open
+    // (verifier approves/rejects elsewhere, or a reinstall lost the local draft for work already
+    // submitted) would leave it stale. [observeLiveLifecycleStatus] below supersedes it with the
+    // Room-backed live value the moment Room has one (STG 2026-08-09).
+    private val lifecycleStatusHint: String = savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
+    private val alreadySubmitted: Boolean = !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
 
     // The day-shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the
     // proof drains strictly before the gated completion that references it. The PEN, the SESSION and
@@ -112,6 +120,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private var statusJob: Job? = null
     private var videoStatusJob: Job? = null
     private var syncStatusJob: Job? = null
+    private var submitInFlight = false
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED)
@@ -124,6 +133,68 @@ class FeedPackingCompleteViewModel @Inject constructor(
         }
         observeSyncStatus()
         observeDurableProof()
+        observeLiveLifecycleStatus()
+    }
+
+    /**
+     * Supersede the nav-arg [lifecycleStatusHint] with the LIVE Room-backed status the moment Room
+     * has one for this pen-session — the same table the worklist renders from, so a status change
+     * elsewhere (verifier approves/rejects, or another device submits) flips this screen to
+     * read-only WHILE IT IS OPEN, not only on next entry. A `null` emission means Room has no cached
+     * row for this session yet (e.g. offline-first cold start before any worklist page ever cached
+     * it) and is deliberately IGNORED so the screen keeps the nav-arg hint rather than forcing itself
+     * editable.
+     */
+    private fun observeLiveLifecycleStatus() {
+        viewModelScope.launch {
+            feedRepository.observePackingRowStatus(shedId, partitionLabel, workflow, sessionNo)
+                .collect { liveStatus -> applyLiveStatus(liveStatus, fromRoom = true) }
+        }
+        startServerStatusPolling()
+    }
+
+    /** Shared by the Room-backed observer above and the SERVER poll below. `null` (no answer yet /
+     *  poll failed) is ignored: this must never flip editable -> locked on a guess, and never flips
+     *  locked -> editable at all. */
+    private fun applyLiveStatus(liveStatus: String?, fromRoom: Boolean) {
+        if (liveStatus == null) return
+        _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+        // Persist SERVER-sourced status into Room so the screen survives process death offline.
+        // Room-sourced emissions are already in Room — writing them back fires a spurious
+        // table-wide invalidation on every emission.
+        if (!fromRoom) {
+            viewModelScope.launch {
+                feedRepository.persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
+            }
+        }
+    }
+
+    /**
+     * Periodic SERVER read of this shed-session's lifecycle status while the screen stays open, so a
+     * TEAMMATE'S submit on another phone flips this screen read-only without back/reopen —
+     * [observePackingRowStatus] above only changes when THIS phone's own worklist sync writes a fresh
+     * Room row. Reuses the existing `GET /feed-packing/worklist` read via
+     * [FeedRepository.fetchPackingRowStatus] (no new backend endpoint). See
+     * [FeedDistributionCompleteViewModel.startServerStatusPolling]'s kdoc for why this is bounded at
+     * [MAX_SERVER_STATUS_POLLS] rather than a bare `while (isActive)`.
+     */
+    private fun startServerStatusPolling() {
+        viewModelScope.launch {
+            repeat(MAX_SERVER_STATUS_POLLS) {
+                delay(SERVER_STATUS_POLL_INTERVAL_MS)
+                pollServerStatusOnce()
+            }
+        }
+    }
+
+    /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was — see
+     *  [applyLiveStatus]'s null-is-unknown contract. */
+    private suspend fun pollServerStatusOnce() {
+        if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
+        val status = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); see pollServerStatusOnce kdoc — null-is-unknown is the contract, not an error to record
+            feedRepository.fetchPackingRowStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
+        }.getOrNull()
+        applyLiveStatus(status, fromRoom = false)
     }
 
     fun onEvent(event: FeedPackingCompleteEvent) {
@@ -143,7 +214,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     /** MANDATORY packing video — a LIVE in-app camera clip. It enqueues a PROOF_UPLOAD on the shed-session group so it
      *  drains before the completion. */
     private fun capturePackingVideo(replacing: Boolean = false) {
-        if (_state.value.isCapturingVideo || shedId.isBlank()) return
+        if (_state.value.isCapturingVideo || _state.value.alreadySubmitted || shedId.isBlank()) return
         // A re-record starts from a FILLED slot, so videoCaptured only blocks a fresh record.
         if (!replacing && _state.value.videoCaptured) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
@@ -165,22 +236,15 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
-            // New media is in hand, so the old take can now be dropped. Nothing above this line
-            // destroys the existing proof: a cancelled camera leaves the slot exactly as it was.
-            if (replacing) {
-                if (!discardExistingProof()) {
-                    _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
-                    return@launch
-                }
-                drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
-                draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-                videoKey.invalidate()
-                _state.update { it.copy(videoCaptured = false, canComplete = false) }
-            }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedEvidenceSlotIdentity("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_PACKING_VIDEO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_PACKING_VIDEO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -301,42 +365,20 @@ class FeedPackingCompleteViewModel @Inject constructor(
         recomputeCanComplete()
     }
 
-    private suspend fun discardExistingProof(): Boolean {
-        val proofOutboxItemId = draft.proofs[STEP_VIDEO]
-        val rowId = videoProofRowId ?: proofCaptureRepository
-            .observeProofs(groupKey)
-            .first()
-            .firstOrNull { it.outboxItemId == proofOutboxItemId }
-            ?.id
-        if (rowId.isNullOrBlank()) {
-            videoProofRowId = null
-            return true
-        }
-        return when (val removed = proofCaptureRepository.remove(groupKey, rowId)) {
-            is AppResult.Ok -> {
-                videoProofRowId = null
-                true
-            }
-            is AppResult.Err -> {
-                removed.cause?.let { crashReporter.recordException(it, "feed packing proof discard failed") }
-                analytics.track(
-                    AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
-                    mapOf(AnalyticsEvents.Params.REASON to removed.message),
-                )
-                _state.update { it.copy(videoMessage = removed.message) }
-                false
-            }
-        }
-    }
-
     private fun markDone() {
         val current = _state.value
         val videoItem = draft.proofs[STEP_VIDEO]
-        // Defense in depth alongside the UI gate: the video must exist to submit.
-        if (!current.submitEnabled || videoItem.isNullOrBlank()) {
+        // Defense in depth alongside the UI gate: the video must exist to submit. Also check the
+        // submitInFlight latch (SubmitViewModel idiom): a plain latch checked-and-set BEFORE the
+        // enqueue coroutine launches, so a second tap landing in the async gap between the tap and
+        // the state update reflecting it (`result`/`canComplete`) cannot slip past submitEnabled
+        // and enqueue a second write. Reset on any terminal outcome (success or error) so a real
+        // failure stays retryable.
+        if (submitInFlight || !current.submitEnabled || videoItem.isNullOrBlank()) {
             _state.update { it.copy(canComplete = false, videoMessage = "Record the packing video before submitting.") }
             return
         }
+        submitInFlight = true
         viewModelScope.launch {
             // Stable for the selected proof, fresh when the operator re-records. A retry of the same
             // video must replay; a replacement video must not collide with the old submit payload.
@@ -361,11 +403,17 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, result.value)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+                    // Mark this pen-session as submitted for review immediately so the ViewModel overlay
+                    // will render it as pending_verification even before the server processes the queued submit.
+                    feedCompletionStore.markSubmittedForReview(
+                        FeedCompletionLocalStore.key(shedId, partitionLabel.ifBlank { null }, sessionNo, workflow)
+                    )
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_PACKING_SUBMITTED)
                     _state.update { it.copy(canComplete = false) }
                 }
                 is AppResult.Err -> {
+                    submitInFlight = false
                     result.cause?.let { crashReporter.recordException(it, "feed packing complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
@@ -386,6 +434,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 .filterNotNull()
                 .distinctUntilChanged()
                 .collect { item ->
+                    // Reset submitInFlight latch on terminal FAILED so the user can retry.
+                    // The latch was set true when the enqueue launched, but only reset on
+                    // synchronous enqueue Err — not when the outbox row later reaches FAILED.
+                    // Without this reset, button stays dead forever after terminal failure.
+                    if (item.status == SyncItemStatus.FAILED) {
+                        submitInFlight = false
+                    }
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
@@ -410,6 +465,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun syncNow() {
         viewModelScope.launch {
             syncRepository.triggerDrain()
+            // Re-check the session's lifecycle status directly from the server, so a manual Sync
+            // tap gets the same "did a teammate already submit this" answer the periodic poll
+            // provides, without waiting for the next tick.
+            pollServerStatusOnce()
         }
     }
 
@@ -456,6 +515,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
          *  out every pen of the shed (STG 2026-08-08). */
         const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
+
+        /** How often [startServerStatusPolling] re-checks this session's lifecycle status directly
+         *  from the server while the screen stays open. */
+        private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
+
+        /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
+        private const val MAX_SERVER_STATUS_POLLS = 2_880
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"

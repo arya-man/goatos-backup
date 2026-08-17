@@ -255,6 +255,14 @@ func (w weighingExportProofURLResolver) ResolveProofDownloadURL(ctx context.Cont
 	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 		return url, nil
 	}
+	// PROTOCOL-RELATIVE GUARD: a signed path beginning with "//" is scheme-relative ("//evil.com/x"),
+	// and naively concatenating it after baseURL would leave a URL some parsers/clients resolve as
+	// pointing at a THIRD-PARTY host, not this API -- an open-redirect shape in a value that ends up
+	// clickable in an exported sheet. Collapse any leading slashes down to exactly one first, so the
+	// result can only ever be a path on this API's own baseURL.
+	for strings.HasPrefix(url, "//") {
+		url = url[1:]
+	}
 	// Host-relative local-storage signed path: make it absolute against the API's own public
 	// base URL so the cell is clickable from wherever the sheet is opened, not just from a
 	// browser already pointed at this host.
@@ -572,7 +580,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// now reads verified rows from here, and the enqueue seam is wired below.
 		WithPackingStore(feedDirectionRepo).
 		WithTransportStore(feedDirectionRepo).
-		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
+		WithProofValidator(feeddirectionproof.NewValidatorWithPool(proofRepo, pool)).
 		// The feed module's own lifecycle alerts feed (GET /app/feed/alerts), the twin of
 		// weighing/vaccination's alerts feeds. Same repository instance already used for
 		// config/issue/schedule/completion reads implements ports.AlertsRepository.

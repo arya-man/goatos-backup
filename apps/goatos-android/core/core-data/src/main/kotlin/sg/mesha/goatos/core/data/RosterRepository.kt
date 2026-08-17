@@ -41,12 +41,12 @@ interface RosterRepository {
     fun observeCoverage(): Flow<MyCoverageResponseDto?>
 
     /**
-     * Refresh timetable from the API and upsert Room cache on success. Never throws:
-     * a network failure keeps the existing cache and returns `false` so the ViewModel
-     * can surface a distinct offline/stale state. Returns `true` when the cache was
-     * refreshed from the network.
+     * Refresh timetable from the API and upsert Room cache on success. Returns Success on
+     * successful refresh; Failure on any error (network or otherwise). The ViewModel can
+     * call isConnectivityFailure() on the exception to distinguish offline from server errors.
+     * On failure, the existing cache is kept.
      */
-    suspend fun refreshTimetable(centerId: String, limit: Int? = null): Boolean
+    suspend fun refreshTimetable(centerId: String, limit: Int? = null): Result<Unit>
 
     /**
      * Refresh coverage from the API and upsert Room cache on success. Never throws:
@@ -72,7 +72,7 @@ class DefaultRosterRepository(
             entity?.dtoJson?.let { json -> Json.decodeFromString<MyCoverageResponseDto>(json) }
         }
 
-    override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean =
+    override suspend fun refreshTimetable(centerId: String, limit: Int?): Result<Unit> =
         runCatching {
             api.getOperatorTimetable(centerId, limit)
         }.onSuccess { dto ->
@@ -84,8 +84,8 @@ class DefaultRosterRepository(
                 )
             )
             timetableDao.enforceCacheBounds()
-        }.isSuccess
-        // onFailure: keep cache; false lets the ViewModel show a distinct offline state.
+        }.map { }
+        // onFailure: keeps the exception so the ViewModel can classify it as connectivity or not
 
     override suspend fun refreshCoverage(): Boolean =
         runCatching {

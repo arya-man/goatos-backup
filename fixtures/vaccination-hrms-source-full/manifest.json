@@ -37,6 +37,7 @@
     "source_dates_are_never_invented": true,
     "accepted_one_time_history_supersedes_active_seed_obligations": true,
     "adult_blank_history_joins_normal_drive": true,
+    "schedule_path_policy": "shared_schedule_path_for_goat",
     "vaccination_medical_date_field": "vaccination_completions.administered_at",
     "source_policy_sha256": "f74ef1bd5b9f8723ca76b78382af9a13b5967c71fa0ce0627d749d5c3df49e91"
   },
@@ -104,6 +105,11 @@
     }
   },
   "seed_contract_coupling_reviews": [
+    {
+      "date": "2026-08-16",
+      "change": "Migration 000171 and seed-vaccination-real add Flushing to the writable animal_stage_lookup vocabulary with NULL age_band, so fresh tenants and existing tenants agree that a shifting into a Flushing pen may adopt that destination tag without reclassifying kid/adult.",
+      "vaccination_hrms_source_impact": "none to committed HRMS source fixture bytes, hashes, counts, SOP proof grain, vaccination source dates, operator capacity, or source validation semantics. Flushing is stage-catalog configuration, not a raw HRMS/vaccination source field; the fixture ships no animal_stage_lookup rows and no new source column."
+    },
     {
       "date": "2026-08-05",
       "change": "Migration 000109 adds animal_stage_lookup.age_band ('kid'/'adult'/NULL) and seed-vaccination-real/seed-vaccination-trigger now seed it, so a shifting stamps the destination cohort's kid/adult band onto the animals it moves.",
@@ -260,6 +266,11 @@
       "date": "2026-08-14",
       "change": "Migrations 000160/000161 add pen-grain capacity and cohort configuration to shed_partitions for the Counts -> Sheds directory.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, vaccination source dates, SOP proof grain, protocol rows, or scheduling anchors. The new shed_partitions columns are counts/shed-directory configuration over the existing pen catalog. They do not add a vaccination source field, change goat_shed_partitions animal placement, or alter vaccination operator capacity."
+    },
+    {
+      "date": "2026-08-15",
+      "change": "Seed import and runtime generation now share SchedulePathForGoat for kid/adult schedule-path selection, including no-DOB clinical kid pen tags and stale K-stage tags past the 20-week finishing window.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, or source vaccination dates. This is a derived scheduling-policy correction: source rows still preserve reviewed DOB/stage/history evidence, and generation classifies from that evidence through the same shared policy instead of a seeder-local shortcut."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

@@ -354,6 +354,15 @@ private class FakeExecutionRepository : ExecutionRepository {
         partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
 
+    override suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String?): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String?): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        emptyList()
+
     override suspend fun rows(
         parkId: String?,
         workState: String?,

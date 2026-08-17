@@ -15,6 +15,7 @@ import {
   parseDriveSelectionValue,
   scheduledDriveCampaigns,
   scheduledDriveRows,
+  sortDriveCampaignsNewestFirst,
   type CommandBoardDriveOption,
 } from "./command-board-future-drives";
 
@@ -565,7 +566,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     [futureDrives, statuses],
   );
   const driveCampaigns = useMemo(
-    () => [...executedCampaigns, ...futureCampaigns],
+    () => sortDriveCampaignsNewestFirst([...executedCampaigns, ...futureCampaigns]),
     [executedCampaigns, futureCampaigns],
   );
 
@@ -1275,7 +1276,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="dh">
               <div style={{ flex: 1 }}>
                 <h3>
-                  {selectedShedVaccine.shedName} ·{" "}
+                  {(selectedShedVaccine.operational_location_display || operationalLocationLabel({
+                    shedName: selectedShedVaccine.shedName,
+                    partitionLabel: selectedShedVaccine.partition_label,
+                  }))} ·{" "}
                   {view.shedVaccineColumns.find((c) => c.code === selectedShedVaccine.vaccineCode)?.label
                     || selectedShedVaccine.vaccineCode}
                 </h3>

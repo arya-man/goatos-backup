@@ -115,14 +115,17 @@ class FeedPackingViewModel @Inject constructor(
         ),
     )
 
-    // Combined with the optimistic local-completion set — a just-completed shed-session shows
-    // completed immediately (offline-first), converging on the backend flag once the write syncs.
+    // Combined with the optimistic local-completion and submitted-for-review sets — a
+    // just-completed or just-submitted shed-session shows the appropriate status immediately
+    // (offline-first), converging on the backend flag once the write syncs.
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<FeedPackingRowUi>> =
-        combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
-            .flatMapLatest { (selection, completed) ->
+        combine(_filters, feedCompletionStore.completedKeys, feedCompletionStore.submittedForReviewKeys) { selection, completed, submitted ->
+            Triple(selection, completed, submitted)
+        }
+            .flatMapLatest { (selection, completed, submitted) ->
                 repo.packingRows(selection.toQuery())
-                    .map { page -> page.map { it.toRowUi(completed) } }
+                    .map { page -> page.map { it.toRowUi(completed, submitted) } }
             }
             .cachedIn(viewModelScope)
 
@@ -268,29 +271,44 @@ class FeedPackingViewModel @Inject constructor(
 
     private fun sg.mesha.goatos.core.network.dto.FeedPackingRowDto.toRowUi(
         locallyCompleted: Set<String>,
-    ): FeedPackingRowUi = FeedPackingRowUi(
-        grainKey = grainKey,
-        parkId = parkId,
-        parkLabel = parkLabel,
-        shedId = shedId,
-        sessionNo = sessionNo,
-        // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
-        // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
-        // identical "Castro" lines the operator cannot tell apart. Prefers the backend-composed
-        // display and falls back to composing it only when an older server omits the field.
-        shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
-        partitionLabel = partitionLabel.orEmpty(),
-        sessionLabel = sessionLabel,
-        workflow = workflow,
-        experimentArm = experimentArm,
-        headCount = headCount,
-        items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
-        totalKg = totalKg,
-        status = status,
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
-        lifecycleStatus = lifecycleStatus,
-        reworkReason = reworkReason,
-    )
+        locallySubmittedForReview: Set<String>,
+    ): FeedPackingRowUi {
+        val completionKey = FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)
+        val isLocallyCompleted = locallyCompleted.contains(completionKey)
+        val isLocallySubmittedForReview = locallySubmittedForReview.contains(completionKey)
+
+        // Precedence lives in ONE place — [overlayFeedLifecycleStatus] — so a test asserting the
+        // rule and the list projection that renders it can never drift apart.
+        val overlaidLifecycleStatus = overlayFeedLifecycleStatus(
+            lifecycleStatus = lifecycleStatus,
+            reworkReason = reworkReason,
+            isLocallySubmittedForReview = isLocallySubmittedForReview,
+        )
+
+        return FeedPackingRowUi(
+            grainKey = grainKey,
+            parkId = parkId,
+            parkLabel = parkLabel,
+            shedId = shedId,
+            sessionNo = sessionNo,
+            // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
+            // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
+            // identical "Castro" lines the operator cannot tell apart. Prefers the backend-composed
+            // display and falls back to composing it only when an older server omits the field.
+            shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
+            partitionLabel = partitionLabel.orEmpty(),
+            sessionLabel = sessionLabel,
+            workflow = workflow,
+            experimentArm = experimentArm,
+            headCount = headCount,
+            items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
+            totalKg = totalKg,
+            status = status,
+            completed = completed || isLocallyCompleted,
+            lifecycleStatus = overlaidLifecycleStatus,
+            reworkReason = reworkReason,
+        )
+    }
 
     private data class FeedPackingSelection(
         val parkId: String = "",
@@ -343,3 +361,4 @@ class FeedPackingViewModel @Inject constructor(
         const val ACTION_CLEARED = "cleared"
     }
 }
+

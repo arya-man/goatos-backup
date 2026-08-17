@@ -1,5 +1,6 @@
 options:
   logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
 
 serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
 
@@ -7,6 +8,8 @@ substitutions:
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
   _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
+  _SLACK_USER_ID: ""
+  _TRIGGERED_BY: "unknown Slack user"
 
 steps:
   - id: configure-docker-auth
@@ -96,6 +99,7 @@ steps:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
+      - COMMIT_SHA=$COMMIT_SHA
       - BUILD_ID=$BUILD_ID
       - ARTIFACT_REPOSITORY=goatos
       - DELIVERY_PIPELINE=goatos-stg
@@ -104,6 +108,7 @@ steps:
       - GOATOS_SKIP_IMAGE_BUILD=1
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - DEPLOY_STG=${_DEPLOY_STG}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
     args:
       - -ceu
       - |
@@ -122,8 +127,10 @@ steps:
       - PROJECT_ID=goatos-stg
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
+      - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
       - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos.stg
     args:
       - -ceu
@@ -133,7 +140,7 @@ steps:
           exit 0
         fi
         apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-17-jdk unzip
+        apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-21-jdk unzip
         tools/deploy/stg-mobile-distribution.sh
 
   - id: stg-release-tag-bookkeeping
@@ -142,7 +149,9 @@ steps:
     env:
       - PROJECT_ID=goatos-stg
       - BUILD_ID=$BUILD_ID
+      - COMMIT_SHA=$COMMIT_SHA
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
     args:
       - -ceu
       - |

@@ -17,6 +17,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.record.RecordEvent
@@ -111,7 +112,7 @@ class RecordViewModel @Inject constructor(
         if (shedId != null) {
             val result = repo.refreshShed(shedId, partitionLabel = partitionLabel)
             _isRefreshing.value = false
-            _isOffline.value = result.isFailure
+            _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
             result.exceptionOrNull()?.let {
                 crashReporter.recordException(it, "vaccination record refresh failed")
             }
