@@ -30,6 +30,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
@@ -67,6 +68,7 @@ private data class MilkPreparationRefreshState(
 @HiltViewModel
 class MilkPreparationListViewModel @Inject constructor(
     private val repo: MilkPreparationRepository,
+    private val feedCompletionStore: FeedCompletionLocalStore,
     drafts: CaptureDraftRepository,
 ) : ViewModel() {
     private val selectedDate = MutableStateFlow(LocalDate.now(MILK_IST).toString())
@@ -83,7 +85,8 @@ class MilkPreparationListViewModel @Inject constructor(
                 // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
                 // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
                 drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
-            ) { resource, selected, sync, capturedByEntity ->
+                feedCompletionStore.submittedForReviewKeys,
+            ) { resource, selected, sync, capturedByEntity, locallySubmitted ->
                 val page = resource.data
                 if (page == null) {
                     MilkPreparationListUiState(
@@ -153,6 +156,7 @@ internal fun buildMilkPreparationListUi(
     selectedFilter: String,
     capturedByEntity: Map<String, Int> = emptyMap(),
     draftDate: String = "",
+    locallySubmitted: Set<String> = emptySet(),
 ): MilkPreparationListUiState {
     val allCards = page?.farmTasks.orEmpty()
         .map { task ->
@@ -160,7 +164,13 @@ internal fun buildMilkPreparationListUi(
             // (MilkPreparationViewModel.entityId = "$parkId:$preparationDate", where the date is the
             // LOCAL IST business day). Keying off page.preparationDate instead would silently miss
             // every draft on any day the backend's sheet date differs from the phone's.
-            milkPreparationCard(task, capturedByEntity["${task.parkId}:$draftDate"] ?: 0)
+            milkPreparationCard(
+                task,
+                capturedByEntity["${task.parkId}:$draftDate"] ?: 0,
+                locallySubmitted.contains(
+                    FeedCompletionLocalStore.taskKey("milk-preparation", task.parkId + "|" + draftDate),
+                ),
+            )
         }
         .sortedBy { it.parkLabel }
     val cards = if (selectedFilter == "all") allCards else allCards.filter { card ->
@@ -194,8 +204,20 @@ internal fun buildMilkPreparationListUi(
     )
 }
 
-private fun milkPreparationCard(task: MilkPreparationFarmTaskDto, capturedProofCount: Int): MilkPreparationCardUi {
-    val bucket = when (task.verificationStatus) {
+private fun milkPreparationCard(
+    task: MilkPreparationFarmTaskDto,
+    capturedProofCount: Int,
+    isLocallySubmittedForReview: Boolean = false,
+): MilkPreparationCardUi {
+    // A submit still in the outbox leaves verificationStatus at "not_submitted", so the card read
+    // "To prepare" for work already sent (254.mp4 class). Milk Preparation is FARM-DAY grain.
+    val bucket = when (
+        overlayMilkPreparationStatus(
+            task.verificationStatus,
+            task.reworkReason,
+            isLocallySubmittedForReview,
+        )
+    ) {
         "pending_verification" -> MilkPreparationCardBucket.IN_REVIEW
         "completed" -> MilkPreparationCardBucket.COMPLETED
         "rework" -> MilkPreparationCardBucket.REWORK
@@ -260,6 +282,7 @@ private data class MilkPreparationDraftState(
 @HiltViewModel
 class MilkPreparationViewModel @Inject constructor(
     private val sync: SyncRepository,
+    private val feedCompletionStore: FeedCompletionLocalStore,
     private val repo: MilkPreparationRepository,
     private val capture: ProofCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
@@ -649,6 +672,12 @@ class MilkPreparationViewModel @Inject constructor(
             )
             when (val result = sync.enqueueMilkPreparationSubmit(groupKey(), submitIdempotencyKey, current.selectedParkId, current.preparationDate, goatMilkUsed, answers, proofItems)) {
                 is AppResult.Ok -> {
+                    feedCompletionStore.markSubmittedForReview(
+                        FeedCompletionLocalStore.taskKey(
+                            "milk-preparation",
+                            current.selectedParkId + "|" + current.preparationDate,
+                        ),
+                    )
                     drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, result.value)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
                     // Store the outbox item ID durably so process death doesn't lose the in-flight state
@@ -775,4 +804,20 @@ internal fun sequenceMilkPreparationSteps(
         unlocked = unlocked && step.answerComplete && step.captured
         sequenced
     }
+}
+
+/**
+ * The verification status a Milk Preparation card RENDERS. Same precedence as every other flow:
+ * server acceptance wins, then a rework reason (never mask a rejection), then this phone's queued
+ * submit, else the backend status.
+ */
+internal fun overlayMilkPreparationStatus(
+    verificationStatus: String,
+    reworkReason: String?,
+    isLocallySubmittedForReview: Boolean,
+): String = when {
+    verificationStatus == "completed" -> "completed"
+    !reworkReason.isNullOrBlank() -> verificationStatus
+    isLocallySubmittedForReview -> "pending_verification"
+    else -> verificationStatus
 }

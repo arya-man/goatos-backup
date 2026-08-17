@@ -57,7 +57,7 @@ class MilkDateNavViewModelTest {
     fun `milk preparation NavigateDate re-subscribes repo observe with the new date`() = runTest(dispatcher) {
         val repo = TrackingMilkPreparationRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkPreparationListViewModel(repo = repo, drafts = drafts)
+        val viewModel = MilkPreparationListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -80,7 +80,7 @@ class MilkDateNavViewModelTest {
     fun `milk preparation date label drops the Today prefix once navigated away`() = runTest(dispatcher) {
         val repo = TrackingMilkPreparationRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkPreparationListViewModel(repo = repo, drafts = drafts)
+        val viewModel = MilkPreparationListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -102,7 +102,7 @@ class MilkDateNavViewModelTest {
     fun `milk preparation NavigateDate is clamped at today`() = runTest(dispatcher) {
         val repo = TrackingMilkPreparationRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkPreparationListViewModel(repo = repo, drafts = drafts)
+        val viewModel = MilkPreparationListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
