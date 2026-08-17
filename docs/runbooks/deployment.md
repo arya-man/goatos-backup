@@ -205,12 +205,14 @@ Testing upload to package `sg.mesha.goatos.stg`, and the `mesha.sg/app.apk`
 Storage mirror must all pass or the Cloud Build is failed and Slack reports the
 mobile distribution as failed.
 
-Each user-visible STG Android release must bump the checked-in Android
-`versionName` and `versionCode` in `apps/goatos-android/app/build.gradle.kts`
-before publishing, for example `0.1.20-stg (21)` → `0.1.21-stg (22)`.
-`GOATOS_ANDROID_VERSION_CODE` / `GOATOS_ANDROID_VERSION_NAME` are only for
-manual repair runs where the intended version identity is explicit; the Slack
-deploy path normally uses the checked-in release identity.
+Each user-visible STG Android release must advance the Android `versionName`
+and `versionCode`, for example `0.1.20-stg (21)` → `0.1.21-stg (22)`. Slack
+mobile deploy clicks bump the checked-in defaults in
+`apps/goatos-android/app/build.gradle.kts` on `main` before starting Cloud
+Build, so every click publishes a new human-readable Firebase version. Manual
+non-Slack repair runs may set `GOATOS_ANDROID_VERSION_CODE` /
+`GOATOS_ANDROID_VERSION_NAME` only when the intended version identity is
+explicit.
 
 The Cloud Build timeout for this combined path is 2 hours. If Cloud Build times
 out during `android-mobile-distribution`, assume the Android release did not
