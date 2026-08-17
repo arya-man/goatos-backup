@@ -166,3 +166,106 @@ func TestDirectedAnalyticsGrainProofs(t *testing.T) {
 		t.Errorf("foreign park filter: want empty, got %+v", filtered)
 	}
 }
+
+// Execution + experiment rollups on the real schema. Completion/task rows are
+// inserted directly at their own natural grain — this is a package read-model
+// test of the status counting, not an E2E of the proof write paths (those have
+// their own verification-gate integration tests).
+func TestExecutionAndExperimentAnalytics(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v\nsql: %s", err, sql)
+		}
+	}
+	// Transport FKs onto locations: register the shed.
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id)
+VALUES ($2::uuid, $1::uuid, 'shed', 'CASTRO', 'Castro', 'active', $3::uuid)
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, fdiShedA, fdiPark)
+
+	verifiedAt := time.Date(2026, 7, 30, 11, 0, 0, 0, biztime.DefaultLocation())
+	createdAt := verifiedAt.Add(-90 * time.Minute)
+	// Packing: one verified (90 min latency), one awaiting, one rework.
+	exec(`INSERT INTO feed_packing_completions
+  (tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, verified_at, created_at, idempotency_key)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, 1, DATE '2026-07-30', 'normal', 'completed', 'proof-1', $4, $5, 'k1'),
+  ($1::uuid, $2::uuid, $3::uuid, 2, DATE '2026-07-30', 'normal', 'pending_verification', 'proof-2', NULL, $5, 'k2'),
+  ($1::uuid, $2::uuid, $3::uuid, 1, DATE '2026-07-31', 'normal', 'rework', NULL, NULL, $5, 'k3')`,
+		fdiTenant, fdiPark, fdiShedA, verifiedAt, createdAt)
+	// Distribution: one verified (30 min latency) — daily median over 90 and 30 is 60.
+	exec(`INSERT INTO feed_distribution_completions
+  (tenant_id, park_id, shed_id, session_no, target_date, workflow, status, distribution_proof_ref, water_proof_ref, feed_weight_proof_ref, verified_at, created_at, idempotency_key)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, 1, DATE '2026-07-30', 'normal', 'completed', 'd-1', 'w-1', 'f-1', $4, $5, 'k4')`,
+		fdiTenant, fdiPark, fdiShedA, verifiedAt, verifiedAt.Add(-30*time.Minute))
+	// Transport: one completed, one still due.
+	exec(`INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, business_date, scheduled_at, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, DATE '2026-07-30', $4, 'completed'),
+       ($1::uuid, $2::uuid, $3::uuid, DATE '2026-07-31', $4, 'due')`,
+		fdiTenant, fdiPark, fdiShedA, verifiedAt)
+
+	window := domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   time.Date(2026, 7, 31, 0, 0, 0, 0, biztime.DefaultLocation()),
+	}
+	got, err := repo.ExecutionAnalytics(ctx, fdiTenant, window)
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics: %v", err)
+	}
+	if len(got.Days) != 2 {
+		t.Fatalf("want 2 execution days, got %+v", got.Days)
+	}
+	d1, d2 := got.Days[0], got.Days[1]
+	if d1.Date != "2026-07-30" || d1.PackingVerified != 1 || d1.PackingAwaiting != 1 || d1.DistributionVerified != 1 || d1.TransportCompleted != 1 {
+		t.Errorf("day1 counts wrong: %+v", d1)
+	}
+	if d1.MedianVerifyLatencyMinutes == nil || *d1.MedianVerifyLatencyMinutes != 60 {
+		t.Errorf("day1 median latency: want 60 (median of 90 and 30), got %v", d1.MedianVerifyLatencyMinutes)
+	}
+	if d2.Date != "2026-07-31" || d2.PackingRework != 1 || d2.TransportOpen != 1 || d2.MedianVerifyLatencyMinutes != nil {
+		t.Errorf("day2 counts wrong: %+v", d2)
+	}
+
+	// Experiment series through the production write path: two arms, one with
+	// two pens of one shed — pens count by pen-grain, kg is the authored total.
+	expCell := func(partition, arm, qty string, rowSeq int32) domain.StoredCell {
+		return domain.StoredCell{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: partition, ShedTag: "Non-Pregnant", Breed: "Beetal",
+			ExperimentArm: arm, SessionNo: 1, SessionLabel: "S",
+			HeadCount: 7, HeadCountInformational: true, Workflow: domain.WorkflowExperiment,
+			FeedItemLabel: "Mesha TMR", FeedItemKey: "mesha tmr", QuantityKg: kg(qty),
+			SessionTotalKg: qty, RowSeq: rowSeq,
+		}
+	}
+	cmd := ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-07-30", Workflow: domain.WorkflowExperiment,
+		IssuedAt: verifiedAt, Fingerprint: "fp-exp-arms",
+		IdempotencyKey: "issue:exp:" + fdiTenant, GeneratedBy: "test",
+		Cells: []domain.StoredCell{
+			expCell("1", "Mesha TMR — adult", "40.000", 0),
+			expCell("2", "Mesha TMR — adult", "35.000", 1),
+			expCell("3", "Sorghum pellet mix", "20.000", 2),
+		},
+	}
+	if _, err := repo.PersistIssue(ctx, cmd); err != nil {
+		t.Fatalf("persist experiment: %v", err)
+	}
+	arms, err := repo.ExperimentAnalytics(ctx, fdiTenant, window)
+	if err != nil {
+		t.Fatalf("ExperimentAnalytics: %v", err)
+	}
+	if len(arms.Arms) != 2 {
+		t.Fatalf("want 2 arms, got %+v", arms.Arms)
+	}
+	adult := arms.Arms[0]
+	if adult.ExperimentArm != "Mesha TMR — adult" || adult.AbsoluteKg != "75.000" || adult.Pens != 2 {
+		t.Errorf("adult arm: want 75.000 kg over 2 pens, got %+v", adult)
+	}
+	if arms.Arms[1].AbsoluteKg != "20.000" || arms.Arms[1].Pens != 1 {
+		t.Errorf("sorghum arm: %+v", arms.Arms[1])
+	}
+}

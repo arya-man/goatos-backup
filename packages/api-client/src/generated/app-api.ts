@@ -1514,6 +1514,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-day execution adherence for the Feed Analytics page.
+         * @description Status counts per business date across the three proof-gated feed stages -- packing and distribution pen-session completions (verified / awaiting verdict / rework) and transport shed tasks (completed / open / awaiting verdict / rework) -- plus the daily median submit-to-verdict latency of packing and distribution verdicts, bucketed by the Asia/Kolkata date the verdict landed. STATUS COUNTS ONLY: completions carry proofs, never kg, so execution is judged on whether work was proved and verified, not on quantity.
+         */
+        get: operations["getFeedAnalyticsExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-analytics/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trial-arm absolute kg series for the Feed Analytics page.
+         * @description The experiment workflow's authored kg per (feed day, experiment arm), with the distinct pen count feeding under each arm. Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are informational, so no per-head figure exists here and none may be derived by a client.
+         */
+        get: operations["getFeedAnalyticsExperiment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/preview": {
         parameters: {
             query?: never;
@@ -3933,6 +3973,60 @@ export interface components {
             date_to: string;
             days: components["schemas"]["FeedAnalyticsDirectedDay"][];
             items: components["schemas"]["FeedAnalyticsDirectedItem"][];
+        };
+        /** @description One business date of proof-gated feed execution statuses. */
+        FeedAnalyticsExecutionDay: {
+            /** Format: date */
+            date: string;
+            /** Format: int64 */
+            packing_verified: number;
+            /** Format: int64 */
+            packing_awaiting: number;
+            /** Format: int64 */
+            packing_rework: number;
+            /** Format: int64 */
+            distribution_verified: number;
+            /** Format: int64 */
+            distribution_awaiting: number;
+            /** Format: int64 */
+            distribution_rework: number;
+            /** Format: int64 */
+            transport_completed: number;
+            /** Format: int64 */
+            transport_open: number;
+            /** Format: int64 */
+            transport_awaiting_verdict: number;
+            /** Format: int64 */
+            transport_rework: number;
+            /**
+             * Format: int64
+             * @description Median submit-to-verdict latency of verdicts landing that IST date; null when none landed.
+             */
+            median_verify_latency_minutes?: number | null;
+        };
+        FeedAnalyticsExecutionResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            days: components["schemas"]["FeedAnalyticsExecutionDay"][];
+        };
+        /** @description One (feed day, experiment arm) of authored absolute kg. */
+        FeedAnalyticsExperimentArm: {
+            /** Format: date */
+            feed_day: string;
+            experiment_arm: string;
+            /** @description Authored shed/pen TOTAL kg as a decimal string -- never multiplied by heads. */
+            absolute_kg: string;
+            /** Format: int64 */
+            pens: number;
+        };
+        FeedAnalyticsExperimentResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            arms: components["schemas"]["FeedAnalyticsExperimentArm"][];
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
@@ -13203,6 +13297,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedAnalyticsDirectedResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsExecution: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                date_from?: string;
+                /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-day status counts, ordered by date ascending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsExecutionResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsExperiment: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                date_from?: string;
+                /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-(day, arm) authored kg, ordered by feed day then arm. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsExperimentResponse"];
                 };
             };
             /** @description Malformed date or park id. */
