@@ -145,6 +145,38 @@ type CellKey struct {
 	FeedItemKey  string
 }
 
+// StoredRowKey is the identity of one frozen direction row. RowSeq is ordering, not identity by
+// itself: a corrupted issue once reused the same RowSeq for two Mandela pens, causing the read path
+// to merge one pen into the other. Keep RowSeq in the key so a generated round-trip is byte-stable,
+// but include the operational and ration-grain columns so duplicate sequence numbers cannot hide a
+// row.
+type StoredRowKey struct {
+	RowSeq        int32
+	ShedID        string
+	PartitionKey  string
+	SessionNo     int32
+	Workflow      string
+	ShedTagKey    string
+	BreedKey      string
+	RationGroup   string
+	ExperimentArm string
+}
+
+// RowKey returns the reconstruction identity for the direction row that owns this stored cell.
+func (c StoredCell) RowKey() StoredRowKey {
+	return StoredRowKey{
+		RowSeq:        c.RowSeq,
+		ShedID:        c.ShedID,
+		PartitionKey:  PartitionMatchKey(c.PartitionLabel),
+		SessionNo:     c.SessionNo,
+		Workflow:      c.Workflow,
+		ShedTagKey:    NormalizeConfigKey(c.ShedTag),
+		BreedKey:      NormalizeConfigKey(c.Breed),
+		RationGroup:   NormalizeConfigKey(c.RationGroup),
+		ExperimentArm: NormalizeConfigKey(c.ExperimentArm),
+	}
+}
+
 // Key returns the cell's natural identity.
 func (c StoredCell) Key() CellKey {
 	return CellKey{
@@ -248,10 +280,11 @@ func ReconstructRows(cells []StoredCell) []DirectionRow {
 		row   DirectionRow
 		cells []StoredCell
 	}
-	buckets := map[int32]*bucket{}
-	order := make([]int32, 0)
+	buckets := map[StoredRowKey]*bucket{}
+	order := make([]StoredRowKey, 0)
 	for _, cell := range cells {
-		b, ok := buckets[cell.RowSeq]
+		key := cell.RowKey()
+		b, ok := buckets[key]
 		if !ok {
 			b = &bucket{row: DirectionRow{
 				ParkID:                 cell.ParkID,
@@ -271,16 +304,43 @@ func ReconstructRows(cells []StoredCell) []DirectionRow {
 				SessionTotalKg:         cell.SessionTotalKg,
 				OverduePending:         cell.OverduePending,
 			}}
-			buckets[cell.RowSeq] = b
-			order = append(order, cell.RowSeq)
+			buckets[key] = b
+			order = append(order, key)
 		}
 		b.cells = append(b.cells, cell)
 	}
 
-	sort.Slice(order, func(i, j int) bool { return order[i] < order[j] })
+	sort.Slice(order, func(i, j int) bool {
+		a, b := order[i], order[j]
+		if a.RowSeq != b.RowSeq {
+			return a.RowSeq < b.RowSeq
+		}
+		if a.ShedID != b.ShedID {
+			return a.ShedID < b.ShedID
+		}
+		if a.PartitionKey != b.PartitionKey {
+			return a.PartitionKey < b.PartitionKey
+		}
+		if a.SessionNo != b.SessionNo {
+			return a.SessionNo < b.SessionNo
+		}
+		if a.Workflow != b.Workflow {
+			return a.Workflow < b.Workflow
+		}
+		if a.ShedTagKey != b.ShedTagKey {
+			return a.ShedTagKey < b.ShedTagKey
+		}
+		if a.BreedKey != b.BreedKey {
+			return a.BreedKey < b.BreedKey
+		}
+		if a.RationGroup != b.RationGroup {
+			return a.RationGroup < b.RationGroup
+		}
+		return a.ExperimentArm < b.ExperimentArm
+	})
 	out := make([]DirectionRow, 0, len(order))
-	for _, seq := range order {
-		b := buckets[seq]
+	for _, key := range order {
+		b := buckets[key]
 		sort.Slice(b.cells, func(i, j int) bool { return b.cells[i].ItemSeq < b.cells[j].ItemSeq })
 		row := b.row
 		row.Items = make([]ItemQuantity, 0, len(b.cells))
