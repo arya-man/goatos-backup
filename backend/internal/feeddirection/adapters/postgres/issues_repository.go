@@ -421,6 +421,9 @@ func insertIssueRows(ctx context.Context, tx pgx.Tx, tenantID, issueID, parkID s
 	if len(cells) == 0 {
 		return nil
 	}
+	if err := validateStoredRowSeqs(cells); err != nil {
+		return err
+	}
 	n := len(cells)
 	parkLabel := make([]string, n)
 	shedID := make([]string, n)
@@ -525,6 +528,23 @@ FROM unnest(
 		amended, amendedAtUTC)
 	if err != nil {
 		return fmt.Errorf("feeddirection: insert issue rows: %w", err)
+	}
+	return nil
+}
+
+func validateStoredRowSeqs(cells []domain.StoredCell) error {
+	bySeq := make(map[int32]domain.StoredRowKey)
+	for _, cell := range cells {
+		key := cell.RowKey()
+		if existing, ok := bySeq[cell.RowSeq]; ok && existing != key {
+			return fmt.Errorf(
+				"feeddirection: duplicate row_seq %d for distinct rows (%s/%s/%d/%s and %s/%s/%d/%s)",
+				cell.RowSeq,
+				existing.ShedID, existing.PartitionKey, existing.SessionNo, existing.Workflow,
+				key.ShedID, key.PartitionKey, key.SessionNo, key.Workflow,
+			)
+		}
+		bySeq[cell.RowSeq] = key
 	}
 	return nil
 }
