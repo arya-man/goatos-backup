@@ -82,6 +82,9 @@ test("shed lists and gain chart only show sheds weighed in the selected window",
 test("weighed shed rows render breed and sex composition chips from the backend contract", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.match(source, /demo\?\.shed_composition \?\? \[\]/);
+  assert.match(source, /shedLabelWithComposition/);
+  assert.match(source, /replace\(" · ", " - "\)/);
+  assert.doesNotMatch(source, /shed avg/);
   assert.match(source, /className="wcomp-chips"/);
   assert.match(source, /className="wcomp-chip"/);
   assert.match(source, /compositionLabel\(chip, pageContract\)/);
@@ -92,6 +95,11 @@ test("weighed shed rows render breed and sex composition chips from the backend 
   assert.match(source, /composition\.source === "scanned_tags"/);
   assert.match(css, /\.wcomp-chips\{/);
   assert.match(css, /\.wcomp-chip\{/);
+});
+
+test("small shed charts do not reserve the tall empty panel height", () => {
+  assert.match(source, /const shedChartSize = shedChartBars\.length <= 8 \? "short" : "tall";/);
+  assert.match(source, /size=\{shedChartSize\}/);
 });
 
 test("the two table cards are inset without losing their full-bleed tables", () => {
