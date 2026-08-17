@@ -14,6 +14,7 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { ChartHover } from "@/components/chart-hover";
 import { SvgBars } from "@/components/svg-bars";
 import { SegmentedLinks } from "@/features/weighing/segmented-links";
 import {
@@ -332,13 +333,15 @@ function DirectedTabs({
         <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>
           <h2 className="h">{fa(pageContract, "chart.daily.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.daily.hint")}</p>
-          <FeedStackedColumns
-            days={view.stacked}
-            seriesLabels={view.itemLabels}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "chart.daily.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
+          <ChartHover>
+            <FeedStackedColumns
+              days={view.stacked}
+              seriesLabels={view.itemLabels}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "chart.daily.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </ChartHover>
           <FeedChartLegend
             entries={view.itemLabels.map((label, s) => ({
               label,
@@ -352,12 +355,14 @@ function DirectedTabs({
         <section className="card wchart" aria-label={fa(pageContract, "chart.mix.title")}>
           <h2 className="h">{fa(pageContract, "chart.mix.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.mix.hint")}</p>
-          <SvgBars
-            data={view.mix}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "chart.mix.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
+          <ChartHover>
+            <SvgBars
+              data={view.mix}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "chart.mix.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </ChartHover>
         </section>
       ) : null}
 
@@ -365,13 +370,15 @@ function DirectedTabs({
         <section className="card wchart" aria-label={fa(pageContract, "chart.heads.title")}>
           <h2 className="h">{fa(pageContract, "chart.heads.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.heads.hint")}</p>
-          <FeedLines
-            series={view.headsLine}
-            dayLabels={view.dayLabels}
-            valueNoun={fa(pageContract, "unit.heads")}
-            chartLabel={fa(pageContract, "chart.heads.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
+          <ChartHover>
+            <FeedLines
+              series={view.headsLine}
+              dayLabels={view.dayLabels}
+              valueNoun={fa(pageContract, "unit.heads")}
+              chartLabel={fa(pageContract, "chart.heads.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </ChartHover>
         </section>
       ) : null}
 
@@ -379,13 +386,15 @@ function DirectedTabs({
         <section className="card wchart" aria-label={fa(pageContract, "chart.perhead.title")}>
           <h2 className="h">{fa(pageContract, "chart.perhead.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.perhead.hint")}</p>
-          <FeedLines
-            series={view.perHead}
-            dayLabels={view.dayLabels}
-            valueNoun={fa(pageContract, "unit.g_per_head")}
-            chartLabel={fa(pageContract, "chart.perhead.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
+          <ChartHover>
+            <FeedLines
+              series={view.perHead}
+              dayLabels={view.dayLabels}
+              valueNoun={fa(pageContract, "unit.g_per_head")}
+              chartLabel={fa(pageContract, "chart.perhead.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </ChartHover>
           <FeedChartLegend
             entries={view.perHead.map((s) => ({ label: s.label, colorVar: s.colorVar }))}
           />
@@ -443,13 +452,15 @@ function ExecutionTab({
       <section className="card wchart" aria-label={fa(pageContract, "chart.latency.title")}>
         <h2 className="h">{fa(pageContract, "chart.latency.title")}</h2>
         <p className="muted small">{fa(pageContract, "chart.latency.hint")}</p>
-        <FeedLines
-          series={latency}
-          dayLabels={data.days.map((d) => d.date)}
-          valueNoun={fa(pageContract, "unit.minutes")}
-          chartLabel={fa(pageContract, "chart.latency.title")}
-          emptyLabel={fa(pageContract, "empty.execution.body")}
-        />
+        <ChartHover>
+          <FeedLines
+            series={latency}
+            dayLabels={data.days.map((d) => d.date)}
+            valueNoun={fa(pageContract, "unit.minutes")}
+            chartLabel={fa(pageContract, "chart.latency.title")}
+            emptyLabel={fa(pageContract, "empty.execution.body")}
+          />
+        </ChartHover>
       </section>
     </>
   );
@@ -466,13 +477,15 @@ function ExecutionStacked({
 }) {
   return (
     <>
-      <FeedStackedColumns
-        days={stacked}
-        seriesLabels={statuses.map((s) => s.label)}
-        valueNoun={fa(pageContract, "table.items.noun")}
-        chartLabel={fa(pageContract, "chart.execution.title")}
-        emptyLabel={fa(pageContract, "empty.execution.body")}
-      />
+      <ChartHover>
+        <FeedStackedColumns
+          days={stacked}
+          seriesLabels={statuses.map((s) => s.label)}
+          valueNoun={fa(pageContract, "table.items.noun")}
+          chartLabel={fa(pageContract, "chart.execution.title")}
+          emptyLabel={fa(pageContract, "empty.execution.body")}
+        />
+      </ChartHover>
       <FeedChartLegend entries={statuses} />
     </>
   );
@@ -507,13 +520,15 @@ function ExperimentTab({
     <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
       <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
       <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
-      <FeedLines
-        series={series}
-        dayLabels={dayKeys}
-        valueNoun={fa(pageContract, "unit.kg")}
-        chartLabel={fa(pageContract, "chart.experiment.title")}
-        emptyLabel={fa(pageContract, "empty.experiment.body")}
-      />
+      <ChartHover>
+        <FeedLines
+          series={series}
+          dayLabels={dayKeys}
+          valueNoun={fa(pageContract, "unit.kg")}
+          chartLabel={fa(pageContract, "chart.experiment.title")}
+          emptyLabel={fa(pageContract, "empty.experiment.body")}
+        />
+      </ChartHover>
       <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
     </section>
   );

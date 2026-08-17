@@ -97,15 +97,17 @@ export function FeedStackedColumns({
       {days.map((d, i) => {
         const x = PAD_X + i * slot + (slot - barW) / 2;
         let y = BASELINE;
+        // Composed server-side from contract copy; surfaced instantly by the
+        // ChartHover client wrapper via the hit strip below (native SVG <title>
+        // needs a ~1s dwell, which operators read as "no tooltip").
+        // Newline-separated: the ChartHover tooltip renders line 1 as the
+        // header and every following line as its own list row.
+        const tipText = [
+          d.label,
+          ...d.segments.map((v, s) => `${seriesLabels[s] ?? ""}  ${nf(v)} ${valueNoun}`),
+        ].join("\n");
         return (
           <g key={d.key}>
-            {/* ONE template-string child. Multiple adjacent JSX text children inside an
-                SVG <title> hydrate wrong: the browser parses the server HTML into a single
-                merged text node while client React expects three, so every load logged a
-                hydration mismatch and re-rendered the tree client-side. */}
-            <title>{`${d.label}: ${d.segments
-              .map((v, s) => `${seriesLabels[s] ?? ""} ${nf(v)} ${valueNoun}`)
-              .join(" · ")}`}</title>
             {d.segments.map((v, s) => {
               const h = ((BASELINE - PAD_TOP) * v) / max;
               y -= h;
@@ -121,6 +123,14 @@ export function FeedStackedColumns({
                 />
               );
             })}
+            <rect
+              x={PAD_X + i * slot}
+              y={PAD_TOP}
+              width={slot}
+              height={BASELINE - PAD_TOP}
+              fill="transparent"
+              data-tip={tipText}
+            />
           </g>
         );
       })}
@@ -207,7 +217,6 @@ export function FeedLines({
         const lastVal = lastIdx >= 0 ? s.points[lastIdx] : null;
         return (
           <g key={s.label}>
-            <title>{`${s.label}${lastVal === null ? "" : `: ${nf(lastVal)} ${valueNoun}`}`}</title>
             {segments.map((d, i) => (
               <path key={i} d={d} fill="none" stroke={s.colorVar} strokeWidth="2" strokeLinejoin="round" />
             ))}
@@ -222,6 +231,23 @@ export function FeedLines({
               />
             ) : null}
           </g>
+        );
+      })}
+      {dayLabels.map((day, i) => {
+        const parts = series
+          .map((s) => (s.points[i] === null ? null : `${s.label}  ${nf(s.points[i] as number)} ${valueNoun}`))
+          .filter((p): p is string => p !== null);
+        if (parts.length === 0) return null;
+        return (
+          <rect
+            key={day}
+            x={PAD_X + i * stepX - stepX / 2}
+            y={PAD_TOP}
+            width={stepX}
+            height={BASELINE - PAD_TOP}
+            fill="transparent"
+            data-tip={[day, ...parts].join("\n")}
+          />
         );
       })}
       <text x={PAD_X} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
