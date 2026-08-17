@@ -159,57 +159,114 @@ fun ObservationFormState.blockers(): List<ObservationBlocker> {
 }
 
 /**
- * The fields still unanswered, so the screen can point at them.
+ * The form is walked in four steps rather than as one 29-question scroll.
+ *
+ * The order is still the order a person walks an animal — take the temperature,
+ * look at the head, work down the body, then the sex-specific checks. What the
+ * steps add is a horizon: a manager in a shed can see how much is left and finish
+ * one part before the next, instead of scrolling a wall of questions to find the
+ * two they have not answered.
+ *
+ * Steps DO NOT change what is required. Every field is still compulsory and the
+ * blockers are unchanged; a step is a view onto the same completeness rule, which
+ * is why [missingFields] is now assembled from the per-step lists rather than kept
+ * as a second copy that could drift from them.
+ */
+enum class ObservationStep { VITALS, HEAD, BODY, FINAL }
+
+/**
+ * The step's heading. The last one names the sex whose questions it is showing,
+ * because that is the step where the form stops being the same for every animal.
+ */
+fun ObservationFormState.stepHeading(step: ObservationStep): String = when (step) {
+    ObservationStep.VITALS -> "Vitals"
+    ObservationStep.HEAD -> "Head · eyes · breathing"
+    ObservationStep.BODY -> "Gut · skin · legs"
+    ObservationStep.FINAL -> when {
+        isFemale -> "Female — udder · vulva"
+        isMale -> "Male — urine"
+        else -> "Other checks"
+    }
+}
+
+/**
+ * The fields still unanswered in ONE step, so the screen can hold the operator
+ * there until that part of the animal has actually been checked.
  *
  * Sex-scoped fields are only required for the sex they apply to — that is what
  * "hidden fields record N/A" means in practice. CMT is required only when there
  * is milk, because a CMT on a dry doe is the CMT_WITHOUT_MILK contradiction.
  */
-fun ObservationFormState.missingFields(): List<String> {
+fun ObservationFormState.missingFields(step: ObservationStep): List<String> {
     val missing = mutableListOf<String>()
     fun require(condition: Boolean, name: String) { if (!condition) missing += name }
 
-    require(temp.toDoubleOrNull() != null, "temperature")
-    require(eating.isNotEmpty(), "eating")
-    require(activity.isNotBlank(), "activity")
-    require(breathing.isNotEmpty(), "breathing")
-    require(nasal != null, "nasal discharge")
-    require(leftStomach.isNotEmpty(), "left stomach")
-    require(frothyMouth != null, "frothy mouth")
-    require(rumenMovement.isNotBlank(), "rumen movement")
-    require(diarrhea != null, "diarrhea")
-    require(skinTent.isNotBlank(), "skin tent")
-    require(famacha.isNotBlank(), "FAMACHA")
-    require(yellow != null, "yellow membranes")
-    require(eyes.isNotEmpty(), "eyes")
-    require(mouth.isNotBlank(), "mouth")
-    require(lockedJaw != null, "locked jaw")
-    require(neuro.isNotEmpty(), "nervous signs")
-    require(leg.isNotBlank(), "legs")
-    require(wounds.isNotEmpty(), "wounds")
-    require(lumps.isNotBlank(), "lumps")
-    require(rashCharacter.isNotBlank(), "rashes")
-    require(hairloss != null, "hair loss")
-    require(ticks != null, "ticks")
-    require(flystrike != null, "maggots")
-    require(eartagFlystrike != null, "ear tag maggots")
-    require(eartagWound != null, "ear tag wound")
-    require(redUrine != null, "red urine")
-    require(bodyEdema != null, "swelling under the jaw")
-    require(competition != null, "pushed off feed")
-    require(stomachInside != null, "sunken flank")
-
-    if (isFemale) {
-        require(udder.isNotBlank(), "udder")
-        require(lactation.isNotBlank(), "milk")
-        require(vulva.isNotBlank(), "vulva")
-        if (cmtApplies) require(cmt.isNotBlank(), "CMT")
-    }
-    if (isMale) {
-        require(straining.isNotBlank(), "urine")
+    when (step) {
+        ObservationStep.VITALS -> {
+            require(temp.toDoubleOrNull() != null, "temperature")
+            require(famacha.isNotBlank(), "FAMACHA")
+            require(yellow != null, "yellow membranes")
+            require(skinTent.isNotBlank(), "skin tent")
+            require(stomachInside != null, "sunken flank")
+        }
+        ObservationStep.HEAD -> {
+            require(eyes.isNotEmpty(), "eyes")
+            // The mouth is asked as one question with several answers, so all three
+            // of its facts are required together.
+            require(mouth.isNotBlank(), "mouth")
+            require(frothyMouth != null, "frothy mouth")
+            require(lockedJaw != null, "locked jaw")
+            require(breathing.isNotEmpty(), "breathing")
+            require(nasal != null, "nasal discharge")
+        }
+        ObservationStep.BODY -> {
+            require(leftStomach.isNotEmpty(), "left stomach")
+            require(rumenMovement.isNotBlank(), "rumen movement")
+            require(diarrhea != null, "loose motion")
+            require(eating.isNotEmpty(), "eating")
+            require(ticks != null, "ticks")
+            require(hairloss != null, "hair loss")
+            require(wounds.isNotEmpty(), "wounds")
+            require(lumps.isNotBlank(), "lumps")
+            require(rashCharacter.isNotBlank(), "rashes")
+            require(flystrike != null, "maggots")
+            require(eartagFlystrike != null, "ear tag maggots")
+            require(eartagWound != null, "ear tag wound")
+            require(activity.isNotBlank(), "activity")
+            require(leg.isNotBlank(), "legs")
+            require(neuro.isNotEmpty(), "nervous signs")
+        }
+        ObservationStep.FINAL -> {
+            if (isFemale) {
+                require(udder.isNotBlank(), "udder")
+                require(lactation.isNotBlank(), "milk")
+                require(vulva.isNotBlank(), "vulva")
+                if (cmtApplies) require(cmt.isNotBlank(), "CMT")
+            }
+            if (isMale) {
+                require(straining.isNotBlank(), "urine")
+            }
+            require(redUrine != null, "red urine")
+            require(bodyEdema != null, "swelling under the jaw")
+            require(competition != null, "pushed off feed")
+        }
     }
     return missing
 }
+
+/**
+ * Everything still unanswered across the whole form.
+ *
+ * Assembled from the per-step lists so the two can never disagree: a field added
+ * to a step is required by the form, and a field in no step is required by
+ * neither, which is a visible hole rather than a silent one.
+ */
+fun ObservationFormState.missingFields(): List<String> =
+    ObservationStep.entries.flatMap { missingFields(it) }
+
+/** A step is done when nothing in it is unanswered. */
+fun ObservationFormState.isStepComplete(step: ObservationStep): Boolean =
+    missingFields(step).isEmpty()
 
 /** A form is submittable only when nothing blocks it. */
 fun ObservationFormState.canSubmit(): Boolean = blockers().isEmpty()

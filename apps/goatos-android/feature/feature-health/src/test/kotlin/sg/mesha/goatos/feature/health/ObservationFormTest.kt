@@ -169,6 +169,136 @@ class ObservationFormTest {
         assertEquals("tapping a selected value clears it", setOf("discharge"), deselected)
     }
 
+    // --- Steps.
+    //
+    // Splitting the form into steps must not change WHAT it requires. These pin the
+    // one way that could silently happen: a field that ends up in no step at all is
+    // then required by nothing, and the form would submit without it while every
+    // other test still passed.
+
+    /**
+     * The whole inventory, written out by hand.
+     *
+     * This literal is the point of the test. Asserting that the per-step lists add
+     * up to [missingFields] would prove nothing, because [missingFields] is now
+     * BUILT from those lists — drop a field from its step and both sides lose it
+     * together, and the assertion stays green while the form quietly stops
+     * requiring it. An independent list is the only thing that catches that.
+     *
+     * If a question is deliberately added or removed, this list changes in the same
+     * commit. That is the intended cost.
+     */
+    private val everyFemaleField = setOf(
+        // Vitals
+        "temperature", "FAMACHA", "yellow membranes", "skin tent", "sunken flank",
+        // Head
+        "eyes", "mouth", "frothy mouth", "locked jaw", "breathing", "nasal discharge",
+        // Gut
+        "left stomach", "rumen movement", "loose motion", "eating",
+        // Skin, body, legs
+        "ticks", "hair loss", "wounds", "lumps", "rashes",
+        "maggots", "ear tag maggots", "ear tag wound",
+        "activity", "legs", "nervous signs",
+        // Female + whole-body
+        "udder", "milk", "vulva", "red urine", "swelling under the jaw", "pushed off feed",
+    )
+
+    @Test
+    fun `every question is still required after the split into steps`() {
+        val blankDoe = ObservationFormState(sex = "female")
+        assertEquals(
+            "the form must require exactly the questions it asks",
+            everyFemaleField, blankDoe.missingFields().toSet(),
+        )
+
+        // A buck is asked about urine instead of the three female questions.
+        val blankBuck = ObservationFormState(sex = "male")
+        assertEquals(
+            everyFemaleField - setOf("udder", "milk", "vulva") + "urine",
+            blankBuck.missingFields().toSet(),
+        )
+    }
+
+    @Test
+    fun `every required field belongs to exactly one step`() {
+        val blank = ObservationFormState(sex = "female")
+        val perStep = ObservationStep.entries.map { blank.missingFields(it) }
+        val union = perStep.flatten()
+
+        assertEquals(
+            "a field claimed by two steps would be asked twice: ${union.groupBy { it }.filterValues { it.size > 1 }.keys}",
+            union.size, union.toSet().size,
+        )
+        // A step holding nothing means its heading renders over an empty page.
+        perStep.forEachIndexed { index, fields ->
+            assertTrue("${ObservationStep.entries[index]} requires nothing", fields.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `a form answered in every step is submittable`() {
+        val doe = completeDoe()
+        ObservationStep.entries.forEach { step ->
+            assertTrue("$step: ${doe.missingFields(step)}", doe.isStepComplete(step))
+        }
+        assertTrue(doe.canSubmit())
+    }
+
+    // The step a field lives in is what decides where the operator is held. A blank
+    // udder must stop the FINAL step, not the vitals.
+    @Test
+    fun `an unanswered field blocks only its own step`() {
+        val cases = mapOf(
+            ObservationStep.VITALS to completeDoe().copy(temp = ""),
+            ObservationStep.HEAD to completeDoe().copy(nasal = null),
+            ObservationStep.BODY to completeDoe().copy(leg = ""),
+            ObservationStep.FINAL to completeDoe().copy(udder = ""),
+        )
+        cases.forEach { (owning, form) ->
+            ObservationStep.entries.forEach { step ->
+                if (step == owning) {
+                    assertFalse("$owning must be held open", form.isStepComplete(step))
+                } else {
+                    assertTrue("$step must not be blocked by a gap in $owning", form.isStepComplete(step))
+                }
+            }
+        }
+    }
+
+    // The last step's button submits the WHOLE form, so a contradiction two steps
+    // back must still stop it -- otherwise stepping past it would launder it.
+    @Test
+    fun `a contradiction in an earlier step still blocks submission from the last step`() {
+        val contradictory = completeDoe().copy(eating = setOf("not_eating", "green_feed"))
+
+        assertTrue(
+            "the contradiction is in the body step, which is otherwise answered",
+            contradictory.isStepComplete(ObservationStep.BODY),
+        )
+        assertTrue(contradictory.isStepComplete(ObservationStep.FINAL))
+        assertFalse("a complete but contradictory form must not submit", contradictory.canSubmit())
+    }
+
+    // A milk test recorded and then contradicted must stay REACHABLE. The screen
+    // only shows the CMT card while there is milk, so a form left holding
+    // lactation="no" with a CMT reading is a dead end: the contradiction is named,
+    // and the control that could clear it is no longer on screen. Answering "no
+    // milk" therefore has to drop the reading with it.
+    @Test
+    fun `answering no milk leaves no unreachable milk test behind`() {
+        val milking = completeDoe().copy(lactation = "milk", cmt = "pos")
+        assertTrue(milking.canSubmit())
+
+        // What the screen does when "No milk" is picked.
+        val driedOff = milking.copy(lactation = "no", cmt = "")
+        assertFalse("the milk test card is hidden once there is no milk", driedOff.cmtApplies)
+        assertFalse(
+            "a dried-off doe must not be left in contradiction",
+            ObservationBlocker.CMT_WITHOUT_MILK in driedOff.blockers(),
+        )
+        assertTrue("blockers: ${driedOff.blockers()}", driedOff.canSubmit())
+    }
+
     // The form records what is seen. It must never name a disease -- the engine
     // proposes and the Director confirms.
     @Test
