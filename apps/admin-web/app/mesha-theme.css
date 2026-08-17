@@ -2466,6 +2466,9 @@ select:disabled { opacity: .45; }
    separators must still reach the frame. */
 .wtable table.tbl th:first-child,
 .wtable table.tbl td:first-child{padding-left:16px}
+.wcomp-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;max-width:340px}
+.wcomp-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 76%,var(--bg));color:var(--muted);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:750;line-height:1.25;white-space:nowrap}
+.wcomp-chip span{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:var(--brand-soft);color:var(--brand-d);font-size:10px;font-weight:850}
 .wtable table.tbl th:last-child,
 .wtable table.tbl td:last-child{padding-right:16px}
 /* THE TABLE OWNS ITS HORIZONTAL SCROLL. `.tablewrap` had no rule at all on this page — it was a

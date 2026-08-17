@@ -71,10 +71,9 @@ type ShedWeightsRow struct {
 	// lightest animals leave, the average rises while no animal gained a gram. It
 	// answers "is this shed getting heavier", which is a real and different question.
 	//
-	// Measured against the weigh closest to four weeks before the latest weigh, with
-	// a weekly tolerance for slipped capture dates. If there is no older row near
-	// that four-week baseline, the value stays nil instead of falling back to the
-	// immediately previous entry and manufacturing a noisy short-span rate.
+	// Measured from the first accepted weigh date inside the selected window to the
+	// latest accepted weigh date in that same window. If the shed has only one
+	// weighed date in the selected window, the value stays nil.
 	ShedAverageGainGPerDay *float64 `json:"shed_average_gain_g_per_day,omitempty"`
 	// GainSpanDays is the span that gain was measured over, so a reader can discount a
 	// figure drawn from two days against one drawn from a month. A short span is not
@@ -144,10 +143,10 @@ type LoadGainBucket struct {
 	// a mean of per-shed averages, which would let a 10-head shed pull as hard as a
 	// 73-head one.
 	AverageWeightKg float64 `json:"average_weight_kg"`
-	// GainGPerDay blends each shed's own four-week-baseline movement, weighted by
-	// head count. Nil when no shed in the load has a usable baseline near four weeks
-	// before its latest weigh — a load with only recent repeats has a weight but no
-	// defensible four-week growth, and reporting 0 would read as "flat".
+	// GainGPerDay blends each shed's own selected-window movement, weighted by head
+	// count. Nil when no shed in the load was weighed twice inside the selected
+	// window — a load with only one weigh has a weight but no growth, and reporting
+	// 0 would read as "flat".
 	//
 	// IT IS SHED-AVERAGE MOVEMENT, NOT PER-ANIMAL GROWTH, and carries every caveat
 	// ShedWeightsRow.ShedAverageGainGPerDay does: a shed's population changes between

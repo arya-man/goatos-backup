@@ -14,12 +14,10 @@ package domain
 // other weighing file remain locked.
 //
 // WHAT A WHOLE-SHED WEIGH CONTRIBUTES. A lump-sum weigh has no tags — it is one
-// total for a shed — so it is attributed by the shed's own cohort: the single
-// management stage its live residents share. That yields a stage figure but never
-// a breed or sex one, because a shed holds a mix and splitting one average across
-// them would invent a distribution nobody measured. A shed whose residents do not
-// share one stage is attributed nowhere, the same "cannot be guessed, so do not
-// guess" rule the shifting destination-stage resolution already uses.
+// total for a shed — so it is attributed by the shed's own live cohort only when
+// that cohort is homogeneous for the dimension being reported. A mixed shed is
+// still labelled through ShedComposition, but its one average is never split
+// across multiple breed/sex/stage buckets.
 type WeightDemographicBucket struct {
 	// Label is the value as stored ("Anantapur Sheep", "female", "F2-Male").
 	// Clients render it; they do not re-map it.
@@ -45,6 +43,25 @@ type WeightGainBucket struct {
 	MedianGainGPerDay float64 `json:"median_gain_g_per_day"`
 }
 
+// ShedCompositionChip is one real breed+sex cohort visible in a shed row. It is
+// context, not weight attribution: mixed whole-shed averages are not split across
+// these chips.
+type ShedCompositionChip struct {
+	Breed   string `json:"breed,omitempty"`
+	Sex     string `json:"sex,omitempty"`
+	Animals int    `json:"animals"`
+}
+
+// ShedComposition describes the breed+sex mix for one operational shed row.
+// Grain matches ShedWeightsRow: (location_id, partition_label).
+type ShedComposition struct {
+	LocationID     string                `json:"location_id"`
+	PartitionLabel string                `json:"partition_label,omitempty"`
+	Source         string                `json:"source"`
+	TotalAnimals   int                   `json:"total_animals"`
+	Chips          []ShedCompositionChip `json:"chips"`
+}
+
 type WeightDemographics struct {
 	// ByBreed and BySex cover per-animal weighs only.
 	ByBreed []WeightDemographicBucket `json:"by_breed"`
@@ -64,4 +81,7 @@ type WeightDemographics struct {
 	UnresolvedAnimals          int `json:"unresolved_animals"`
 	LumpSumAnimals             int `json:"lump_sum_animals"`
 	LumpSumUnattributedAnimals int `json:"lump_sum_unattributed_animals"`
+	// ShedComposition is keyed by location_id + partition_label so the admin-web
+	// weights table can add useful breed+sex chips without doing its own herd lookup.
+	ShedComposition []ShedComposition `json:"shed_composition"`
 }
