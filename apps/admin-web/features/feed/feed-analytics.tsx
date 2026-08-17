@@ -348,7 +348,13 @@ function DirectedTabs({
         // The artifact's Feed Items tab: one small chart per feed item, each in
         // its ranked colour, over the same window. Stock & Cost joins this tab
         // once the purchase ledger lands (Phase 3).
-        <div className="charts">
+        // Two charts per row (single column on narrow), sized up from the
+        // .charts 3-up column flow so each item's day-to-day movement is
+        // readable, with breathing room under the tab bar.
+        <div
+          className="grid"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginTop: 14 }}
+        >
           {view.itemSeries.map((series) => (
             <div className="chartcard" key={series.label}>
               <h4>{series.label}</h4>
