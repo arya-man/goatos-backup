@@ -26,7 +26,10 @@ import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -154,7 +157,7 @@ class ShiftingExecuteViewModel @Inject constructor(
      * outbox item id is retained so the completion can resolve the uploaded proof_id and send it as
      * proof_ref. Until a video is captured, "Mark done" stays disabled.
      */
-    private fun captureVideo(step: String, prompt: ProofCapturePrompt) {
+    private fun captureVideo(step: String, prompt: ProofCapturePrompt, replacing: Boolean = false) {
         if (_state.value.isCapturingVideo || destinationShedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, capturingStep = step, videoMessage = null) }
         viewModelScope.launch {
@@ -175,9 +178,19 @@ class ShiftingExecuteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false, capturingStep = null) }
                 return@launch
             }
-            val result = proofCaptureRepository.capture(
-                taskId = shiftingEventId,
+            // Manohar ordering: capture the new proof durably, and only THEN let the repository
+            // discard the previous step's row/outbox item. captureReplacingLatest only removes the
+            // old occupant(s) of this slot AFTER the new capture returns AppResult.Ok, so a camera
+            // cancel, a repository failure, or process death mid-flow all leave the old clip's
+            // outbox item and draft entry exactly where they were (see [ProofCaptureRepository]'s
+            // captureReplacingLatest kdoc). Previously this deleted the old outbox item and cleared
+            // the draft BEFORE opening the camera, so a failed re-record lost the old proof.
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(flow = ProofFlow.SHIFTING, taskId = shiftingEventId, subjectKey = destinationShedId),
                 fieldKey = shiftingProofFieldKey(step),
+            )
+            val result = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
                 subject = ProofSubject.SHED,
                 subjectId = destinationShedId,
                 localUri = captured.localUri,
@@ -200,7 +213,12 @@ class ShiftingExecuteViewModel @Inject constructor(
                         return@launch
                     }
                     // Durable BEFORE the UI flips: if the process dies here, re-entry still finds
-                    // the recorded clip instead of asking for it again.
+                    // the recorded clip instead of asking for it again. On a replace, the OLD
+                    // outbox item was already durably superseded by captureReplacingLatest above,
+                    // so re-pointing the draft at the new one here is safe.
+                    if (replacing) {
+                        drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, step)
+                    }
                     drafts.putProof(
                         flowKey = CaptureFlow.SHIFTING,
                         entityId = shiftingEventId,
@@ -245,27 +263,14 @@ class ShiftingExecuteViewModel @Inject constructor(
         )
 
     /**
-     * Replaces one step's clip. The previously queued PROOF_UPLOAD is deleted first (it has not been
-     * reviewed and must not upload as a second piece of evidence), then the flow re-enters the normal
-     * capture path so the new take is stored durably like any other.
+     * Replaces one step's clip. The new take is captured and durably persisted FIRST via
+     * [ProofCaptureRepository.captureReplacingLatest]; only once that succeeds does the repository
+     * discard the previous take's row and outbox item (Manohar ordering). A camera cancel or a
+     * capture-repo failure now leaves the previously recorded clip untouched and still submittable.
      */
     private fun reRecord(step: String, prompt: ProofCapturePrompt) {
         if (_state.value.isCapturingVideo) return
-        viewModelScope.launch {
-            draft.proofs[step]?.let { syncRepository.deleteOutboxItem(it) }
-            drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, step)
-            draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
-            _state.update {
-                it.copy(
-                    videoCaptured = if (step == STEP_SHIFTING) false else it.videoCaptured,
-                    feedPackingVideoCaptured = if (step == STEP_PACKING) false else it.feedPackingVideoCaptured,
-                    feedGivenVideoCaptured = if (step == STEP_FEEDING) false else it.feedGivenVideoCaptured,
-                    canComplete = false,
-                    videoMessage = null,
-                )
-            }
-            captureVideo(step, prompt)
-        }
+        captureVideo(step, prompt, replacing = true)
     }
 
     private fun markDone() {

@@ -11,6 +11,7 @@ import {
   resolveSelectedDrive,
   scheduledDriveCampaigns,
   scheduledDriveRows,
+  sortDriveCampaignsNewestFirst,
 } from "./command-board-future-drives.ts";
 
 function option(overrides) {
@@ -143,6 +144,51 @@ test("executed drives render as grouped selector campaigns with operator-day com
   assert.deepEqual(campaigns.map((campaign) => campaign.name), ["CBE Adult FMD", "CPT Adult FMD"]);
   assert.deepEqual(campaigns[1].dateKeys, ["2026-07-24", "2026-07-25", "2026-07-26"]);
   assert.deepEqual(campaigns[1].treatments.map((row) => row.targetCount), [114, 163, 47]);
+});
+
+test("visible drive selector campaigns are sorted by first date newest first after merging statuses", () => {
+  const futureCampaigns = scheduledDriveCampaigns(scheduledDriveRows([
+    option({
+      driveBatchId: "future-jan",
+      plannedDate: "2027-01-09T00:00:00+05:30",
+      windowStart: "2027-01-09T00:00:00+05:30",
+      windowEnd: "2027-01-09T00:00:00+05:30",
+    }),
+  ]));
+  const executedCampaigns = executedDriveCampaigns([
+    option({
+      driveBatchId: "aug-5",
+      status: "completed",
+      plannedDate: "2026-08-05T00:00:00+05:30",
+      operatorDays: [{ date: "2026-08-05", targetCount: 137, doseCount: 137 }],
+    }),
+    option({
+      driveBatchId: "jul-24-26",
+      status: "in_progress",
+      plannedDate: "2026-07-24T00:00:00+05:30",
+      targetCount: 324,
+      operatorDays: [
+        { date: "2026-07-24", targetCount: 114, doseCount: 114 },
+        { date: "2026-07-25", targetCount: 163, doseCount: 163 },
+        { date: "2026-07-26", targetCount: 47, doseCount: 47 },
+      ],
+    }),
+    option({
+      driveBatchId: "aug-12",
+      status: "completed",
+      plannedDate: "2026-08-12T00:00:00+05:30",
+      operatorDays: [{ date: "2026-08-12", targetCount: 145, doseCount: 145 }],
+    }),
+  ]);
+
+  const campaigns = sortDriveCampaignsNewestFirst([...executedCampaigns, ...futureCampaigns]);
+
+  assert.deepEqual(campaigns.map((campaign) => campaign.dateKeys[0]), [
+    "2027-01-09",
+    "2026-08-12",
+    "2026-08-05",
+    "2026-07-24",
+  ]);
 });
 
 test("actual vaccination date spans use leadership-readable dates", () => {

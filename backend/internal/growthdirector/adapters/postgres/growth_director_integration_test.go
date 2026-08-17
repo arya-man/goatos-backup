@@ -417,6 +417,35 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 	}
 }
 
+func TestBuildFeedVsGrowthShedDerivesTrialRatioFromTotalFeedAndGain(t *testing.T) {
+	trialFedKg := 50.0
+	pairIdentities := int64(4)
+	wholeShedDeltaKg := 2.5
+	row := buildFeedVsGrowthShed(
+		gdShedG,
+		"Part 2",
+		"Coimbatore · Gandhi - Part 2",
+		nil,
+		&trialFedKg,
+		1,
+		nil,
+		&pairIdentities,
+		nil,
+		&wholeShedDeltaKg,
+		nil,
+	)
+
+	if !row.IsExperiment {
+		t.Fatal("trial rows must remain flagged as experiment/trial")
+	}
+	if row.FeedGPerHeadPerDay != nil {
+		t.Fatalf("trial total kg must not enter normal per-head feed math, got %+v", row.FeedGPerHeadPerDay)
+	}
+	if row.KgFeedPerKgGain == nil || math.Abs(*row.KgFeedPerKgGain-5) > 0.001 {
+		t.Fatalf("trial ratio: want 50 kg / (4 pairs * 2.5 kg gain) = 5, got %+v", row.KgFeedPerKgGain)
+	}
+}
+
 // OPERATIONAL LOCATION GRAIN. Two partitions of the SAME physical shed must
 // stay as two distinct fair-fight/slow-growth rows with distinct
 // operational_keys, never merged by location_id alone. And two parks fielding
@@ -593,5 +622,90 @@ VALUES
 	}
 	if godelGroups[0].OperationalKey == godelGroups[1].OperationalKey {
 		t.Fatalf("slow-growth groups for two partitions must carry distinct operational_key, got %+v / %+v", godelGroups[0], godelGroups[1])
+	}
+}
+
+// TestFeedVsGrowthIsPerPenNotPerShed pins the grain a farm actually feeds at.
+//
+// Feed is directed, packed and served ONE BAG PER PEN, so a shed-grain row adds up
+// every pen of a shed and labels the total with a name nobody uses: there is no bare
+// "Castro" to walk to, only Castro - 1, Castro - 2, Castro - 3. This shipped that way
+// and the maintainer caught it on screen (2026-08-15).
+//
+// Two pens of ONE shed, deliberately unequal: different feed, different kids, different
+// gain. A collapse back to shed grain produces one row instead of two and one median
+// instead of each pen's own — both asserted, because the label alone can look right
+// while the arithmetic has already merged.
+func TestFeedVsGrowthIsPerPenNotPerShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedGrowthDirectorFixture(t, ctx, pool)
+
+	issueID := "44444444-4444-4444-4444-444444440001"
+	execGD(t, ctx, pool, `
+INSERT INTO feed_direction_issues (feed_direction_issue_id, tenant_id, park_id, feed_day, workflow, state, issued_at, generation_input_fingerprint, idempotency_key, request_fingerprint, source_contract, source_contract_version, generated_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-15', 'normal', 'issued', now(), 'fp:pen', 'idem:pen', 'fp:pen', 'growthdirector-test', '1', 'test')`,
+		issueID, gdTenant, gdPark)
+
+	// Same shed, two pens. Part 1 is fed twice what Part 2 is.
+	penRow := func(partition string, kg float64, heads int) {
+		execGD(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, partition_label, shed_tag, breed, session_no, head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg, overdue_pending, row_seq, item_seq)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1', $5, '', '', 1, $6, false, 'normal', 'Maize Crush', $7, $7, false, 0, 1)`,
+			gdTenant, issueID, gdPark, gdShedG, partition, heads, kg)
+	}
+	penRow("Part 1", 8.0, 4)
+	penRow("Part 2", 4.0, 4)
+
+	// One paired kid per pen, with clearly different gain. seedGoatWithTag places every
+	// goat in gdShedG; the PEN comes from goat_shed_partitions, which is the placement
+	// the feed sheet is projected from.
+	type kid struct {
+		goatID, seq, tag, partition string
+		first, last                 float64
+	}
+	for _, k := range []kid{
+		{"55555555-5555-5555-5555-555555550001", "0001", "PEN-A", "Part 1", 10.0, 14.0},
+		{"55555555-5555-5555-5555-555555550002", "0002", "PEN-B", "Part 2", 10.0, 11.0},
+	} {
+		seedGoatWithTag(t, ctx, pool, k.goatID, k.seq, k.tag, "Beetal", "female")
+		execGD(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'Gandhi 1')`, gdTenant, k.goatID, gdShedG, k.partition)
+		seedScan(t, ctx, pool, gdBucketW1G, k.tag, k.first, day(8, 9), "verified")
+		seedScan(t, ctx, pool, gdBucketW2G, k.tag, k.last, day(15, 9), "verified")
+	}
+
+	repo := NewRepository(pool, 30*time.Second)
+	got, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark},
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetGrowthDirectorWeights: %v", err)
+	}
+
+	byName := map[string]*float64{}
+	for _, shed := range got.FeedVsGrowth.Sheds {
+		byName[shed.ShedDisplayName] = shed.ADGGPerDay
+	}
+	// The pen is IN the name. A bare "Gandhi 1" row means the two pens were merged.
+	for _, want := range []string{"Coimbatore · Gandhi 1 - Part 1", "Coimbatore · Gandhi 1 - Part 2"} {
+		if _, ok := byName[want]; !ok {
+			t.Fatalf("no row named %q; got %v — feed rows must be one per PEN, not one per shed", want, byName)
+		}
+	}
+	if _, merged := byName["Coimbatore · Gandhi 1"]; merged {
+		t.Fatalf("a bare shed row survived: %v", byName)
+	}
+	// And each pen carries its OWN median: Part 1's kid gained 4kg over 7 days
+	// (~571 g/day), Part 2's gained 1kg (~143 g/day). One shared median means the
+	// growth side collapsed even though the labels look right.
+	p1, p2 := byName["Coimbatore · Gandhi 1 - Part 1"], byName["Coimbatore · Gandhi 1 - Part 2"]
+	if p1 == nil || p2 == nil {
+		t.Fatalf("a pen has no measured gain: part1=%v part2=%v", p1, p2)
+	}
+	if *p1 <= *p2 {
+		t.Fatalf("pen medians did not separate: part1=%.1f part2=%.1f", *p1, *p2)
 	}
 }

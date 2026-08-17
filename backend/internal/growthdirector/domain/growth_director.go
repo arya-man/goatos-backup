@@ -189,7 +189,13 @@ type FeedVsGrowth struct {
 // data). IsExperiment marks sheds carrying experiment / informational-headcount
 // rows, whose authored kg is a shed total and is never divided by heads.
 type FeedVsGrowthShed struct {
-	LocationID         string   `json:"location_id"`
+	LocationID string `json:"location_id"`
+	// PartitionLabel is the PEN within LocationID, blank for an undivided shed. It is half of
+	// this row's identity, not decoration: the row grain is one pen, so a partitioned shed
+	// returns up to ten rows under ONE location_id and location_id alone identifies none of
+	// them. Required by the operational-location convention on every location-bearing response,
+	// and required in practice by any client that keys a list on this row.
+	PartitionLabel     string   `json:"partition_label"`
 	ShedDisplayName    string   `json:"shed_display_name"`
 	FeedGPerHeadPerDay *float64 `json:"feed_g_per_head_per_day"`
 	ADGGPerDay         *float64 `json:"adg_g_per_day"`

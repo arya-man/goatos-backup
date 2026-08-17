@@ -75,19 +75,30 @@ data class FeedDistributionUiState(
     val feedWeightPhotoMessage: String? = null,
     val feedWeightPhotoPreviewPath: String? = null,
     val feedWeightPhotoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val feedWeightPhotoRemoteUrl: String? = null,
     val isCapturingVideo: Boolean = false,
     val videoCaptured: Boolean = false,
     val videoMessage: String? = null,
     val videoPreviewPath: String? = null,
     val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val videoRemoteUrl: String? = null,
     val isCapturingWaterVideo: Boolean = false,
     val waterVideoCaptured: Boolean = false,
     val waterVideoMessage: String? = null,
     val waterVideoPreviewPath: String? = null,
     val waterVideoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val waterVideoRemoteUrl: String? = null,
     val canComplete: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedDistributionResultUi? = null,
+    /**
+     * The shed-session already went to the verifier (or was approved/rejected) somewhere else, so
+     * there is nothing to record here. Backend-owned: derived from the row's lifecycle bucket, NOT
+     * from local capture-draft presence — a reinstall wipes the draft, which previously left an
+     * empty, fully-editable form for work already submitted (STG 2026-08-09; mirrors
+     * [FeedPackingCompleteUiState.alreadySubmitted]).
+     */
+    val alreadySubmitted: Boolean = false,
 ) {
     val feedWeightPhotoCaptureEnabled: Boolean
         get() = !isCapturingFeedWeightPhoto && !isFinalSubmitted
@@ -95,8 +106,12 @@ data class FeedDistributionUiState(
     val waterVideoCaptureEnabled: Boolean
         get() = !isCapturingWaterVideo && !isFinalSubmitted
 
+    val videoCaptureEnabled: Boolean
+        get() = !isCapturingVideo && !isFinalSubmitted
+
     val isFinalSubmitted: Boolean
-        get() = result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
+        get() = alreadySubmitted ||
+            result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
 
     /** Proof uploads may still be queued; the completion outbox resolves them before syncing. */
     val submitEnabled: Boolean
@@ -152,12 +167,25 @@ fun FeedDistributionCompleteScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                FeedDistStatusCard(
-                    state = state,
-                    committed = committed,
-                    onRetrySubmit = { onEvent(FeedDistributionEvent.MarkDone) },
-                )
+            // ALREADY SUBMITTED: the session went to the verifier (or was decided) elsewhere, so
+            // there is nothing to record. The captured proofs stay VISIBLE below (read-only —
+            // every capture path is gated on isFinalSubmitted): operators still need to see WHAT
+            // was submitted and by whom; only the actions disappear.
+            if (state.alreadySubmitted) {
+                item {
+                    FeedDistStatusCardBody(
+                        text = stringResource(R.string.feed_dist_session_submitted_body),
+                        tone = MeshaColors.Muted,
+                    )
+                }
+            } else {
+                item {
+                    FeedDistStatusCard(
+                        state = state,
+                        committed = committed,
+                        onRetrySubmit = { onEvent(FeedDistributionEvent.MarkDone) },
+                    )
+                }
             }
             item {
                 FeedDistProofAction(
@@ -176,6 +204,7 @@ fun FeedDistributionCompleteScreen(
                     enabled = state.feedWeightPhotoCaptureEnabled,
                     message = state.feedWeightPhotoMessage,
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
+                    remotePreviewUrl = state.feedWeightPhotoRemoteUrl,
                 )
             }
             item {
@@ -192,9 +221,10 @@ fun FeedDistributionCompleteScreen(
                     loadingLabel = stringResource(R.string.feed_dist_video_uploading),
                     retryLabel = stringResource(R.string.feed_dist_retry_feed_video),
                     replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = !state.isCapturingVideo && !committed,
+                    enabled = !state.isCapturingVideo && !committed && !state.isFinalSubmitted,
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
+                    remotePreviewUrl = state.videoRemoteUrl,
                 )
             }
             item {
@@ -214,6 +244,7 @@ fun FeedDistributionCompleteScreen(
                     enabled = state.waterVideoCaptureEnabled,
                     message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
+                    remotePreviewUrl = state.waterVideoRemoteUrl,
                 )
             }
         }
@@ -287,6 +318,7 @@ internal fun FeedDistProofAction(
     enabled: Boolean,
     message: String?,
     onClick: () -> Unit,
+    remotePreviewUrl: String? = null,
 ) {
     val failed = status == FeedDistributionProofStatus.FAILED
     val synced = status == FeedDistributionProofStatus.SYNCED
@@ -339,8 +371,9 @@ internal fun FeedDistProofAction(
                 style = MeshaType.cardTitle,
             )
             Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
-            if (!previewPath.isNullOrBlank()) {
-                FeedDistPreview(path = previewPath, kind = previewKind)
+            val previewToShow = previewPath ?: remotePreviewUrl
+            if (!previewToShow.isNullOrBlank()) {
+                FeedDistPreview(path = previewToShow, kind = previewKind)
                 FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
             } else if (!uploading) {
                 FeedDistRetryButton(label = if (captured || failed) replaceLabel else title, enabled = enabled, onClick = onClick)

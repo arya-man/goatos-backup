@@ -648,24 +648,74 @@ surfaces disagree about what a count means, stop and surface the conflict per th
 maintainer-lock rule above; fix parity by making the backend own one number, not
 by choosing a client's semantics.
 
-Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
-2026-08-03, SUPERSEDING the 2026-07-29 three-mode operator chooser, which in turn
-superseded the 2026-07-20 destination `shed_profiles` authority rule): the raiser no
-longer chooses a management stage. A movement ADOPTS THE DESTINATION SHED's cohort,
-resolved by the BACKEND at raise time and snapshotted onto the request. The mobile form
-must not ask; `management_stage_mode` and `target_management_stage` are no longer accepted
-from clients and are rejected as unknown fields. The single exception is a FLUSHING
-destination: flushing is a nutrition cohort owned by its own workflow, so moving an animal
-into a flushing shed keeps that animal's current stage. Because the resolution cannot be
-guessed when the destination is ambiguous, three cases also keep the current stage — a shed
-holding more than one cohort, an empty shed, and a cohort absent from active
-`animal_stage_lookup` (real sheds carry `ICU-Kid`, `ICU-Non-Pregnant`, `Quarantine kids`,
-which the relocation cannot write and which would otherwise fail at the SECOND GATE, after
-the operator's video and the park head's approval). Keeping the current stage is the
-already-shipped empty-target behaviour, never a fabricated cohort; do not "improve" it into
-a majority-resident pick, which stamps a stage on thin evidence and flips as animals move.
-Canonical rule: `backend/internal/counts/domain.ResolveShiftingDestinationStage`; resolution
-happens at RAISE time so the park head approves the same stage the completion applies.
+Confirmed shifting TAG TOGGLE rule (maintainer decision 2026-08-15, SUPERSEDING the
+2026-08-03 no-chooser rule below on WHO decides, and its FLUSHING carve-out outright;
+the 2026-08-03 rule had itself superseded the 2026-07-29 three-mode operator chooser and
+the 2026-07-20 destination `shed_profiles` authority rule): **the raiser chooses again —
+but between two BACKEND-OWNED answers, never a stage of their own.**
+
+The raise form shows a two-position toggle:
+
+```text
+keep_current      the animals keep the tag they already carry
+destination_stage the animals adopt the destination PEN's tag   (DEFAULT)
+```
+
+`stage_mode` on `POST /app/counts/shifting-events` carries the choice. ABSENT means
+`destination_stage`, so an APK predating the toggle keeps behaving exactly as it does
+today; a present-but-invalid value is REJECTED (`invalid_stage_mode`), never rewritten to
+the default — silently defaulting would stamp the pen's tag on a movement whose raiser
+asked for the opposite.
+
+**What did NOT change, and is the real content of the 2026-08-03 lock:
+`target_management_stage` is still rejected as an unknown field.** The client sends a
+MODE; the BACKEND still resolves which tag that means, from the same catalog the form
+renders. A phone therefore still cannot invent a cohort, cannot name one the relocation
+would refuse at the second gate, and cannot disagree with what the park head approved. Do
+not "simplify" the toggle into a stage picker — that is the 2026-07-29 chooser, and it was
+retired for these reasons.
+
+**FLUSHING IS NOW ADOPTED.** The carve-out (flushing is a nutrition cohort owned by its own
+workflow) is retired. The maintainer was shown the consequence — a move into a flushing pen
+puts that animal on flushing ration and re-keys her vaccination schedule — and accepted it.
+Migration `000171_flushing_stage_is_writable.sql` lists it as writable, which is the other
+half: nothing special-cases the string any more, so the WRITABLE VOCABULARY governs it.
+
+**A CLINICAL STATE IS STILL REFUSED, and is now refused EARLIER.** Bare `ICU`,
+`Quarantine`, `sick`, `under_treatment`, `recovering` may never be stamped by a movement:
+an animal in one of them has her vaccinations POSTPONED, so a placement action must not
+make that medical call. This is now enforced at RAISE time in
+`counts/domain.resolveConfiguredStage` (via `protocol/domain.IsClinicalManagementStage`,
+the ONE implementation, shared with identity's second-gate guard) rather than only at the
+second gate. It matters because a tenant really can list `ICU`/`Quarantine` in
+`animal_stage_lookup` — `migrations/postgres/stage_age_band_test.go` seeds exactly those —
+so the vocabulary check alone would resolve one at raise and then fail in
+`identity/adapters/postgres.resolveDestinationTag` AFTER the operator shot the completion
+video and the park head approved. The clinical PEN names `ICU-Kid` / `Quarantine kids` are
+NOT states and stay writable (migration 000167): a movement may say which pen an animal is
+in, never what condition she is in.
+
+Three cases still keep the current stage because the destination cannot be resolved: a pen
+holding more than one cohort, an empty pen, and a tag absent from active
+`animal_stage_lookup`. Keeping the current stage is the already-shipped empty-target
+behaviour, never a fabricated cohort; do not "improve" it into a majority-resident pick,
+which stamps a stage on thin evidence and flips as animals move.
+
+**The unavailable option is GREYED OUT WITH A REASON, never silently inert.**
+`GET /app/counts/shifting/destinations` carries `destination_stage` and
+`destination_stage_reason` per pen, exactly one of which is non-empty. The reasons are
+BACKEND-OWNED farm copy rendered verbatim (`counts/domain.StageReason*`): "This destination
+has no tag set", "This destination holds a mix of tags", "This destination's tag can only be
+set by the health team". The phone must not compose its own reason from a blank tag — a blank tag does not
+say WHY it is blank, and the operator is owed that. The catalog and the raise resolve
+through the SAME function, so the tag the toggle advertises is the tag the raise stamps.
+
+Canonical rule: `backend/internal/counts/domain.ResolveShiftingDestinationPenStageDetailed`;
+resolution happens at RAISE time so the park head approves the same stage the completion
+applies. Pinned by `TestPenStageAdoptsFlushingAndRefusesClinicalStates`,
+`TestPenStageReasonsAreFarmWordedAndExclusive`,
+`TestRecordShiftingEventHonoursTheRaisersTagToggle` and
+`TestRecordShiftingEventRejectsAnUnknownTagToggle` (each mutation-tested when written).
 Once Park Head approval and operator completion both exist, the
 second-gate transaction must atomically update the goat's `shed_id` and, when selected,
 `management_stage`, write identity audit, and publish
@@ -775,7 +825,7 @@ guessing.
 EFFECTIVE STAGE (maintainer decision 2026-08-12): the ration is priced against the snapshotted
 target stage, or -- when that is BLANK -- against each ANIMAL's own current stage. Blank is the
 normal outcome whenever `ResolveShiftingDestinationStage` declines to adopt a destination cohort
-(empty pen, mixed pen, Flushing, or a cohort the relocation cannot write); it means "keep each
+(empty pen, mixed pen, clinical state, or a cohort the relocation cannot write); it means "keep each
 animal's current stage", NOT a missing input, and the raiser is never asked for a stage. Keying the
 ration off the blank target hard-blocked EVERY high-priority movement into an EMPTY PEN with
 "selected destination management stage is missing" -- naming a choice the phone does not offer. Do
@@ -1742,7 +1792,7 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
-## Operational Location and Partition Convention (maintainer lock, 2026-08-06)
+## Operational Location and Partition Convention (maintainer lock, 2026-08-06; clarified 2026-08-16)
 
 Every goat's ground location is defined as: `park + physical_shed + optional partition_label`.
 
@@ -1758,21 +1808,22 @@ Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh
 
 **NEVER seed raw partition strings as separate physical shed buildings.** The `locations` table is the single source of truth for which partitions exist.
 
-### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05)
+### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05, clarified 2026-08-16)
 
 Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
-- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided
-  sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` +
-  partition `1` and therefore has a partitioned display, `Castro - 1` shown WITH
-  its partition, not an unpartitioned example)
-- Has partition → `Castro - 2` (numeric) or `Godel 1 - Part 3` (prefixed)
+- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` + partition `1` and therefore has a partitioned display shown WITH its partition)
+- Bare numeric partition → `Castro 1`, `Gandhi 2`, `Gandhi 3` (space separator; the farm's actual physical shed names as painted on buildings)
+- Worded/prefixed partition → `Godel 1 - Part 3`, `Mandela 1 - Part 1` (dash separator; visual boundary since 75% of live shed names end in digits)
+
+**Separator rule (2026-08-16 clarification):** Numeric partitions use SPACE because the farm's sheds ARE NAMED `Castro 1`, `Gandhi 2`, etc. — that is the real name painted on the building, not a display formatting choice. Worded labels use " - " (dash) for visual boundary: `Godel 1 - Part 3` is unambiguous from the shed name.
 
 **NEVER render:**
 - `Yashoda whole` — `'whole'` is a matching key, never user copy
+- `Castro - 1` — dash form for numeric partitions (contradicts farm's physical naming)
 - `Godel 1 1` — the worked wrong-example (naive space-numeric join, truncated)
 - Shed name alone when a partition exists (`Godel 1` without the partition) — both halves must always render together
 
-**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule.
+**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule (and the separator reflects the farm's real-world naming).
 
 ### Rule 3: Carry Partition in All Location-Bearing Responses
 

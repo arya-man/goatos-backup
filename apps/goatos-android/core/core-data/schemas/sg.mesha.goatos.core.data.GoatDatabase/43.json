@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 43,
-    "identityHash": "1b5be52918f7636f9e6f1330806e2d4a",
+    "identityHash": "ca2934f85aa967baa4f2aa5ad24c18cc",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -1524,6 +1524,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_direction_items_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          },
+          {
+            "name": "index_feed_direction_items_grainKey",
+            "unique": false,
+            "columnNames": [
+              "grainKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_direction_items_grainKey` ON `${TABLE_NAME}` (`grainKey`)"
           }
         ]
       },
@@ -1645,6 +1654,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_packing_items_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          },
+          {
+            "name": "index_feed_packing_items_grainKey",
+            "unique": false,
+            "columnNames": [
+              "grainKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_packing_items_grainKey` ON `${TABLE_NAME}` (`grainKey`)"
           }
         ]
       },
@@ -2159,6 +2177,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_scopeKey_sortIndex` ON `${TABLE_NAME}` (`scopeKey`, `sortIndex`)"
+          },
+          {
+            "name": "index_feed_transport_scoped_items_taskId",
+            "unique": false,
+            "columnNames": [
+              "taskId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_taskId` ON `${TABLE_NAME}` (`taskId`)"
           }
         ]
       },
@@ -2827,168 +2854,6 @@
           "autoGenerate": false,
           "columnNames": [
             "healthSessionId"
-          ]
-        }
-      },
-      {
-        "tableName": "health_diagnosis_runs",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`diagnosisRunId` TEXT NOT NULL, `goatId` TEXT NOT NULL, `goatDisplayId` TEXT NOT NULL, `status` TEXT NOT NULL, `observedAtMs` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`diagnosisRunId`))",
-        "fields": [
-          {
-            "fieldPath": "diagnosisRunId",
-            "columnName": "diagnosisRunId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "goatId",
-            "columnName": "goatId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "goatDisplayId",
-            "columnName": "goatDisplayId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "status",
-            "columnName": "status",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "observedAtMs",
-            "columnName": "observedAtMs",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "dtoJson",
-            "columnName": "dtoJson",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "diagnosisRunId"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_health_diagnosis_runs_goatId_observedAtMs",
-            "unique": false,
-            "columnNames": [
-              "goatId",
-              "observedAtMs"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_health_diagnosis_runs_goatId_observedAtMs` ON `${TABLE_NAME}` (`goatId`, `observedAtMs`)"
-          }
-        ]
-      },
-      {
-        "tableName": "health_diagnosis_queue_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `diagnosisRunId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `diagnosisRunId`))",
-        "fields": [
-          {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "diagnosisRunId",
-            "columnName": "diagnosisRunId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "sortIndex",
-            "columnName": "sortIndex",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "dtoJson",
-            "columnName": "dtoJson",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "scopeKey",
-            "diagnosisRunId"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_health_diagnosis_queue_items_scopeKey_sortIndex",
-            "unique": false,
-            "columnNames": [
-              "scopeKey",
-              "sortIndex"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_health_diagnosis_queue_items_scopeKey_sortIndex` ON `${TABLE_NAME}` (`scopeKey`, `sortIndex`)"
-          }
-        ]
-      },
-      {
-        "tableName": "health_diagnosis_queue_keys",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `mayConfirm` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
-        "fields": [
-          {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "nextCursor",
-            "columnName": "nextCursor",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "endReached",
-            "columnName": "endReached",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "mayConfirm",
-            "columnName": "mayConfirm",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "scopeKey"
           ]
         }
       },
@@ -3970,7 +3835,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1b5be52918f7636f9e6f1330806e2d4a')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ca2934f85aa967baa4f2aa5ad24c18cc')"
     ]
   }
 }

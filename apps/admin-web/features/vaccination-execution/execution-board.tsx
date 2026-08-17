@@ -224,7 +224,7 @@ function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: Vaccinat
         <div className="pexc-h">{labels[5]}</div>
         {/* Backend-suggested next step — a HINT, not a wired button. The row itself opens the drawer; owner
             assignment isn't actionable yet, so this must not masquerade as a CTA button. Plain muted text. */}
-        <ClipText title={row.nextAction} className="small muted" style={{ display: "block", maxWidth: 240, lineHeight: 1.3 }}>
+        <ClipText title={row.nextAction} className="small muted" style={{ display: "block", lineHeight: 1.3 }}>
           {row.nextAction}
         </ClipText>
       </div>

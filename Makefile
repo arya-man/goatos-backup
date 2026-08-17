@@ -138,6 +138,8 @@ guardrails:
 	$(MAKE) operational-partition-identity-guard
 	$(MAKE) proof-capture-authorization-guard
 	$(MAKE) weighing-free-flow-guard
+	$(MAKE) feed-submitted-overlay-wiring-guard
+	$(MAKE) feed-proof-collaboration-guard
 	$(MAKE) weighing-close-gate-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
@@ -300,6 +302,14 @@ proof-capture-authorization-guard:
 weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
+
+feed-submitted-overlay-wiring-guard:
+	node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs --self-test
+	node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs
+
+feed-proof-collaboration-guard:
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs
 
 weighing-close-gate-guard:
 	node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test
@@ -801,6 +811,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
@@ -823,6 +835,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-operational-partition-identity.mjs --all
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs

@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ControlTowerRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.feature.profile.AlertRow
 import sg.mesha.goatos.feature.profile.AlertTone
@@ -131,7 +132,7 @@ class AlertsViewModel @Inject constructor(
         runCatching { analytics.track(AnalyticsEventsVerification.ALERTS_REFRESH_ATTEMPTED) }
         val result = repo.refreshSummary()
         _isRefreshing.value = false
-        _isOffline.value = result.isFailure
+        _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         runCatching {
             if (result.isSuccess) {
                 analytics.track(AnalyticsEventsVerification.ALERTS_REFRESH_SUCCEEDED)

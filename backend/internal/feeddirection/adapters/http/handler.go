@@ -42,7 +42,7 @@ type Service interface {
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
 	// ListPenSessionCaptures reports which of a pen-session's proof slots are ALREADY recorded, by
 	// any operator, with the server proof id of each. Read-only; it gates nothing.
-	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) ([]ports.CapturedProofSlot, error)
+	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) (app.PenSessionCapturesResult, error)
 }
 
 type Handler struct {
@@ -577,6 +577,7 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		AuthorizedParkIDs: parkScope.ParkIDs,
 		TargetDate:        targetDate,
 		ShedID:            strings.TrimSpace(query.Get("shed_id")),
+		PartitionLabel:    strings.TrimSpace(query.Get("partition_label")),
 		SessionNo:         sessionNo,
 		Workflow:          strings.TrimSpace(query.Get("workflow")),
 		Status:            status,
@@ -644,6 +645,8 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		ParkID:            parkScope.ParkID,
 		AuthorizedParkIDs: parkScope.ParkIDs,
 		TargetDate:        targetDate,
+		ShedID:            strings.TrimSpace(query.Get("shed_id")),
+		PartitionLabel:    strings.TrimSpace(query.Get("partition_label")),
 		SessionNo:         sessionNo,
 		Workflow:          strings.TrimSpace(query.Get("workflow")),
 		Status:            status,

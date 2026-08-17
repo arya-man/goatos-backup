@@ -1242,6 +1242,21 @@ func TestShedTagClinicalSignalLeavesGrowthCohortTagsUnmapped(t *testing.T) {
 	}
 }
 
+func TestSeedAnimalStageLookupIncludesWritableFlushing(t *testing.T) {
+	for _, stage := range seedAnimalStages() {
+		if stage.Code == "Flushing" {
+			if stage.Name != "Flushing" {
+				t.Fatalf("Flushing seed name = %q, want Flushing", stage.Name)
+			}
+			if stage.AgeBand != "" {
+				t.Fatalf("Flushing seed age band = %q, want blank so shifting does not reclassify kid/adult", stage.AgeBand)
+			}
+			return
+		}
+	}
+	t.Fatal("seedAnimalStages missing Flushing; fresh tenants would not adopt destination Flushing tags")
+}
+
 func TestResolveGoatHealthPrefersCurrentShedTagOverClosedCaseLog(t *testing.T) {
 	// A goat with a CLOSED historical case but currently housed in the ICU shed must
 	// read as icu — current placement is a stronger signal than a resolved case log.

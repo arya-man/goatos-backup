@@ -17,7 +17,10 @@ data class FeedTransportRemoteKeyEntity(@PrimaryKey val businessDate:String,val 
 @Entity(
     tableName = "feed_transport_scoped_items",
     primaryKeys = ["scopeKey", "taskId"],
-    indices = [Index(value = ["scopeKey", "sortIndex"])],
+    indices = [
+        Index(value = ["scopeKey", "sortIndex"]),
+        Index(value = ["taskId"]),
+    ],
 )
 data class FeedTransportScopedItemEntity(
     val scopeKey: String,
@@ -52,6 +55,15 @@ data class FeedTransportScopedRemoteKeyEntity(
 interface FeedTransportScopedItemDao {
     @Query("SELECT * FROM feed_transport_scoped_items WHERE scopeKey=:scopeKey ORDER BY sortIndex,taskId LIMIT :limit")
     fun observe(scopeKey: String, limit: Int): Flow<List<FeedTransportScopedItemEntity>>
+
+    /**
+     * The MOST RECENTLY cached row for one transport task, across ANY filter scope — the task list
+     * screen may have paged it under a different park/shed/status filter than whichever filter is
+     * active when the capture screen opens. Used to observe the task's live `status` (submitted /
+     * pending_verification / etc.) from the same Room table the list renders from.
+     */
+    @Query("SELECT * FROM feed_transport_scoped_items WHERE taskId=:taskId ORDER BY updatedAt DESC LIMIT 1")
+    fun observeByTaskId(taskId: String): Flow<FeedTransportScopedItemEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedTransportScopedItemEntity>)

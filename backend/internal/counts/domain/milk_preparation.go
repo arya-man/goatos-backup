@@ -141,6 +141,17 @@ type milkPreparationRule struct {
 	ActiveSessions map[int]bool
 }
 
+// MilkK3WindowDays is how many feed days a K3 animal draws milk for after entering the cohort.
+//
+// Maintainer rule 2026-08-15, and the source ladder agrees: K3 is the WEANING window, days 78-84 of
+// a kid's life -- seven days, not a standing cohort. It is counted inclusively from the entry day,
+// so an animal that enters on the 1st is prepared for through the 7th and stops on the 8th.
+//
+// It lives here, next to the volume matrix, because it is the same kind of fact: the authored
+// business shape of the K3 cohort. The SQL window in the counts adapter is built from this constant
+// rather than repeating a literal, so the two cannot drift.
+const MilkK3WindowDays = 7
+
 func milkPreparationRuleForStage(stage string) (milkPreparationRule, bool) {
 	switch strings.ToUpper(strings.TrimSpace(stage)) {
 	case "K1":

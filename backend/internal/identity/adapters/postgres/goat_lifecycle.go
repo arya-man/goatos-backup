@@ -388,9 +388,19 @@ func (r *Repository) StageGoat(ctx context.Context, cmd ports.StageGoatCommand) 
 	if state.ManagementStage == cmd.ManagementStage {
 		return nil, ports.ErrWriteConflict
 	}
+	// The K3 milk clock starts on EVERY path that writes the tag, not just relocation (000168).
+	// This function has already rejected a same-stage write above, so reaching K3 here is always an
+	// ENTRY and the clock is always genuinely new. Leaving K3 clears it, so a later return starts a
+	// fresh seven days rather than inheriting a spent week. A K3 animal with no clock draws no milk,
+	// which is why this path cannot be left out: re-tagging an animal K3 from the admin screen has
+	// to feed it, exactly like shifting it into a K3 pen does.
 	if _, err := tx.Exec(ctx, `
 UPDATE goats
 SET management_stage = $3,
+    k3_milk_started_on = CASE
+        WHEN $3::text = 'K3' THEN ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+        ELSE NULL
+    END,
     updated_at = $4::timestamptz,
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,

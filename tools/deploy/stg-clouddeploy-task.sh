@@ -123,6 +123,10 @@ job_image() {
   gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
 }
 
+job_exists() {
+  gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1
+}
+
 capture_serving_revisions() {
   local service="$1"
 
@@ -160,7 +164,19 @@ wait_service_ready() {
       gcloud run services describe "$service" \
         --project="$PROJECT_ID" \
         --region="$REGION" \
-        --format='value(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.conditions[?type="Ready"].status)'
+        --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+status = doc.get("status", {})
+ready = ""
+for condition in status.get("conditions", []):
+    if condition.get("type") == "Ready":
+        ready = condition.get("status") or ""
+        break
+print(status.get("latestCreatedRevisionName") or "", status.get("latestReadyRevisionName") or "", ready)
+'
     )
     if [[ -n "$latest_created" && "$latest_created" == "$latest_ready" && "$ready_condition" == "True" ]]; then
       return 0
@@ -254,7 +270,9 @@ deploy() {
   gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
-  gcloud run jobs describe "$VACCINATION_SCHEDULE_PROJECTOR_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  if ! job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
+    echo "optional job $VACCINATION_SCHEDULE_PROJECTOR_JOB is absent; skipping explicit projector execution"
+  fi
 
   # Contract migrations may remove database arbiters used by the prior binary. Quiesce public
   # writers first: admin-web is the public write entrypoint, and the API is also made internal
@@ -333,19 +351,21 @@ deploy() {
     --wait \
     --quiet
 
-  run gcloud run jobs update "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --quiet
+  if job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
+    run gcloud run jobs update "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+      --quiet
 
-  run gcloud run jobs execute "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --wait \
-    --quiet
-  updated_jobs+=("$VACCINATION_SCHEDULE_PROJECTOR_JOB")
+    run gcloud run jobs execute "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --wait \
+      --quiet
+    updated_jobs+=("$VACCINATION_SCHEDULE_PROJECTOR_JOB")
+  fi
 
   run gcloud run services update "$API_SERVICE" \
     --project="$PROJECT_ID" \
@@ -427,7 +447,9 @@ deploy() {
   [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ADMIN_WEB_SERVICE")" == "$ADMIN_WEB_IMAGE" ]] || die "$ADMIN_WEB_SERVICE image did not settle on $ADMIN_WEB_IMAGE"
   [[ "$(job_image "$MIGRATE_JOB")" == "$MIGRATION_IMAGE" ]] || die "$MIGRATE_JOB image did not settle on $MIGRATION_IMAGE"
-  [[ "$(job_image "$VACCINATION_SCHEDULE_PROJECTOR_JOB")" == "$BACKEND_IMAGE" ]] || die "$VACCINATION_SCHEDULE_PROJECTOR_JOB image did not settle on $BACKEND_IMAGE"
+  if job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
+    [[ "$(job_image "$VACCINATION_SCHEDULE_PROJECTOR_JOB")" == "$BACKEND_IMAGE" ]] || die "$VACCINATION_SCHEDULE_PROJECTOR_JOB image did not settle on $BACKEND_IMAGE"
+  fi
 
   for job in "${updated_jobs[@]}"; do
     [[ "$(job_image "$job")" == "$BACKEND_IMAGE" ]] || die "$job image did not settle on $BACKEND_IMAGE"

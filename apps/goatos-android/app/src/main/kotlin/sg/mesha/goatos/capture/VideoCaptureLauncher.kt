@@ -16,6 +16,8 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import java.io.File
 
 /**
@@ -32,7 +34,11 @@ import java.io.File
  * picker and immediately copies the selected clip into app-private storage before Room/GCS sync.
  */
 @Composable
-fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
+fun BindVideoCaptureSource(
+    source: DelegatingProofCaptureSource,
+    // MEDIUM: Accept validator as dependency instead of constructing inline
+    artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
+) {
     val context = LocalContext.current
     // The ONE capture request the recorder is currently open for, or null when no camera is up.
     // Identity (`token`) is what binds a recording to a subject: a scan of a different animal
@@ -67,7 +73,7 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
                 pickerLauncher.launch("video/*")
                 pickerChannel.receive()?.let { selected ->
                     withContext(Dispatchers.IO) {
-                        copyPickedVideoToPrivateCache(context, selected, System.currentTimeMillis())
+                        copyPickedVideoToPrivateCache(context, selected, System.currentTimeMillis(), artifactValidator)
                     }
                 }
             },
@@ -106,6 +112,7 @@ fun BindVideoCaptureSource(source: DelegatingProofCaptureSource) {
                         }
                         relay.deliverResult(request.token, result)
                     },
+                    artifactValidator = artifactValidator,  // MEDIUM: pass injected validator
                 )
             }
         }
@@ -138,12 +145,22 @@ private fun copyPickedVideoToPrivateCache(
     context: android.content.Context,
     sourceUri: Uri,
     nowMs: Long,
-): CapturedVideo? = runCatching {
+    // MEDIUM: Accept validator as dependency instead of constructing inline
+    validator: ProofArtifactValidator = FileSystemProofArtifactValidator(),
+): CapturedVideo? = runCatching { // exception:exempt best-effort local cache copy; null return already surfaces a retry-capable failure to the caller, nothing extra to record
     val dir = File(context.cacheDir, "proof-videos").apply { mkdirs() }
     val out = File(dir, "gallery-$nowMs.mp4")
     context.contentResolver.openInputStream(sourceUri)?.use { input ->
         out.outputStream().use { output -> input.copyTo(output) }
     } ?: return@runCatching null
+
+    // Gate 4: Gallery copy validation — copied file non-zero + metadata readable
+    val validation = validator.validateVideoFile(out.toURI().toString())
+    if (!validation.isValid) {
+        out.delete()
+        return@runCatching null
+    }
+
     CapturedVideo(
         localUri = out.toURI().toString(),
         mimeType = context.contentResolver.getType(sourceUri) ?: "video/mp4",

@@ -816,6 +816,111 @@ WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date
 	}
 }
 
+func TestDriveAssignmentsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixDerivesVaccineChipsFromExactMembersWhenPersistedRuleIdsAreIncomplete(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		fmdProtocol      = "70000000-0000-4000-8000-0000000000b1"
+		fmdVersion       = "70000000-0000-4000-8000-0000000000b2"
+		fmdRule          = "70000000-0000-4000-8000-0000000000b3"
+		goatPoxProtocol  = "70000000-0000-4000-8000-0000000000b4"
+		goatPoxVersion   = "70000000-0000-4000-8000-0000000000b5"
+		goatPoxRule      = "70000000-0000-4000-8000-0000000000b6"
+		sheepPoxProtocol = "70000000-0000-4000-8000-0000000000b7"
+		sheepPoxVersion  = "70000000-0000-4000-8000-0000000000b8"
+		sheepPoxRule     = "70000000-0000-4000-8000-0000000000b9"
+		mixedBatch       = "70000000-0000-4000-8000-0000000000c1"
+		assignmentID     = "70000000-0000-4000-8000-0000000000c2"
+		goatID           = "70000000-0000-4000-8000-0000000000c3"
+		sheepID          = "70000000-0000-4000-8000-0000000000c4"
+		goatFMDObl       = "70000000-0000-4000-8000-0000000000c5"
+		goatPoxObl       = "70000000-0000-4000-8000-0000000000c6"
+		sheepFMDObl      = "70000000-0000-4000-8000-0000000000c7"
+		sheepPoxObl      = "70000000-0000-4000-8000-0000000000c8"
+	)
+	seedRule := func(protocolID, versionID, ruleID, name, code string) {
+		t.Helper()
+		execProjectionSQL(t, ctx, pool, "protocol "+name, `
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($1,$2,$3,$4,'vaccination','draft')`, protocolID, testTenant, "vaccination."+strings.ToLower(strings.ReplaceAll(code, "_", "-")), name)
+		execProjectionSQL(t, ctx, pool, "version "+name, `
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ($1,$2,$3,'tenant',1,'draft',DATE '2026-08-01','{}'::jsonb,'{}'::jsonb)`, versionID, testTenant, protocolID)
+		execProjectionSQL(t, ctx, pool, "rule "+name, `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($1,$2,$3,'D1',1,'annual','{}'::jsonb,'{}'::jsonb)`, ruleID, testTenant, versionID)
+		execProjectionSQL(t, ctx, pool, "dimension "+name, `
+INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
+VALUES ($1,$2,$3,'vaccination',$4,'D1',$4)`, testTenant, versionID, ruleID, code)
+	}
+	seedRule(fmdProtocol, fmdVersion, fmdRule, "FMD", "FMD")
+	seedRule(goatPoxProtocol, goatPoxVersion, goatPoxRule, "Goat Pox", "GOAT_POX")
+	seedRule(sheepPoxProtocol, sheepPoxVersion, sheepPoxRule, "Sheep Pox", "SHEEP_POX")
+
+	execProjectionSQL(t, ctx, pool, "mixed goat and sheep", `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+VALUES
+  ($1,$3,'alive','goat',$4,'female',$5,$6,$5,'Adult','healthy'),
+  ($2,$3,'alive','sheep',$4,'female',$5,$6,$5,'Adult','healthy')`,
+		goatID, sheepID, testTenant, testParty, testShed, testPark)
+	execProjectionSQL(t, ctx, pool, "mixed batch", `
+INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+VALUES ($1,$2,$3,'shed',$4,'planned',DATE '2026-08-15',$5)`,
+		mixedBatch, testTenant, fmdVersion, testShed, testOperator)
+	execProjectionSQL(t, ctx, pool, "mixed obligations", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+VALUES
+  ($1,$5,$6,$7,$8,'goat',$9,'shed',$10,TIMESTAMPTZ '2026-08-15 00:00:00+00','scheduled','mixed-goat-fmd',1),
+  ($2,$5,$11,$12,$8,'goat',$9,'shed',$10,TIMESTAMPTZ '2026-08-15 00:00:00+00','scheduled','mixed-goat-pox',1),
+  ($3,$5,$6,$7,$8,'goat',$13,'shed',$10,TIMESTAMPTZ '2026-08-15 00:00:00+00','scheduled','mixed-sheep-fmd',1),
+  ($4,$5,$14,$15,$8,'goat',$13,'shed',$10,TIMESTAMPTZ '2026-08-15 00:00:00+00','scheduled','mixed-sheep-pox',1)`,
+		goatFMDObl, goatPoxObl, sheepFMDObl, sheepPoxObl, testTenant,
+		fmdVersion, fmdRule, mixedBatch, goatID, testShed, goatPoxVersion,
+		goatPoxRule, sheepID, sheepPoxVersion, sheepPoxRule)
+	execProjectionSQL(t, ctx, pool, "assignment missing pox rule ids", `
+INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses)
+VALUES ($1,$2,$3,DATE '2026-08-15',$4,$5,$6,'Yashoda','Part 2',2,ARRAY[$7::uuid],4)`,
+		assignmentID, testTenant, mixedBatch, testOperator, testPark, testShed, fmdRule)
+	execProjectionSQL(t, ctx, pool, "assignment exact members", `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES
+  ($1,$2,$3,$7),
+  ($1,$2,$4,$7),
+  ($1,$2,$5,$8),
+  ($1,$2,$6,$8)`,
+		testTenant, assignmentID, goatFMDObl, goatPoxObl, sheepFMDObl, sheepPoxObl, goatID, sheepID)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments: %v", err)
+	}
+	row := driveAssignmentRowFor(rows, "2026-08-15", "Yashoda")
+	if row == nil {
+		t.Fatalf("missing mixed Yashoda row: %#v", rows)
+	}
+	for _, want := range []string{"FMD", "Goat Pox", "Sheep Pox"} {
+		if !containsString(row.VaccineNames, want) {
+			t.Fatalf("vaccine chips = %#v, want %s included", row.VaccineNames, want)
+		}
+	}
+	if row.Animals != 2 {
+		t.Fatalf("animal_count = %d, want 2 distinct animals", row.Animals)
+	}
+	if row.TotalDoses != 4 {
+		t.Fatalf("total_doses = %d, want 4 exact obligation doses", row.TotalDoses)
+	}
+}
+
 func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixUsesActiveVaccineDateOverrideForAssignmentDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

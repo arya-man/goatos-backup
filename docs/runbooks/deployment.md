@@ -145,6 +145,9 @@ Slack #goatos-stg-deploy button
 Use the latest bottom-most Slack deploy panel. The bot posts a fresh panel again
 after each deploy reaches success or failure, so operators should not scroll up
 through old deployment history to find the button.
+Terminal success, failure, and release-bookkeeping warning cards include the
+next deploy controls directly, so the bottom-most relevant deploy message is
+always the one to use next.
 
 The panel has two actions. `Deploy main to STG` runs Cloud Deploy, optionally
 followed by Android when the mobile checkbox is selected. `Distribute Android
@@ -158,8 +161,10 @@ running build posts success or failure.
 STG release-tag bookkeeping is intentionally separate from deploy status. A
 deploy is successful only after Cloud Deploy rollout succeeds and live service
 and job images match the commit. The later `stg-release-tag-bookkeeping` Cloud
-Build step may post a yellow Slack warning if tagging fails, but it must not
-turn a verified STG deploy into a red failure.
+Build step records the release tag from a clean checkout of the verified commit
+using Secret Manager secret `goatos-github-pat`. It may post a yellow Slack
+warning if tagging fails, but it must not turn a verified STG deploy into a red
+failure.
 
 Cloud Build builds/pushes backend, migration, and admin-web images, then
 creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.

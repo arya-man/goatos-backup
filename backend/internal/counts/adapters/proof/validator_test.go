@@ -24,7 +24,7 @@ func TestMilkPreparationProofMustMatchFarmStepAndLiveCamera(t *testing.T) {
 	park := "park-1"
 	base := proofdomain.Artifact{
 		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
-		MimeType: "video/mp4", SubjectType: "park", SubjectID: &park,
+		MimeType: "video/mp4", SubjectType: "other", SubjectID: &park,
 		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_preparation_step": countsdomain.MilkPreparationStepUHTMilkQuantity},
 	}
 	tests := []struct {
@@ -52,5 +52,109 @@ func TestMilkPreparationProofMustMatchFarmStepAndLiveCamera(t *testing.T) {
 				t.Fatalf("err=%v want=%v", err, tc.want)
 			}
 		})
+	}
+}
+
+// RED-FIRST: TestMilkPreparationProofAcceptsOtherSubjectType fails with current code (requires SubjectType="park"),
+// but client now sends subject_type='other' for prep proofs (since prep has no backend task uuid).
+// Fix: ValidateMilkPreparationProofs must accept SubjectType="other" with SubjectID=parkID.
+func TestMilkPreparationProofAcceptsOtherSubjectType(t *testing.T) {
+	park := "park-1"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "other", SubjectID: &park,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_preparation_step": countsdomain.MilkPreparationStepUHTMilkQuantity},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-1": artifact}})
+	err := validator.ValidateMilkPreparationProofs(context.Background(), "tenant-1", park, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkPreparationStepUHTMilkQuantity, ProofRef: "proof-1"}})
+	if err != nil {
+		t.Fatalf("prep proof with subject_type='other' should be valid, got err=%v", err)
+	}
+}
+
+// RED-FIRST: TestMilkFeedingProofAcceptsTaskSubjectType fails with current code (requires SubjectType="park"),
+// but client now sends subject_type='task' with subject_id=taskID for feeding proofs.
+// Fix: ValidateMilkFeedingProofs must accept SubjectType="task" with SubjectID=taskID.
+func TestMilkFeedingProofAcceptsTaskSubjectType(t *testing.T) {
+	taskID := "task-123"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-2", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "task", SubjectID: &taskID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_feeding_step": countsdomain.MilkFeedingStepCleanBottles},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-2": artifact}})
+	// Now the validator signature passes taskID (not parkID)
+	err := validator.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-2"}})
+	if err != nil {
+		t.Fatalf("feeding proof with subject_type='task' should be valid, got err=%v", err)
+	}
+}
+
+// TestMilkFeedingProofRejectsWrongTaskID: adversarial negative — must reject if task ID doesn't match.
+func TestMilkFeedingProofRejectsWrongTaskID(t *testing.T) {
+	artifactTaskID := "task-123"
+	wrongTaskID := "task-999"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-2", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "task", SubjectID: &artifactTaskID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_feeding_step": countsdomain.MilkFeedingStepCleanBottles},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-2": artifact}})
+	// Call with different task ID — should fail
+	err := validator.ValidateMilkFeedingProofs(context.Background(), "tenant-1", wrongTaskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-2"}})
+	if err == nil {
+		t.Fatalf("feeding proof with mismatched task ID should fail, but passed")
+	}
+}
+
+// TestMilkPreparationProofRejectsOldParkSubjectType: adversarial negative — the old "park" shape is now invalid.
+// This documents the breaking change from subject_type='park' to subject_type='other'.
+func TestMilkPreparationProofRejectsOldParkSubjectType(t *testing.T) {
+	park := "park-1"
+	artifact := proofdomain.Artifact{
+		ProofID: "proof-1", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "park", SubjectID: &park,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "milk_preparation_step": countsdomain.MilkPreparationStepUHTMilkQuantity},
+	}
+	validator := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-1": artifact}})
+	err := validator.ValidateMilkPreparationProofs(context.Background(), "tenant-1", park, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkPreparationStepUHTMilkQuantity, ProofRef: "proof-1"}})
+	if err == nil {
+		t.Fatalf("old park subject type should now fail (validator requires subject_type='other')")
+	}
+}
+
+// TestMilkProofStepFromCanonicalFieldKey pins the wire shape that actually exists: the canonical
+// capture pipeline stamps metadata["field_key"]="milk_feeding_<step>" (never the legacy
+// "milk_feeding_step" key, which no shipped client wrote). Device-found 2026-08-16: the validator
+// read only the legacy key, so every real submit failed even after the subject-type fix.
+func TestMilkProofStepFromCanonicalFieldKey(t *testing.T) {
+	taskID := "task-123"
+	feeding := proofdomain.Artifact{
+		ProofID: "proof-f", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "task", SubjectID: &taskID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "field_key": "milk_feeding_" + countsdomain.MilkFeedingStepCleanBottles},
+	}
+	v := NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-f": feeding}})
+	if err := v.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-f"}}); err != nil {
+		t.Fatalf("feeding proof with canonical field_key metadata should be valid, got err=%v", err)
+	}
+
+	parkID := "park-1"
+	prep := proofdomain.Artifact{
+		ProofID: "proof-p", TenantID: "tenant-1", UploadState: "completed", ProofType: "video",
+		MimeType: "video/mp4", SubjectType: "other", SubjectID: &parkID,
+		Metadata: map[string]any{"capture_source": "in_app_camera", "field_key": "milk_preparation_citric_acid_mixing"},
+	}
+	v = NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-p": prep}})
+	if err := v.ValidateMilkPreparationProofs(context.Background(), "tenant-1", parkID, []countsdomain.MilkPreparationStepProof{{StepCode: "citric_acid_mixing", ProofRef: "proof-p"}}); err != nil {
+		t.Fatalf("prep proof with canonical field_key metadata should be valid, got err=%v", err)
+	}
+
+	// Wrong-flow field_key must NOT satisfy a feeding step (prefix guard).
+	wrong := feeding
+	wrong.Metadata = map[string]any{"capture_source": "in_app_camera", "field_key": "milk_preparation_" + countsdomain.MilkFeedingStepCleanBottles}
+	v = NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-f": wrong}})
+	if err := v.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-f"}}); err == nil {
+		t.Fatalf("prep-flow field_key must not satisfy a feeding step")
 	}
 }

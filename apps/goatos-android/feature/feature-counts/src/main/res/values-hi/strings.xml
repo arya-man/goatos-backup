@@ -87,6 +87,14 @@
     <string name="counts_group_recording_death_for">इस पशु की मृत्यु दर्ज कर रहे हैं</string>
     <string name="counts_group_to">यहाँ ले जाएँ</string>
     <string name="counts_group_current_location">वर्तमान स्थान</string>
+    <!--
+      Shifting raise form's tag toggle. Farm words only: "टैग" (tag), never a technical term.
+      The pen's own tag and the reason it cannot be used arrive from the server already worded, so
+      they are deliberately not translated here.
+    -->
+    <string name="counts_group_stage_mode">इस पशु का टैग</string>
+    <string name="counts_stage_mode_keep_current">मौजूदा टैग रखें</string>
+    <string name="counts_stage_mode_destination">गंतव्य टैग लें</string>
     <string name="counts_group_priority">प्राथमिकता</string>
     <string name="counts_group_category">श्रेणी</string>
     <string name="counts_group_comment">टिप्पणी</string>

@@ -62,6 +62,7 @@ enum class SubmitSnackbarMessage {
     SUCCEEDED,     // Submission synced successfully
     CONFLICT,      // Server rejected the submission
     DEAD_LETTER,   // Submission failed after retries
+    PROOF_SAVE_FAILED, // Captured proof video could not be saved locally
 }
 
 /**
@@ -228,6 +229,7 @@ private fun snackbarMessageStringFor(message: SubmitSnackbarMessage?): String? =
     SubmitSnackbarMessage.SUCCEEDED -> stringResource(R.string.submit_snackbar_succeeded)
     SubmitSnackbarMessage.CONFLICT -> stringResource(R.string.submit_snackbar_conflict)
     SubmitSnackbarMessage.DEAD_LETTER -> stringResource(R.string.submit_snackbar_dead_letter)
+    SubmitSnackbarMessage.PROOF_SAVE_FAILED -> stringResource(R.string.submit_snackbar_proof_save_failed)
     null -> null
 }
 

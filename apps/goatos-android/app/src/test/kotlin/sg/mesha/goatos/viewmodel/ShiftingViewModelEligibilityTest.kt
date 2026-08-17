@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -43,6 +44,8 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -230,6 +233,135 @@ class ShiftingViewModelEligibilityTest {
         assertTrue(vm.state.value.canSubmit)
         assertNull(vm.state.value.destinationPartitionLabel)
     }
+
+    /**
+     * The tag toggle's happy path (maintainer decision 2026-08-15): the form defaults to the
+     * destination pen's tag, the operator may decline it, and whichever they choose is what the
+     * write carries.
+     */
+    @Test
+    fun `the tag toggle defaults to the pen's tag and sends the operator's choice`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, destinations = taggedPen())
+        advanceUntilIdle()
+        selectAnimalAndPen(vm)
+
+        // Default: the pre-toggle behaviour, so an operator who ignores the control gets today's.
+        assertEquals(SHIFTING_STAGE_MODE_DESTINATION, vm.state.value.stageMode)
+        assertTrue(vm.state.value.canUseDestinationStage)
+        assertEquals("Mother", vm.state.value.destinationStageLabel)
+        assertNull(vm.state.value.destinationStageReason)
+
+        vm.onEvent(ShiftingEvent.SelectStageMode(SHIFTING_STAGE_MODE_KEEP_CURRENT))
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        // The mode is sent EXPLICITLY, never left to a server default the form cannot see.
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, sync.lastShiftingRequest?.stageMode)
+    }
+
+    /**
+     * A pen that cannot supply a tag: the option is not selectable, the backend's reason is carried
+     * verbatim for the greyed-out control, and the mode is forced to keep-current so the form can
+     * never claim a tag the raise would not apply.
+     */
+    @Test
+    fun `a pen with no usable tag forces keep-current and carries the backend's reason`() = runTest(dispatcher) {
+        val reason = "This destination holds a mix of tags"
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, destinations = untaggedPen(reason))
+        advanceUntilIdle()
+        selectAnimalAndPen(vm)
+
+        assertFalse(vm.state.value.canUseDestinationStage)
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+        // Rendered verbatim: the phone never composes this from a blank tag.
+        assertEquals(reason, vm.state.value.destinationStageReason)
+        assertNull(vm.state.value.destinationStageLabel)
+
+        // Asking for the pen's tag anyway is IGNORED rather than accepted-and-downgraded.
+        vm.onEvent(ShiftingEvent.SelectStageMode(SHIFTING_STAGE_MODE_DESTINATION))
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, sync.lastShiftingRequest?.stageMode)
+    }
+
+    /**
+     * Switching from a tagged pen to an untagged one must snap the toggle back. Without the
+     * re-resolution the form would keep showing "use destination tag" for a pen that has none, the raise
+     * would silently fall back to keep-current, and the operator would never be told.
+     */
+    @Test
+    fun `changing to a pen with no tag snaps the toggle back to keep-current`() = runTest(dispatcher) {
+        val destinations = listOf(
+            CountsDestinationParkDto(
+                parkId = CBE_PARK_ID,
+                name = "Coimbatore",
+                sheds = listOf(
+                    CountsDestinationShedDto(
+                        shedId = CBE_SHED_ID, name = "Castro", partitionLabel = "1",
+                        operationalLocationDisplay = "Castro - 1", destinationStage = "Mother",
+                    ),
+                    CountsDestinationShedDto(
+                        shedId = CBE_SHED_ID, name = "Castro", partitionLabel = "2",
+                        operationalLocationDisplay = "Castro - 2",
+                        destinationStageReason = "This destination has no tag set",
+                    ),
+                ),
+            ),
+        )
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), destinations = destinations)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, "1"))
+        assertEquals(SHIFTING_STAGE_MODE_DESTINATION, vm.state.value.stageMode)
+
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, "2"))
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+        assertEquals("This destination has no tag set", vm.state.value.destinationStageReason)
+    }
+
+    /** The lookup is async, so the scope must idle before the match can be selected. */
+    private fun TestScope.selectAnimalAndPen(vm: ShiftingViewModel) {
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, null))
+    }
+
+    private fun taggedPen() = listOf(
+        CountsDestinationParkDto(
+            parkId = CBE_PARK_ID,
+            name = "Coimbatore",
+            sheds = listOf(
+                CountsDestinationShedDto(
+                    shedId = CBE_SHED_ID, name = "Yashoda", partitionLabel = null,
+                    operationalLocationDisplay = "Yashoda", destinationStage = "Mother",
+                ),
+            ),
+        ),
+    )
+
+    private fun untaggedPen(reason: String) = listOf(
+        CountsDestinationParkDto(
+            parkId = CBE_PARK_ID,
+            name = "Coimbatore",
+            sheds = listOf(
+                CountsDestinationShedDto(
+                    shedId = CBE_SHED_ID, name = "Yashoda", partitionLabel = null,
+                    operationalLocationDisplay = "Yashoda", destinationStageReason = reason,
+                ),
+            ),
+        ),
+    )
 
     private fun newViewModel(
         matches: List<GoatSearchItemDto>,

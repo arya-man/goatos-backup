@@ -10,6 +10,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	fdports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
@@ -23,6 +24,7 @@ const (
 
 type Validator struct {
 	repo proofports.Repository
+	pool *pgxpool.Pool
 }
 
 // ValidateLiveCameraVideo enforces the stronger transport contract: a completed video created by
@@ -44,7 +46,11 @@ func (v *Validator) ValidateLiveCameraVideo(ctx context.Context, tenantID, proof
 }
 
 func NewValidator(repo proofports.Repository) *Validator {
-	return &Validator{repo: repo}
+	return &Validator{repo: repo, pool: nil}
+}
+
+func NewValidatorWithPool(repo proofports.Repository, pool *pgxpool.Pool) *Validator {
+	return &Validator{repo: repo, pool: pool}
 }
 
 var _ fdports.ProofValidator = (*Validator)(nil)

@@ -2904,7 +2904,11 @@ UNION ALL
 -- aggregate above, since there is no real partition to select.
 SELECT 'shed',
        COALESCE(g.shed_id::text, '') || '#' || ` + partitionKeyExpr + `,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || gsp.partition_label,
+       CASE
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' ' || gsp.partition_label
+         ELSE COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || gsp.partition_label
+       END,
        count(*), COALESCE(g.park_id::text, ''), btrim(gsp.partition_label)
 FROM goats g
 JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
@@ -2928,7 +2932,11 @@ UNION ALL
 -- one with its real count, so this cannot double count. count(*) is literally 0 for these rows.
 SELECT 'shed',
        sp.shed_id::text || '#' || sp.normalized_label,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || sp.partition_label,
+       CASE
+         WHEN sp.partition_label ~* '^part [0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || initcap(sp.partition_label)
+         WHEN sp.partition_label ~ '^[0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' ' || sp.partition_label
+         ELSE COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || sp.partition_label
+       END,
        0,
        -- park, then the raw partition label (last column)
        -- Park identity must match what the OCCUPIED branches emit, or an empty partition lands
