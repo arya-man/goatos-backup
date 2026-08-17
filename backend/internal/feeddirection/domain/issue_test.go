@@ -99,6 +99,28 @@ func TestReconstructKeepsMultiGrainShedRowsDistinct(t *testing.T) {
 	}
 }
 
+func TestReconstructDoesNotMergeDistinctRowsWithDuplicateRowSeq(t *testing.T) {
+	t.Parallel()
+	rows := []DirectionRow{
+		{ParkID: "p", ShedID: "mandela-1", ShedLabel: "Mandela 1", PartitionLabel: "Part 6", ShedTag: "Non-Pregnant", Breed: "Beetal", RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning", Workflow: WorkflowNormal, SessionTotalKg: "4.400",
+			Items: []ItemQuantity{{FeedItem: "Concentrate", Status: QuantityResolved, QuantityKg: strptr("4.400")}}},
+		{ParkID: "p", ShedID: "mandela-1", ShedLabel: "Mandela 1", PartitionLabel: "Part 7", ShedTag: "Non-Pregnant", Breed: "Beetal", RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning", Workflow: WorkflowNormal, SessionTotalKg: "15.700",
+			Items: []ItemQuantity{{FeedItem: "Concentrate", Status: QuantityResolved, QuantityKg: strptr("15.700")}}},
+	}
+	cells := FlattenRows(rows)
+	for i := range cells {
+		cells[i].RowSeq = 58
+	}
+
+	got := ReconstructRows(cells)
+	if len(got) != 2 {
+		t.Fatalf("duplicate row_seq reconstructed %d rows, want 2 distinct pens", len(got))
+	}
+	if got[0].PartitionLabel != "Part 6" || got[1].PartitionLabel != "Part 7" {
+		t.Fatalf("partitions = %q, %q; want Part 6, Part 7", got[0].PartitionLabel, got[1].PartitionLabel)
+	}
+}
+
 // An identical sheet fingerprints identically (so a re-issue is a no-op) and any change flips it.
 func TestFingerprintRowsIsStableAndSensitive(t *testing.T) {
 	t.Parallel()
