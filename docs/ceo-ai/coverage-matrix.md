@@ -505,6 +505,19 @@ coverage-matrix mapping required.
 
 | feed_proof_media_validator | func:ValidateFeedProofMedia | Explicit exclusion: write-path proof media validation only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: feed direction frozen-row identity helper (2026-08-17)
+
+`func:RowKey` (`backend/internal/feeddirection/domain/issue.go`) is an internal
+reconstruction helper for frozen feed-direction issue rows. It prevents distinct
+stored rows from being merged when historical data contains duplicate `row_seq`
+values, so the existing mobile feed-direction read shows every already-issued
+row. It adds NO new leadership KPI, table, read API route, Cube metric,
+`ceo_ai.*` view, MCP Toolbox tool, or read-only SQL fallback surface. Leadership
+assistant coverage remains the existing feed completion/verification reporting
+coverage. Explicit documented exclusion — no coverage-matrix mapping required.
+
+| feed_direction_frozen_row_identity | func:RowKey | Explicit exclusion: internal feed-direction row reconstruction helper only; existing feed completion and verification reads remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: shifting destination tag resolver helpers (2026-08-16)
 
 `func:Resolved`, `func:ResolveShiftingDestinationStageDetailed`,
