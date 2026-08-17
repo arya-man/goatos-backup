@@ -61,6 +61,30 @@ export function checkListViewModel(source, label) {
   }
 }
 
+/**
+ * A ViewModel must not build a grain key from loose arguments.
+ *
+ * `shedSessionKey(date, shedId, partitionLabel, sessionNo, workflow)` is positional, so passing the
+ * wrong value is invisible: the key never matches, the badge never appears, and every test and this
+ * guard still pass. That exact mistake shipped once — the Feed Direction list passed `null` for a
+ * partition its own submit sends as "1", reopening 254.mp4 on every partitioned shed. The row owns
+ * its key now (`row.submittedGrainKey(date)`), which leaves nothing to pass wrongly.
+ */
+export function checkNoHandRolledKey(rawSource, label) {
+  const source = stripComments(rawSource);
+  for (const raw of ["shedSessionKey(", "taskGrainKey("]) {
+    if (source.includes(raw)) {
+      throw new Error(
+        `${label}: builds a grain key by hand with '${raw}'. Use the row's own ` +
+          `submittedGrainKey(...) instead — positional args are how the partition bug shipped.`,
+      );
+    }
+  }
+  if (!source.includes("submittedGrainKey(")) {
+    throw new Error(`${label}: no row-owned submittedGrainKey(...) call — how is the row keyed?`);
+  }
+}
+
 /** The in-memory mechanism must not come back anywhere. */
 export function checkNoInMemoryOverlay(rawSource, label) {
   const source = stripComments(rawSource);
@@ -163,6 +187,17 @@ function selfTest() {
     "a resurrected in-memory clear",
   );
 
+  checkNoHandRolledKey("val k = row.submittedGrainKey(date)", "fixture");
+  console.log("  ok   accepts a row-owned key");
+  expectThrow(
+    () => checkNoHandRolledKey("shedSessionKey(date, shedId, null, sessionNo, workflow)", "fixture"),
+    "a ViewModel hand-rolling a shed-session key (the partition bug)",
+  );
+  expectThrow(
+    () => checkNoHandRolledKey('taskGrainKey("feed-transport", it.taskId)', "fixture"),
+    "a ViewModel hand-rolling a task key",
+  );
+
   const goodCodec = "fun shedSessionKey( ... ) fun taskGrainKey( ... )";
   checkCodecHasNoClock(goodCodec, "fixture");
   checkCodecHasNoClock("// businessDate() is banned here\n" + goodCodec, "fixture-comment");
@@ -220,6 +255,7 @@ function main() {
     const { label, body } = read(rel);
     checkListViewModel(body, label);
     checkNoInMemoryOverlay(body, label);
+    checkNoHandRolledKey(body, label);
   }
 
   const codec = read(CODEC);

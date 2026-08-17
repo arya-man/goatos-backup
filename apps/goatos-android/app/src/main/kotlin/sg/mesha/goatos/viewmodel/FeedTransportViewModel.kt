@@ -33,7 +33,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
-import sg.mesha.goatos.core.data.sync.taskGrainKey
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.FeedTransportStatusSource
 import sg.mesha.goatos.core.data.FeedTransportQuery
@@ -150,7 +150,7 @@ class FeedTransportViewModel @Inject constructor(
                     overlayVerificationStatus(
                         backendStatus = it.status,
                         reworkReason = it.reworkReason,
-                        isLocallySubmitted = locallySubmitted.contains(taskGrainKey("feed-transport", it.taskId)),
+                        isLocallySubmitted = locallySubmitted.contains(it.submittedGrainKey()),
                         inReviewToken = IN_REVIEW_VERIFICATION_DUE,
                     ),
                     it.reworkReason,

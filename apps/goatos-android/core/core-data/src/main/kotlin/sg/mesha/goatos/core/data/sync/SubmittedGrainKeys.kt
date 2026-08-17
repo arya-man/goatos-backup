@@ -1,6 +1,11 @@
 package sg.mesha.goatos.core.data.sync
 
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingTaskDto
+import sg.mesha.goatos.core.network.dto.FeedTransportTaskDto
+import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
+import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 
 /**
  * The ONE definition of "which list row does this queued submit belong to".
@@ -100,3 +105,40 @@ fun shedSessionKey(
 /** Task grain (transport, milk): the id is already unique, so no date segment is needed. */
 fun taskGrainKey(kind: String, taskId: String): String =
     listOf("task", kind, taskId).joinToString("|")
+
+// ---- row-owned keys ---------------------------------------------------------------------------
+//
+// A list ViewModel must NEVER call [shedSessionKey]/[taskGrainKey] directly. Those take loose
+// positional arguments, and passing the wrong one is invisible: the key simply never matches, the
+// badge never appears, and every test and guard still passes. That is not hypothetical — the Feed
+// Direction list once passed `null` for a partition its own submit sends as "1", silently
+// reopening the 254.mp4 bug on every partitioned shed.
+//
+// So the ROW supplies its own key, straight off the DTO the list already renders. The only thing a
+// caller can still pass is the date the row does not carry, and it is named in the signature. The
+// wiring guard bans the raw builders inside ViewModels so this stays the only way in.
+
+/**
+ * [date] is the FEED day this packing row is for — what the worklist query sends as `targetDate`
+ * (packing day + 1), which is the date the submit's payload carries.
+ */
+fun FeedPackingRowDto.submittedGrainKey(date: String): String =
+    shedSessionKey(date, shedId, partitionLabel, sessionNo, workflow)
+
+/**
+ * [date] is this direction row's own target date.
+ *
+ * Tapping a direction row opens the DISTRIBUTION capture, which enqueues with THIS row's
+ * partitionLabel — so the partition is taken from the row here, never assumed absent.
+ */
+fun FeedDirectionRowDto.submittedGrainKey(date: String): String =
+    shedSessionKey(date, shedId, partitionLabel, sessionNo, workflow)
+
+/** Task-grain rows carry their whole identity; nothing is left for a caller to supply. */
+fun FeedTransportTaskDto.submittedGrainKey(): String = taskGrainKey("feed-transport", taskId)
+
+fun MilkFeedingTaskDto.submittedGrainKey(): String = taskGrainKey("milk-feeding", taskId)
+
+/** [preparationDate] is the day the list is showing; one preparation per park per day. */
+fun MilkPreparationFarmTaskDto.submittedGrainKey(preparationDate: String): String =
+    taskGrainKey("milk-preparation", parkId + "|" + preparationDate)

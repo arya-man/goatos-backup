@@ -28,7 +28,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
-import sg.mesha.goatos.core.data.sync.shedSessionKey
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -381,7 +381,7 @@ class FeedDirectionViewModel @Inject constructor(
                 // FeedDistributionCompleteViewModel). The lookup MUST use the same partition or the
                 // keys never match on a partitioned shed — Castro 1 and Castro 2 share a shed_id —
                 // and the badge silently never appears: 254.mp4, reopened.
-                shedSessionKey(targetDate, shedId, partitionLabel, sessionNo, workflow),
+                submittedGrainKey(targetDate),
             ),
             inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
         ),

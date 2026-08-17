@@ -30,7 +30,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.sync.taskGrainKey
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.network.isConnectivityFailure
@@ -202,7 +202,7 @@ internal fun buildMilkFeedingListUi(
                 overlayVerificationStatus(
                     backendStatus = it.verificationStatus,
                     reworkReason = it.reworkReason,
-                    isLocallySubmitted = locallySubmitted.contains(taskGrainKey("milk-feeding", it.taskId)),
+                    isLocallySubmitted = locallySubmitted.contains(it.submittedGrainKey()),
                     inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
                 ),
                 it.reworkReason,

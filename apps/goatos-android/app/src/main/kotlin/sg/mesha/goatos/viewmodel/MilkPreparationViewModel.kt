@@ -31,7 +31,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.sync.taskGrainKey
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
@@ -169,7 +169,7 @@ internal fun buildMilkPreparationListUi(
                 task,
                 capturedByEntity["${task.parkId}:$draftDate"] ?: 0,
                 locallySubmitted.contains(
-                    taskGrainKey("milk-preparation", task.parkId + "|" + draftDate),
+                    task.submittedGrainKey(draftDate),
                 ),
             )
         }
