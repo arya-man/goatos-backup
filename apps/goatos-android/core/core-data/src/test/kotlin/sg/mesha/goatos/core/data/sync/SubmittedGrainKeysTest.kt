@@ -109,4 +109,47 @@ class SubmittedGrainKeysTest {
             submittedGrainKeyOf(OutboxOpTypeName.FEED_PACKING_COMPLETE.name, "{not json", syncJson),
         )
     }
+
+    @Test
+    fun `REGRESSION 4 - a Feed Direction row and the DISTRIBUTION submit it opens share one grain`() {
+        // Tapping a Feed Direction row opens the DISTRIBUTION capture, which enqueues
+        // FEED_DISTRIBUTION_COMPLETE carrying that row's partitionLabel. An earlier revision of the
+        // list looked the row up with partition = null on the belief that "direction has no
+        // partition", so on a partitioned shed (Castro 1 / Castro 2 share a shed_id) the keys never
+        // matched and the badge silently never appeared — 254.mp4, reopened.
+        val submitted = submittedGrainKeyOf(
+            OutboxOpTypeName.FEED_DISTRIBUTION_COMPLETE.name,
+            syncJson.encodeToString(
+                FeedDistributionCompletePayload(
+                    parkId = "park-1",
+                    shedId = "shed-castro",
+                    partitionLabel = "2",
+                    sessionNo = 1,
+                    targetDate = "2026-08-17",
+                    workflow = "experiment",
+                    feedWeightProofOutboxItemId = null,
+                    distributionProofOutboxItemId = null,
+                    waterProofOutboxItemId = null,
+                    feedWeightProofRef = "a",
+                    distributionProofRef = "b",
+                    waterProofRef = "c",
+                ),
+            ),
+            syncJson,
+        )
+
+        // What the Feed Direction LIST builds for that same row.
+        val listLookup = shedSessionKey("2026-08-17", "shed-castro", "2", 1, "experiment")
+
+        assertEquals(
+            "the Direction list must look the row up with the partition it actually submits with",
+            submitted,
+            listLookup,
+        )
+        assertNotEquals(
+            "and keying it as the whole shed is what broke it",
+            submitted,
+            shedSessionKey("2026-08-17", "shed-castro", null, 1, "experiment"),
+        )
+    }
 }
