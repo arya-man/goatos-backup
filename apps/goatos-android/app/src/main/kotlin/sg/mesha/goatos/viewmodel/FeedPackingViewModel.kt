@@ -21,6 +21,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.shedSessionKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedPackingQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -47,6 +49,7 @@ import javax.inject.Inject
 class FeedPackingViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -120,12 +123,17 @@ class FeedPackingViewModel @Inject constructor(
     // (offline-first), converging on the backend flag once the write syncs.
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<FeedPackingRowUi>> =
-        combine(_filters, feedCompletionStore.completedKeys, feedCompletionStore.submittedForReviewKeys) { selection, completed, submitted ->
-            Triple(selection, completed, submitted)
-        }
+        combine(
+            _filters,
+            feedCompletionStore.completedKeys,
+            // Derived from the OUTBOX, not an in-memory set: a submit that succeeds or dies leaves
+            // the active set by itself, so the badge retracts with no second key to keep in sync.
+            syncRepository.observeSubmittedForReviewGrains(),
+        ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
             .flatMapLatest { (selection, completed, submitted) ->
+                val feedDay = selection.toQuery().targetDate
                 repo.packingRows(selection.toQuery())
-                    .map { page -> page.map { it.toRowUi(completed, submitted) } }
+                    .map { page -> page.map { it.toRowUi(completed, submitted, feedDay) } }
             }
             .cachedIn(viewModelScope)
 
@@ -272,17 +280,22 @@ class FeedPackingViewModel @Inject constructor(
     private fun sg.mesha.goatos.core.network.dto.FeedPackingRowDto.toRowUi(
         locallyCompleted: Set<String>,
         locallySubmittedForReview: Set<String>,
+        feedDay: String,
     ): FeedPackingRowUi {
         val completionKey = FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)
         val isLocallyCompleted = locallyCompleted.contains(completionKey)
-        val isLocallySubmittedForReview = locallySubmittedForReview.contains(completionKey)
+        // The SAME builder the outbox projection uses — one definition, so the two cannot disagree.
+        val isLocallySubmittedForReview = locallySubmittedForReview.contains(
+            shedSessionKey(feedDay, shedId, partitionLabel, sessionNo, workflow),
+        )
 
         // Precedence lives in ONE place — [overlayFeedLifecycleStatus] — so a test asserting the
         // rule and the list projection that renders it can never drift apart.
-        val overlaidLifecycleStatus = overlayFeedLifecycleStatus(
-            lifecycleStatus = lifecycleStatus,
+        val overlaidLifecycleStatus = overlayVerificationStatus(
+            backendStatus = lifecycleStatus,
             reworkReason = reworkReason,
-            isLocallySubmittedForReview = isLocallySubmittedForReview,
+            isLocallySubmitted = isLocallySubmittedForReview,
+            inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
         )
 
         return FeedPackingRowUi(

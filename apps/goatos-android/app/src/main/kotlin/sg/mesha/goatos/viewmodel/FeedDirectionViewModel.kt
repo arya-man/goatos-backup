@@ -27,6 +27,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.shedSessionKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -59,6 +61,7 @@ import javax.inject.Inject
 class FeedDirectionViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
+    private val syncRepository: SyncRepository,
     private val bootstrapRepository: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -140,11 +143,13 @@ class FeedDirectionViewModel @Inject constructor(
         combine(
             _filters,
             feedCompletionStore.completedKeys,
-            feedCompletionStore.submittedForReviewKeys,
+            // Outbox-derived: the badge retracts by itself when the row succeeds or dies.
+            syncRepository.observeSubmittedForReviewGrains(),
         ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
             .flatMapLatest { (selection, completed, submitted) ->
+                val targetDate = selection.toQuery().targetDate
                 repo.directionRows(selection.toQuery())
-                    .map { page -> page.map { it.toRowUi(completed, submitted) } }
+                    .map { page -> page.map { it.toRowUi(completed, submitted, targetDate) } }
             }
             .cachedIn(viewModelScope)
 
@@ -337,6 +342,7 @@ class FeedDirectionViewModel @Inject constructor(
     private fun sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.toRowUi(
         locallyCompleted: Set<String>,
         locallySubmittedForReview: Set<String>,
+        targetDate: String,
     ): FeedDirectionRowUi = FeedDirectionRowUi(
         grainKey = grainKey,
         parkId = parkId,
@@ -365,12 +371,16 @@ class FeedDirectionViewModel @Inject constructor(
         // The CHIP renders lifecycleStatus, not `completed` — overlaying only the boolean above left
         // a just-submitted row reading "Pending" (the 254.mp4 defect, same class as Feed Packing).
         // Direction/Distribution rows carry no rework channel, so that rung passes "".
-        lifecycleStatus = overlayFeedLifecycleStatus(
-            lifecycleStatus = lifecycleStatus,
+        lifecycleStatus = overlayVerificationStatus(
+            backendStatus = lifecycleStatus,
+            // Direction/Distribution rows carry no rework channel.
             reworkReason = "",
-            isLocallySubmittedForReview = locallySubmittedForReview.contains(
-                FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow),
+            isLocallySubmitted = locallySubmittedForReview.contains(
+                // Direction's payload has no partition, so the projection keys it "whole" —
+                // pass null here so BOTH sides normalise identically.
+                shedSessionKey(targetDate, shedId, null, sessionNo, workflow),
             ),
+            inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
         ),
     )
 

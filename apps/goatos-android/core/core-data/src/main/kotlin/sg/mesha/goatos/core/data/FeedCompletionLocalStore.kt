@@ -39,49 +39,13 @@ import kotlinx.coroutines.flow.update
  */
 class FeedCompletionLocalStore {
     private val _completedKeys = MutableStateFlow<Set<String>>(emptySet())
-    private val _submittedForReviewKeys = MutableStateFlow<Set<String>>(emptySet())
 
     /** The set of locally-completed shed-session keys for the CURRENT business day. */
     val completedKeys: StateFlow<Set<String>> = _completedKeys.asStateFlow()
 
-    /**
-     * The set of locally-submitted-for-review shed-session keys for the CURRENT business day.
-     * Used by the Feed Packing lifecycle overlay to show "pending_verification" before the server
-     * processes the queued submit. Semantically distinct from [completedKeys] because a row
-     * enqueued but not yet confirmed stays "pending_verification" (not "completed"), and the
-     * backend always owns the completion gate: if the server rejects the submit, this key clears
-     * on logout but the backend row remains "pending", giving the overlay a chance to self-correct.
-     */
-    val submittedForReviewKeys: StateFlow<Set<String>> = _submittedForReviewKeys.asStateFlow()
-
     fun markCompleted(key: String) {
         val prefix = businessDatePrefix()
         _completedKeys.update { current -> current.filterTo(mutableSetOf()) { it.startsWith(prefix) } + key }
-    }
-
-    fun markSubmittedForReview(key: String) {
-        val prefix = businessDatePrefix()
-        _submittedForReviewKeys.update { current -> current.filterTo(mutableSetOf()) { it.startsWith(prefix) } + key }
-    }
-
-    /**
-     * Drops ONE submitted-for-review key.
-     *
-     * Called from [sg.mesha.goatos.core.data.sync.SyncEngine] the moment that grain's outbox row
-     * terminalizes as FAILED (rejected outright, or attempts exhausted). Without this the optimistic
-     * badge is a LIE that outlives the failure: the row keeps reading "In review" for work the
-     * server never accepted, until logout or the next business day — strictly worse than the stale
-     * "Pending" this overlay exists to fix, because the operator stops chasing it.
-     */
-    fun clearSubmittedForReview(key: String) {
-        // Match on IDENTITY, not the whole key. Every key starts with the business date AT THE
-        // MOMENT IT WAS BUILT, so a submit marked at 23:50 and terminally failed at 00:05 produces
-        // two different keys and the badge would never retract — it would keep claiming "In review"
-        // for work the server refused. Everything after the date segment is the grain identity.
-        val identity = key.substringAfter('|', missingDelimiterValue = key)
-        _submittedForReviewKeys.update { current ->
-            current.filterNotTo(mutableSetOf()) { it.substringAfter('|', missingDelimiterValue = it) == identity }
-        }
     }
 
     fun isCompleted(key: String): Boolean = _completedKeys.value.contains(key)
@@ -92,7 +56,6 @@ class FeedCompletionLocalStore {
      */
     fun clear() {
         _completedKeys.value = emptySet()
-        _submittedForReviewKeys.value = emptySet()
     }
 
     companion object {
@@ -115,14 +78,6 @@ class FeedCompletionLocalStore {
         /** The optimistic key must carry the PEN for the same reason the backend's natural key
          *  does: Castro 1 and Castro 2 share a shed_id, so a shed-only key made one pen's submit
          *  grey out every pen of that shed on the spot (STG 2026-08-08). */
-        /**
-         * Grain key for a TASK-grain flow (Feed Transport, Milk Feeding). These are not
-         * shed-session grain, so they cannot reuse [key]; [kind] keeps each flow's namespace
-         * separate. Same business-day prefix as [key], so pruning and the logout wipe cover it
-         * unchanged.
-         */
-        fun taskKey(kind: String, taskId: String): String =
-            listOf(businessDate(), kind, taskId).joinToString("|")
 
         fun key(shedId: String, partitionLabel: String?, sessionNo: Int, workflow: String): String =
             listOf(
