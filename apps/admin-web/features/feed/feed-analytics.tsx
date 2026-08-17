@@ -457,6 +457,22 @@ function ExecutionTab({
       </section>
     );
   }
+  // Window totals for the KPI row: shares of backend counts, no new business math.
+  let packingDone = 0, packingAll = 0, distDone = 0, distAll = 0, transDone = 0, transAll = 0;
+  let latestLatency: number | null = null;
+  for (const d of data.days) {
+    packingDone += d.packing_verified;
+    packingAll += d.packing_verified + d.packing_awaiting + d.packing_rework;
+    distDone += d.distribution_verified;
+    distAll += d.distribution_verified + d.distribution_awaiting + d.distribution_rework;
+    transDone += d.transport_completed;
+    transAll += d.transport_completed + d.transport_open + d.transport_awaiting_verdict + d.transport_rework;
+    if (d.median_verify_latency_minutes !== null && d.median_verify_latency_minutes !== undefined) {
+      latestLatency = d.median_verify_latency_minutes;
+    }
+  }
+  const pct = (done: number, all: number) => (all > 0 ? `${Math.round((done / all) * 100)}%` : "—");
+
   const statuses = [
     { label: fa(pageContract, "legend.verified"), colorVar: FEED_SERIES_VARS[0] },
     { label: fa(pageContract, "legend.awaiting"), colorVar: FEED_SERIES_VARS[2] },
@@ -482,6 +498,28 @@ function ExecutionTab({
   ];
   return (
     <>
+      <section className="grid g4 kpi-row" aria-label={fa(pageContract, "chart.execution.title")}>
+        <div className="kpi card">
+          <div className="val">{pct(packingDone, packingAll)}</div>
+          <div className="dl">{fa(pageContract, "kpi.packing.label")}</div>
+          <div className="muted small">{`${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}`}</div>
+        </div>
+        <div className="kpi card">
+          <div className="val">{pct(distDone, distAll)}</div>
+          <div className="dl">{fa(pageContract, "kpi.distribution.label")}</div>
+          <div className="muted small">{`${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}`}</div>
+        </div>
+        <div className="kpi card">
+          <div className="val">{pct(transDone, transAll)}</div>
+          <div className="dl">{fa(pageContract, "kpi.transport.label")}</div>
+          <div className="muted small">{`${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}`}</div>
+        </div>
+        <div className="kpi card">
+          <div className="val">{latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`}</div>
+          <div className="dl">{fa(pageContract, "kpi.latency.label")}</div>
+          <div className="muted small">{fa(pageContract, "kpi.latency.sub")}</div>
+        </div>
+      </section>
       <section className="card wchart" aria-label={fa(pageContract, "chart.execution.title")}>
         <h2 className="h">{fa(pageContract, "chart.execution.title")}</h2>
         <p className="muted small">{fa(pageContract, "chart.execution.hint")}</p>
@@ -546,7 +584,20 @@ function ExperimentTab({
   }
   const dayKeys = [...new Set(data.arms.map((a) => a.feed_day))].sort();
   const armNames = [...new Set(data.arms.map((a) => a.experiment_arm))];
-  const series: LineSeries[] = armNames.map((arm, s) => ({
+  // Latest sheet day per arm, used to rank the chart and fill the table.
+  const latestByArm = armNames.map((arm) => {
+    const rows = data.arms.filter((a) => a.experiment_arm === arm);
+    return rows[rows.length - 1];
+  });
+  // The live farm runs many more arms than the series palette has hues. Chart
+  // only the largest (one per palette slot, so no two lines share a colour) and
+  // DISCLOSE the cap — the table below lists every arm. Ranking is a sort of a
+  // backend field, not a new business number.
+  const charted = [...latestByArm]
+    .sort((a, b) => num(b.absolute_kg) - num(a.absolute_kg))
+    .slice(0, FEED_SERIES_VARS.length)
+    .map((row) => row.experiment_arm);
+  const series: LineSeries[] = charted.map((arm, s) => ({
     label: arm,
     colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
     points: dayKeys.map((day) => {
@@ -555,19 +606,47 @@ function ExperimentTab({
     }),
   }));
   return (
-    <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
-      <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
-      <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
-      <ChartHover>
-        <FeedLines
-          series={series}
-          dayLabels={dayKeys}
-          valueNoun={fa(pageContract, "unit.kg")}
-          chartLabel={fa(pageContract, "chart.experiment.title")}
-          emptyLabel={fa(pageContract, "empty.experiment.body")}
-        />
-      </ChartHover>
-      <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
-    </section>
+    <div className="grid" style={{ gap: 14 }}>
+      <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
+        <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
+        <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
+        <ChartHover>
+          <FeedLines
+            series={series}
+            dayLabels={dayKeys}
+            valueNoun={fa(pageContract, "unit.kg")}
+            chartLabel={fa(pageContract, "chart.experiment.title")}
+            emptyLabel={fa(pageContract, "empty.experiment.body")}
+          />
+        </ChartHover>
+        <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
+        <p className="muted small">{fa(pageContract, "chart.experiment.top")}</p>
+      </section>
+      <section className="card" aria-label={fa(pageContract, "table.arms.title")}>
+        <h2 className="h">{fa(pageContract, "table.arms.title")}</h2>
+        <p className="muted small">{fa(pageContract, "table.arms.hint")}</p>
+        <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "table.arms.title")}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>{fa(pageContract, "col.arm")}</th>
+                <th>{fa(pageContract, "col.pens")}</th>
+                <th>{fa(pageContract, "col.kg")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {latestByArm.map((row) => (
+                <tr key={row.experiment_arm}>
+                  <td>{row.experiment_arm}</td>
+                  <td>{nf(row.pens)}</td>
+                  <td>{nf(num(row.absolute_kg))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
+      </section>
+    </div>
   );
 }
