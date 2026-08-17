@@ -406,3 +406,10 @@ func TestPostCompletePackingInvalidPartitionIsBadRequest(t *testing.T) {
 		t.Fatalf("body=%s, want partition_label explanation", recorder.Body.String())
 	}
 }
+
+// DirectedAnalytics: these handler tests drive transport filters, not analytics.
+func (transportFilterService) DirectedAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.DirectedAnalytics, error) {
+	return domain.DirectedAnalytics{}, nil
+}
