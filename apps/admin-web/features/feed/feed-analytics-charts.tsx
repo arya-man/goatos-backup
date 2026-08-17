@@ -99,13 +99,13 @@ export function FeedStackedColumns({
         let y = BASELINE;
         return (
           <g key={d.key}>
-            <title>
-              {d.label}
-              {": "}
-              {d.segments
-                .map((v, s) => `${seriesLabels[s] ?? ""} ${nf(v)} ${valueNoun}`)
-                .join(" · ")}
-            </title>
+            {/* ONE template-string child. Multiple adjacent JSX text children inside an
+                SVG <title> hydrate wrong: the browser parses the server HTML into a single
+                merged text node while client React expects three, so every load logged a
+                hydration mismatch and re-rendered the tree client-side. */}
+            <title>{`${d.label}: ${d.segments
+              .map((v, s) => `${seriesLabels[s] ?? ""} ${nf(v)} ${valueNoun}`)
+              .join(" · ")}`}</title>
             {d.segments.map((v, s) => {
               const h = ((BASELINE - PAD_TOP) * v) / max;
               y -= h;
