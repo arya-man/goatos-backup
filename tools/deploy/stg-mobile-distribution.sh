@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:-goatos-stg}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 GOOGLE_PLAY_PACKAGE="${GOOGLE_PLAY_PACKAGE:-sg.mesha.goatos.stg}"
+FIREBASE_APP_ID="${FIREBASE_APP_ID:-1:514832198871:android:0cb898377ba4f7f7f19492}"
+CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/workspace/android-sdk}"
 ANDROID_HOME="$ANDROID_SDK_ROOT"
 export ANDROID_SDK_ROOT ANDROID_HOME
@@ -35,7 +37,11 @@ import sys
 
 status, text, sha, build_id, triggered_by, include_panel = sys.argv[1:]
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
-build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?project=goatos-stg"
+authuser = "ravi%40mesha.sg"
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region=asia-south1/{build_id}?authuser={authuser}&project=goatos-stg"
+firebase_url = "https://console.firebase.google.com/u/0/project/goatos-stg/appdistribution/app/android:1:514832198871:android:0cb898377ba4f7f7f19492/releases"
+play_url = "https://play.google.com/apps/testing/sg.mesha.goatos.stg"
+apk_url = "https://mesha.sg/app.apk"
 payload = {
     "attachments": [{
         "color": color,
@@ -48,7 +54,9 @@ payload = {
         ],
         "actions": [
             {"type": "button", "text": "Cloud Build logs", "url": build_url},
-            {"type": "button", "text": "Direct APK", "url": "https://mesha.sg/app.apk"},
+            {"type": "button", "text": "Firebase releases", "url": firebase_url},
+            {"type": "button", "text": "Play Internal", "url": play_url},
+            {"type": "button", "text": "Direct APK", "url": apk_url},
         ],
     }]
 }
@@ -116,13 +124,17 @@ post_deploy_panel() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass." 1
+    if [[ "${DEPLOY_STG:-false}" == "true" ]]; then
+      notify_slack "FAILED" "STG rollout already succeeded, but Android mobile distribution failed. Firebase, Play Internal, and mesha.sg/app.apk were not all completed."
+    else
+      notify_slack "FAILED" "Mobile distribution failed. Nothing should be called complete until Firebase, Play Internal, and mesha.sg/app.apk all pass." 1
+    fi
   fi
 }
 trap on_exit EXIT
 
 [[ "$PROJECT_ID" == "goatos-stg" ]] || { echo "PROJECT_ID must be goatos-stg" >&2; exit 1; }
-[[ -z "$(git status --porcelain)" ]] || { echo "Refusing Android distribution from a dirty worktree." >&2; exit 1; }
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "Refusing Android distribution because tracked source files changed." >&2; exit 1; }
 
 install_android_sdk() {
   if [[ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]]; then
