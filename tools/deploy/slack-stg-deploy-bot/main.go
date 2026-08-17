@@ -22,11 +22,12 @@ import (
 const maxSlackSkew = 5 * time.Minute
 
 type config struct {
-	ProjectID     string
-	Location      string
-	TriggerID     string
-	SigningSecret string
-	AllowedUsers  map[string]bool
+	ProjectID       string
+	Location        string
+	TriggerID       string
+	SigningSecret   string
+	AllowedUsers    map[string]bool
+	ConsoleAuthUser string
 }
 
 type slackActionPayload struct {
@@ -84,11 +85,12 @@ type cloudBuildGetBuild struct {
 
 func main() {
 	cfg := config{
-		ProjectID:     env("PROJECT_ID", "goatos-stg"),
-		Location:      env("TRIGGER_LOCATION", "global"),
-		TriggerID:     mustEnv("TRIGGER_ID"),
-		SigningSecret: mustEnv("SLACK_SIGNING_SECRET"),
-		AllowedUsers:  parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
+		ProjectID:       env("PROJECT_ID", "goatos-stg"),
+		Location:        env("TRIGGER_LOCATION", "global"),
+		TriggerID:       mustEnv("TRIGGER_ID"),
+		SigningSecret:   mustEnv("SLACK_SIGNING_SECRET"),
+		AllowedUsers:    parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
+		ConsoleAuthUser: env("CONSOLE_AUTHUSER", "ravi@mesha.sg"),
 	}
 
 	mux := http.NewServeMux()
@@ -604,11 +606,21 @@ func slackUserLabel(userID, username, name string) string {
 }
 
 func (cfg config) cloudBuildURL(buildID string) string {
-	return fmt.Sprintf("https://console.cloud.google.com/cloud-build/builds;region=%s/%s?project=%s", cfg.Location, buildID, cfg.ProjectID)
+	values := url.Values{}
+	values.Set("project", cfg.ProjectID)
+	if cfg.ConsoleAuthUser != "" {
+		values.Set("authuser", cfg.ConsoleAuthUser)
+	}
+	return fmt.Sprintf("https://console.cloud.google.com/cloud-build/builds;region=%s/%s?%s", cfg.Location, buildID, values.Encode())
 }
 
 func (cfg config) cloudDeployURL() string {
-	return fmt.Sprintf("https://console.cloud.google.com/deploy/delivery-pipelines/%s/goatos-stg?project=%s", cfg.Location, cfg.ProjectID)
+	values := url.Values{}
+	values.Set("project", cfg.ProjectID)
+	if cfg.ConsoleAuthUser != "" {
+		values.Set("authuser", cfg.ConsoleAuthUser)
+	}
+	return fmt.Sprintf("https://console.cloud.google.com/deploy/delivery-pipelines/%s/goatos-stg?%s", cfg.Location, values.Encode())
 }
 
 func (payload slackActionPayload) deployMode() (deploySTG, mobileDistribution bool, actionLabel string, err error) {
