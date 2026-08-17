@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.component.MeshaCard
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.component.MeshaStatusPill
@@ -70,7 +71,11 @@ fun DiagnosisQueueScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(rows.itemCount) { index ->
+            // Keyed by the run, never by position: a queue is a stream of pending
+            // decisions, so a new assessment arriving at the top shifts every index
+            // below it and positional keys would rebind each row's remembered state
+            // to a DIFFERENT animal's assessment.
+            items(count = rows.itemCount, key = rows.itemKey { it.diagnosisRunId }) { index ->
                 // A null placeholder cannot happen (placeholders are off) but Paging's
                 // accessor is nullable; skipping is correct rather than rendering a blank row.
                 val row = rows[index] ?: return@items
