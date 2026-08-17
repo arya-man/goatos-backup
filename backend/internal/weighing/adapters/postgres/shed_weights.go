@@ -159,24 +159,23 @@ lump AS (
    AND sh.verification_status <> 'rejected'
   WHERE s.weighing_category = 'per_shed_partition'
 ),
--- Whole-shed movement over the four-week baseline, per LOCATION rather than per
--- bucket: each weigh of a shed is its own bucket, so the history lives across
--- buckets and a per-bucket view sees one point and no trend.
+-- Whole-shed movement inside the selected window, per operational row
+-- (location_id + partition_label) rather than per bucket: each weigh of a shed is
+-- its own bucket, so the history lives across buckets and a per-bucket view sees
+-- one point and no trend.
 --
--- Anchor on the latest weigh in the selected window, then compare it with the
--- weigh closest to 28 days before that latest date. A weekly tolerance is allowed
--- for slipped farm capture dates, but we never fall back to the immediately
--- previous row when the only older data is too recent: that recreates the noisy
--- last-two figure this screen is no longer meant to show.
+-- Anchor on the first and latest weighed business dates inside the reader's
+-- selected window. If a shed has only one weighed date inside the window, its
+-- selected-range gain is unknown rather than borrowing an older four-week baseline.
 shed_span AS (
-  SELECT latest.location_id,
-         (latest.average_weight_kg - baseline.average_weight_kg) * 1000.0
-           / NULLIF(latest.d - baseline.d, 0) AS g_per_day,
-         latest.d - baseline.d               AS span_days
+  SELECT latest.location_id, latest.partition_label,
+         (latest.average_weight_kg - first.average_weight_kg) * 1000.0
+           / NULLIF(latest.d - first.d, 0) AS g_per_day,
+         latest.d - first.d                AS span_days
   FROM (
-    SELECT cs2.location_id, o.average_weight_kg,
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label, o.average_weight_kg,
            (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
-           row_number() OVER (PARTITION BY cs2.location_id ORDER BY o.accepted_at DESC) AS rn
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at DESC) AS rn
     FROM weighing_shed_observations o
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
     JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
@@ -184,23 +183,20 @@ shed_span AS (
       AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
   ) latest
-  JOIN LATERAL (
-    SELECT cs2.location_id, o.average_weight_kg,
-           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  JOIN (
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label, o.average_weight_kg,
+           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at ASC) AS rn
     FROM weighing_shed_observations o
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
     JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
     WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
-      AND cs2.location_id = latest.location_id
       AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
-      AND (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date < latest.d
-      AND abs((o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date - (latest.d - 28)) <= 7
-    ORDER BY abs((o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date - (latest.d - 28)),
-             (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date DESC,
-             o.accepted_at DESC
-    LIMIT 1
-  ) baseline ON true
-  WHERE latest.rn = 1
+      AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+  ) first ON first.location_id = latest.location_id
+    AND first.partition_label = latest.partition_label
+    AND first.rn = 1
+  WHERE latest.rn = 1 AND latest.d > first.d
 ),
 per_bucket AS (
   SELECT s.*,
@@ -244,7 +240,9 @@ SELECT b.location_id, b.park_id,
        ss.g_per_day,
        COALESCE(ss.span_days, 0)
 FROM latest_bucket b
-LEFT JOIN shed_span ss ON ss.location_id = b.location_id
+LEFT JOIN shed_span ss
+  ON ss.location_id = b.location_id
+ AND ss.partition_label = COALESCE(b.partition_label, '')
 LEFT JOIN locations sh ON sh.location_id = b.location_id
 LEFT JOIN locations pk ON pk.location_id = b.park_id
 ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name, ''), COALESCE(sh.name, '')

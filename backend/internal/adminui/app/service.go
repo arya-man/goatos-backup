@@ -2597,6 +2597,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.average.aria":             "Average weight for each shed",
 			"section.sheds.title":            "Sheds",
 			"section.sheds.aria":             "Weight by shed",
+			"composition.unknown_breed":      "Unknown breed",
+			"composition.unknown_sex":        "unknown sex",
 			// Column headers come from the table contract's own columns via tableLabels(),
 			// so they are deliberately NOT duplicated here.
 			"filter.all_option":         "All",
@@ -2632,7 +2634,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Distinct from the above: these sheds DO have a second weigh, they are just all
 			// losing. Reusing the "needs a second weigh" line there would be a lie.
 			"empty.gain.all_losing":        "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
-			"chart.gain.caption_shed":      "Kids weighed one by one show per-kid gain. A shed weighed as one total shows how fast its average is moving, which is not the same thing — animals leaving or joining move it too.",
+			"chart.gain.caption_shed":      "Kids weighed one by one show per-kid gain. A shed weighed as one total shows how its average moved inside the selected dates, which is not the same thing — animals leaving or joining move it too.",
 			"section.demographics.title":   "Breed, sex and stage",
 			"section.demographics.aria":    "Weight by breed, sex and stage",
 			"section.demographics.caption": "Average weight of the kids weighed, grouped by what the herd register says they are.",
@@ -2643,7 +2645,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.stage.title":            "Average weight by stage",
 			"chart.stage.aria":             "Average weight for each management stage",
 			"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
-			"note.demographics.coverage":   "Covers kids weighed one by one plus whole-shed weighs, counted against the breed, sex and stage that shed holds. A shed holding a mix is counted against none of them.",
+			"note.demographics.coverage":   "Covers kids weighed one by one plus whole-shed weighs. Whole-shed averages count by breed, sex or stage only when that shed's live cohort is homogeneous for that dimension; mixed sheds are labelled in the shed rows instead of being split.",
 			"chart.load.title":             "Daily gain by load",
 			"chart.load.title_weight":      "Average weight by load",
 			"chart.load.aria":              "Growth for each purchase load",

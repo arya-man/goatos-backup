@@ -16,8 +16,14 @@ import (
 // returning a plausible-looking bar.
 
 const (
-	loadCampaignTwo  = "00000000-0000-4000-8000-00000000a001"
-	loadShedScopeTwo = "00000000-0000-4000-8000-00000000a101"
+	loadCampaignTwo   = "00000000-0000-4000-8000-00000000a001"
+	loadShedScopeTwo  = "00000000-0000-4000-8000-00000000a101"
+	loadCampaignPartA = "00000000-0000-4000-8000-00000000a002"
+	loadCampaignPartB = "00000000-0000-4000-8000-00000000a003"
+	loadPartAOld      = "00000000-0000-4000-8000-00000000a111"
+	loadPartANew      = "00000000-0000-4000-8000-00000000a112"
+	loadPartBOld      = "00000000-0000-4000-8000-00000000a121"
+	loadPartBNew      = "00000000-0000-4000-8000-00000000a122"
 )
 
 // A second campaign, so one LOCATION can hold two weighs. weighing_shed_observations is UNIQUE on
@@ -33,11 +39,18 @@ ON CONFLICT (campaign_id) DO NOTHING`, loadCampaignTwo, repoTenant, repoPark, re
 
 func seedLoadBucket(t *testing.T, ctx context.Context, pool *pgxpool.Pool, bucketID, campaignID, locationID, category string) {
 	t.Helper()
+	seedLoadBucketPartition(t, ctx, pool, bucketID, campaignID, locationID, "", category)
+}
+
+func seedLoadBucketPartition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, bucketID, campaignID, locationID, partitionLabel, category string) {
+	t.Helper()
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'load-test', $5, $6::uuid, 1)
-ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category = EXCLUDED.weighing_category`,
-		bucketID, campaignID, repoTenant, locationID, category, repoOperator)
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, partition_label, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'load-test', NULLIF($5, ''), $6, $7::uuid, 1)
+ON CONFLICT (campaign_shed_id) DO UPDATE SET
+  weighing_category = EXCLUDED.weighing_category,
+  partition_label = EXCLUDED.partition_label`,
+		bucketID, campaignID, repoTenant, locationID, partitionLabel, category, repoOperator)
 }
 
 func seedLoadLumpWeigh(t *testing.T, ctx context.Context, pool *pgxpool.Pool, bucketID, campaignID, proofID string, avgKg float64, animals int, at time.Time) {
@@ -219,11 +232,10 @@ func TestLoadWeightsStatusMatrixExcludesOnlyCanceledBuckets(t *testing.T) {
 	}
 }
 
-// GAIN GRAIN. The blend must use each shed's four-week baseline, not the
-// immediately previous row, and must weight by head count. A load whose sheds
-// have no baseline near four weeks before latest has a weight but NO gain, and
-// must report nil rather than 0, which would read as "this supplier's kids are flat".
-func TestLoadWeightsGainUsesFourWeekBaselineAndIsNilWithoutABaseline(t *testing.T) {
+// GAIN GRAIN. The blend must use only the selected window. A load whose sheds
+// have one weigh in the visible date range has a weight but NO gain, and must
+// report nil rather than 0, which would read as "this supplier's kids are flat".
+func TestLoadWeightsGainUsesSelectedWindowAndIsNilWithOneInWindowWeigh(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -248,18 +260,34 @@ func TestLoadWeightsGainUsesFourWeekBaselineAndIsNilWithoutABaseline(t *testing.
 		}
 	}
 
-	// Add an EARLIER weigh in its own bucket: 18.0 on 22 Jun -> 22.0 on 20 Jul is
-	// 4.0 kg over 28 days = 142.9 g/day. The baseline is before the visible
-	// period start, matching a "latest weigh minus four weeks" interpretation.
+	// Add an older weigh outside the selected window. It must stay invisible to
+	// gain, even though the old four-week logic would have used it.
 	seedLoadBucket(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoPerShed, "per_shed_partition")
 	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofTwo, 18.0, 40,
 		time.Date(2026, 6, 22, 6, 0, 0, 0, time.UTC))
 
 	out, err = repo.GetShedWeights(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("GetShedWeights after second weigh: %v", err)
+		t.Fatalf("GetShedWeights with outside-window weigh: %v", err)
+	}
+	for _, load := range out.ByLoad {
+		if load.LoadRef == "L-129" && load.GainGPerDay != nil {
+			t.Fatalf("outside-window weigh must not produce selected-window gain, got %.1f g/day", *load.GainGPerDay)
+		}
+	}
+
+	// Add a FIRST weigh inside the selected window: 20.0 on 6 Jul -> 22.0 on
+	// 20 Jul is 2.0 kg over 14 days = 142.9 g/day.
+	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofThree, 20.0, 40,
+		time.Date(2026, 7, 6, 6, 0, 0, 0, time.UTC))
+
+	out, err = repo.GetShedWeights(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetShedWeights after in-window second weigh: %v", err)
 	}
 	var found bool
 	for _, load := range out.ByLoad {
@@ -268,16 +296,68 @@ func TestLoadWeightsGainUsesFourWeekBaselineAndIsNilWithoutABaseline(t *testing.
 		}
 		found = true
 		if load.GainGPerDay == nil {
-			t.Fatal("two weighs must produce a gain")
+			t.Fatal("two in-window weighs must produce a gain")
 		}
 		if got := fmt.Sprintf("%.1f", *load.GainGPerDay); got != "142.9" {
-			t.Fatalf("gain must be (22.0-18.0)kg over 28 days = 142.9 g/day, got %s", got)
+			t.Fatalf("gain must be (22.0-20.0)kg over 14 days = 142.9 g/day, got %s", got)
 		}
-		if load.GainSpanDays != 28 {
-			t.Fatalf("the span must travel with the number: want 28, got %d", load.GainSpanDays)
+		if load.GainSpanDays != 14 {
+			t.Fatalf("the span must travel with the number: want 14, got %d", load.GainSpanDays)
 		}
 	}
 	if !found {
 		t.Fatal("expected the load to appear once it has two weighs")
 	}
+}
+
+// PARTITION GRAIN. A load tag lives at physical-shed location_id, but the
+// measured rows can be partitioned. The load gain must blend each measured
+// partition's selected-window movement, not collapse all partitions into one
+// location-level first/latest pair.
+func TestLoadWeightsGainPartitionOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	repo := NewRepository(pool, 5*time.Second)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoPerShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, repoPerShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoPerShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoPerShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadTag(t, ctx, pool, repoPerShed, "L-PART", "Partition Supplier")
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, load := range out.ByLoad {
+		if load.LoadRef != "L-PART" {
+			continue
+		}
+		if load.GainGPerDay == nil {
+			t.Fatal("two partition rows with two dates each must produce a load gain")
+		}
+		if got := fmt.Sprintf("%.1f", *load.GainGPerDay); got != "571.4" {
+			t.Fatalf("load gain must blend partition rows ((1000*10)+(142.9*10))/20 = 571.4, got %s", got)
+		}
+		if load.GainSpanDays != 7 {
+			t.Fatalf("max span must be 7 days, got %d", load.GainSpanDays)
+		}
+		return
+	}
+	t.Fatal("expected the partitioned load to appear")
 }

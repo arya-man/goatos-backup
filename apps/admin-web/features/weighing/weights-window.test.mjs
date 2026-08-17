@@ -71,6 +71,29 @@ test("daily gain survives a park-scoped page", () => {
   assert.match(source, /parks\.find\(\(park\) => park\.park_id === parkFilter\)\?\.name \?\? ""/);
 });
 
+test("shed lists and gain chart only show sheds weighed in the selected window", () => {
+  assert.match(source, /const weighedRows = rows\.filter\(\(row\) => row\.animals_weighed > 0\);/);
+  assert.match(source, /modeFilter === "all" \? weighedRows : weighedRows\.filter/);
+  assert.match(source, /const weighedRowKeys = new Set\(weighedRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
+  assert.match(source, /const visibleRowKeys = new Set\(visibleRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
+  assert.match(source, /shed\.adg_pair_count > 0 && visibleRowKeys\.has\(shedKey\(shed\.location_id, shed\.partition_label\)\)/);
+});
+
+test("weighed shed rows render breed and sex composition chips from the backend contract", () => {
+  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.match(source, /demo\?\.shed_composition \?\? \[\]/);
+  assert.match(source, /className="wcomp-chips"/);
+  assert.match(source, /className="wcomp-chip"/);
+  assert.match(source, /compositionLabel\(chip, pageContract\)/);
+  assert.match(source, /copy\(pageContract, "composition\.unknown_breed"\)/);
+  assert.match(source, /copy\(pageContract, "composition\.unknown_sex"\)/);
+  assert.match(contract, /"composition\.unknown_breed":/);
+  assert.match(contract, /"composition\.unknown_sex":/);
+  assert.match(source, /composition\.source === "scanned_tags"/);
+  assert.match(css, /\.wcomp-chips\{/);
+  assert.match(css, /\.wcomp-chip\{/);
+});
+
 test("the two table cards are inset without losing their full-bleed tables", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.match(source, /className="card wtable" aria-label=\{copy\(pageContract, "section\.sheds\.aria"\)\}/);

@@ -127,12 +127,16 @@ so it cannot leak to the write path, which is the 2026-08-04 defect.
 What keeps it safe, and what a future change must preserve: it is READ-ONLY; it
 is a reporting path with no capture, submit or close behaviour; NO scan is gated
 on identity; and a tag that resolves to nothing is COUNTED and reported, never
-rejected — free-flow capture is untouched. A whole-shed weigh has no tags and is
-attributed by the shed's own cohort, contributing to the stage figure but never to
-breed or sex, because splitting one shed average across a mix invents a
-distribution nobody measured. Widening this exemption — another file, another
-table, or any write path — is a MAINTAINER decision, never a developer
-convenience.
+rejected — free-flow capture is untouched. The same file may return row context
+chips such as "F2 / female" or "Anantapur Sheep / male" for the admin-web
+Weights table; those chips label the weighed shed row and must not become a
+write-path lookup or validation rule. A whole-shed weigh has no tags and is
+attributed by the shed's own cohort only when that cohort is homogeneous for the
+reported dimension. Mixed whole-shed averages may be labelled with multiple
+breed/sex chips, but are never split across breed or sex buckets, because
+splitting one shed average across a mix invents a distribution nobody measured.
+Widening this exemption — another file, another table, or any write path — is a
+MAINTAINER decision, never a developer convenience.
 
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants`,
