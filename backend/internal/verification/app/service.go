@@ -111,6 +111,18 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
 	params.BusinessDateFrom = strings.TrimSpace(params.BusinessDateFrom)
 	params.BusinessDateTo = strings.TrimSpace(params.BusinessDateTo)
+	// The capture-date RANGE is gated separately from the cross-module chrome
+	// (permissions.VerificationFilterByCaptureDate): a verifier may narrow her own queue to the
+	// days she is working, which crosses no module boundary. See ports.ListQueueParams.
+	//
+	// EITHER capability satisfies it, deliberately. The range used to ride on oversight alone, so
+	// making the new capability the ONLY key would have silently REMOVED the range from any caller
+	// holding oversight without it -- a regression dressed as a refactor. Leadership holds both
+	// today; this keeps that true even if the grants drift apart later.
+	if !params.CaptureDateFilterEnabled && !params.OversightFiltersEnabled {
+		params.BusinessDateFrom = ""
+		params.BusinessDateTo = ""
+	}
 	if !params.OversightFiltersEnabled {
 		// The oversight-only query shape: a cross-module NavigationModule filter and a
 		// multi-day BusinessDateFrom/BusinessDateTo range. A caller without
@@ -119,8 +131,6 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		// principal who does) must fall back to that caller's normal one-business-day queue
 		// rather than take the whole board down. See ports.ListQueueParams.OversightFiltersEnabled.
 		params.NavigationModule = ""
-		params.BusinessDateFrom = ""
-		params.BusinessDateTo = ""
 	}
 	if err := s.applyNavigationModuleFilter(&params); err != nil {
 		return QueueResult{}, err

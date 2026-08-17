@@ -161,6 +161,14 @@ export async function VerificationReviewPage({
   // verifier's original working-queue screen, commit 89b16c0fa / fe06be1ed) and stay available to
   // every role that can open this page.
   const oversightFiltersEnabled = controlEnabled(pageContract, "oversight_filters", false);
+  // Gates the CAPTURE-DATE RANGE picker. SPLIT OUT of oversightFiltersEnabled (maintainer decision
+  // 2026-08-17) and held by the verifier as well as leadership: the 2026-08-12 incident was about
+  // CROSS-MODULE chrome, and a date range crosses no module boundary -- it narrows the caller's own
+  // queue to the days she is working. Without it her board is pinned to a date she cannot change,
+  // which on real data is an empty screen sitting on top of a full backlog. The module chips above
+  // stay on the oversight capability. Backend half: permissions.VerificationFilterByCaptureDate +
+  // ports.ListQueueParams.CaptureDateFilterEnabled.
+  const captureDateFilterEnabled = controlEnabled(pageContract, "capture_date_filter", false);
   // Gates the CEO/PC-Director-only analytics section rendered ABOVE the queue table (KPI strip,
   // pending-by-module, per-verifier activity + watch integrity). Same capability
   // (permissions.VerificationOversee) as oversightFiltersEnabled above, but a DISTINCT contract
@@ -410,7 +418,7 @@ export async function VerificationReviewPage({
             between (Birth and Death have none, and an Apply button with nothing to apply is
             worse than no row). */}
         <div className="vr-frow">
-          {oversightFiltersEnabled ? (
+          {captureDateFilterEnabled ? (
             <ActionsDateFilter
               basePath={PATHNAME}
               from={dateRange.from}
@@ -818,7 +826,37 @@ function parseDateRange(sp: RouteSearchParams, today: string): { from: string; t
   }
   const asOf = one(sp, "as_of")?.trim();
   if (asOf && BUSINESS_DAY.test(asOf) && asOf <= today) return { from: asOf, to: asOf };
-  return { from: today, to: today };
+  // Nothing named: open on the recent WINDOW, not on today alone -- see DEFAULT_QUEUE_WINDOW_DAYS.
+  return { from: businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS), to: today };
+}
+
+/**
+ * How far back the board looks when the URL names no date at all.
+ *
+ * TODAY IS THE WRONG DEFAULT FOR A WORKING QUEUE (maintainer decision 2026-08-17). Proof arrives on
+ * the day it is captured and is reviewed later, so a queue pinned to today shows an empty board
+ * sitting on top of a full backlog -- observed on real data: 402 pending weighing proofs captured
+ * across the previous twelve days, and a board reading "No actions to review". The verifier had no
+ * control to change the date either, which is what made it a dead end rather than a wrong default.
+ *
+ * The backend already says this in ports.ListQueueParams.IsVerifierQueueRead: a verifier queue read
+ * "does NOT clamp to today -- it returns the full pending backlog ordered oldest-first". This page
+ * was overriding that with a today-to-today range of its own.
+ *
+ * A WINDOW rather than "no filter": the range still bounds the query (the read is keyset-paged and
+ * date-bounded, and an unbounded scan is exactly what the scale rules forbid), it is simply wide
+ * enough to hold work that is actually outstanding. Two weeks matches the per-verifier activity
+ * window the oversight analytics already report on.
+ */
+const DEFAULT_QUEUE_WINDOW_DAYS = 14;
+
+/** businessDaysBefore subtracts whole days from a YYYY-MM-DD business date, in date space only --
+ *  no clock, no zone arithmetic, so it cannot drift across the IST business-day boundary. */
+function businessDaysBefore(day: string, days: number): string {
+  const parsed = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return day;
+  parsed.setUTCDate(parsed.getUTCDate() - days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {
