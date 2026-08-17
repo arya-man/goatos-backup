@@ -12,7 +12,7 @@ import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-c
 import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { recordVerificationVerdictAction } from "./actions";
+import { correctWeightAction, recordVerificationVerdictAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
@@ -403,6 +403,9 @@ function VerificationReviewDrawerPanel({
   // with them; keeping a permission flag for controls that no longer exist is how a screen quietly
   // regrows them.
   const mayReview = controlEnabled(pageContract, "record_verdict", false);
+  // The backend attaches this only to items carrying a number the verifier may correct, and owns
+  // every word of the control. Absent -- every category but weighing today -- means no control.
+  const correction = item.measurement_correction;
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
 
@@ -463,6 +466,13 @@ function VerificationReviewDrawerPanel({
                   proofId={activeMedia.proof_id}
                   itemId={item.item_id}
                   eventBuffer={eventBuffer}
+                  // Backend-owned copy for the double-speed control; the player renders it and
+                  // composes none of it. It only appears on clips longer than 20 seconds.
+                  speedLabels={{
+                    normal: text("player.speed_normal"),
+                    fast: text("player.speed_fast"),
+                    hint: text("player.speed_hint"),
+                  }}
                 />
               ) : activeMedia?.mime_type?.startsWith("image/") ? (
                 // A signed, short-lived proof URL on an external media host: next/image would
@@ -550,6 +560,60 @@ function VerificationReviewDrawerPanel({
               </div>
             )}
           </div>
+
+          {/* THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17).
+
+              Rendered ONLY when the backend attaches measurement_correction to this item -- today
+              that is weighing, whose proof shows a number an operator typed. Every visible word
+              (heading, help, field labels, button) comes from that block; this component composes
+              none of it, and the head-count field appears only when the backend sent count_label,
+              which it does for a lump-sum shed proof and never for a single animal.
+
+              Gated on the same record_verdict control as the verdict below: correcting the number
+              the evidence shows belongs to the person who judges the evidence.
+
+              It is a SIBLING form, not part of the verdict form: the correction is its own act and
+              she may make it before deciding or after, including on an item she already approved.
+              That is also why it is not disabled by verdictSettled. */}
+          {mayReview && correction ? (
+            <form
+              action={correctWeightAction}
+              style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
+            >
+              <input type="hidden" name="observation_id" value={correction.observation_id} />
+              <input type="hidden" name="ref_type" value={correction.ref_type} />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <div>
+                <b>{correction.title}</b>
+                <div className="small muted">{correction.help}</div>
+              </div>
+              <label className="fld" style={{ marginBottom: 0 }}>
+                <span>{correction.value_label}</span>
+                {/* step matches the three decimals the column stores, and min matches the server's
+                    floor, so the browser refuses what the backend would refuse anyway. Left
+                    deliberately NOT `required`: the rule is the server's, and the action tells her
+                    to enter a weight rather than sending a 0 she never typed. */}
+                <input type="number" name="weight_kg" step="0.001" min="0.001" max="100000" inputMode="decimal" />
+              </label>
+              {correction.count_label ? (
+                <label className="fld" style={{ marginBottom: 0 }}>
+                  <span>{correction.count_label}</span>
+                  {/* Blank means "leave the recorded count alone", which is the normal case -- she
+                      is usually fixing a mistyped total, not a miscount. */}
+                  <input type="number" name="animal_count" step="1" min="1" max="100000" inputMode="numeric" />
+                </label>
+              ) : null}
+              <label className="fld" style={{ marginBottom: 0 }}>
+                <span>{text("verdict.reason_label")}</span>
+                <textarea name="reason" rows={2} />
+              </label>
+              <div>
+                <button type="submit" className="btn">
+                  {correction.submit_label}
+                </button>
+              </div>
+            </form>
+          ) : null}
 
           {mayReview ? (
             <form id="verdict-form" action={recordVerificationVerdictAction} onSubmit={handleVerdictSubmit} style={{ display: "grid", gap: 8 }}>

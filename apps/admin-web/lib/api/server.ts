@@ -244,6 +244,11 @@ export type VerificationQueueResponse = Omit<AppApiComponents["schemas"]["Verifi
 export type VerificationDecision = AppApiComponents["schemas"]["VerificationDecision"];
 export type VerificationVerdictRequest = AppApiComponents["schemas"]["VerificationVerdictRequest"];
 export type VerificationVerdictResponse = AppApiComponents["schemas"]["VerificationVerdictResponse"];
+// The VERIFIER's weight correction on a weighing proof (maintainer decision 2026-08-17). Weighing
+// owns the route; the verification item tells the client which record to address, via
+// measurement_correction.
+export type WeighingWeightCorrectionRequest = AppApiComponents["schemas"]["WeighingWeightCorrectionRequest"];
+export type WeighingWeightCorrectionResponse = AppApiComponents["schemas"]["WeighingWeightCorrectionResponse"];
 export type VerificationReviewEvent = AppApiComponents["schemas"]["VerificationReviewEvent"];
 export type VerificationReviewEventBatchRequest = AppApiComponents["schemas"]["VerificationReviewEventBatchRequest"];
 export type VerificationReviewEventBatchResponse = AppApiComponents["schemas"]["VerificationReviewEventBatchResponse"];
@@ -2347,6 +2352,28 @@ export async function recordVerificationVerdict(
   const path = `/verification/items/${encodeURIComponent(itemId)}/verdict` as keyof AppApiPaths & string;
   return request(() =>
     client.request<VerificationVerdictResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// correctWeighingObservationWeight replaces the weight a verifier judged wrong, on the observation
+// the verification item points at. Same route the phone calls: one act, one rule, one endpoint.
+export async function correctWeighingObservationWeight(
+  observationId: string,
+  body: WeighingWeightCorrectionRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<WeighingWeightCorrectionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/weighing/observations/${encodeURIComponent(observationId)}/weight-correction` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<WeighingWeightCorrectionResponse>(path, {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1032,37 +1031,20 @@ func (s *Service) reviseVerificationRound(ctx context.Context, tenantID string, 
 // from the campaign-shed bucket (repo.CampaignShedLocation) and is "" only when that lookup found
 // nothing, in which case the label degrades to its old shed-less form rather than printing a
 // UUID or an empty separator (LOCKED SPEC section 5: never render an id as a label).
+//
+// The composition itself lives in domain.CorrectedSubjectLabel because the VERIFIER'S
+// weight correction has to recompose the very same sentence after it replaces the
+// weight. Two copies of it would drift, and the drifted one would be the label the
+// verifier reads on a corrected item.
 func individualSubjectLabel(obs domain.Observation, shedDisplay string) string {
-	parts := make([]string, 0, 3)
-	if shed := strings.TrimSpace(shedDisplay); shed != "" {
-		parts = append(parts, shed)
-	}
-	if tag := strings.TrimSpace(obs.ScannedIdentifier); tag != "" {
-		parts = append(parts, "Tag "+tag)
-	}
-	parts = append(parts, formatWeightKg(obs.WeightKg))
-	return strings.Join(parts, " · ")
+	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeAnimal, shedDisplay, obs.ScannedIdentifier, obs.WeightKg, 0)
 }
 
 // lumpSumSubjectLabel names the shed it weighed. It used to open with the hardcoded word "Whole
 // shed", which reads as a scope ("the whole shed was weighed at once") but was doing double duty
 // as the shed's NAME -- and so every lump-sum row in every shed rendered identically.
 func lumpSumSubjectLabel(obs domain.Observation, shedDisplay string) string {
-	head := strings.TrimSpace(shedDisplay)
-	if head == "" {
-		head = "Whole shed"
-	}
-	label := head + " · " + formatWeightKg(obs.WeightKg)
-	if obs.AnimalCount > 0 {
-		label += " · " + strconv.Itoa(obs.AnimalCount) + " goats"
-	}
-	return label
-}
-
-// formatWeightKg always carries the unit -- a bare number on a verification screen is the
-// exact ambiguity this change exists to remove.
-func formatWeightKg(weightKg float64) string {
-	return strconv.FormatFloat(weightKg, 'f', 1, 64) + " kg"
+	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeShed, shedDisplay, "", obs.WeightKg, obs.AnimalCount)
 }
 
 func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label, shedLocationID string) error {

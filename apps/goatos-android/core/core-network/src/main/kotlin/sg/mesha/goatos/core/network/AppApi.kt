@@ -85,6 +85,8 @@ import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
@@ -793,6 +795,22 @@ interface AppApi {
         idempotencyKey: String,
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto
+
+    /**
+     * POST /app/weighing/observations/{observation_id}/weight-correction -- THE VERIFIER'S WEIGHT
+     * CORRECTION (maintainer decision 2026-08-17). She replaces the weight the operator typed while
+     * she watches the proof video; the corrected value REPLACES the recorded one.
+     *
+     * Weighing owns the route because the correction writes a weighing record; the verification item
+     * only tells the screen WHICH record to address. Drained through the offline-sync outbox with a
+     * stable [idempotencyKey] like every other write, so a server-committed-but-client-unrecorded
+     * replay returns the original correction instead of writing a second one.
+     */
+    suspend fun correctWeighingObservationWeight(
+        observationId: String,
+        idempotencyKey: String,
+        request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto
 
     suspend fun closeVerificationItem(
         itemId: String,
@@ -1606,6 +1624,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto = VerificationVerdictResponseDto()
+
+    override suspend fun correctWeighingObservationWeight(
+        observationId: String,
+        idempotencyKey: String,
+        request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto = WeighingWeightCorrectionResponseDto()
 
     override suspend fun closeVerificationItem(
         itemId: String,

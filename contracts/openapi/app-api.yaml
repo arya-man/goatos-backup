@@ -1339,6 +1339,66 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/weighing/observations/{observation_id}/weight-correction:
+    post:
+      tags:
+        - Weighing
+      operationId: correctWeighingObservationWeight
+      summary: Correct the recorded weight on one weighing observation.
+      description: >-
+        The VERIFIER's correction of the number an operator typed, made while she watches
+        the proof video (maintainer decision 2026-08-17). The corrected value REPLACES the
+        recorded one: on an individual capture it replaces that one animal's weight, and on
+        a lump-sum capture it replaces the shed total, optionally with a corrected head
+        count, and the stored average is recomputed from both.
+
+
+        Authorization is `verification.verdict` -- the verifier-exclusive capability that
+        owns approve/reject -- so the person who judges the evidence is the person who may
+        fix what it shows. It is deliberately NOT tied to her verdict: she may correct
+        before deciding or after, including on an item she already approved, until the
+        bucket is closed.
+
+
+        The observation id and ref type are the values the verification item already carries
+        in `source.ref_id` and `source.ref_type`; clients echo them rather than composing an
+        address of their own.
+      parameters:
+        - name: observation_id
+          in: path
+          required: true
+          description: The observation the verification item points at (`source.ref_id`).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeighingWeightCorrectionRequest"
+      responses:
+        "200":
+          description: Weight corrected, or the same correction idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingWeightCorrectionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /weighing/process-state:
     get:
       tags:
@@ -21229,6 +21289,131 @@ components:
           $ref: "#/components/schemas/WeighingCloseResult"
         trace_id:
           type: string
+    WeighingWeightCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - ref_type
+        - weight_kg
+      properties:
+        ref_type:
+          type: string
+          description: >-
+            The observation grain, echoed from the verification item's `source.ref_type`.
+          enum:
+            - weighing_observation
+            - weighing_shed_observation
+        weight_kg:
+          type: number
+          format: double
+          description: >-
+            The corrected weight in kg. One animal's weight for an individual capture, the
+            whole shed total for a lump-sum one. Rounded to three decimals, the scale the
+            column stores.
+          exclusiveMinimum: 0
+          maximum: 100000
+        animal_count:
+          type: integer
+          description: >-
+            The corrected head count. LUMP-SUM ONLY -- omitted or 0 leaves the recorded count
+            alone, which is the normal case. Sending it on an individual capture is refused
+            (422 `animal_count_not_applicable`) rather than ignored, because an individual
+            observation weighs exactly one animal and silently dropping it would report a
+            correction that never happened.
+          minimum: 0
+          maximum: 100000
+        reason:
+          type: string
+          description: The verifier's own words. Optional -- the video is the evidence.
+        idempotency_key:
+          type: string
+          description: >-
+            Falls back to the `Idempotency-Key` header. An exact replay returns the original
+            result with no second write; the same key carrying a different weight is refused.
+    WeighingWeightCorrectionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - weight_correction
+      properties:
+        weight_correction:
+          $ref: "#/components/schemas/WeighingWeightCorrectionResult"
+        trace_id:
+          type: string
+    WeighingWeightCorrectionResult:
+      type: object
+      additionalProperties: false
+      description: >-
+        The readback of one correction, carrying BOTH the new values and what they replaced:
+        the client that just sent it needs the new number to render, and the audit trail needs
+        the old one to be legible without a second read.
+      required:
+        - observation_id
+        - ref_type
+        - campaign_id
+        - campaign_shed_id
+        - weight_kg
+        - previous_weight_kg
+        - operator_weight_kg
+        - subject_label
+        - corrected_by
+        - corrected_at
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        ref_type:
+          type: string
+          enum:
+            - weighing_observation
+            - weighing_shed_observation
+        campaign_id:
+          type: string
+          format: uuid
+        campaign_shed_id:
+          type: string
+          description: The bucket to refresh once the correction lands.
+        weight_kg:
+          type: number
+          format: double
+          description: The weight AFTER the correction.
+        animal_count:
+          type: integer
+          description: The head count after the correction. Lump-sum only.
+        average_weight_kg:
+          type: number
+          format: double
+          description: >-
+            Recomputed from the corrected total and count, so the shed's average cannot
+            disagree with the shed's own total. Lump-sum only.
+        previous_weight_kg:
+          type: number
+          format: double
+          description: What the row held immediately before this correction.
+        previous_animal_count:
+          type: integer
+        operator_weight_kg:
+          type: number
+          format: double
+          description: >-
+            What the OPERATOR originally recorded, preserved across every later correction.
+            Equal to `previous_weight_kg` on a first correction only.
+        operator_animal_count:
+          type: integer
+        reason:
+          type: string
+        corrected_by:
+          type: string
+          format: uuid
+        subject_label:
+          type: string
+          description: >-
+            The recomposed verifier-facing sentence carrying the corrected weight. The backend
+            pushes it onto the verification item so the queue stops advertising the number that
+            was just replaced; clients render it verbatim.
+        corrected_at:
+          type: string
+          format: date-time
     WeighingProcessStateDayMarker:
       type: object
       additionalProperties: false
@@ -23674,6 +23859,50 @@ components:
         duration_ms:
           type: integer
           minimum: 0
+    VerificationMeasurementCorrection:
+      type: object
+      additionalProperties: false
+      description: >-
+        The correctable-measurement control for one verification item. Declared per category by
+        the producing module at registration, so a phone and an admin-web drawer showing the same
+        control cannot word it differently. Today only Weighing declares one: its proof shows a
+        weight an operator typed, and the verifier may replace it.
+      required:
+        - ref_type
+        - observation_id
+        - title
+        - help
+        - value_label
+        - submit_label
+      properties:
+        ref_type:
+          type: string
+          description: >-
+            Echoed from the item's source.ref_type. Post it back verbatim on the producing
+            module's correction route; do not infer it.
+        observation_id:
+          type: string
+          description: Echoed from the item's source.ref_id — the record the correction addresses.
+        title:
+          type: string
+          description: Heading for the control. Rendered verbatim.
+        help:
+          type: string
+          description: >-
+            One sentence telling the verifier what the correction does. It says plainly that the
+            value REPLACES the recorded one; render it, never paraphrase it.
+        value_label:
+          type: string
+          description: Label for the number itself, unit included. Rendered verbatim.
+        submit_label:
+          type: string
+          description: Label for the submit control. Rendered verbatim.
+        count_label:
+          type: string
+          description: >-
+            Label for an accompanying whole-number field (a lump-sum shed proof's head count).
+            PRESENT ONLY on the ref types that carry one — absent means render the value field
+            alone. An individual animal's proof carries no count, and the write path refuses one.
     VerificationQueueItem:
       type: object
       additionalProperties: false
@@ -23719,6 +23948,17 @@ components:
             present; empty when the producer attached none.
           items:
             $ref: "#/components/schemas/VerificationContextRow"
+        measurement_correction:
+          allOf:
+            - $ref: "#/components/schemas/VerificationMeasurementCorrection"
+          description: >-
+            Backend-owned declaration that this item carries a number the VERIFIER may correct
+            while reviewing the proof, plus every word of that control's copy. Absent — the normal
+            case — means the client renders no correction control at all.
+
+
+            It carries NO current value: the number is already in subject_label, which the
+            producing module composes and the verifier is reading while she watches the video.
         status:
           $ref: "#/components/schemas/VerificationItemStatus"
         verdict_reason:

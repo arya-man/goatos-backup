@@ -16,6 +16,7 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
@@ -95,6 +96,20 @@ data class ReworkTaskPayload(
 data class VerificationVerdictPayload(
     @SerialName("item_id") val itemId: String,
     @SerialName("request") val request: VerificationVerdictRequestDto,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_WEIGHT_CORRECTION]:
+ * the VERIFIER replacing the weight the operator typed, while she watches the proof video
+ * (maintainer decision 2026-08-17).
+ *
+ * The observation id and ref type come from the item's backend-owned measurement_correction block,
+ * which echoes source.ref_id/source.ref_type -- this app never composes that address itself.
+ */
+@Serializable
+data class WeighingWeightCorrectionPayload(
+    @SerialName("observation_id") val observationId: String,
+    @SerialName("request") val request: WeighingWeightCorrectionRequestDto,
 )
 
 @Serializable

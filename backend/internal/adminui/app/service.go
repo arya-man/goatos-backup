@@ -1205,15 +1205,36 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.media.title":            "Proof videos and media",
 			"drawer.media.empty":            "No proof media is attached to this action.",
 			"drawer.media.open":             "Open video",
-			"drawer.note":                   "Verifier decisions remain separate from source-task action. Rework and reassignment below act only on the linked SOP task.",
-			"feedback.done":                 "Done",
-			"feedback.failed":               "Action failed",
+			// DOUBLE-SPEED PLAYBACK (maintainer decision 2026-08-17). Offered only on clips longer
+			// than 20 seconds -- on a short one it saves a few seconds while making it materially
+			// easier to miss the single moment the proof turns on, so the control is absent rather
+			// than present and discouraged. The two labels are the button's OFF and ON states.
+			"player.speed_normal": "Play at 2x",
+			"player.speed_fast":   "Playing at 2x",
+			"player.speed_hint":   "Speeds up long videos. Available on videos longer than 20 seconds.",
+			"drawer.note":         "Verifier decisions remain separate from source-task action. Rework and reassignment below act only on the linked SOP task.",
+			"feedback.done":       "Done",
+			"feedback.failed":     "Action failed",
 			// feedback.<server error code>. The raw code is an internal token and must never be
 			// the sentence a verifier reads -- the screen literally said "Action failed
 			// missing_reason". Unmapped codes render nothing rather than leaking the token.
 			"feedback.missing_reason":    "A rejection needs a reason. Say what the video showed that failed the standard, then press Reject again.",
 			"feedback.permission_denied": "Recording a verdict is limited to the video verification team.",
 			"feedback.conflict":          "Someone else recorded a verdict on this action first. Reload to see it.",
+			// The VERIFIER's weight correction (maintainer decision 2026-08-17). The control's own
+			// copy -- heading, help, field labels, button -- is declared by the PRODUCING module in
+			// the verification category registry and travels on the item, so it is not repeated
+			// here. These are only the outcome sentences this screen renders after the write.
+			//
+			// Each refusal has a distinct remedy, so each gets its own sentence: a closed bucket
+			// needs a manager, an out-of-range value needs a different number, and an already-used
+			// key needs a reload. One shared "that failed" would leave her with no next step.
+			"feedback.weight_corrected":            "Weight corrected. The record now shows the weight you entered.",
+			"feedback.missing_weight":              "Enter the correct weight in kg.",
+			"feedback.weight_out_of_range":         "Enter a weight in kg between 0.001 and 100000.",
+			"feedback.animal_count_out_of_range":   "Enter how many goats were on the scale, up to 100000.",
+			"feedback.animal_count_not_applicable": "This video is one animal's weight, so it carries no goat count.",
+			"feedback.weighing_bucket_closed":      "This shed's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
 			// Rework / Re-assign / Penalty copy REMOVED with those panels (maintainer decision
 			// 2026-08-07). mock/verifier-web-mock.SPEC.md section 1: the verifier watches a proof
 			// video and accepts it, or rejects it with a reason -- "that is all. Nothing else

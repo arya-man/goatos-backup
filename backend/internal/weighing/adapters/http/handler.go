@@ -54,7 +54,11 @@ type Service interface {
 type Handler struct {
 	service Service
 	log     *slog.Logger
-	media   interface {
+	// weightCorrector serves the VERIFIER's weight correction. It is a separate,
+	// optional seam rather than a Service method so the verifier's write cannot
+	// reach the planner/execution surface -- see weight_correction.go.
+	weightCorrector WeightCorrector
+	media           interface {
 		DownloadURL(context.Context, string, string) (string, error)
 	}
 }
@@ -99,6 +103,10 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", h.CloseScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/close", h.CloseCampaign)
+	// The VERIFIER's weight correction. Observation-grained, not campaign-scoped:
+	// she reaches it from a verification item, which knows the observation id and
+	// nothing about which campaign it belongs to.
+	mux.HandleFunc("POST /app/weighing/observations/{observation_id}/weight-correction", h.CorrectObservationWeight)
 	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
 	// buckets + whole-filter summary; renderers never recompute totals.
 	mux.HandleFunc("GET /weighing/process-state", h.WeighingProcessState)

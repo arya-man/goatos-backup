@@ -279,6 +279,28 @@ func (r *fakeRepo) CloseVaccinationBatch(_ context.Context, in domain.CloseVacci
 	})
 }
 
+// RelabelItemBySource is the RELABEL seam: the producing module restating the
+// subject label after the fact it names changed (the verifier corrected a weight).
+// It rewrites copy on items in EVERY status -- an approved item's label must still
+// name the weight the record actually holds -- and touches nothing else.
+func (r *fakeRepo) RelabelItemBySource(_ context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	relabelled := 0
+	for _, item := range r.items {
+		if item.TenantID != tenantID || item.Source.Module != sourceModule ||
+			item.Source.RefType != sourceRefType || item.Source.RefID != sourceRefID {
+			continue
+		}
+		if item.SubjectLabel != nil && *item.SubjectLabel == subjectLabel {
+			continue
+		}
+		label := subjectLabel
+		item.SubjectLabel = &label
+		item.RowVersion++
+		relabelled++
+	}
+	return relabelled, nil
+}
+
 // MarkVerdictApplied is the apply-RECEIPT seam: the producing module reporting that
 // it wrote the verdict's outcome onto its own record. It stamps only the receipt --
 // never status, never verdict -- so the applier stays the single writer of the outcome.
