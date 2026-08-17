@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Operator copy for the proof trim editor.
+
+  Farm language only, per the user-facing copy firewall: no pipeline mechanics (compression,
+  overlay, encode, stitch as a verb the operator performs) and no internal vocabulary. The
+  operator is told what they are doing to the video, never how the app processes it.
+
+  Temporary exception to backend-owned labels: these live in the module because the editor is
+  behind an off-by-default flag and has no backend contract yet. Moving them into the bootstrap
+  contract, and adding hi/kn/te translations, is tracked as follow-up before the flag is enabled
+  for any tenant.
+-->
+<resources>
+    <string name="proof_trim_title">Trim video</string>
+    <string name="proof_trim_subtitle">Keep only the parts that matter</string>
+
+    <string name="proof_trim_play">Play selection</string>
+    <string name="proof_trim_pause">Pause</string>
+
+    <string name="proof_trim_handle_start">Selection start</string>
+    <string name="proof_trim_handle_end">Selection end</string>
+
+    <string name="proof_trim_keep_range">Keep this range</string>
+    <string name="proof_trim_already_kept">This part is already kept. Remove it to select it again.</string>
+    <string name="proof_trim_too_short">Drag a longer range to keep it.</string>
+
+    <string name="proof_trim_kept_header">KEPT PARTS (%1$d)</string>
+    <string name="proof_trim_kept_row">%1$s kept</string>
+    <string name="proof_trim_remove_range">Remove part %1$d</string>
+    <string name="proof_trim_preview_joined">▶  Play all parts</string>
+    <string name="proof_trim_clear_all">Clear all</string>
+    <string name="proof_trim_part_of">Part %1$d of %2$d</string>
+
+    <string name="proof_trim_empty_help">Drag across the strip to mark a part, then tap Keep this range. Repeat for as many parts as you need.</string>
+    <string name="proof_trim_output_summary">Video will be %1$s of %2$s</string>
+
+    <string name="proof_trim_clear_title">Remove all parts?</string>
+    <string name="proof_trim_clear_body">All %1$d kept part(s) will be cleared. Your recording is not deleted.</string>
+    <string name="proof_trim_clear_confirm">Remove all</string>
+    <string name="proof_trim_cancel">Cancel</string>
+
+    <string name="proof_trim_done_whole">Done · full video</string>
+    <string name="proof_trim_done_length">Done · %1$s</string>
+</resources>
