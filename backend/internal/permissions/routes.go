@@ -309,6 +309,19 @@ var protectedRoutes = []Route{
 	// never finish, and closing may strand not-accepted buckets.
 	{OperationID: "appCloseWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appCloseWeighingCampaign", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/close", Permissions: []string{WeighingMonitor}},
+	// THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). She watches
+	// the proof video and fixes the number the operator typed, in kg, on the screen
+	// where she watches it.
+	//
+	// VerificationVerdict, deliberately -- NOT a weighing capability. This is the
+	// verifier-exclusive capability that owns approve/reject (2026-08-03 verdict
+	// exclusivity), so the one person who judges the evidence is the one person who
+	// may correct what it shows. Gating it on WeighingMonitor instead would hand the
+	// operator's recorded weight to every director and the CEO, which is the exact
+	// separation-of-duty inversion that lock exists to prevent; gating it on
+	// WeighingExecute would let the operator who typed the wrong number overwrite it
+	// with no second check at all.
+	{OperationID: "appCorrectWeighingObservationWeight", Method: "POST", Pattern: "/app/weighing/observations/{observation_id}/weight-correction", Permissions: []string{VerificationVerdict}},
 	// PHASE 2 Calendar / Control Tower weighing process state (read-only).
 	{OperationID: "getWeighingProcessState", Method: "GET", Pattern: "/weighing/process-state", Permissions: []string{WeighingMonitor}},
 	// The weighing module's OWN lifecycle alerts feed. AnyPermissions, never

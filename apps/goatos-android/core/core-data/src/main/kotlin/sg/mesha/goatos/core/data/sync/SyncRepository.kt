@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -179,6 +180,23 @@ interface SyncRepository {
         reason: String?,
         rowVersion: Int,
     ): AppResult<String>
+
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17): she replaces the weight the
+     * operator typed, while she watches the proof video.
+     *
+     * [animalCount] is LUMP-SUM ONLY and null means "leave the recorded count alone" -- it is omitted
+     * from the request rather than sent as 0, because the backend REFUSES a head count on an
+     * individual capture instead of ignoring it. [observationId] is the outbox group key so two
+     * corrections of the same record never drain out of order.
+     */
+    suspend fun enqueueWeighingWeightCorrection(
+        observationId: String,
+        refType: String,
+        weightKg: Double,
+        animalCount: Int?,
+        reason: String?,
+    ): AppResult<String> = AppResult.Err("Correcting a weight is not available.")
 
     /** Queues leadership closure after verifier approval; stable per item row version. */
     suspend fun enqueueVerificationClose(
@@ -771,6 +789,38 @@ class DefaultSyncRepository(
             groupKey = taskId,
             idempotencyKey = idempotencyKey,
             payloadJson = syncJson.encodeToString(ReworkTaskPayload(taskId = taskId, request = ReviewTaskRequestDto(reason = reason, rowVersion = rowVersion))),
+        )
+    }
+
+    override suspend fun enqueueWeighingWeightCorrection(
+        observationId: String,
+        refType: String,
+        weightKg: Double,
+        animalCount: Int?,
+        reason: String?,
+    ): AppResult<String> {
+        // STABLE, never timestamp-suffixed: a retry of the SAME correction must replay for free on
+        // the server rather than write twice, while correcting to 12 kg and then to 13 kg are two
+        // different acts that must not collide on one key -- so the corrected VALUES are in the key.
+        val idempotencyKey = "$observationId-weight-correction-$weightKg-${animalCount ?: "keep"}"
+        return enqueue(
+            opType = OutboxOpType.WEIGHING_WEIGHT_CORRECTION,
+            // The observation is the group key, so two corrections of the same record can never
+            // drain concurrently or out of order -- the last one she made must be the one that wins.
+            groupKey = observationId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                WeighingWeightCorrectionPayload(
+                    observationId = observationId,
+                    request = WeighingWeightCorrectionRequestDto(
+                        refType = refType,
+                        weightKg = weightKg,
+                        animalCount = animalCount,
+                        reason = reason,
+                        idempotencyKey = idempotencyKey,
+                    ),
+                ),
+            ),
         )
     }
 

@@ -2592,6 +2592,55 @@ RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
 	return len(withdrawn), nil
 }
 
+// RelabelItemBySource replaces the backend-composed subject label on the item
+// raised for ONE source record.
+//
+// It exists for the verifier's weighing weight correction. subject_label is
+// composed by the producing module at enqueue and STATES A FACT -- for weighing it
+// carries the weight itself ("Godel 1 - Part 3 · Tag 9010 · 120.0 kg"). When the
+// verifier corrects that weight, the stored label still advertises the number that
+// was just replaced, so she reads her own correction back as if it never landed.
+// The producing module owns that sentence, so the producing module hands the new
+// one back through this seam rather than reaching into verification's table.
+//
+// It decides NOTHING. No status, no verdict, no verifier, no media, no event: it
+// rewrites display copy, and a relabel is not a lifecycle transition that any
+// consumer needs to hear about. row_version IS bumped, because an open verdict
+// form rendered against the old label is looking at a stale row and its optimistic
+// concurrency check should say so rather than silently write over a corrected one.
+//
+// EVERY status is relabelled, decided items included. That is deliberate and is the
+// opposite of WithdrawItemsBySource's pending-only rule: withdrawal changes what an
+// item MEANS and must never touch a decision, while a label must describe the row
+// as it stands now -- an approved item whose weight was later corrected still has
+// to name the weight the record actually holds.
+//
+// Idempotent by construction: writing the same label twice is the same end state,
+// and the second write is skipped entirely (the label predicate below) so a retry
+// does not churn row_version.
+func (r *Repository) RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	subjectLabel = strings.TrimSpace(subjectLabel)
+	// The column's CHECK forbids a present-but-blank label, and a blank one would
+	// strip the verifier's only identity line. Nothing to do rather than corrupt it.
+	if subjectLabel == "" {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE verification_items
+SET subject_label = $5, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND source_module = $2
+  AND source_ref_type = $3
+  AND source_ref_id = $4::uuid
+  AND subject_label IS DISTINCT FROM $5`, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // MarkVerdictApplied is the producing module's RECEIPT that it wrote a verdict
 // outcome onto its own record. It is the second half of the ack protocol whose
 // first half is CreateItem's applier_ack_expected.
