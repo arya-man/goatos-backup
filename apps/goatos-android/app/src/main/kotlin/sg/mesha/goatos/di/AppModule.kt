@@ -104,6 +104,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.FailureReportingOutboxTelemetryReporter
 import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -715,6 +716,13 @@ object AppModule {
         clearPushAndAnalyticsIdentity = pushLogoutCleanup::clear,
         feedCompletionLocalStore = feedCompletionLocalStore,
     )
+
+    @Provides
+    @Singleton
+    fun provideSubmittedGrainsSource(syncRepository: SyncRepository): SubmittedGrainsSource =
+        // Bound to the OUTBOX-derived projection: a submit that succeeds or dies leaves the active
+        // set by itself, so the badge retracts with nothing to clear.
+        SubmittedGrainsSource { syncRepository.observeSubmittedForReviewGrains() }
 
     @Provides
     @Singleton

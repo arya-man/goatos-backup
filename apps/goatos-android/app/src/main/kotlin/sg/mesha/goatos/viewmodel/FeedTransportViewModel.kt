@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.taskGrainKey
 import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.FeedTransportStatusSource
@@ -76,7 +77,7 @@ private const val TRANSPORT_PAGE_SIZE = 20
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class FeedTransportViewModel @Inject constructor(
-    private val syncRepository: SyncRepository,
+    private val submittedGrains: SubmittedGrainsSource,
     private val repo: FeedTransportRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -111,7 +112,7 @@ class FeedTransportViewModel @Inject constructor(
         observedPage,
         flags,
         window,
-        syncRepository.observeSubmittedForReviewGrains(),
+        submittedGrains.observe(),
     ) { (selected, page), current, size, locallySubmitted ->
         val parks = page.filters.parks.map { FeedDropdownOption(it.id, it.label) }
         val sheds = page.filters.sheds.map {

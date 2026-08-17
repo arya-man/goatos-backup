@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// check-feed-submitted-overlay-wiring.mjs — keeps the queued-submit badge overlay WIRED.
+// check-feed-submitted-overlay-wiring.mjs — keeps the queued-submit badge OUTBOX-DERIVED.
 //
 // Bug this exists for (254.mp4): an operator submitted a shed-session, returned to the worklist,
-// and the row still read "Pending" because the write was only in the outbox. Every Feed list
-// renders its chip from `lifecycleStatus`, so the fix has THREE parts that must all stay present:
+// and the row still read "Pending" because the write was only in the outbox.
 //
-//   1. the submit ViewModel records the grain on ENQUEUE SUCCESS (markSubmittedForReview),
-//   2. the list ViewModel COMBINES feedCompletionStore.submittedForReviewKeys, and
-//   3. its row mapping runs the status through overlayFeedLifecycleStatus.
+// The FIRST fix kept an in-memory set that was marked at enqueue and hand-cleared when the outbox
+// row died. That design shipped four defects, every one of them caused by rebuilding the grain key
+// in two places that could disagree:
+//   * pen-day `sessionNo = 0` marked, `1` cleared            -> badge stranded on "In review"
+//   * `businessDate()` read either side of midnight          -> badge stranded on "In review"
+//   * null vs blank partition labels                         -> badge stranded on "In review"
+//   * process death wiped the set while the row survived     -> the ORIGINAL bug, back again
 //
-// Deleting ANY ONE of those silently restores the bug while every unit test still passes: the
-// rule's own tests (FeedPacking/FeedDirectionSubmittedForReviewOverlayTest) call the pure function
-// directly, so they cannot see a severed call site. That is exactly the gap this guard closes.
-//
-// A paging-level test was tried first and rejected: `rows` ends in `cachedIn(viewModelScope)`, and
-// `asSnapshot()` over a cached PagingData never settles under `runTest` (UncompletedCoroutinesError
-// after 1m). A structural guard is deterministic where that test was flaky.
+// The current design derives the badge from ACTIVE OUTBOX ROWS, so a submit that succeeds or dies
+// leaves the set by itself: nothing to clear, no second key, nothing to lose on process death.
+// This guard exists to stop anyone quietly reintroducing the old shape, because every one of those
+// four bugs passes unit tests right up until it reaches an operator.
 //
 // Modes:
 //   (default)     verify the wiring in the real sources.
@@ -26,94 +26,101 @@ import path from "node:path";
 
 const repo = path.resolve(new URL("../..", import.meta.url).pathname);
 const vm = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel";
+const data = "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data";
 
-/** List ViewModels: must combine the submitted set AND apply the shared rule. */
+/** Every list that renders a verifier-gated badge. Adding a flow means adding it HERE. */
 const LIST_VIEW_MODELS = [
   `${vm}/FeedPackingViewModel.kt`,
   `${vm}/FeedDirectionViewModel.kt`,
-];
-
-/** Task-grain lists (Feed Transport, Milk Feeding): own status vocabulary, own overlay rule. */
-const TASK_GRAIN_LISTS = [
-  { file: `${vm}/FeedTransportViewModel.kt`, rule: "overlayTransportStatus(" },
-  { file: `${vm}/MilkFeedingViewModel.kt`, rule: "overlayMilkFeedingStatus(" },
-  { file: `${vm}/MilkPreparationViewModel.kt`, rule: "overlayMilkPreparationStatus(" },
-];
-
-/** Submit ViewModels: must record the grain when the enqueue succeeds. */
-const SUBMIT_VIEW_MODELS = [
-  `${vm}/FeedPackingCompleteViewModel.kt`,
-  `${vm}/FeedCompleteViewModel.kt`,
-  `${vm}/FeedDistributionCompleteViewModel.kt`,
   `${vm}/FeedTransportViewModel.kt`,
   `${vm}/MilkFeedingViewModel.kt`,
   `${vm}/MilkPreparationViewModel.kt`,
 ];
 
-/** The engine that must RETRACT the badge when a submit dies. */
-const SYNC_ENGINE =
-  "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/sync/SyncEngine.kt";
+const CODEC = `${data}/sync/SubmittedGrainKeys.kt`;
+const RULE = `${vm}/FeedLifecycleOverlay.kt`;
+const PROJECTION = `${data}/sync/SyncRepository.kt`;
+
+/** APIs the old in-memory design used. Their return is the regression. */
+const BANNED = ["markSubmittedForReview", "clearSubmittedForReview", "submittedForReviewKeys"];
 
 // ---- pure analysis (unit-tested by --self-test) ---------------------------------------------
 
 export function checkListViewModel(source, label) {
-  if (!source.includes("submittedForReviewKeys")) {
+  if (!source.includes("submittedGrains.observe()")) {
     throw new Error(
-      `${label}: list no longer combines feedCompletionStore.submittedForReviewKeys — a queued ` +
-        `submit cannot reach the row, so the chip stays "Pending" (254.mp4 regression)`,
+      `${label}: list no longer combines the OUTBOX-derived submitted grains — a queued submit ` +
+        `cannot reach the row, so the chip stays "Pending" (254.mp4 regression)`,
     );
   }
-  if (!source.includes("overlayFeedLifecycleStatus(")) {
+  if (!source.includes("overlayVerificationStatus(")) {
     throw new Error(
-      `${label}: row mapping no longer calls overlayFeedLifecycleStatus — the chip renders the ` +
-        `raw backend lifecycleStatus and a queued submit reads "Pending"`,
-    );
-  }
-}
-
-export function checkTaskGrainList(source, rule, label) {
-  if (!source.includes("submittedForReviewKeys")) {
-    throw new Error(`${label}: task-grain list no longer combines submittedForReviewKeys`);
-  }
-  if (!source.includes(rule)) {
-    throw new Error(`${label}: row mapping no longer calls ${rule} — a queued submit reads stale`);
-  }
-}
-
-export function checkSubmitViewModel(source, label) {
-  if (!source.includes("markSubmittedForReview(")) {
-    throw new Error(
-      `${label}: submit no longer calls markSubmittedForReview on enqueue success — nothing ` +
-        `records the grain, so the list overlay has nothing to apply`,
+      `${label}: row mapping no longer calls overlayVerificationStatus — the chip renders the raw ` +
+        `backend status and a queued submit reads "Pending"`,
     );
   }
 }
 
-/** The rule itself must stay a single shared definition, not be copied per flow. */
-/**
- * The badge is a CLAIM that work was sent. When the outbox row dies (rejected, or attempts
- * exhausted) the claim must be retracted, or the list keeps lying about sent work — worse than the
- * stale "Pending" the overlay exists to fix. Enforced structurally because nothing else fails.
- */
-export function checkTerminalClear(source, label) {
-  if (!source.includes("clearSubmittedForReview(")) {
-    throw new Error(
-      `${label}: nothing clears the optimistic badge on terminal failure — a rejected or ` +
-        `exhausted submit would keep reading "In review" until logout or the next business day`,
-    );
-  }
-  if (!source.includes("submittedOverlayKeyOf(")) {
-    throw new Error(`${label}: the opType -> grain-key mapping used to clear the badge is gone`);
+/** The in-memory mechanism must not come back anywhere. */
+export function checkNoInMemoryOverlay(rawSource, label) {
+  const source = stripComments(rawSource);
+  for (const api of BANNED) {
+    if (source.includes(api)) {
+      throw new Error(
+        `${label}: '${api}' is the in-memory badge mechanism that shipped four stranded-badge ` +
+          `defects. The badge is derived from active outbox rows now — do not mark or clear it.`,
+      );
+    }
   }
 }
 
-export function checkSingleRuleDefinition(sources) {
-  const definitions = sources.filter((s) => s.body.includes("internal fun overlayFeedLifecycleStatus"));
-  if (definitions.length !== 1) {
+/** The key must be a pure function of the payload: a clock in it reopens the midnight bug. */
+/** Comments legitimately NAME the banned APIs when explaining why they are banned. */
+export function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+export function checkCodecHasNoClock(rawSource, label) {
+  const source = stripComments(rawSource);
+  const clocks = ["businessDate(", "LocalDate.now(", "System.currentTimeMillis(", "Instant.now("];
+  for (const clock of clocks) {
+    if (source.includes(clock)) {
+      throw new Error(
+        `${label}: the grain key reads the clock ('${clock}'). A key built at 23:50 and rebuilt at ` +
+          `00:05 would not match, which is exactly how the badge got stranded before.`,
+      );
+    }
+  }
+  if (!source.includes("fun shedSessionKey(") || !source.includes("fun taskGrainKey(")) {
+    throw new Error(`${label}: the shared key builders are gone; callers will hand-roll keys again`);
+  }
+}
+
+/** The projection must read the FULL active set, never a window. */
+export function checkProjectionIsUnwindowed(source, label) {
+  if (!source.includes("observeSubmittedForReviewGrains")) {
+    throw new Error(`${label}: the outbox-derived badge projection is gone`);
+  }
+  const impl = source.slice(source.indexOf("override fun observeSubmittedForReviewGrains"));
+  const body = impl.slice(0, 600);
+  if (body.includes("observeActiveWindow") || body.includes("observeRecentTerminals")) {
     throw new Error(
-      `overlayFeedLifecycleStatus must have exactly ONE definition (found ${definitions.length}: ` +
-        `${definitions.map((d) => d.label).join(", ")}). Copies drift apart — that is how Feed ` +
-        `Direction and Feed Packing ended up with different behaviour.`,
+      `${label}: the badge projection uses a WINDOWED outbox read. A newest-N window silently drops ` +
+        `the oldest pending submit once other features queue rows after it.`,
+    );
+  }
+  if (!body.includes("observeActive")) {
+    throw new Error(`${label}: the badge projection no longer reads the active outbox set`);
+  }
+}
+
+/** One rule, one codec — copies are how Packing and Direction drifted apart. */
+export function checkSingleDefinition(sources, needle, what) {
+  const defs = sources.filter((s) => s.body.includes(needle));
+  if (defs.length !== 1) {
+    throw new Error(
+      `${what} must have exactly ONE definition (found ${defs.length}: ` +
+        `${defs.map((d) => d.label).join(", ")}). Copies drift apart.`,
     );
   }
 }
@@ -132,55 +139,66 @@ function expectThrow(fn, what) {
 }
 
 function selfTest() {
-  const goodList = `
-    combine(_filters, feedCompletionStore.completedKeys, feedCompletionStore.submittedForReviewKeys) { a, b, c -> Triple(a, b, c) }
-    val overlaid = overlayFeedLifecycleStatus(lifecycleStatus = lifecycleStatus, reworkReason = "", isLocallySubmittedForReview = x)
-  `;
-  const goodSubmit = `feedCompletionStore.markSubmittedForReview(completionKey)`;
-
+  const goodList = `combine(_filters, submittedGrains.observe()) { ... }
+    val s = overlayVerificationStatus(backendStatus = x, reworkReason = r, isLocallySubmitted = b, inReviewToken = t)`;
   checkListViewModel(goodList, "fixture");
-  console.log("  ok   accepts a correctly wired list ViewModel");
-  checkSubmitViewModel(goodSubmit, "fixture");
-  console.log("  ok   accepts a correctly wired submit ViewModel");
+  console.log("  ok   accepts an outbox-derived list");
+  checkNoInMemoryOverlay(goodList, "fixture");
+  console.log("  ok   accepts a list with no in-memory mark/clear");
 
   expectThrow(
-    () => checkListViewModel(goodList.replace("feedCompletionStore.submittedForReviewKeys", "emptySet()"), "fixture"),
-    "a list that stopped combining submittedForReviewKeys",
+    () => checkListViewModel(goodList.replace("submittedGrains.observe()", "emptySet()"), "fixture"),
+    "a list that stopped combining the outbox-derived grains",
   );
   expectThrow(
-    () => checkListViewModel(goodList.replace("overlayFeedLifecycleStatus(", "passThrough("), "fixture"),
-    "a row mapping that dropped the overlay call",
-  );
-  checkTaskGrainList("submittedForReviewKeys ... overlayTransportStatus(x)", "overlayTransportStatus(", "fixture");
-  console.log("  ok   accepts a correctly wired task-grain list");
-  expectThrow(
-    () => checkTaskGrainList("submittedForReviewKeys only", "overlayTransportStatus(", "fixture"),
-    "a task-grain list missing its overlay rule",
-  );
-  checkTerminalClear("submittedOverlayKeyOf(item) ... clearSubmittedForReview(it)", "fixture");
-  console.log("  ok   accepts an engine that retracts the badge on terminal failure");
-  expectThrow(
-    () => checkTerminalClear("report(TERMINAL)", "fixture"),
-    "an engine that never clears the badge on terminal failure",
+    () => checkListViewModel(goodList.replace("overlayVerificationStatus(", "passThrough("), "fixture"),
+    "a list that dropped the shared overlay rule",
   );
   expectThrow(
-    () => checkSubmitViewModel("analytics.track(SUBMITTED)", "fixture"),
-    "a submit that never records the grain",
+    () => checkNoInMemoryOverlay("feedCompletionStore.markSubmittedForReview(k)", "fixture"),
+    "a resurrected in-memory mark",
   );
+  expectThrow(
+    () => checkNoInMemoryOverlay("store.clearSubmittedForReview(k)", "fixture"),
+    "a resurrected in-memory clear",
+  );
+
+  const goodCodec = "fun shedSessionKey( ... ) fun taskGrainKey( ... )";
+  checkCodecHasNoClock(goodCodec, "fixture");
+  checkCodecHasNoClock("// businessDate() is banned here\n" + goodCodec, "fixture-comment");
+  console.log("  ok   a comment naming the banned clock is not a violation");
+  console.log("  ok   accepts a clock-free codec");
+  expectThrow(
+    () => checkCodecHasNoClock(goodCodec + " businessDate()", "fixture"),
+    "a grain key that reads the clock (the midnight bug)",
+  );
+
+  const goodProjection =
+    "override fun observeSubmittedForReviewGrains(): Flow<Set<String>> = store.observeActive().map { }";
+  checkProjectionIsUnwindowed(goodProjection, "fixture");
+  console.log("  ok   accepts an unwindowed projection");
   expectThrow(
     () =>
-      checkSingleRuleDefinition([
-        { label: "a.kt", body: "internal fun overlayFeedLifecycleStatus(" },
-        { label: "b.kt", body: "internal fun overlayFeedLifecycleStatus(" },
-      ]),
+      checkProjectionIsUnwindowed(
+        goodProjection.replace("observeActive()", "observeActiveWindow(50)"),
+        "fixture",
+      ),
+    "a windowed badge projection",
+  );
+
+  expectThrow(
+    () =>
+      checkSingleDefinition(
+        [
+          { label: "a.kt", body: "internal fun overlayVerificationStatus(" },
+          { label: "b.kt", body: "internal fun overlayVerificationStatus(" },
+        ],
+        "internal fun overlayVerificationStatus(",
+        "the overlay rule",
+      ),
     "a second copy of the rule",
   );
 
-  checkSingleRuleDefinition([
-    { label: "a.kt", body: "internal fun overlayFeedLifecycleStatus(" },
-    { label: "b.kt", body: "overlayFeedLifecycleStatus(...)" },
-  ]);
-  console.log("  ok   accepts exactly one definition with many call sites");
   console.log("feed-submitted-overlay-wiring: self-test PASS");
 }
 
@@ -201,22 +219,23 @@ function main() {
   for (const rel of LIST_VIEW_MODELS) {
     const { label, body } = read(rel);
     checkListViewModel(body, label);
+    checkNoInMemoryOverlay(body, label);
   }
-  for (const { file, rule } of TASK_GRAIN_LISTS) {
-    const { label, body } = read(file);
-    checkTaskGrainList(body, rule, label);
-  }
-  for (const rel of SUBMIT_VIEW_MODELS) {
-    const { label, body } = read(rel);
-    checkSubmitViewModel(body, label);
-  }
-  {
-    const { label, body } = read(SYNC_ENGINE);
-    checkTerminalClear(body, label);
-  }
-  checkSingleRuleDefinition([...LIST_VIEW_MODELS, ...TASK_GRAIN_LISTS.map((t) => t.file), `${vm}/FeedLifecycleOverlay.kt`].map(read));
 
-  console.log("feed-submitted-overlay-wiring: ok");
+  const codec = read(CODEC);
+  checkCodecHasNoClock(codec.body, codec.label);
+
+  const projection = read(PROJECTION);
+  checkProjectionIsUnwindowed(projection.body, projection.label);
+
+  checkSingleDefinition(
+    [read(RULE), ...LIST_VIEW_MODELS.map(read)],
+    "internal fun overlayVerificationStatus(",
+    "the overlay rule",
+  );
+  checkSingleDefinition([codec], "internal fun submittedGrainKeyOf(", "the grain-key codec");
+
+  console.log("feed-submitted-overlay-wiring: ok (outbox-derived)");
 }
 
 try {

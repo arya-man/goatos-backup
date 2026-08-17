@@ -60,7 +60,6 @@ class MilkFeedingViewModelTest {
         val feedingRepository = FakeMilkFeedingRepository()
 
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = feedingRepository,
 sync = syncRepository,
             capture = videoSource,
@@ -113,7 +112,6 @@ sync = syncRepository,
         val feedingRepository = FakeMilkFeedingRepository()
 
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = feedingRepository,
 sync = syncRepository,
             capture = videoSource,
@@ -165,7 +163,6 @@ sync = syncRepository,
         val feedingRepository = FakeMilkFeedingRepository()
 
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = feedingRepository,
 sync = syncRepository,
             capture = videoSource,
@@ -224,7 +221,6 @@ sync = syncRepository,
         syncRepository.itemFlow.value = queueItem("outbox-milk-1", sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED)
         val analytics = FakeAnalyticsPort()
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(),
 sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -262,7 +258,6 @@ sync = syncRepository,
         val syncRepository = FakeMilkFeedingSyncRepository()
         syncRepository.itemFlow.value = queueItem("outbox-milk-1", sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED, attempts = 8)
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(),
 sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -294,7 +289,6 @@ sync = syncRepository,
     fun `live pending_verification status blocks edits with no local latch`() = runTest(dispatcher) {
         val syncRepository = FakeMilkFeedingSyncRepository()
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(verificationStatus = "pending_verification"),
             sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -323,7 +317,6 @@ sync = syncRepository,
         val syncRepository = FakeMilkFeedingSyncRepository()
         syncRepository.itemFlow.value = queueItem("outbox-milk-1", sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED, attempts = 8)
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(verificationStatus = "not_submitted"),
             sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -362,7 +355,6 @@ sync = syncRepository,
         val proofRepository = FakeProofCaptureRepository()
 
         var viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(),
 sync = syncRepository,
             capture = FakeProofCaptureSource(
@@ -395,7 +387,6 @@ sync = syncRepository,
 
         // Process death: recreate the ViewModel from the SAME durable draft store.
         viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(),
 sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -421,7 +412,6 @@ sync = syncRepository,
     fun `real viewmodel emits milk feeding opened event`() = runTest(dispatcher) {
         val analytics = FakeAnalyticsPort()
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(),
 sync = FakeMilkFeedingSyncRepository(),
             capture = FakeProofCaptureSource(),
@@ -454,7 +444,6 @@ sync = FakeMilkFeedingSyncRepository(),
         // clears submitOutboxItemId (existing #1 fix), so the durable draft's submitOutboxItemId
         // must also be cleared.
         var viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(verificationStatus = "not_submitted"),
             sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -478,7 +467,6 @@ sync = FakeMilkFeedingSyncRepository(),
         // ViewModel instance, WITHOUT the SavedStateHandle latch (as a fresh nav-backstack entry
         // would have), reading the SAME durable draft store and the SAME still-FAILED sync item.
         viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(verificationStatus = "not_submitted"),
             sync = syncRepository,
             capture = FakeProofCaptureSource(),
@@ -507,7 +495,6 @@ sync = FakeMilkFeedingSyncRepository(),
 
         // Navigate to a task from a past date: the ViewModel receives the date via nav args
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = feedingRepository,
 sync = FakeMilkFeedingSyncRepository(),
             capture = FakeProofCaptureSource(),
@@ -564,7 +551,6 @@ sync = FakeMilkFeedingSyncRepository(),
         )
 
         val viewModel = MilkFeedingViewModel(
-            feedCompletionStore = FeedCompletionLocalStore(),
             repo = FakeMilkFeedingRepository(),
 sync = FakeMilkFeedingSyncRepository(),
             capture = videoSource,

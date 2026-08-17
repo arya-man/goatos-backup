@@ -62,7 +62,6 @@ class FeedTransportRecaptureOrderingTest {
         sync = RecordingFeedTransportOrderingSyncRepository(),
         capture = proofSource,
         proofCaptureRepository = proofCaptureRepository,
-        feedCompletionStore = FeedCompletionLocalStore(),
         drafts = drafts,
         analytics = RecordingAnalytics(),
         crashReporter = NoopCrashReporter(),

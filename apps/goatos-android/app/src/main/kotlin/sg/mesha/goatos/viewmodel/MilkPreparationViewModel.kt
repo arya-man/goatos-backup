@@ -30,6 +30,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.taskGrainKey
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
@@ -42,7 +43,7 @@ import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
-import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.isConnectivityFailure
@@ -68,7 +69,7 @@ private data class MilkPreparationRefreshState(
 @HiltViewModel
 class MilkPreparationListViewModel @Inject constructor(
     private val repo: MilkPreparationRepository,
-    private val syncRepository: SyncRepository,
+    private val submittedGrains: SubmittedGrainsSource,
     drafts: CaptureDraftRepository,
 ) : ViewModel() {
     private val selectedDate = MutableStateFlow(LocalDate.now(MILK_IST).toString())
@@ -85,7 +86,7 @@ class MilkPreparationListViewModel @Inject constructor(
                 // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
                 // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
                 drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
-                syncRepository.observeSubmittedForReviewGrains(),
+                submittedGrains.observe(),
             ) { resource, selected, sync, capturedByEntity, locallySubmitted ->
                 val page = resource.data
                 if (page == null) {

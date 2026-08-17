@@ -29,6 +29,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.taskGrainKey
 import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
@@ -42,7 +43,7 @@ import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
-import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingNewRefusalDto
@@ -110,7 +111,7 @@ private const val WATCHLIST_PREFIX = "watchlist:"
 @HiltViewModel
 class MilkFeedingListViewModel @Inject constructor(
     private val repo: MilkFeedingRepository,
-    private val syncRepository: SyncRepository,
+    private val submittedGrains: SubmittedGrainsSource,
     drafts: CaptureDraftRepository,
 ) : ViewModel() {
     // MutableStateFlow + flatMapLatest re-subscribe, mirroring the MilkPreparationListViewModel
@@ -130,7 +131,7 @@ class MilkFeedingListViewModel @Inject constructor(
                 // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
                 // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
                 drafts.observeProgress(CaptureFlow.MILK_FEEDING),
-                syncRepository.observeSubmittedForReviewGrains(),
+                submittedGrains.observe(),
             ) { resource, busy, selected, capturedByTask, locallySubmitted ->
                 buildMilkFeedingListUi(resource.data, selected, capturedByTask, selectedDate = dateStr, locallySubmitted = locallySubmitted).copy(
                     selectedDate = dateStr,

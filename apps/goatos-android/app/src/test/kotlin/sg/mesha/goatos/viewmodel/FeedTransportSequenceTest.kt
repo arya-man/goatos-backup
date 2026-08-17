@@ -1,5 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
+import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.room.Room
 import androidx.lifecycle.SavedStateHandle
@@ -142,7 +144,7 @@ class FeedTransportSequenceTest {
             val analytics = RecordingAnalytics()
             val viewModel = FeedTransportViewModel(
                 repo = FeedTransportRepository(api, database),
-                feedCompletionStore = FeedCompletionLocalStore(),
+                submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
                 analytics = analytics,
                 crashReporter = NoopCrashReporter(),
             )
@@ -180,7 +182,6 @@ class FeedTransportSequenceTest {
             sync = sync,
             capture = proofCaptureSource,
             proofCaptureRepository = proofCaptureRepository,
-            feedCompletionStore = FeedCompletionLocalStore(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
