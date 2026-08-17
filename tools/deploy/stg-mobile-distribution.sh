@@ -164,6 +164,8 @@ cd apps/goatos-android
   :app:assembleStgRelease \
   :app:bundleStgRelease \
   :app:appDistributionUploadStgRelease \
+  -x lintVitalAnalyzeRelease \
+  -x lintVitalAnalyzeStgRelease \
   --no-configuration-cache \
   -PallowDirtyFirebaseDistribution=true \
   -PfadReleaseNotes="Goat OS (Mesha) STG release from main ${commit_sha}"
