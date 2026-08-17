@@ -3836,6 +3836,92 @@ paths:
           description: Malformed date or park id.
         "403":
           description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/execution:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsExecution
+      summary: Per-day execution adherence for the Feed Analytics page.
+      description: >-
+        Status counts per business date across the three proof-gated feed stages -- packing and
+        distribution pen-session completions (verified / awaiting verdict / rework) and transport
+        shed tasks (completed / open / awaiting verdict / rework) -- plus the daily median
+        submit-to-verdict latency of packing and distribution verdicts, bucketed by the
+        Asia/Kolkata date the verdict landed. STATUS COUNTS ONLY: completions carry proofs, never
+        kg, so execution is judged on whether work was proved and verified, not on quantity.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-day status counts, ordered by date ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsExecutionResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/experiment:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsExperiment
+      summary: Trial-arm absolute kg series for the Feed Analytics page.
+      description: >-
+        The experiment workflow's authored kg per (feed day, experiment arm), with the distinct
+        pen count feeding under each arm. Experiment rations are ABSOLUTE shed/pen totals -- head
+        counts on those sheet rows are informational, so no per-head figure exists here and none
+        may be derived by a client.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-(day, arm) authored kg, ordered by feed day then arm.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsExperimentResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
   /feed-direction/preview:
     get:
       tags:
@@ -10381,6 +10467,96 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsDirectedItem"
+    FeedAnalyticsExecutionDay:
+      type: object
+      description: One business date of proof-gated feed execution statuses.
+      required:
+        [date, packing_verified, packing_awaiting, packing_rework, distribution_verified,
+         distribution_awaiting, distribution_rework, transport_completed, transport_open,
+         transport_awaiting_verdict, transport_rework]
+      properties:
+        date:
+          type: string
+          format: date
+        packing_verified:
+          type: integer
+          format: int64
+        packing_awaiting:
+          type: integer
+          format: int64
+        packing_rework:
+          type: integer
+          format: int64
+        distribution_verified:
+          type: integer
+          format: int64
+        distribution_awaiting:
+          type: integer
+          format: int64
+        distribution_rework:
+          type: integer
+          format: int64
+        transport_completed:
+          type: integer
+          format: int64
+        transport_open:
+          type: integer
+          format: int64
+        transport_awaiting_verdict:
+          type: integer
+          format: int64
+        transport_rework:
+          type: integer
+          format: int64
+        median_verify_latency_minutes:
+          type: integer
+          format: int64
+          nullable: true
+          description: Median submit-to-verdict latency of verdicts landing that IST date; null when none landed.
+    FeedAnalyticsExecutionResponse:
+      type: object
+      required: [date_from, date_to, days]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExecutionDay"
+    FeedAnalyticsExperimentArm:
+      type: object
+      description: One (feed day, experiment arm) of authored absolute kg.
+      required: [feed_day, experiment_arm, absolute_kg, pens]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        experiment_arm:
+          type: string
+        absolute_kg:
+          type: string
+          description: Authored shed/pen TOTAL kg as a decimal string -- never multiplied by heads.
+        pens:
+          type: integer
+          format: int64
+    FeedAnalyticsExperimentResponse:
+      type: object
+      required: [date_from, date_to, arms]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        arms:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExperimentArm"
     FeedDirectionRow:
       type: object
       additionalProperties: false

@@ -86,3 +86,58 @@ func ClampAnalyticsWindow(from, to time.Time) (time.Time, time.Time) {
 	}
 	return from, to
 }
+
+// ---------------------------------------------------------------------------
+// Execution analytics: proof/verdict adherence per day. STATUS COUNTS ONLY —
+// completions carry proofs, never kg, so execution can be judged on whether the
+// work was proved and verified, not on quantity.
+// ---------------------------------------------------------------------------
+
+// ExecutionDay is one business date of completion statuses across the three
+// proof-gated stages. Packing and distribution rows bucket by their pen-session
+// target_date; transport by its business_date. Latency buckets by the IST date
+// the verdict landed.
+type ExecutionDay struct {
+	Date string
+	// Packing pen-session completions by verification outcome.
+	PackingVerified int64
+	PackingAwaiting int64
+	PackingRework   int64
+	// Distribution pen-session completions by verification outcome.
+	DistributionVerified int64
+	DistributionAwaiting int64
+	DistributionRework   int64
+	// Transport shed tasks by state.
+	TransportCompleted       int64
+	TransportOpen            int64
+	TransportAwaitingVerdict int64
+	TransportRework          int64
+	// MedianVerifyLatencyMinutes is the median submit→verdict latency of packing
+	// and distribution verdicts landing that day; nil when none landed.
+	MedianVerifyLatencyMinutes *int64
+}
+
+// ExecutionAnalytics is the /feed-analytics/execution payload.
+type ExecutionAnalytics struct {
+	Days []ExecutionDay
+}
+
+// ---------------------------------------------------------------------------
+// Experiment analytics: the trial pens' authored absolute kg per arm per day.
+// ---------------------------------------------------------------------------
+
+// ExperimentDayArm is one (feed day, experiment arm) of the experiment
+// workflow. AbsoluteKg is a shed/pen TOTAL by authorship — head counts on these
+// rows are informational and no per-head figure exists or may be derived.
+type ExperimentDayArm struct {
+	FeedDay       string
+	ExperimentArm string
+	AbsoluteKg    string
+	// Pens is the distinct pen-grain count feeding under the arm that day.
+	Pens int64
+}
+
+// ExperimentAnalytics is the /feed-analytics/experiment payload.
+type ExperimentAnalytics struct {
+	Arms []ExperimentDayArm
+}

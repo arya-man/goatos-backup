@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -169,6 +170,236 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 	}
 	if err := itemRows.Err(); err != nil {
 		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics item rollup rows: %w", err)
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// Execution analytics
+// ---------------------------------------------------------------------------
+
+// projection-review: producers are three completion tables, each already at the
+// grain being counted — packing/distribution at (tenant, park, shed, partition,
+// session, target_date, workflow) natural-key grain, transport at task grain —
+// so COUNT(*) per (date, status) fans nothing out. Latency's numerator and
+// denominator range over the same row set: rows whose verdict landed on that
+// IST date. No join crosses tables; the three streams aggregate independently
+// and merge by date in Go.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded windowed status counts over
+// indexed date columns, the ADR's canonical-indexed-SQL default.
+const executionStatusSQL = `
+SELECT target_date::text AS d, status, COUNT(*)
+FROM %s
+WHERE tenant_id = $1
+  AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+  AND target_date BETWEEN $3 AND $4
+GROUP BY target_date, status`
+
+const executionTransportSQL = `
+SELECT business_date::text AS d, status, COUNT(*)
+FROM feed_transport_tasks
+WHERE tenant_id = $1
+  AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+  AND business_date BETWEEN $3 AND $4
+GROUP BY business_date, status`
+
+// Latency buckets by the Asia/Kolkata DATE the verdict landed (business
+// meaning is the India business calendar, never the UTC day).
+const executionLatencySQL = `
+SELECT (verified_at AT TIME ZONE 'Asia/Kolkata')::date::text AS d,
+       round(percentile_cont(0.5) WITHIN GROUP (
+         ORDER BY EXTRACT(EPOCH FROM (verified_at - created_at)) / 60.0
+       ))::bigint AS median_minutes
+FROM (
+    SELECT verified_at, created_at FROM feed_packing_completions
+    WHERE tenant_id = $1 AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND verified_at IS NOT NULL
+      AND (verified_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $3 AND $4
+    UNION ALL
+    SELECT verified_at, created_at FROM feed_distribution_completions
+    WHERE tenant_id = $1 AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND verified_at IS NOT NULL
+      AND (verified_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $3 AND $4
+) verdicts
+GROUP BY 1`
+
+// ExecutionAnalytics merges the three status streams and the latency series by
+// date. Four set-based reads, no per-day fan-out.
+func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExecutionAnalytics, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	from, to := domain.ClampAnalyticsWindow(q.DateFrom, q.DateTo)
+	var parkIDs []uuid.UUID
+	if len(q.ParkIDs) > 0 {
+		parkIDs = q.ParkIDs
+	}
+	fromArg, toArg := from.Format("2006-01-02"), to.Format("2006-01-02")
+
+	days := map[string]*domain.ExecutionDay{}
+	day := func(d string) *domain.ExecutionDay {
+		if existing, ok := days[d]; ok {
+			return existing
+		}
+		fresh := &domain.ExecutionDay{Date: d}
+		days[d] = fresh
+		return fresh
+	}
+
+	countInto := func(sql string, apply func(*domain.ExecutionDay, string, int64)) error {
+		rows, err := r.pool.Query(ctx, sql, tenantID, parkIDs, fromArg, toArg)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var d, status string
+			var n int64
+			if err := rows.Scan(&d, &status, &n); err != nil {
+				return err
+			}
+			apply(day(d), status, n)
+		}
+		return rows.Err()
+	}
+
+	if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_packing_completions"), func(e *domain.ExecutionDay, status string, n int64) {
+		switch status {
+		case "completed":
+			e.PackingVerified += n
+		case "pending_verification":
+			e.PackingAwaiting += n
+		case "rework":
+			e.PackingRework += n
+		}
+	}); err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing statuses: %w", err)
+	}
+	if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_distribution_completions"), func(e *domain.ExecutionDay, status string, n int64) {
+		switch status {
+		case "completed":
+			e.DistributionVerified += n
+		case "pending_verification":
+			e.DistributionAwaiting += n
+		case "rework":
+			e.DistributionRework += n
+		}
+	}); err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics distribution statuses: %w", err)
+	}
+	if err := countInto(executionTransportSQL, func(e *domain.ExecutionDay, status string, n int64) {
+		switch status {
+		case "completed":
+			e.TransportCompleted += n
+		case "due":
+			e.TransportOpen += n
+		case "verification_due":
+			e.TransportAwaitingVerdict += n
+		case "rework":
+			e.TransportRework += n
+		}
+	}); err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics transport statuses: %w", err)
+	}
+
+	latRows, err := r.pool.Query(ctx, executionLatencySQL, tenantID, parkIDs, fromArg, toArg)
+	if err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency: %w", err)
+	}
+	defer latRows.Close()
+	for latRows.Next() {
+		var d string
+		var minutes int64
+		if err := latRows.Scan(&d, &minutes); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency scan: %w", err)
+		}
+		m := minutes
+		day(d).MedianVerifyLatencyMinutes = &m
+	}
+	if err := latRows.Err(); err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency rows: %w", err)
+	}
+
+	out := domain.ExecutionAnalytics{Days: make([]domain.ExecutionDay, 0, len(days))}
+	keys := make([]string, 0, len(days))
+	for k := range days {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out.Days = append(out.Days, *days[k])
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// Experiment analytics
+// ---------------------------------------------------------------------------
+
+// projection-review: producer key is the issue-row natural key; consumer group
+// key is (feed_day, experiment_arm) after collapsing to the pen-grain. Pens
+// counts DISTINCT collapsed grains; kg sums resolved cells — both range over
+// the same grain set. Head counts on experiment rows are informational and are
+// deliberately absent from this read.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, same shape
+// as the directed rollup above.
+const experimentAnalyticsSQL = `
+WITH iss AS (
+    SELECT feed_direction_issue_id, feed_day
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND feed_day BETWEEN $3 AND $4
+      AND state IN ('issued', 'amended', 'locked')
+      AND workflow = 'experiment'
+),
+pen AS (
+    SELECT i.feed_day,
+           r.experiment_arm,
+           r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key,
+           SUM(r.quantity_kg) AS grain_kg
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY i.feed_day, r.experiment_arm,
+             r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+)
+SELECT feed_day::text,
+       experiment_arm,
+       COALESCE(SUM(grain_kg), 0)::text AS absolute_kg,
+       COUNT(*)                         AS pens
+FROM pen
+GROUP BY feed_day, experiment_arm
+ORDER BY feed_day, experiment_arm`
+
+// ExperimentAnalytics serves the trial arms' authored kg series.
+func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	from, to := domain.ClampAnalyticsWindow(q.DateFrom, q.DateTo)
+	var parkIDs []uuid.UUID
+	if len(q.ParkIDs) > 0 {
+		parkIDs = q.ParkIDs
+	}
+	rows, err := r.pool.Query(ctx, experimentAnalyticsSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment: %w", err)
+	}
+	defer rows.Close()
+	out := domain.ExperimentAnalytics{Arms: []domain.ExperimentDayArm{}}
+	for rows.Next() {
+		var a domain.ExperimentDayArm
+		if err := rows.Scan(&a.FeedDay, &a.ExperimentArm, &a.AbsoluteKg, &a.Pens); err != nil {
+			return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment scan: %w", err)
+		}
+		out.Arms = append(out.Arms, a)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment rows: %w", err)
 	}
 	return out, nil
 }

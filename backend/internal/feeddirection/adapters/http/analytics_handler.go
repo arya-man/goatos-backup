@@ -47,49 +47,16 @@ type directedAnalyticsDTO struct {
 // every chart on the page excludes it, and the backend owns that rule rather
 // than trusting each client to subtract a day.
 func (h *Handler) GetDirectedAnalytics(w http.ResponseWriter, r *http.Request) {
-	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
-	if tenantID == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+	in, ok := h.analyticsInput(w, r)
+	if !ok {
 		return
 	}
-	query := r.URL.Query()
-
-	yesterday := biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())).AddDate(0, 0, -1)
-	dateTo, err := optionalBusinessDate(query, "date_to", yesterday)
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-	dateFrom, err := optionalBusinessDate(query, "date_from", dateTo.AddDate(0, 0, -29))
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-
-	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(),
-		tenantID,
-		strings.TrimSpace(query.Get("park_id")),
-		permissions.FeedDirectionRead,
-	)
-	if !parkScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
-		return
-	}
-
-	result, err := h.service.DirectedAnalytics(r.Context(), app.DirectedAnalyticsInput{
-		TenantID:          tenantID,
-		ParkID:            parkScope.ParkID,
-		AuthorizedParkIDs: parkScope.ParkIDs,
-		DateFrom:          dateFrom,
-		DateTo:            dateTo,
-	})
+	result, err := h.service.DirectedAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics directed", err)
 		return
 	}
-
-	from, to := domain.ClampAnalyticsWindow(dateFrom, dateTo)
+	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
 	dto := directedAnalyticsDTO{
 		DateFrom: from.Format("2006-01-02"),
 		DateTo:   to.Format("2006-01-02"),
@@ -114,4 +81,133 @@ func optionalBusinessDate(query map[string][]string, name string, fallback time.
 		return fallback, nil
 	}
 	return businessDateFromString(strings.TrimSpace(values[0]))
+}
+
+type executionDayDTO struct {
+	Date                       string `json:"date"`
+	PackingVerified            int64  `json:"packing_verified"`
+	PackingAwaiting            int64  `json:"packing_awaiting"`
+	PackingRework              int64  `json:"packing_rework"`
+	DistributionVerified       int64  `json:"distribution_verified"`
+	DistributionAwaiting       int64  `json:"distribution_awaiting"`
+	DistributionRework         int64  `json:"distribution_rework"`
+	TransportCompleted         int64  `json:"transport_completed"`
+	TransportOpen              int64  `json:"transport_open"`
+	TransportAwaitingVerdict   int64  `json:"transport_awaiting_verdict"`
+	TransportRework            int64  `json:"transport_rework"`
+	MedianVerifyLatencyMinutes *int64 `json:"median_verify_latency_minutes"`
+}
+
+type executionAnalyticsDTO struct {
+	DateFrom string            `json:"date_from"`
+	DateTo   string            `json:"date_to"`
+	Days     []executionDayDTO `json:"days"`
+}
+
+// GetExecutionAnalytics serves GET /feed-analytics/execution.
+func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.analyticsInput(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.service.ExecutionAnalytics(r.Context(), in)
+	if err != nil {
+		h.writeServiceError(w, r, "feed analytics execution", err)
+		return
+	}
+	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
+	dto := executionAnalyticsDTO{
+		DateFrom: from.Format("2006-01-02"),
+		DateTo:   to.Format("2006-01-02"),
+		Days:     make([]executionDayDTO, 0, len(result.Days)),
+	}
+	for _, d := range result.Days {
+		dto.Days = append(dto.Days, executionDayDTO{
+			Date:                       d.Date,
+			PackingVerified:            d.PackingVerified,
+			PackingAwaiting:            d.PackingAwaiting,
+			PackingRework:              d.PackingRework,
+			DistributionVerified:       d.DistributionVerified,
+			DistributionAwaiting:       d.DistributionAwaiting,
+			DistributionRework:         d.DistributionRework,
+			TransportCompleted:         d.TransportCompleted,
+			TransportOpen:              d.TransportOpen,
+			TransportAwaitingVerdict:   d.TransportAwaitingVerdict,
+			TransportRework:            d.TransportRework,
+			MedianVerifyLatencyMinutes: d.MedianVerifyLatencyMinutes,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}
+
+type experimentArmDTO struct {
+	FeedDay       string `json:"feed_day"`
+	ExperimentArm string `json:"experiment_arm"`
+	AbsoluteKg    string `json:"absolute_kg"`
+	Pens          int64  `json:"pens"`
+}
+
+type experimentAnalyticsDTO struct {
+	DateFrom string             `json:"date_from"`
+	DateTo   string             `json:"date_to"`
+	Arms     []experimentArmDTO `json:"arms"`
+}
+
+// GetExperimentAnalytics serves GET /feed-analytics/experiment.
+func (h *Handler) GetExperimentAnalytics(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.analyticsInput(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.service.ExperimentAnalytics(r.Context(), in)
+	if err != nil {
+		h.writeServiceError(w, r, "feed analytics experiment", err)
+		return
+	}
+	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
+	dto := experimentAnalyticsDTO{
+		DateFrom: from.Format("2006-01-02"),
+		DateTo:   to.Format("2006-01-02"),
+		Arms:     make([]experimentArmDTO, 0, len(result.Arms)),
+	}
+	for _, a := range result.Arms {
+		dto.Arms = append(dto.Arms, experimentArmDTO(a))
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}
+
+// analyticsInput centralises the shared window + park-scope parsing of the
+// three /feed-analytics/* reads. Returns ok=false after writing the error.
+func (h *Handler) analyticsInput(w http.ResponseWriter, r *http.Request) (app.DirectedAnalyticsInput, bool) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return app.DirectedAnalyticsInput{}, false
+	}
+	query := r.URL.Query()
+	yesterday := biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())).AddDate(0, 0, -1)
+	dateTo, err := optionalBusinessDate(query, "date_to", yesterday)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return app.DirectedAnalyticsInput{}, false
+	}
+	dateFrom, err := optionalBusinessDate(query, "date_from", dateTo.AddDate(0, 0, -29))
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return app.DirectedAnalyticsInput{}, false
+	}
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.FeedDirectionRead,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
+		return app.DirectedAnalyticsInput{}, false
+	}
+	return app.DirectedAnalyticsInput{
+		TenantID:          tenantID,
+		ParkID:            parkScope.ParkID,
+		AuthorizedParkIDs: parkScope.ParkIDs,
+		DateFrom:          dateFrom,
+		DateTo:            dateTo,
+	}, true
 }

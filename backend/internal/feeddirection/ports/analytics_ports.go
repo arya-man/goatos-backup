@@ -17,4 +17,11 @@ type DirectedAnalyticsReader interface {
 	// A day with no issued sheet simply has no rows — absence is "nothing issued",
 	// never a fabricated zero.
 	DirectedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.DirectedAnalytics, error)
+	// ExecutionAnalytics returns per-day completion-status counts for packing,
+	// distribution and transport, plus the daily median submit→verdict latency.
+	// Status counts only — completions carry proofs, never kg.
+	ExecutionAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExecutionAnalytics, error)
+	// ExperimentAnalytics returns the experiment workflow's authored absolute kg
+	// per (feed day, arm). No per-head figure exists for these rows.
+	ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error)
 }

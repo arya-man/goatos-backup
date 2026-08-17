@@ -72,3 +72,32 @@ func analyticsParkFilter(selected string, authorized []string) ([]uuid.UUID, err
 	}
 	return out, nil
 }
+
+// ExecutionAnalytics serves the per-day completion-status counts and verify
+// latency for one window.
+func (s *Service) ExecutionAnalytics(ctx context.Context, in DirectedAnalyticsInput) (domain.ExecutionAnalytics, error) {
+	if s.analytics == nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.ExecutionAnalytics{}, err
+	}
+	return s.analytics.ExecutionAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+	})
+}
+
+// ExperimentAnalytics serves the trial arms' authored absolute-kg series.
+func (s *Service) ExperimentAnalytics(ctx context.Context, in DirectedAnalyticsInput) (domain.ExperimentAnalytics, error) {
+	if s.analytics == nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.ExperimentAnalytics{}, err
+	}
+	return s.analytics.ExperimentAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+	})
+}

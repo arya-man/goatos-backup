@@ -426,6 +426,8 @@ var protectedRoutes = []Route{
 	// Idempotency-Key because no route here has a side effect to replay.
 	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsDirected", Method: "GET", Pattern: "/feed-analytics/directed", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsExecution", Method: "GET", Pattern: "/feed-analytics/execution", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsExperiment", Method: "GET", Pattern: "/feed-analytics/experiment", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
 	// Which of a pen-session's proof slots are already recorded, by any operator. A READ on the
 	// feed-direction surface, so it takes the direction read permission -- not the completion write
