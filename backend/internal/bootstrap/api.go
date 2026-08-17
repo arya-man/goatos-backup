@@ -566,6 +566,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithPackingStore(feedDirectionRepo).
 		WithTransportStore(feedDirectionRepo).
 		WithProofValidator(feeddirectionproof.NewValidatorWithPool(proofRepo, pool)).
+		WithAnalyticsReader(feedDirectionRepo).
 		// The feed module's own lifecycle alerts feed (GET /app/feed/alerts), the twin of
 		// weighing/vaccination's alerts feeds. Same repository instance already used for
 		// config/issue/schedule/completion reads implements ports.AlertsRepository.
