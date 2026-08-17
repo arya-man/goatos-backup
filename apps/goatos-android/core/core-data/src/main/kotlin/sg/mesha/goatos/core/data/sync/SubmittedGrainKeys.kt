@@ -25,7 +25,18 @@ import kotlinx.serialization.json.Json
  * Returns null for an opType with no list badge — the caller skips it rather than inventing a key.
  */
 internal fun submittedGrainKeyOf(opType: String, payloadJson: String, json: Json): String? {
-    val type = runCatching { OutboxOpTypeName.valueOf(opType) }.getOrNull() ?: return null
+    val type = OutboxOpTypeName.entries.firstOrNull { it.name == opType } ?: return null
+    return try {
+        decodeGrainKey(type, payloadJson, json)
+    } catch (error: Exception) {
+        // A payload that will not decode means this row's badge can never be projected. Never
+        // silenced: the row would sit in the outbox rendering as un-submitted work with no clue why.
+        android.util.Log.w("GoatOsOutbox", "submitted_grain_key_undecodable opType=$opType", error)
+        null
+    }
+}
+
+private fun decodeGrainKey(type: OutboxOpTypeName, payloadJson: String, json: Json): String {
     return when (type) {
         OutboxOpTypeName.FEED_PACKING_COMPLETE -> {
             val p = json.decodeFromString<FeedPackingCompletePayload>(payloadJson)

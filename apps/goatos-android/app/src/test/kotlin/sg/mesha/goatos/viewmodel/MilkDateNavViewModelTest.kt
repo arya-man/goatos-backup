@@ -1,5 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
+import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import java.time.LocalDate
 import java.time.ZoneId
@@ -57,7 +59,7 @@ class MilkDateNavViewModelTest {
     fun `milk preparation NavigateDate re-subscribes repo observe with the new date`() = runTest(dispatcher) {
         val repo = TrackingMilkPreparationRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkPreparationListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
+        val viewModel = MilkPreparationListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -80,7 +82,7 @@ class MilkDateNavViewModelTest {
     fun `milk preparation date label drops the Today prefix once navigated away`() = runTest(dispatcher) {
         val repo = TrackingMilkPreparationRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkPreparationListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
+        val viewModel = MilkPreparationListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -102,7 +104,7 @@ class MilkDateNavViewModelTest {
     fun `milk preparation NavigateDate is clamped at today`() = runTest(dispatcher) {
         val repo = TrackingMilkPreparationRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkPreparationListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
+        val viewModel = MilkPreparationListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -123,7 +125,7 @@ class MilkDateNavViewModelTest {
     fun `milk feeding NavigateDate re-subscribes repo observe with the new date`() = runTest(dispatcher) {
         val repo = TrackingMilkFeedingRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkFeedingListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
+        val viewModel = MilkFeedingListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -147,7 +149,7 @@ class MilkDateNavViewModelTest {
     fun `milk feeding date label drops the Today prefix once navigated away`() = runTest(dispatcher) {
         val repo = TrackingMilkFeedingRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkFeedingListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
+        val viewModel = MilkFeedingListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
@@ -169,7 +171,7 @@ class MilkDateNavViewModelTest {
     fun `milk feeding NavigateDate is clamped at today`() = runTest(dispatcher) {
         val repo = TrackingMilkFeedingRepository()
         val drafts = TrackingDraftRepository()
-        val viewModel = MilkFeedingListViewModel(repo = repo, feedCompletionStore = FeedCompletionLocalStore(), drafts = drafts)
+        val viewModel = MilkFeedingListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = drafts)
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 

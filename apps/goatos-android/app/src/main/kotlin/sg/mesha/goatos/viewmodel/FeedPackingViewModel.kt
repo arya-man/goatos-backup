@@ -21,7 +21,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
-import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.shedSessionKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedPackingQuery
@@ -49,7 +49,7 @@ import javax.inject.Inject
 class FeedPackingViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
-    private val syncRepository: SyncRepository,
+    private val submittedGrains: SubmittedGrainsSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -128,7 +128,7 @@ class FeedPackingViewModel @Inject constructor(
             feedCompletionStore.completedKeys,
             // Derived from the OUTBOX, not an in-memory set: a submit that succeeds or dies leaves
             // the active set by itself, so the badge retracts with no second key to keep in sync.
-            syncRepository.observeSubmittedForReviewGrains(),
+            submittedGrains.observe(),
         ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
             .flatMapLatest { (selection, completed, submitted) ->
                 val feedDay = selection.toQuery().targetDate

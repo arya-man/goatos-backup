@@ -648,10 +648,23 @@ class DefaultSyncRepository(
         // pending submit once other features queue enough rows after it (judge finding 2026-08-15,
         // see observePendingHealthCaseOpens above).
         store.observeActive()
-            .map { rows ->
-                rows.mapNotNullTo(mutableSetOf()) { submittedGrainKeyOf(it.opType, it.payloadJson, syncJson) }
-            }
+            .map { rows -> projectSubmittedGrains(rows, syncJson) }
             .distinctUntilChanged()
+
+    companion object {
+        /**
+         * ACTIVE outbox rows -> the grains whose badge should read "in review".
+         *
+         * Pure so the contract that matters — a terminal or succeeded row is simply ABSENT, which is
+         * what retracts the badge — is testable without Room, flows or a clock.
+         */
+        internal fun projectSubmittedGrains(
+            rows: List<sg.mesha.goatos.core.database.outbox.OutboxEntity>,
+            json: kotlinx.serialization.json.Json,
+        ): Set<String> = rows.mapNotNullTo(mutableSetOf()) {
+            submittedGrainKeyOf(it.opType, it.payloadJson, json)
+        }
+    }
 
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
         store.observeById(itemId)

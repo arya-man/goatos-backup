@@ -84,7 +84,6 @@ class FeedDistributionCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             appContext = context,
             feedRepository = FakeFeedRepository(),
-            feedCompletionStore = FeedCompletionLocalStore(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -147,7 +146,6 @@ class FeedDistributionCompleteSubmitGuardTest {
             crashReporter = NoopCrashReporter(),
             appContext = context,
             feedRepository = FakeFeedRepository(),
-            feedCompletionStore = FeedCompletionLocalStore(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()

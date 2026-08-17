@@ -27,7 +27,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
-import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.shedSessionKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedDirectionQuery
@@ -61,7 +61,7 @@ import javax.inject.Inject
 class FeedDirectionViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
-    private val syncRepository: SyncRepository,
+    private val submittedGrains: SubmittedGrainsSource,
     private val bootstrapRepository: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -144,7 +144,7 @@ class FeedDirectionViewModel @Inject constructor(
             _filters,
             feedCompletionStore.completedKeys,
             // Outbox-derived: the badge retracts by itself when the row succeeds or dies.
-            syncRepository.observeSubmittedForReviewGrains(),
+            submittedGrains.observe(),
         ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
             .flatMapLatest { (selection, completed, submitted) ->
                 val targetDate = selection.toQuery().targetDate
