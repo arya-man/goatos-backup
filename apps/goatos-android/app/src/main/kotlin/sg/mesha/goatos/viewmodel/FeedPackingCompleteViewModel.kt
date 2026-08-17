@@ -406,7 +406,16 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     // Mark this pen-session as submitted for review immediately so the ViewModel overlay
                     // will render it as pending_verification even before the server processes the queued submit.
                     feedCompletionStore.markSubmittedForReview(
-                        FeedCompletionLocalStore.key(shedId, partitionLabel.ifBlank { null }, sessionNo, workflow)
+                        FeedCompletionLocalStore.key(
+                            shedId,
+                            partitionLabel.ifBlank { null },
+                            // sessionNo arrives as 0 from the pen-day route and DISPATCHES as 1
+                            // (FeedPackingCompletePayload's kdoc). Marking with the raw 0 built a key
+                            // SyncEngine could never match when the submit later died, so the badge
+                            // stayed "In review" forever for exactly the pen-day rows.
+                            sessionNo.takeIf { it != 0 } ?: 1,
+                            workflow,
+                        )
                     )
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_PACKING_SUBMITTED)

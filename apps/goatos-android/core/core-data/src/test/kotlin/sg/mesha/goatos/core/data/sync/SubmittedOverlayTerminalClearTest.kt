@@ -220,4 +220,68 @@ class SubmittedOverlayTerminalClearTest {
         val unrelated = queuedPackingComplete().copy(opType = OutboxOpType.SCAN_CAPTURE.name)
         assertEquals(null, engine.submittedOverlayKeyOf(unrelated))
     }
+
+    @Test
+    fun `MIDNIGHT - a submit marked yesterday still retracts when it dies today`() {
+        val overlay = FeedCompletionLocalStore()
+        // What markSubmittedForReview produced at 23:50 on the PREVIOUS business day: same grain
+        // identity, different leading date segment.
+        val yesterdayKey = "2026-08-16|$shedId|${partition.lowercase()}|$sessionNo|$workflow"
+        overlay.markSubmittedForReview(yesterdayKey)
+
+        // What SyncEngine builds when the row terminalises after midnight.
+        overlay.clearSubmittedForReview("2026-08-17|$shedId|${partition.lowercase()}|$sessionNo|$workflow")
+
+        assertFalse(
+            "a midnight crossing must not strand the badge — identity matches, date must not gate it",
+            overlay.submittedForReviewKeys.value.contains(yesterdayKey),
+        )
+    }
+
+    @Test
+    fun `PEN_DAY - a sessionNo 0 submit retracts, because the mark side normalises it too`() {
+        val overlay = FeedCompletionLocalStore()
+        // The pen-day route supplies sessionNo = 0; the ViewModel now normalises to 1 when marking.
+        val marked = FeedCompletionLocalStore.key(shedId, partition, 0.takeIf { it != 0 } ?: 1, workflow)
+        overlay.markSubmittedForReview(marked)
+
+        // SyncEngine normalises identically from the payload's 0.
+        overlay.clearSubmittedForReview(FeedCompletionLocalStore.key(shedId, partition, 1, workflow))
+
+        assertFalse(
+            "raw 0 vs dispatched 1 was the CRITICAL mismatch — both sides must normalise",
+            overlay.submittedForReviewKeys.value.contains(marked),
+        )
+    }
+
+    @Test
+    fun `PARTITION - null, blank and whitespace labels all resolve to the same grain`() {
+        val whole = FeedCompletionLocalStore.key(shedId, null, sessionNo, workflow)
+        assertEquals("blank is the whole shed", whole, FeedCompletionLocalStore.key(shedId, "", sessionNo, workflow))
+        assertEquals("whitespace is the whole shed", whole, FeedCompletionLocalStore.key(shedId, "   ", sessionNo, workflow))
+        assertEquals(
+            "case must not split the grain",
+            FeedCompletionLocalStore.key(shedId, "Pen A", sessionNo, workflow),
+            FeedCompletionLocalStore.key(shedId, "pen a", sessionNo, workflow),
+        )
+
+        val overlay = FeedCompletionLocalStore()
+        overlay.markSubmittedForReview(whole)
+        overlay.clearSubmittedForReview(FeedCompletionLocalStore.key(shedId, "  ", sessionNo, workflow))
+        assertFalse("a blank-vs-null divergence would strand the badge", overlay.submittedForReviewKeys.value.contains(whole))
+    }
+
+    @Test
+    fun `clearing one grain leaves every other grain alone`() {
+        val overlay = FeedCompletionLocalStore()
+        val mine = FeedCompletionLocalStore.key(shedId, partition, sessionNo, workflow)
+        val other = FeedCompletionLocalStore.key(shedId, partition, sessionNo + 1, workflow)
+        overlay.markSubmittedForReview(mine)
+        overlay.markSubmittedForReview(other)
+
+        overlay.clearSubmittedForReview(mine)
+
+        assertFalse(overlay.submittedForReviewKeys.value.contains(mine))
+        assertTrue("identity match must not be a prefix sweep", overlay.submittedForReviewKeys.value.contains(other))
+    }
 }

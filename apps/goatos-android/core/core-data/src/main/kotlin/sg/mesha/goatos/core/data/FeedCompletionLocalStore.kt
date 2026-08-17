@@ -74,7 +74,14 @@ class FeedCompletionLocalStore {
      * "Pending" this overlay exists to fix, because the operator stops chasing it.
      */
     fun clearSubmittedForReview(key: String) {
-        _submittedForReviewKeys.update { current -> current - key }
+        // Match on IDENTITY, not the whole key. Every key starts with the business date AT THE
+        // MOMENT IT WAS BUILT, so a submit marked at 23:50 and terminally failed at 00:05 produces
+        // two different keys and the badge would never retract — it would keep claiming "In review"
+        // for work the server refused. Everything after the date segment is the grain identity.
+        val identity = key.substringAfter('|', missingDelimiterValue = key)
+        _submittedForReviewKeys.update { current ->
+            current.filterNotTo(mutableSetOf()) { it.substringAfter('|', missingDelimiterValue = it) == identity }
+        }
     }
 
     fun isCompleted(key: String): Boolean = _completedKeys.value.contains(key)
