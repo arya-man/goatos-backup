@@ -70,6 +70,18 @@ type cloudBuildListBuild struct {
 	Substitutions  map[string]string `json:"substitutions"`
 }
 
+type cloudBuildGetBuild struct {
+	ID            string            `json:"id"`
+	Status        string            `json:"status"`
+	CreateTime    string            `json:"createTime"`
+	FinishTime    string            `json:"finishTime"`
+	Substitutions map[string]string `json:"substitutions"`
+	Steps         []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	} `json:"steps"`
+}
+
 func main() {
 	cfg := config{
 		ProjectID:     env("PROJECT_ID", "goatos-stg"),
@@ -195,6 +207,7 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 		"text":             fmt.Sprintf("%s from `main` started by %s.\nCloud Build: %s", actionLabel, triggeredBy, buildURL),
 		"blocks":           deployStartedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
+	go cfg.monitorBuild(responseURL, buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution)
 }
 
 func deployAcceptedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
@@ -270,6 +283,128 @@ func deployStartedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistr
 				"text": fmt.Sprintf("*%s in progress* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, links),
 			},
 		},
+	}
+}
+
+func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) {
+	if buildID == "" || buildID == "pending" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Minute)
+	defer cancel()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			cfg.postSlackResponse(responseURL, map[string]any{
+				"response_type":    "in_channel",
+				"replace_original": false,
+				"text":             fmt.Sprintf("%s monitor timed out for build `%s`; check Cloud Build logs.", actionLabel, buildID),
+				"blocks":           deployTerminalBlocks("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil),
+			})
+			return
+		case <-ticker.C:
+			build, err := cfg.getBuild(ctx, buildID)
+			if err != nil {
+				log.Printf("build monitor get failed for %s: %v", buildID, err)
+				continue
+			}
+			if !isTerminalBuildStatus(build.Status) {
+				continue
+			}
+			cfg.postSlackResponse(responseURL, map[string]any{
+				"response_type":    "in_channel",
+				"replace_original": false,
+				"text":             fmt.Sprintf("%s finished with Cloud Build status `%s` for `%s`.", actionLabel, build.Status, buildID),
+				"blocks":           deployTerminalBlocks(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps),
+			})
+			return
+		}
+	}
+}
+
+func (cfg config) getBuild(ctx context.Context, buildID string) (cloudBuildGetBuild, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return cloudBuildGetBuild{}, err
+	}
+	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/locations/%s/builds/%s", cfg.ProjectID, cfg.Location, buildID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return cloudBuildGetBuild{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return cloudBuildGetBuild{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return cloudBuildGetBuild{}, fmt.Errorf("cloud build get returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed cloudBuildGetBuild
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return cloudBuildGetBuild{}, err
+	}
+	return parsed, nil
+}
+
+func isTerminalBuildStatus(status string) bool {
+	switch status {
+	case "SUCCESS", "FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED":
+		return true
+	default:
+		return false
+	}
+}
+
+func deployTerminalBlocks(status, triggeredBy, actionLabel, buildID string, deploySTG, mobileDistribution bool, buildURL, deployURL string, steps []struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}) []map[string]any {
+	title := "Goat OS deploy finished"
+	switch status {
+	case "SUCCESS":
+		title = "Goat OS deploy succeeded"
+	case "FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED", "TIMED_OUT":
+		title = "Goat OS deploy needs attention"
+	}
+	stepText := "Cloud Build reached a terminal state."
+	if len(steps) > 0 {
+		var parts []string
+		for _, step := range steps {
+			if step.Status != "SUCCESS" && step.Status != "" {
+				parts = append(parts, fmt.Sprintf("`%s`: `%s`", step.ID, step.Status))
+			}
+		}
+		if len(parts) > 0 {
+			stepText = "Non-green steps: " + strings.Join(parts, ", ")
+		}
+	}
+
+	elements := []map[string]any{
+		{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Build logs"}, "url": buildURL},
+	}
+	if deploySTG {
+		elements = append(elements, map[string]any{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Cloud Deploy"}, "url": deployURL})
+	}
+
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*%s*\nStatus: `%s`\nBuild: `%s`\nTriggered by: %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n%s", title, status, buildID, triggeredBy, deploySTG, mobileDistribution, stepText),
+			},
+		},
+		{"type": "actions", "elements": elements},
 	}
 }
 
