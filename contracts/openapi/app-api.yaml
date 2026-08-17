@@ -33,6 +33,7 @@ tags:
   - name: Verification
   - name: Counts
   - name: Weighing
+  - name: Sales
 paths:
   /admin/tasks/review-fanouts/retry:
     post:
@@ -4812,6 +4813,124 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/overview:
+    get:
+      tags:
+        - Sales
+      operationId: listSalesOverview
+      summary: The whole sales page in one read.
+      description: >-
+        Whole-filter aggregates for the sales board: headline summary, monthly series, price bands,
+        buyer board, demand pipelines, sale evidence and market benchmarks. Only deals with status
+        `Deal Closed` count toward the summary, monthly, price-band and buyer blocks; the pipelines
+        and evidence panels summarise their own tables.
+
+
+        The farm filter applies to the blocks whose source carries a farm (deals, buyer leads,
+        sold tags); the FPO pipeline, weight audit and market benchmarks are company-wide because
+        their source records no farm.
+      parameters:
+        - name: farm
+          in: query
+          required: false
+          schema: { type: string, enum: [all, CBE, CPT], default: all }
+          description: Farm scope. Absent or `all` means the whole company; anything else is rejected.
+      responses:
+        "200":
+          description: The whole page contract.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOverview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/deals:
+    get:
+      tags:
+        - Sales
+      operationId: listSalesDeals
+      summary: One page of the sales ledger.
+      description: >-
+        Every recorded deal in every status, newest sale first. `total` is the WHOLE-FILTER count,
+        not the page length; the client derives the page count from it.
+      parameters:
+        - name: farm
+          in: query
+          required: false
+          schema: { type: string, enum: [all, CBE, CPT], default: all }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+          description: >-
+            Rows to skip. Bounded on purpose -- the ledger is an authored commercial record that
+            grows with deals closed, never with herd size. A request past the cap is REJECTED
+            rather than clamped, so a page number never shows the wrong rows.
+      responses:
+        "200":
+          description: One page of the ledger plus the whole-filter total.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDealPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Sales
+      operationId: createSalesDeal
+      summary: Record a sale.
+      description: >-
+        Records one deal into the ledger with status `Deal Closed`. The `Idempotency-Key` header is
+        REQUIRED: an exact replay returns the originally recorded deal with no new side effects,
+        and the same key replayed with different fields is rejected with 409
+        `idempotency_conflict`, so a retried submit can never record a sale twice. Farm and product
+        type are validated against their closed vocabularies and rejected -- never silently
+        rewritten -- when unrecognised.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealWrite"
+      responses:
+        "201":
+          description: The recorded deal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /feed-config/ration-groups:
@@ -9989,6 +10108,298 @@ components:
         feeds:
           type: array
           items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+    SalesDeal:
+      type: object
+      description: One row of the sales ledger -- one sheet row, or one deal recorded in the app.
+      required:
+        - deal_id
+        - sale_date
+        - farm
+        - buyer_name
+        - product_type
+        - breed
+        - sales_value
+        - status
+        - created_at
+        - updated_at
+      properties:
+        deal_id: { type: string, format: uuid }
+        sale_date:
+          type: string
+          format: date
+          description: The business date the sale happened, never a timestamp.
+        farm: { type: string, enum: [CBE, CPT] }
+        source_sales_id:
+          type: integer
+          nullable: true
+          description: The source sheet's own sale reference. It repeats and is never a key.
+        source_purchase_id: { type: integer, nullable: true }
+        buyer_name: { type: string }
+        buyer_place: { type: string, nullable: true }
+        product_type: { type: string, enum: [Sheep, Goat, Manure] }
+        breed: { type: string }
+        animal_count:
+          type: number
+          nullable: true
+          description: Authoritative animal count when recorded; otherwise male_count + female_count applies.
+        male_count: { type: number, nullable: true }
+        female_count: { type: number, nullable: true }
+        total_weight_kg: { type: number, nullable: true }
+        advance_amount: { type: number, nullable: true }
+        sales_value: { type: number }
+        status: { type: string, enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid] }
+        feedback: { type: string, nullable: true }
+        comments: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SalesDealPage:
+      type: object
+      required: [deals, total, limit, offset]
+      properties:
+        deals:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesDeal"
+        total:
+          type: integer
+          description: >-
+            The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this
+            number.
+        limit:
+          type: integer
+          description: The page size actually applied, after clamping.
+        offset:
+          type: integer
+          description: The offset actually applied. Echoed so the client can render the page number.
+    SalesDealWrite:
+      type: object
+      description: >-
+        Record-sale body. Farm and product type are closed vocabularies validated server-side and
+        rejected -- never silently defaulted -- when unrecognised. The recorded deal always lands
+        with status `Deal Closed`.
+      required: [sale_date, farm, product_type, breed, buyer_name, sales_value]
+      properties:
+        sale_date: { type: string, format: date }
+        farm: { type: string, enum: [CBE, CPT] }
+        product_type: { type: string, enum: [Sheep, Goat, Manure] }
+        breed: { type: string, maxLength: 160 }
+        buyer_name: { type: string, maxLength: 160 }
+        buyer_place: { type: string, maxLength: 160 }
+        animal_count: { type: number, minimum: 0, nullable: true }
+        male_count: { type: number, minimum: 0, nullable: true }
+        female_count: { type: number, minimum: 0, nullable: true }
+        total_weight_kg: { type: number, minimum: 0, nullable: true }
+        sales_value:
+          type: number
+          exclusiveMinimum: 0
+          description: Required and must be more than zero.
+        advance_amount: { type: number, minimum: 0, nullable: true }
+        comments: { type: string, maxLength: 2000 }
+    SalesOverviewSummary:
+      type: object
+      description: Headline figures over CLOSED deals in the farm scope.
+      required:
+        - revenue
+        - live_revenue
+        - deals
+        - animals
+        - sheep
+        - goats
+        - live_weight_kg
+        - realized_price_per_kg
+        - manure_kg
+        - manure_revenue
+        - period_from
+        - period_to
+      properties:
+        revenue: { type: number }
+        live_revenue:
+          type: number
+          description: Closed Sheep + Goat revenue. Manure is excluded here and carried separately.
+        deals: { type: integer }
+        animals: { type: number }
+        sheep: { type: number }
+        goats: { type: number }
+        live_weight_kg: { type: number }
+        realized_price_per_kg:
+          type: number
+          description: >-
+            Closed live revenue over closed live weight, both ranging over the same deals; 0 when
+            no weighed live sales exist.
+        manure_kg: { type: number }
+        manure_revenue: { type: number }
+        period_from:
+          type: string
+          description: Earliest closed sale date in scope (YYYY-MM-DD); empty when none.
+        period_to:
+          type: string
+          description: Latest closed sale date in scope (YYYY-MM-DD); empty when none.
+    SalesOverviewMonthly:
+      type: object
+      description: One month with at least one closed deal. Months derive from sale_date.
+      required: [month, sheep_revenue, goat_revenue, manure_revenue, sheep_count, goat_count, manure_kg]
+      properties:
+        month: { type: string, description: "YYYY-MM" }
+        sheep_revenue: { type: number }
+        goat_revenue: { type: number }
+        manure_revenue: { type: number }
+        sheep_count: { type: number }
+        goat_count: { type: number }
+        manure_kg: { type: number }
+    SalesPriceBand:
+      type: object
+      description: >-
+        Realized price per kg for one (live product type, breed), over closed deals with weight and
+        value recorded. Ordered by average price, highest first.
+      required: [product_type, breed, deals, animals, weight_kg, revenue, avg_price_per_kg, min_price_per_kg, max_price_per_kg]
+      properties:
+        product_type: { type: string, enum: [Sheep, Goat] }
+        breed: { type: string }
+        deals: { type: integer }
+        animals: { type: number }
+        weight_kg: { type: number }
+        revenue: { type: number }
+        avg_price_per_kg: { type: number }
+        min_price_per_kg: { type: number }
+        max_price_per_kg: { type: number }
+    SalesBuyer:
+      type: object
+      description: One buyer's closed-deal history, ordered by revenue. Top 25 buyers only; share_pct is against whole-filter revenue.
+      required: [buyer_name, buyer_place, product_types, deals, animals, revenue, share_pct]
+      properties:
+        buyer_name: { type: string }
+        buyer_place: { type: string }
+        product_types:
+          type: array
+          items: { type: string }
+          description: Sorted set of product types this buyer has bought.
+        deals: { type: integer }
+        animals: { type: number }
+        revenue: { type: number }
+        share_pct: { type: number }
+    SalesStatusCount:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+          description: The recorded call status; a lead never contacted reports as "uncontacted".
+        count: { type: integer }
+    SalesPlaceCount:
+      type: object
+      required: [place, count]
+      properties:
+        place: { type: string }
+        count: { type: integer }
+    SalesBuyerPipeline:
+      type: object
+      required: [total, statuses, top_places]
+      properties:
+        total: { type: integer }
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesStatusCount"
+        top_places:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesPlaceCount"
+    SalesFPOPipeline:
+      type: object
+      required: [total, statuses, districts]
+      properties:
+        total: { type: integer }
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesStatusCount"
+        districts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesPlaceCount"
+    SalesTagTypeCount:
+      type: object
+      required: [label, count]
+      properties:
+        label: { type: string }
+        count: { type: integer }
+    SalesTagRoster:
+      type: object
+      required: [total, sales_count, by_type]
+      properties:
+        total: { type: integer }
+        sales_count:
+          type: integer
+          description: Distinct sale references the tag rows point back at, never the row count.
+        by_type:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesTagTypeCount"
+    SalesWeightAudit:
+      type: object
+      description: Video weight vs book weight, bucketed by absolute gap into three disjoint ranges.
+      required: [total, within_0_3_kg, within_1_kg, over_1_kg, max_gap_kg]
+      properties:
+        total: { type: integer }
+        within_0_3_kg: { type: integer }
+        within_1_kg: { type: integer }
+        over_1_kg: { type: integer }
+        max_gap_kg: { type: number }
+    SalesMarketBenchmark:
+      type: object
+      required: [breed]
+      properties:
+        market: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        breed: { type: string }
+        source: { type: string, nullable: true }
+        ex_farm_rate: { type: string, nullable: true }
+        transport_rate: { type: string, nullable: true }
+        landing_cost_per_kg: { type: number, nullable: true }
+        market_price_per_kg:
+          type: number
+          nullable: true
+          description: Parsed out of the market text at import time, never at read time.
+    SalesOverview:
+      type: object
+      description: The whole sales page contract, all blocks whole-filter aggregates.
+      required:
+        - summary
+        - monthly
+        - price_bands
+        - buyers
+        - buyer_pipeline
+        - fpo_pipeline
+        - tag_roster
+        - weight_audit
+        - market_benchmarks
+      properties:
+        summary:
+          $ref: "#/components/schemas/SalesOverviewSummary"
+        monthly:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesOverviewMonthly"
+        price_bands:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesPriceBand"
+        buyers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesBuyer"
+        buyer_pipeline:
+          $ref: "#/components/schemas/SalesBuyerPipeline"
+        fpo_pipeline:
+          $ref: "#/components/schemas/SalesFPOPipeline"
+        tag_roster:
+          $ref: "#/components/schemas/SalesTagRoster"
+        weight_audit:
+          $ref: "#/components/schemas/SalesWeightAudit"
+        market_benchmarks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesMarketBenchmark"
     FeedConfigRationGroupPage:
       type: object
       additionalProperties: false

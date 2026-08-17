@@ -268,8 +268,20 @@ const (
 	// grant change rather than a schema, API and UI change -- and because the redaction path has to
 	// be built and tested from the start to be trustworthy at all. Do not fold it into VendorRead.
 	VendorFinanceRead = "procurement.vendor.finance.read"
-	RosterRead        = "roster.read"
-	RosterManage      = "roster.manage"
+	// SalesRead gates the SALES module (/procurement/sales, backend /sales/*): the ledger of what
+	// the farm actually sold -- live animals and manure across CBE and CPT -- plus the demand
+	// pipelines and evidence panels behind it.
+	//
+	// It is NOT a reuse of ProcurementRead or VendorRead: those gate the BUYING side (intake loads
+	// and the supplier contact book), while this is the SELLING side -- revenue, buyer names and
+	// realized prices, which are commercial facts a field operator working an arriving load has no
+	// need to see.
+	SalesRead = "sales.read"
+	// SalesWrite gates recording a sale (POST /sales/deals). Kept separate from SalesRead so a
+	// read-only oversight tier is expressible without a schema change.
+	SalesWrite   = "sales.write"
+	RosterRead   = "roster.read"
+	RosterManage = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -947,6 +959,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// instruments. Founder/builder visibility invariant: the platform-owner cohort holds the
 		// grants for every built visible module.
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		// The sales module (/procurement/sales): ledger, overview and record-sale. Same
+		// founder/builder visibility invariant.
+		SalesRead: {}, SalesWrite: {},
 	},
 }
 

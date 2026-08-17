@@ -4,7 +4,18 @@
 // feature uses, so every procurement screen and its presentation maps (features/procurement/work-state.ts)
 // depend on one stable import path. Data is fetched through the server-only generated admin client in
 // lib/api/procurement-server.ts — there is no client-side mock, fixture, or local adapter.
-import type { AdminApiComponents } from "@goatos/api-client";
+import type { AdminApiComponents, AppApiComponents } from "@goatos/api-client";
+
+// Sales — app-api schema types (the /sales endpoints live in app-api.yaml, not the admin API).
+export type SalesOverview = AppApiComponents["schemas"]["SalesOverview"];
+export type SalesOverviewSummary = AppApiComponents["schemas"]["SalesOverviewSummary"];
+export type SalesOverviewMonthly = AppApiComponents["schemas"]["SalesOverviewMonthly"];
+export type SalesPriceBand = AppApiComponents["schemas"]["SalesPriceBand"];
+export type SalesBuyer = AppApiComponents["schemas"]["SalesBuyer"];
+export type SalesMarketBenchmark = AppApiComponents["schemas"]["SalesMarketBenchmark"];
+export type SalesDeal = AppApiComponents["schemas"]["SalesDeal"];
+export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
+export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 
 // Write request bodies (operator POST flows).
 export type CreateProcurementLoadRequest = AdminApiComponents["schemas"]["CreateProcurementLoadRequest"];

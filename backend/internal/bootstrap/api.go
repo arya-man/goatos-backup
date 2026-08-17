@@ -99,6 +99,9 @@ import (
 	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
+	saleshttp "github.com/vgoats/goatos/backend/internal/sales/adapters/http"
+	salespg "github.com/vgoats/goatos/backend/internal/sales/adapters/postgres"
+	salesapp "github.com/vgoats/goatos/backend/internal/sales/app"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
@@ -578,6 +581,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// but has its own thin service: a contact book has no state machine to orchestrate.
 	procurementVendorHandler := procurementhttp.NewVendorHandler(
 		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
+	// record with no state machine to orchestrate.
+	salesHandler := saleshttp.NewSalesHandler(
+		salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -1028,6 +1035,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
 	procurementhttp.Register(protectedMux, procurementHandler)
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
+	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	weighinghttp.Register(protectedMux, weighingHandler)

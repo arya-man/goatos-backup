@@ -204,6 +204,13 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
+
+	// SALES (/procurement/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
+	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
+	// see SalesRead's doc comment.
+	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},
+	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
+	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,
 	// not nested /procurement/source-entry/* routes. Those nested lens routes are intentionally not registered.
 
