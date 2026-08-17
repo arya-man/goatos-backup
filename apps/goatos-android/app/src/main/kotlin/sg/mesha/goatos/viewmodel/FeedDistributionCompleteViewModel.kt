@@ -621,10 +621,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeOutboxItem(result.value)
                     // Optimistic offline overlay for the shared Feed Direction list: its chip reads
                     // lifecycleStatus, and nothing here recorded the submit, so a queued
-                    // distribution stayed "Pending" until the write synced.
-                    feedCompletionStore.markSubmittedForReview(
-                        FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow),
-                    )
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
                     trackSubmitSources(
                         result = "submitted",

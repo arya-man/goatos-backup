@@ -85,6 +85,15 @@ interface SyncRepository {
      */
     fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> = flowOf(emptyList())
 
+    /**
+     * Grain keys of every submit still ALIVE in the outbox — the optimistic "In review" badge.
+     *
+     * Derived from the outbox instead of an in-memory set on purpose: a row that succeeds or dies
+     * leaves the active set by itself, so there is nothing to clear, no second key to disagree with,
+     * and nothing lost to process death. See [submittedGrainKeyOf].
+     */
+    fun observeSubmittedForReviewGrains(): Flow<Set<String>> = flowOf(emptySet())
+
     /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
      *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
      *  the item's status changes, never emitting null (item not found = no emission). */
@@ -632,6 +641,16 @@ class DefaultSyncRepository(
         // after it (judge finding 2026-08-15).
         store.observeActiveByOpType(OutboxOpType.HEALTH_CASE_OPEN.name)
             .map { rows -> projectPendingHealthCaseOpens(rows, syncJson) }
+            .distinctUntilChanged()
+
+    override fun observeSubmittedForReviewGrains(): Flow<Set<String>> =
+        // FULL active set, never a windowed read: a newest-N window silently drops the oldest
+        // pending submit once other features queue enough rows after it (judge finding 2026-08-15,
+        // see observePendingHealthCaseOpens above).
+        store.observeActive()
+            .map { rows ->
+                rows.mapNotNullTo(mutableSetOf()) { submittedGrainKeyOf(it.opType, it.payloadJson, syncJson) }
+            }
             .distinctUntilChanged()
 
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
