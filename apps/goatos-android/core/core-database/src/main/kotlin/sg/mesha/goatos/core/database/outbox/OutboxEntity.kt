@@ -22,6 +22,21 @@ enum class OutboxOpType {
     VERIFICATION_CLOSE_BATCH,
 
     /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17):
+     * `POST /app/weighing/observations/{id}/weight-correction`. She watches a weighing proof video
+     * and replaces the number the operator typed.
+     *
+     * It rides the outbox like every other write in this app, so a correction made in a shed with no
+     * signal is durable rather than lost. Adding an op type needs NO Room migration: [OutboxEntity.opType]
+     * is a plain TEXT column holding this enum's `name`.
+     *
+     * Its idempotency key is derived from the observation AND the corrected values, never a
+     * timestamp: a retry of the SAME correction must replay for free, while correcting to 12 kg and
+     * then to 13 kg are two different acts that must not collide on one key.
+     */
+    WEIGHING_WEIGHT_CORRECTION,
+
+    /**
      * Counts vertical writes (`POST /app/counts/…-events`). Adding an op type needs NO Room
      * migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's `name`, and
      * `SyncEngine.dispatch` resolves it back with `OutboxOpType.valueOf`.

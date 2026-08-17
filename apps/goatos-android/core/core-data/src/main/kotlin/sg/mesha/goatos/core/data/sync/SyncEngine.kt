@@ -388,6 +388,7 @@ class SyncEngine(
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
         OutboxOpType.REWORK_TASK -> dispatchReworkTask(item)
         OutboxOpType.VERIFICATION_VERDICT -> dispatchVerificationVerdict(item)
+        OutboxOpType.WEIGHING_WEIGHT_CORRECTION -> dispatchWeighingWeightCorrection(item)
         OutboxOpType.VERIFICATION_CLOSE -> dispatchVerificationClose(item)
         OutboxOpType.VERIFICATION_CLOSE_SUBMISSION -> dispatchVerificationSubmissionClose(item)
         OutboxOpType.VERIFICATION_CLOSE_BATCH -> dispatchVerificationBatchClose(item)
@@ -615,6 +616,18 @@ class SyncEngine(
     private suspend fun dispatchVerificationVerdict(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<VerificationVerdictPayload>(item.payloadJson)
         val response = api.submitVerificationVerdict(payload.itemId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing owns the route --
+     * the correction writes a weighing record -- while the verification item told the screen WHICH
+     * record to address. The idempotency key is the outbox row's own stable key, so a redelivery
+     * replays the original correction instead of writing a second one.
+     */
+    private suspend fun dispatchWeighingWeightCorrection(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingWeightCorrectionPayload>(item.payloadJson)
+        val response = api.correctWeighingObservationWeight(payload.observationId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

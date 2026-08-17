@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { assignSopTask, getSopTask, recordVerificationVerdict, requestSopTaskRework, type VerificationDecision } from "@/lib/api/server";
+import {
+  assignSopTask,
+  correctWeighingObservationWeight,
+  getSopTask,
+  recordVerificationVerdict,
+  requestSopTaskRework,
+  type VerificationDecision,
+} from "@/lib/api/server";
 
 const PATHNAME = "/verify";
 
@@ -74,6 +81,67 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
     redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
   }
   redirect(withFeedback(url, "success", decision === "approved" ? "verdict_approved" : "verdict_rejected"));
+}
+
+// correctWeightAction is the VERIFIER's weight correction (maintainer decision 2026-08-17): she
+// watches the proof video and replaces the number the operator typed. It is a separate act from her
+// verdict on purpose -- she may correct before deciding or after, including on an item she already
+// approved, until the bucket closes -- so it is its own form and its own action.
+//
+// The observation id and ref type come from the item's backend-owned measurement_correction block,
+// which echoes source.ref_id/source.ref_type. This action never composes that address itself.
+export async function correctWeightAction(formData: FormData): Promise<void> {
+  const url = redirectTarget(formData);
+  const observationId = String(formData.get("observation_id") ?? "").trim();
+  const refType = String(formData.get("ref_type") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "").trim();
+  const rawWeight = String(formData.get("weight_kg") ?? "").trim();
+  const rawCount = String(formData.get("animal_count") ?? "").trim();
+
+  if (!observationId || !refType) {
+    redirect(withFeedback(url, "error", "missing_item_handle"));
+  }
+  // A blank field is "she has not typed a weight", NOT a zero. Coercing blank to 0 here would send a
+  // value she never entered and come back as "out of range", blaming her for the client's bug.
+  if (!rawWeight) {
+    redirect(withFeedback(url, "error", "missing_weight"));
+  }
+  const weightKg = Number(rawWeight);
+  if (!Number.isFinite(weightKg)) {
+    redirect(withFeedback(url, "error", "weight_out_of_range"));
+  }
+
+  // The head count is LUMP-SUM ONLY and optional: blank means "leave the recorded count alone".
+  // It is omitted entirely rather than sent as 0 on an individual capture, where the backend
+  // refuses a head count outright.
+  let animalCount: number | undefined;
+  if (rawCount) {
+    const parsed = Number(rawCount);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      redirect(withFeedback(url, "error", "animal_count_out_of_range"));
+    }
+    animalCount = parsed;
+  }
+
+  // Derived, not random, so a double-click or a retried Server Action is ONE write. The weight is
+  // part of the key: correcting to 12 kg and then to 13 kg are two different acts and must not
+  // collide, while re-sending the SAME correction replays for free.
+  const idempotencyKey = `weighing-weight-correction-${observationId}-${weightKg}-${animalCount ?? "keep"}`;
+  const result = await correctWeighingObservationWeight(
+    observationId,
+    {
+      ref_type: refType as "weighing_observation" | "weighing_shed_observation",
+      weight_kg: weightKg,
+      ...(animalCount === undefined ? {} : { animal_count: animalCount }),
+      ...(reason ? { reason } : {}),
+    },
+    idempotencyKey,
+  );
+  revalidateVaccinationViews();
+  if (!result.ok) {
+    redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
+  }
+  redirect(withFeedback(url, "success", "weight_corrected"));
 }
 
 // reworkVerificationItemAction requests SOP rework on the verification item's SOURCE task. The

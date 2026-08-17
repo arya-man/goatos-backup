@@ -120,6 +120,52 @@ type queueItemResponse struct {
 	// domain.ItemWatchState). Nil when review-event telemetry is unavailable for this deployment
 	// (h.reviewEvent not wired) -- distinct from "not opened", which is a real negative fact.
 	Watch *watchStateResponse `json:"watch,omitempty"`
+	// MeasurementCorrection is the backend-owned declaration that this item carries a number the
+	// verifier may correct while reviewing the proof, and every word of that control's copy.
+	// Absent -- the normal case -- means no client renders a correction control.
+	//
+	// It carries NO current value: the number is already in SubjectLabel, which the producing
+	// module composes and the verifier is reading while she watches the video. Putting it here
+	// too would mean verification reading a producer's tables.
+	MeasurementCorrection *measurementCorrectionResponse `json:"measurement_correction,omitempty"`
+}
+
+// measurementCorrectionResponse is the wire shape of domain.MeasurementCorrectionSpec, resolved
+// for ONE item: the copy comes from the category registration, the two ids come from the item's
+// own source so the client posts the correction against the right record without composing an
+// address of its own.
+type measurementCorrectionResponse struct {
+	// RefType / ObservationID are echoed from Source and are what the producing module's
+	// correction route takes.
+	RefType       string `json:"ref_type"`
+	ObservationID string `json:"observation_id"`
+	Title         string `json:"title"`
+	Help          string `json:"help"`
+	ValueLabel    string `json:"value_label"`
+	SubmitLabel   string `json:"submit_label"`
+	// CountLabel is present only on the ref types that carry an accompanying whole-number field
+	// (a lump-sum shed proof's head count). Absent means the client renders the value field alone.
+	CountLabel string `json:"count_label,omitempty"`
+}
+
+// toMeasurementCorrectionResponse resolves the category's declaration for one item, or nil when the
+// category declared none. Pure copy plus an echo of the item's own source -- no read, no join.
+func toMeasurementCorrectionResponse(spec *domain.MeasurementCorrectionSpec, source domain.SourceRef) *measurementCorrectionResponse {
+	if spec == nil {
+		return nil
+	}
+	out := &measurementCorrectionResponse{
+		RefType:       source.RefType,
+		ObservationID: source.RefID,
+		Title:         spec.Title,
+		Help:          spec.Help,
+		ValueLabel:    spec.ValueLabel,
+		SubmitLabel:   spec.SubmitLabel,
+	}
+	if spec.HasCountField(source.RefType) {
+		out.CountLabel = spec.CountLabel
+	}
+	return out
 }
 
 // watchStateResponse is the wire shape for domain.ItemWatchState: "percent watched if known, 'not
@@ -163,7 +209,10 @@ func toContextRowResponses(rows []domain.ContextRow) []contextRowResponse {
 	return out
 }
 
-func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
+// toQueueItemResponse maps one queue row to the wire. correction is the category's correctable-
+// measurement declaration, already resolved by the caller (which holds the registry); nil for every
+// category that declares none, which is all of them but weighing today.
+func toQueueItemResponse(row domain.QueueRow, correction *domain.MeasurementCorrectionSpec) queueItemResponse {
 	var verifiedAt *string
 	if row.Item.VerifiedAt != nil {
 		s := row.Item.VerifiedAt.Format(rfc3339Nano)
@@ -230,7 +279,21 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 			RefType:      row.Item.Source.RefType,
 			RefID:        row.Item.Source.RefID,
 		},
+		MeasurementCorrection: toMeasurementCorrectionResponse(correction, row.Item.Source),
 	}
+}
+
+// measurementCorrectionFor looks up the correctable-measurement declaration for an item's category.
+// Unregistered category or no declaration both mean nil, and nil means no control.
+func (h *Handler) measurementCorrectionFor(category string) *domain.MeasurementCorrectionSpec {
+	if h == nil || h.service == nil {
+		return nil
+	}
+	def, ok := h.service.Category(category)
+	if !ok {
+		return nil
+	}
+	return def.MeasurementCorrection
 }
 
 const rfc3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
@@ -379,7 +442,7 @@ func (h *Handler) listQueue(
 	items := make([]queueItemResponse, len(result.Items))
 	itemIDs := make([]string, len(result.Items))
 	for i, row := range result.Items {
-		items[i] = toQueueItemResponse(row)
+		items[i] = toQueueItemResponse(row, h.measurementCorrectionFor(row.Item.Category))
 		itemIDs[i] = row.Item.ItemID
 	}
 	// Watch state is a bounded batch read over exactly this page's item_ids -- never the whole
@@ -446,7 +509,7 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, verdictResponse{
-		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
+		Item:    toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category)),
 		TraceID: traceID(r),
 	})
 }
@@ -656,7 +719,7 @@ func (h *Handler) CloseItem(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, verdictResponse{
-		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
+		Item:    toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category)),
 		TraceID: traceID(r),
 	})
 }
@@ -695,7 +758,7 @@ func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) 
 	}
 	responseItems := make([]queueItemResponse, len(items))
 	for i, item := range items {
-		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item})
+		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category))
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, closeSubmissionResponse{
 		Items:   responseItems,
@@ -749,7 +812,7 @@ func (h *Handler) CloseVaccinationBatch(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	responseItems := make([]queueItemResponse, len(items))
 	for i, item := range items {
-		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item})
+		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category))
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, closeSubmissionResponse{
 		Items:   responseItems,

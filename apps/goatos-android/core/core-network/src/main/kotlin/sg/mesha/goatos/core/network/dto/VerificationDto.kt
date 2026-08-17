@@ -42,6 +42,31 @@ data class VerificationMediaItem(
 )
 
 /**
+ * The correctable-measurement control for one verification item, declared per category by the
+ * producing module. Rendered VERBATIM: this app composes none of these words, so a phone and an
+ * admin-web drawer showing the same control cannot word it differently.
+ */
+@Serializable
+data class VerificationMeasurementCorrectionDto(
+    /** Echoed from the item's source.ref_type. Posted back verbatim; never inferred. */
+    @SerialName("ref_type") val refType: String = "",
+    /** Echoed from the item's source.ref_id -- the record the correction addresses. */
+    @SerialName("observation_id") val observationId: String = "",
+    @SerialName("title") val title: String = "",
+    /** Says plainly that the value REPLACES the recorded one. Render it; never paraphrase it. */
+    @SerialName("help") val help: String = "",
+    /** Label for the number itself, unit included. */
+    @SerialName("value_label") val valueLabel: String = "",
+    @SerialName("submit_label") val submitLabel: String = "",
+    /**
+     * Label for an accompanying whole-number field (a lump-sum shed proof's head count). Null or
+     * blank means render the value field ALONE -- an individual animal's proof carries no count and
+     * the write path refuses one, so offering the field there would invite a rejected value.
+     */
+    @SerialName("count_label") val countLabel: String? = null,
+)
+
+/**
  * One row in the verifier's queue. The backend owns all display composition;
  * the app never derives labels from ids (TRD dumb-renderer rule). [category]
  * is the module-agnostic filter dimension (e.g. `vaccine`, `feed_direction`,
@@ -64,6 +89,16 @@ data class VerificationQueueItem(
      * producer may add rows at any time. Defaulted so an older payload still decodes.
      */
     @SerialName("context_rows") val contextRows: List<VerificationContextRowDto> = emptyList(),
+    /**
+     * Backend-owned declaration that this item carries a number the VERIFIER may correct while
+     * reviewing the proof, plus every word of that control's copy (maintainer decision 2026-08-17).
+     * Null -- every category but weighing today -- means the screen renders no correction control.
+     *
+     * It carries NO current value: the number is already in [subjectLabel], which the producing
+     * module composes and she is reading while she watches the video. Defaulted so an older payload
+     * still decodes.
+     */
+    @SerialName("measurement_correction") val measurementCorrection: VerificationMeasurementCorrectionDto? = null,
     @SerialName("status") val status: String = "",
     @SerialName("captured_at") val capturedAt: String = "",
     @SerialName("row_version") val rowVersion: Int = 1,
@@ -212,4 +247,50 @@ object VerificationStatus {
 data class VerificationContextRowDto(
     @SerialName("label") val label: String = "",
     @SerialName("value") val value: String = "",
+)
+
+
+/**
+ * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17).
+ *
+ * She watches the proof video and replaces the number the operator typed. The corrected value
+ * REPLACES the recorded one: on an individual capture that one animal's weight, on a lump-sum
+ * capture the shed total plus optionally the head count.
+ */
+@Serializable
+data class WeighingWeightCorrectionRequestDto(
+    /** The observation grain, echoed from the item's measurement_correction.ref_type. */
+    @SerialName("ref_type") val refType: String,
+    @SerialName("weight_kg") val weightKg: Double,
+    /**
+     * LUMP-SUM ONLY, and omitted entirely (not sent as 0) when she left it blank -- blank means
+     * "leave the recorded count alone". The backend REFUSES a head count on an individual capture
+     * rather than ignoring it, so sending 0 there would fail the whole correction.
+     */
+    @SerialName("animal_count") val animalCount: Int? = null,
+    @SerialName("reason") val reason: String? = null,
+    @SerialName("idempotency_key") val idempotencyKey: String? = null,
+)
+
+@Serializable
+data class WeighingWeightCorrectionResponseDto(
+    @SerialName("weight_correction") val weightCorrection: WeighingWeightCorrectionResultDto? = null,
+)
+
+@Serializable
+data class WeighingWeightCorrectionResultDto(
+    @SerialName("observation_id") val observationId: String = "",
+    @SerialName("ref_type") val refType: String = "",
+    @SerialName("campaign_shed_id") val campaignShedId: String = "",
+    /** The weight AFTER the correction. */
+    @SerialName("weight_kg") val weightKg: Double = 0.0,
+    @SerialName("animal_count") val animalCount: Int = 0,
+    @SerialName("average_weight_kg") val averageWeightKg: Double = 0.0,
+    @SerialName("previous_weight_kg") val previousWeightKg: Double = 0.0,
+    /**
+     * The recomposed verifier-facing sentence carrying the corrected weight. The backend pushes it
+     * onto the verification item too; rendered verbatim, never composed here.
+     */
+    @SerialName("subject_label") val subjectLabel: String = "",
+    @SerialName("corrected_at") val correctedAt: String = "",
 )

@@ -24,6 +24,17 @@ object AnalyticsEventsVerification {
     const val VERIFY_DECISION_UNAVAILABLE = "verify_decision_unavailable"
 
     /**
+     * The VERIFIER submitted a corrected weight on a weighing proof (maintainer decision
+     * 2026-08-17) — she replaced the number the operator typed.
+     *
+     * Worth its own event because it is the one place a verifier WRITES over an operator's record
+     * rather than judging it: how often the recorded weight is wrong is a real operational signal,
+     * and without this nothing distinguishes "the weights are fine" from "she is fixing every
+     * other one".
+     */
+    const val WEIGHT_CORRECTION_SUBMITTED = "verify_weight_correction_submitted"
+
+    /**
      * The Alerts screen (vaccination control-tower summary, `AlertsViewModel`) rendered its
      * first non-loading state. Previously nothing was emitted for this screen at all —
      * indistinguishable from "the operator never opened Alerts".

@@ -54,6 +54,15 @@
     <string name="verify_detail_photo_description">Photo evidence for this work</string>
     <string name="verify_detail_recorded_answer">Recorded: %1$s</string>
     <string name="verify_detail_no_media">No video attached to this item</string>
+    <!-- THE VERIFIER'S WEIGHT CORRECTION. Only the optional-note label lives here: the heading,
+         help sentence, field label and button all come from the BACKEND on the item itself, because
+         the backend owns labels and this control must read identically on the phone and on
+         admin-web. This one is a generic note field the backend does not word per module. -->
+    <string name="verify_detail_correction_reason_label">Note (optional)</string>
+    <!-- DOUBLE-SPEED PLAYBACK. Rendered only on clips longer than 20 seconds; the two strings are
+         the toggle's OFF and ON states. -->
+    <string name="verify_detail_speed_off">Play at 2x</string>
+    <string name="verify_detail_speed_on">Playing at 2x</string>
     <string name="verify_detail_approve">Approve</string>
     <string name="verify_detail_reject">Reject</string>
     <string name="verify_detail_already_decided">Already decided — no further action needed</string>

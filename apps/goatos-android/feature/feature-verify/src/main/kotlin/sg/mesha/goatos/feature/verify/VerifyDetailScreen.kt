@@ -20,10 +20,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -151,9 +153,43 @@ data class VerifyContextRow(
  * (`ref_type=sop_submission`, several clips under one verdict) still renders here as a
  * single-entry group — see [VerifyDetailViewModel] grouping.
  */
+/**
+ * THE VERIFIER'S WEIGHT CORRECTION control (maintainer decision 2026-08-17), exactly as the backend
+ * declared it on this item. Every string here is rendered VERBATIM: this screen composes none of
+ * them, so the phone and the admin-web drawer cannot word the same control differently.
+ *
+ * It carries NO current value -- the number is already in the entry's subject label, which she is
+ * reading while she watches the video.
+ */
+@Immutable
+data class VerifyWeightCorrection(
+    /** Echoed from the item's source; posted back verbatim, never inferred. */
+    val refType: String,
+    val observationId: String,
+    val title: String,
+    /** Says plainly that the value REPLACES the recorded one. Rendered, never paraphrased. */
+    val help: String,
+    val valueLabel: String,
+    val submitLabel: String,
+    /**
+     * Label for the head-count field. Null means render the weight field ALONE -- an individual
+     * animal's proof carries no count and the backend REFUSES one, so showing the field there would
+     * invite a value the server rejects.
+     */
+    val countLabel: String? = null,
+)
+
 @Immutable
 data class VerifyDetailEntryUiState(
     val itemId: String,
+    /**
+     * Present only when the backend declared a correctable measurement on this item -- weighing
+     * today. Null means the card renders no correction control at all.
+     *
+     * Deliberately NOT cleared once a verdict is recorded: she may correct the weight before
+     * deciding or after, including on an item she already approved, until the bucket closes.
+     */
+    val weightCorrection: VerifyWeightCorrection? = null,
     val subjectLabel: String? = null,
     val media: List<VerifyMediaItem> = emptyList(),
     val statusTone: VerifyTone = VerifyTone.PENDING,
@@ -253,6 +289,22 @@ sealed interface VerifyDetailEvent {
     /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise.
      *  [itemId] follows the same null-means-legacy-single-entry contract as [Approve]. */
     data class Reject(val reason: String, val itemId: String? = null) : VerifyDetailEvent
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION. [weightKg] is the number she typed; [animalCount] is
+     * LUMP-SUM ONLY and null means "leave the recorded count alone", which is the normal case.
+     *
+     * Deliberately separate from [Approve]/[Reject]: correcting the number is its own act, and she
+     * may do it before deciding or after.
+     */
+    data class CorrectWeight(
+        val itemId: String,
+        val observationId: String,
+        val refType: String,
+        val weightKg: Double,
+        val animalCount: Int? = null,
+        val reason: String? = null,
+    ) : VerifyDetailEvent
+
     data object Refresh : VerifyDetailEvent
     /** Dialog-lifecycle telemetry: the Compose dialogs below own their own open/dismiss state
      *  (a screen-recomposition concern), but every open/cancel is still a real verifier action
@@ -398,6 +450,22 @@ fun VerifyDetailScreen(
                                 rejectDialogForItemId = entry.itemId
                                 onEvent(VerifyDetailEvent.RejectDialogOpened(entry.itemId))
                             },
+                            onCorrectWeight = { weightKg, animalCount, reason ->
+                                // The address comes from the backend's own block; this screen never
+                                // composes which record a correction targets.
+                                entry.weightCorrection?.let { correction ->
+                                    onEvent(
+                                        VerifyDetailEvent.CorrectWeight(
+                                            itemId = entry.itemId,
+                                            observationId = correction.observationId,
+                                            refType = correction.refType,
+                                            weightKg = weightKg,
+                                            animalCount = animalCount,
+                                            reason = reason,
+                                        ),
+                                    )
+                                }
+                            },
                         )
                     }
                 }
@@ -457,6 +525,7 @@ private fun VerifyEntryCard(
     onPlayback: (VerifyDetailEvent) -> Unit,
     onApprove: () -> Unit,
     onReject: () -> Unit,
+    onCorrectWeight: (weightKg: Double, animalCount: Int?, reason: String?) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
@@ -520,6 +589,17 @@ private fun VerifyEntryCard(
         entry.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
             RejectionReasonCard(reason = reason)
         }
+        // Rendered ONLY when the backend attached a correctable measurement to this item -- weighing
+        // today. It sits ABOVE the verdict row because the order matches the act: she watches the
+        // video, fixes the number if it is wrong, then decides. Deliberately NOT hidden once a
+        // verdict exists: she may correct before deciding or after, until the bucket closes.
+        entry.weightCorrection?.let { correction ->
+            WeightCorrectionCard(
+                correction = correction,
+                isSubmitting = entry.isSubmitting,
+                onSubmit = onCorrectWeight,
+            )
+        }
         if (!isCloseMode) {
             DecisionRow(
                 approveEnabled = entry.isApproveEnabled && !entry.isSubmitting,
@@ -535,6 +615,94 @@ private fun VerifyEntryCard(
             thickness = 1.dp,
             color = MeshaColors.Surf2,
         )
+    }
+}
+
+/**
+ * THE VERIFIER'S WEIGHT CORRECTION card.
+ *
+ * Every visible word comes from [correction], which the backend composed: heading, help, both field
+ * labels and the button. The head-count field appears only when the backend sent a label for it --
+ * a lump-sum shed proof has one, a single animal's proof does not, and the write path REFUSES a
+ * count on the latter.
+ *
+ * Submit stays disabled until the typed weight parses to a positive number, so the server's refusal
+ * is unreachable from the UI rather than something she has to read and recover from. The fields are
+ * cleared on a successful submit so the card cannot sit showing a value that has already been sent
+ * as though it were still pending.
+ */
+@Composable
+private fun WeightCorrectionCard(
+    correction: VerifyWeightCorrection,
+    isSubmitting: Boolean,
+    onSubmit: (weightKg: Double, animalCount: Int?, reason: String?) -> Unit,
+) {
+    var weightText by rememberSaveable(correction.observationId) { mutableStateOf("") }
+    var countText by rememberSaveable(correction.observationId) { mutableStateOf("") }
+    var reasonText by rememberSaveable(correction.observationId) { mutableStateOf("") }
+
+    // Blank is "she has not typed a weight", never a zero: coercing blank to 0 would send a value
+    // she never entered and come back refused as out of range, blaming her for the client's bug.
+    val weightKg = weightText.trim().toDoubleOrNull()
+    // Blank count means "leave the recorded count alone" -- the normal case, since she is usually
+    // fixing a mistyped total rather than a miscount.
+    val trimmedCount = countText.trim()
+    val animalCount = trimmedCount.toIntOrNull()
+    val countIsUsable = trimmedCount.isEmpty() || (animalCount != null && animalCount > 0)
+    val canSubmit = weightKg != null && weightKg > 0 && countIsUsable && !isSubmitting
+
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .background(MeshaColors.Surf2, shape = RoundedCornerShape(16.dp))
+            .padding(14.dp),
+    ) {
+        Text(text = correction.title, color = MeshaColors.Ink, style = MeshaType.listTitle)
+        Text(
+            text = correction.help,
+            color = MeshaColors.Muted,
+            style = MeshaType.cta,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        OutlinedTextField(
+            value = weightText,
+            onValueChange = { weightText = it },
+            label = { Text(correction.valueLabel) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        )
+        correction.countLabel?.takeIf { it.isNotBlank() }?.let { countLabel ->
+            OutlinedTextField(
+                value = countText,
+                onValueChange = { countText = it },
+                label = { Text(countLabel) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+        }
+        OutlinedTextField(
+            value = reasonText,
+            onValueChange = { reasonText = it },
+            label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
+            singleLine = false,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        Button(
+            onClick = {
+                val kg = weightKg ?: return@Button
+                onSubmit(kg, animalCount, reasonText.trim().ifBlank { null })
+                weightText = ""
+                countText = ""
+                reasonText = ""
+            },
+            enabled = canSubmit,
+            modifier = Modifier.padding(top = 10.dp),
+        ) {
+            Text(correction.submitLabel)
+        }
     }
 }
 
@@ -850,6 +1018,11 @@ private fun VerifyVideoPlayer(
         // hand the verifier a seek bar. This is a label, so she can see how long the clip is and
         // how far in she is, and still cannot skip through it.
         VideoTimeReadout(player = player, modifier = Modifier.align(Alignment.BottomStart))
+        // DOUBLE-SPEED PLAYBACK (maintainer decision 2026-08-17). Offered ONLY on clips longer than
+        // 20 seconds -- see MIN_DOUBLE_SPEED_DURATION_MS. It is a SPEED control, not a seek control:
+        // she still watches every frame, so it does not reopen the skip-blocking this screen exists
+        // to enforce.
+        DoubleSpeedButton(player = player, modifier = Modifier.align(Alignment.BottomEnd))
         PlayPauseButton(
             isPlaying = isPlaying,
             onClick = {
@@ -976,6 +1149,65 @@ private fun RejectionReasonCard(reason: String) {
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+}
+
+/**
+ * DOUBLE-SPEED PLAYBACK is offered ONLY on clips longer than this (maintainer decision 2026-08-17).
+ *
+ * The point of the control is to save a verifier real time on a long clip. On a short one it saves a
+ * couple of seconds while making it materially easier to miss the single moment the proof turns on --
+ * the scale reading, the needle going in -- so the control is simply ABSENT rather than present and
+ * discouraged.
+ */
+private const val MIN_DOUBLE_SPEED_DURATION_MS = 20_000L
+
+private const val DOUBLE_SPEED_RATE = 2f
+private const val NORMAL_SPEED_RATE = 1f
+
+/**
+ * The 2x toggle, drawn over the video next to the time readout.
+ *
+ * It is a SPEED control and deliberately not a seek control: at 2x she still passes through every
+ * frame, so it does not reopen the forward-skip block this screen enforces by withholding the media3
+ * controller.
+ *
+ * The button appears only once the player reports a duration over [MIN_DOUBLE_SPEED_DURATION_MS].
+ * Duration is `C.TIME_UNSET` until the media is prepared, so it starts absent and appears when the
+ * clip proves itself long enough -- never the other way round, which would flash an option that then
+ * vanishes. If a shorter clip is loaded into the same player, the rate is reset to normal rather than
+ * left at 2x on a video that was never eligible for it.
+ */
+@Composable
+private fun DoubleSpeedButton(player: ExoPlayer, modifier: Modifier = Modifier) {
+    var durationMs by remember(player) { mutableLongStateOf(0L) }
+    var isDoubleSpeed by rememberSaveable(player) { mutableStateOf(false) }
+    LaunchedEffect(player) {
+        while (true) {
+            durationMs = player.duration.coerceAtLeast(0L)
+            kotlinx.coroutines.delay(500)
+        }
+    }
+    val mayDoubleSpeed = durationMs > MIN_DOUBLE_SPEED_DURATION_MS
+    // Applied in an effect, not at tap time, so the rate survives a re-prepare or a media-item swap
+    // that would otherwise leave the button reading 2x while the clip plays at normal speed.
+    LaunchedEffect(player, isDoubleSpeed, mayDoubleSpeed) {
+        val wantDoubleSpeed = isDoubleSpeed && mayDoubleSpeed
+        player.setPlaybackSpeed(if (wantDoubleSpeed) DOUBLE_SPEED_RATE else NORMAL_SPEED_RATE)
+        if (isDoubleSpeed && !mayDoubleSpeed) isDoubleSpeed = false
+    }
+    if (!mayDoubleSpeed) return
+    Text(
+        text = stringResource(
+            if (isDoubleSpeed) R.string.verify_detail_speed_on else R.string.verify_detail_speed_off,
+        ),
+        style = MeshaType.caption,
+        color = MeshaColors.Ink,
+        modifier = modifier
+            .padding(8.dp)
+            .background(MeshaColors.Bg.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
+            .clickable { isDoubleSpeed = !isDoubleSpeed }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 /**
@@ -1213,6 +1445,9 @@ private fun FullscreenVideoDialog(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+            // Fullscreen builds its OWN ExoPlayer, so it needs its own 2x toggle -- otherwise going
+            // fullscreen silently drops the verifier back to normal speed on a long clip.
+            DoubleSpeedButton(player = player, modifier = Modifier.align(Alignment.BottomEnd))
             PlayPauseButton(
                 isPlaying = isPlaying,
                 onClick = {

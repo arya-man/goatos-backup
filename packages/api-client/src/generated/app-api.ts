@@ -614,6 +614,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/observations/{observation_id}/weight-correction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct the recorded weight on one weighing observation.
+         * @description The VERIFIER's correction of the number an operator typed, made while she watches the proof video (maintainer decision 2026-08-17). The corrected value REPLACES the recorded one: on an individual capture it replaces that one animal's weight, and on a lump-sum capture it replaces the shed total, optionally with a corrected head count, and the stored average is recomputed from both.
+         *
+         *     Authorization is `verification.verdict` -- the verifier-exclusive capability that owns approve/reject -- so the person who judges the evidence is the person who may fix what it shows. It is deliberately NOT tied to her verdict: she may correct before deciding or after, including on an item she already approved, until the bucket is closed.
+         *
+         *     The observation id and ref type are the values the verification item already carries in `source.ref_id` and `source.ref_type`; clients echo them rather than composing an address of their own.
+         */
+        post: operations["correctWeighingObservationWeight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/weighing/process-state": {
         parameters: {
             query?: never;
@@ -8034,6 +8058,70 @@ export interface components {
             close: components["schemas"]["WeighingCloseResult"];
             trace_id?: string;
         };
+        WeighingWeightCorrectionRequest: {
+            /**
+             * @description The observation grain, echoed from the verification item's `source.ref_type`.
+             * @enum {string}
+             */
+            ref_type: "weighing_observation" | "weighing_shed_observation";
+            /**
+             * Format: double
+             * @description The corrected weight in kg. One animal's weight for an individual capture, the whole shed total for a lump-sum one. Rounded to three decimals, the scale the column stores.
+             */
+            weight_kg: number;
+            /** @description The corrected head count. LUMP-SUM ONLY -- omitted or 0 leaves the recorded count alone, which is the normal case. Sending it on an individual capture is refused (422 `animal_count_not_applicable`) rather than ignored, because an individual observation weighs exactly one animal and silently dropping it would report a correction that never happened. */
+            animal_count?: number;
+            /** @description The verifier's own words. Optional -- the video is the evidence. */
+            reason?: string;
+            /** @description Falls back to the `Idempotency-Key` header. An exact replay returns the original result with no second write; the same key carrying a different weight is refused. */
+            idempotency_key?: string;
+        };
+        WeighingWeightCorrectionResponse: {
+            weight_correction: components["schemas"]["WeighingWeightCorrectionResult"];
+            trace_id?: string;
+        };
+        /** @description The readback of one correction, carrying BOTH the new values and what they replaced: the client that just sent it needs the new number to render, and the audit trail needs the old one to be legible without a second read. */
+        WeighingWeightCorrectionResult: {
+            /** Format: uuid */
+            observation_id: string;
+            /** @enum {string} */
+            ref_type: "weighing_observation" | "weighing_shed_observation";
+            /** Format: uuid */
+            campaign_id: string;
+            /** @description The bucket to refresh once the correction lands. */
+            campaign_shed_id: string;
+            /**
+             * Format: double
+             * @description The weight AFTER the correction.
+             */
+            weight_kg: number;
+            /** @description The head count after the correction. Lump-sum only. */
+            animal_count?: number;
+            /**
+             * Format: double
+             * @description Recomputed from the corrected total and count, so the shed's average cannot disagree with the shed's own total. Lump-sum only.
+             */
+            average_weight_kg?: number;
+            /**
+             * Format: double
+             * @description What the row held immediately before this correction.
+             */
+            previous_weight_kg: number;
+            previous_animal_count?: number;
+            /**
+             * Format: double
+             * @description What the OPERATOR originally recorded, preserved across every later correction. Equal to `previous_weight_kg` on a first correction only.
+             */
+            operator_weight_kg: number;
+            operator_animal_count?: number;
+            reason?: string;
+            /** Format: uuid */
+            corrected_by: string;
+            /** @description The recomposed verifier-facing sentence carrying the corrected weight. The backend pushes it onto the verification item so the queue stops advertising the number that was just replaced; clients render it verbatim. */
+            subject_label: string;
+            /** Format: date-time */
+            corrected_at: string;
+        };
         WeighingProcessStateDayMarker: {
             /** Format: date */
             business_date: string;
@@ -9043,6 +9131,23 @@ export interface components {
             mime_type?: string;
             duration_ms?: number;
         };
+        /** @description The correctable-measurement control for one verification item. Declared per category by the producing module at registration, so a phone and an admin-web drawer showing the same control cannot word it differently. Today only Weighing declares one: its proof shows a weight an operator typed, and the verifier may replace it. */
+        VerificationMeasurementCorrection: {
+            /** @description Echoed from the item's source.ref_type. Post it back verbatim on the producing module's correction route; do not infer it. */
+            ref_type: string;
+            /** @description Echoed from the item's source.ref_id — the record the correction addresses. */
+            observation_id: string;
+            /** @description Heading for the control. Rendered verbatim. */
+            title: string;
+            /** @description One sentence telling the verifier what the correction does. It says plainly that the value REPLACES the recorded one; render it, never paraphrase it. */
+            help: string;
+            /** @description Label for the number itself, unit included. Rendered verbatim. */
+            value_label: string;
+            /** @description Label for the submit control. Rendered verbatim. */
+            submit_label: string;
+            /** @description Label for an accompanying whole-number field (a lump-sum shed proof's head count). PRESENT ONLY on the ref types that carry one — absent means render the value field alone. An individual animal's proof carries no count, and the write path refuses one. */
+            count_label?: string;
+        };
         VerificationQueueItem: {
             /** Format: uuid */
             item_id: string;
@@ -9055,6 +9160,12 @@ export interface components {
             subject_note?: string;
             /** @description What the reviewed work was EXPECTED to be, so the verifier can judge the proof against a standard rather than only confirming a video exists. Backend-composed label/value pairs attached by the PRODUCING module at enqueue time, in the producer's order; for a feed packing proof these carry the frozen ration for that pen-session and the head count it was computed from. Rendered VERBATIM: clients must not parse, reorder, or re-label them, and must not assume a fixed set of labels — a producer may add rows at any time. Always present; empty when the producer attached none. */
             context_rows?: components["schemas"]["VerificationContextRow"][];
+            /**
+             * @description Backend-owned declaration that this item carries a number the VERIFIER may correct while reviewing the proof, plus every word of that control's copy. Absent — the normal case — means the client renders no correction control at all.
+             *
+             *     It carries NO current value: the number is already in subject_label, which the producing module composes and the verifier is reading while she watches the video.
+             */
+            measurement_correction?: components["schemas"]["VerificationMeasurementCorrection"];
             status: components["schemas"]["VerificationItemStatus"];
             verdict_reason?: string;
             /** Format: uuid */
@@ -11312,6 +11423,42 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    correctWeighingObservationWeight: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The observation the verification item points at (`source.ref_id`). */
+                observation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeighingWeightCorrectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Weight corrected, or the same correction idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingWeightCorrectionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
