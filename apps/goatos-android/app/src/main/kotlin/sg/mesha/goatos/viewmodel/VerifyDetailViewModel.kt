@@ -41,6 +41,7 @@ import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
 import sg.mesha.goatos.feature.verify.VerifyTone
+import sg.mesha.goatos.feature.verify.VerifyWeightCorrection
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 import javax.inject.Inject
 
@@ -65,6 +66,10 @@ private data class VerifyDetailFlags(
 )
 
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
+
+/** The weighing INDIVIDUAL capture grain (verification source ref_type). One animal, so it carries
+ *  no head count and the backend refuses one -- see [VerifyDetailViewModel.correctWeight]. */
+private const val REF_TYPE_INDIVIDUAL_OBSERVATION = "weighing_observation"
 
 /** Upper bound on how long the screen holds its skeleton waiting for the refetch to return the
  *  decided item. Generous enough for a slow round trip, short enough that a refetch which never
@@ -272,6 +277,7 @@ class VerifyDetailViewModel @Inject constructor(
                 submitVerdict(event.itemId ?: itemId, VerificationDecision.APPROVED, reason = null)
             is VerifyDetailEvent.Reject ->
                 submitVerdict(event.itemId ?: itemId, VerificationDecision.REJECTED, reason = event.reason)
+            is VerifyDetailEvent.CorrectWeight -> correctWeight(event)
             is VerifyDetailEvent.VideoPlayback -> trackVideoPlayback(event)
             is VerifyDetailEvent.RejectDialogOpened -> AnalyticsFunnels.trackVerifyRejectDialogOpened(analytics, event.itemId)
             is VerifyDetailEvent.RejectDialogCancelled -> AnalyticsFunnels.trackVerifyRejectDialogCancelled(analytics, event.itemId)
@@ -319,6 +325,55 @@ class VerifyDetailViewModel @Inject constructor(
      * this shed's group stays exactly as it was — no shared verdict, no shared enable/disable
      * state, matching [SyncRepository.enqueueVerificationVerdict]'s own per-item_id outbox key.
      */
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17).
+     *
+     * Deliberately NOT modelled on [submitVerdict]: a correction is not a decision, so it does not
+     * arm awaitingBackendDecision, does not auto-close the screen, and does not wait for the item to
+     * leave the pending query -- the item stays exactly where it is and she goes on to decide it.
+     *
+     * It rides the outbox like every other write, so a correction made in a shed with no signal is
+     * durable. The refresh afterwards is what brings back the RE-LABELLED item: the backend
+     * recomposes the subject label around the corrected weight, so once it lands she reads the
+     * number she just entered rather than the one she replaced.
+     */
+    private fun correctWeight(event: VerifyDetailEvent.CorrectWeight) = viewModelScope.launch {
+        // Belt-and-braces mirror of the card's own submit gate: a malformed event can never enqueue
+        // a non-positive weight, which the server would refuse anyway.
+        if (event.weightKg <= 0 || !event.weightKg.isFinite()) return@launch
+        // A head count is LUMP-SUM ONLY. The backend REFUSES one on an individual capture rather
+        // than ignoring it, so a stray count here would fail the whole correction -- drop it at the
+        // grain that cannot carry it instead of sending a request that cannot succeed.
+        val animalCount = event.animalCount
+            ?.takeIf { it > 0 && event.refType != REF_TYPE_INDIVIDUAL_OBSERVATION }
+
+        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
+        val result = syncRepo.enqueueWeighingWeightCorrection(
+            observationId = event.observationId,
+            refType = event.refType,
+            weightKg = event.weightKg,
+            animalCount = animalCount,
+            reason = event.reason,
+        )
+        when (result) {
+            is AppResult.Ok -> {
+                analytics.track(AnalyticsEventsVerification.WEIGHT_CORRECTION_SUBMITTED)
+                _flags.update { it.copy(isSubmitting = false) }
+                // Pull the re-labelled item back so the card stops showing the replaced weight.
+                refresh()
+            }
+            is AppResult.Err -> {
+                runCatching {
+                    crashReporter.recordException(
+                        IllegalStateException(result.message),
+                        "weighing weight correction enqueue failed",
+                    )
+                }
+                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
+            }
+        }
+    }
+
     private fun submitVerdict(targetItemId: String, decision: String, reason: String?) = viewModelScope.launch {
         // Belt-and-braces guard mirroring the reject dialog's own mandatory-reason validation —
         // a malformed event can never enqueue a reason-less reject.
@@ -535,6 +590,22 @@ class VerifyDetailViewModel @Inject constructor(
         return VerifyDetailEntryUiState(
             itemId = itemId,
             subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
+            // Backend-declared, or absent. Every string is carried straight through -- this
+            // ViewModel composes none of the control's copy. Null (every category but weighing
+            // today) means the card renders no correction control at all.
+            weightCorrection = measurementCorrection
+                ?.takeIf { it.observationId.isNotBlank() && it.refType.isNotBlank() }
+                ?.let { correction ->
+                    VerifyWeightCorrection(
+                        refType = correction.refType,
+                        observationId = correction.observationId,
+                        title = correction.title,
+                        help = correction.help,
+                        valueLabel = correction.valueLabel,
+                        submitLabel = correction.submitLabel,
+                        countLabel = correction.countLabel?.takeIf { it.isNotBlank() },
+                    )
+                },
             media = media.map {
                 VerifyMediaItem(
                     signedUrl = absoluteDownloadUrl(it.downloadUrl),

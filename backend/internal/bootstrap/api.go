@@ -615,6 +615,26 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
 			Category:      weighingdomain.VerificationCategoryWeighing,
 			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Weighing video"},
+			// THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing is
+			// the one category today whose proof shows a number an operator typed, so it is
+			// the one that declares a correctable measurement. Every visible word lives here
+			// because the backend owns labels: her phone and her admin-web drawer render this
+			// same copy, and neither may word it itself.
+			//
+			// The help sentence says REPLACES on purpose. A verifier who believes she is
+			// filing a note rather than overwriting the operator's record is the single most
+			// expensive misunderstanding this control can cause.
+			MeasurementCorrection: &verificationdomain.MeasurementCorrectionSpec{
+				Title:       "Correct the weight",
+				Help:        "Enter the weight you can see in the video. It replaces the weight recorded here.",
+				ValueLabel:  "Corrected weight (kg)",
+				SubmitLabel: "Save corrected weight",
+				// Only the lump-sum grain carries a head count: one shed total covers many
+				// goats and the count is what turns it into an average. An individual capture
+				// weighs exactly one animal, so it gets the weight field alone.
+				CountLabel:    "Goats on the scale",
+				CountRefTypes: []string{weighingdomain.VerificationRefTypeShed},
+			},
 			NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
 			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
 		},
@@ -641,6 +661,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Same bridge, retire direction: a reopened lump-sum bucket withdraws its
 	// submission, so the item raised for it must stop being decidable.
 	weighingService.WithVerificationWithdrawer(weighingVerificationBridge)
+	// Same bridge, RELABEL direction: the verifier's weight correction replaces the
+	// weight the item's subject label states, so the label is recomposed or the
+	// queue keeps showing the number she just replaced.
+	//
+	// The correction is served by its own service and its own narrow store, NOT by
+	// weighingService: it is the verifier's act on one observation and must not be
+	// able to reach the planner/execution writes.
+	weighingHandler.WithWeightCorrector(
+		weighingapp.NewWeightCorrectionService(weighingRepo, log).
+			WithVerificationRelabeler(weighingVerificationBridge),
+	)
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now

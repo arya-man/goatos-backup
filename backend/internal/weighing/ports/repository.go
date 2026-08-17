@@ -18,6 +18,15 @@ var (
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
 
+	// ErrCorrectionAfterClose is the verifier's weight correction refusing a bucket
+	// that is already closed. It is deliberately its own class rather than a reuse
+	// of ErrImmutable: the observation row is perfectly writable and the verifier
+	// has the authority — it is the BUCKET that has been settled, and the remedy is
+	// ReopenScope, which is a different act by a different (monitor) authority. A
+	// verifier told "that record cannot be changed" would have no idea a reopen
+	// exists.
+	ErrCorrectionAfterClose = errors.New("weighing: bucket closed, correction refused")
+
 	// ErrParkSelectionRequired is returned when the actor legitimately covers SEVERAL parks
 	// without a tenant grant and the surface can only answer for one. It is deliberately its
 	// own class rather than ErrInvalidArgument: the request was not malformed, the client
@@ -472,6 +481,20 @@ type Repository interface {
 // the planner/execution writes.
 type VerificationVerdictStore interface {
 	ApplyVerificationVerdict(ctx context.Context, verdict domain.VerificationVerdict) (domain.VerificationVerdictResult, error)
+}
+
+// WeightCorrectionStore is the verifier's weight-correction write. It is its own
+// narrow interface for the same reason VerificationVerdictStore is: the correction
+// is an act on ONE observation by the verifier, and the service that serves it must
+// not be handed the planner/execution writes to reach.
+//
+// CorrectObservationWeight overwrites the observation's live weight (and, for a
+// lump-sum capture, its head count and recomputed average) inside ONE transaction
+// that also preserves the operator's original values, writes the audit row, records
+// the idempotency snapshot, and enqueues the domain event. Partial application is
+// impossible by construction.
+type WeightCorrectionStore interface {
+	CorrectObservationWeight(ctx context.Context, cmd domain.WeightCorrectionCommand) (domain.WeightCorrectionResult, error)
 }
 
 // WeighingKernelStore is the PHASE 2 time-driven kernel write/read side. It is

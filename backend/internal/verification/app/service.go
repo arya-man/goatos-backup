@@ -43,6 +43,13 @@ func (s *Service) Categories() []domain.CategoryDefinition {
 	return s.registry.List()
 }
 
+// Category returns one registered category definition, for the wire layer to read a
+// per-item declaration off (today: the correctable-measurement copy). Missing is not
+// an error -- an item whose category is unregistered simply gets no declaration.
+func (s *Service) Category(category string) (domain.CategoryDefinition, bool) {
+	return s.registry.Get(category)
+}
+
 // CreateItem is the producer-facing API: any module (vaccination first; feed/diagnosis/death/
 // breeding later) calls this to enqueue one verification item. Verification never reaches into a
 // producer's tables — everything it needs travels in CreateItem.
@@ -886,6 +893,43 @@ func (s *Service) WithdrawItemsBySource(ctx context.Context, tenantID, sourceMod
 		return 0, mapRepoErr(err)
 	}
 	return withdrawn, nil
+}
+
+// RelabelItemBySource is the producing module's RELABEL seam: the module that
+// raised the item tells verification that the fact its subject label states has
+// changed, so the label must be recomposed.
+//
+// It exists for the verifier's weighing weight correction -- see the repository
+// method for why a stale label is a real defect there and not cosmetics. Like the
+// retire and receipt seams it decides nothing, publishes nothing, and is not
+// reachable from the verifier-facing HTTP surface: a module may restate its own
+// item's copy, never anything about the decision.
+func (s *Service) RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	sourceModule = strings.TrimSpace(sourceModule)
+	sourceRefType = strings.TrimSpace(sourceRefType)
+	sourceRefID = strings.TrimSpace(sourceRefID)
+	subjectLabel = strings.TrimSpace(subjectLabel)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if sourceModule == "" || sourceRefType == "" {
+		return 0, BadRequest("invalid_source_ref", "source module and ref_type are required")
+	}
+	if !uuidutil.IsUUIDString(sourceRefID) {
+		return 0, BadRequest("invalid_source_ref", "source ref_id must be a UUID")
+	}
+	// A blank label is not a relabel to an empty string -- it is a caller with
+	// nothing to say. Refusing it here keeps a producer bug from stripping the
+	// verifier's only identity line for that item.
+	if subjectLabel == "" {
+		return 0, BadRequest("invalid_subject_label", "subject_label is required")
+	}
+	relabelled, err := s.repo.RelabelItemBySource(ctx, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	return relabelled, nil
 }
 
 // MarkVerdictApplied is the producing module's APPLY-RECEIPT seam, the mirror of

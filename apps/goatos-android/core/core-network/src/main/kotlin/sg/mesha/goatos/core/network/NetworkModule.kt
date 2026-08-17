@@ -102,6 +102,8 @@ import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
@@ -533,6 +535,19 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto
+
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing owns the route --
+     * the correction writes a weighing record -- while the verification item tells the app WHICH
+     * record to address, via measurement_correction. Same endpoint admin-web calls: one act, one
+     * rule, one route.
+     */
+    @POST("app/weighing/observations/{observation_id}/weight-correction")
+    suspend fun correctWeighingObservationWeight(
+        @Path("observation_id") observationId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto
 
     @POST("verification/items/{item_id}/close")
     suspend fun closeVerificationItem(
@@ -1223,6 +1238,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto = service.submitVerificationVerdict(itemId, idempotencyKey, request)
+
+    override suspend fun correctWeighingObservationWeight(
+        observationId: String,
+        idempotencyKey: String,
+        request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto = service.correctWeighingObservationWeight(observationId, idempotencyKey, request)
 
     override suspend fun closeVerificationItem(
         itemId: String,

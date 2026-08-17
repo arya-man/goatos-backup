@@ -154,6 +154,19 @@ type Repository interface {
 	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
 	// so the verdict's submission and its application are different moments).
 	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
+	// RelabelItemBySource replaces the backend-composed subject label on the item raised for one
+	// source record, because the producing module changed the fact the label states.
+	//
+	// It exists for the verifier's weighing weight correction: subject_label is composed at enqueue
+	// and carries the weight ("Godel 1 - Part 3 · Tag 9010 · 120.0 kg"), so once that weight is
+	// corrected the queue would otherwise keep advertising the number that was just replaced --
+	// the verifier reading her own correction back as if it never happened.
+	//
+	// Like the retire and receipt seams it decides NOTHING: it rewrites display copy the producing
+	// module already owns, never status, verdict, or media, and it is not reachable from the
+	// verifier-facing HTTP surface. Items in every status are relabelled, decided ones included: an
+	// approved item's label must still name the weight the row actually holds.
+	RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error)
 	// OversightAnalytics computes the CEO/PC-Director oversight aggregate (KPI strip, pending
 	// backlog by module, per-verifier last-14-day activity). Bounded, tenant-scoped aggregate SQL
 	// only -- see domain.OversightAnalytics's doc comment.

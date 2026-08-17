@@ -19,6 +19,7 @@ type captureCreator struct {
 	received       verificationdomain.CreateItem
 	withdrawnCalls []withdrawCall
 	appliedCalls   []appliedCall
+	relabelCalls   []relabelCall
 }
 
 // appliedCall records the apply-RECEIPT weighing sends verification once a verdict
@@ -35,6 +36,23 @@ type appliedCall struct {
 func (c *captureCreator) MarkVerdictApplied(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error) {
 	c.appliedCalls = append(c.appliedCalls, appliedCall{tenantID, sourceModule, sourceRefType, append([]string(nil), sourceRefIDs...), appliedByModule})
 	return len(sourceRefIDs), nil
+}
+
+// relabelCall records the RELABEL the verifier's weight correction sends, so the
+// bridge test can assert it carries the module/ref_type/ref_id that address the very
+// item weighing raised -- a relabel addressed to the wrong grain silently updates
+// nothing and leaves the stale weight on screen.
+type relabelCall struct {
+	tenantID     string
+	module       string
+	refType      string
+	refID        string
+	subjectLabel string
+}
+
+func (c *captureCreator) RelabelItemBySource(_ context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	c.relabelCalls = append(c.relabelCalls, relabelCall{tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel})
+	return 1, nil
 }
 
 type withdrawCall struct {
