@@ -15,6 +15,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { SvgBars } from "@/components/svg-bars";
+import { SegmentedLinks } from "@/features/weighing/segmented-links";
 import {
   FEED_SERIES_VARS,
   FeedChartLegend,
@@ -210,28 +211,24 @@ export async function FeedAnalyticsPage({
         {fa(pageContract, "banner.basis")}
       </p>
 
-      <div className="tabsrow" role="tablist" aria-label={fa(pageContract, "range.aria")}>
-        {TABS.map((t) => (
-          <a
-            key={t}
-            role="tab"
-            aria-selected={t === tab}
-            className={t === tab ? "tab on" : "tab"}
-            href={hrefWith(searchParams, { tab: t === "overview" ? undefined : t })}
-          >
-            {fa(pageContract, `tab.${t}`)}
-          </a>
-        ))}
-        <span className="tabspacer" />
-        {RANGES.map((r) => (
-          <a
-            key={r}
-            className={r === range ? "tab on" : "tab"}
-            href={hrefWith(searchParams, { range: r === "30" ? undefined : r })}
-          >
-            {fa(pageContract, `range.${r}`)}
-          </a>
-        ))}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+        <SegmentedLinks
+          current={tab}
+          options={TABS.map((t) => ({
+            value: t,
+            label: fa(pageContract, `tab.${t}`),
+            href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t }),
+          }))}
+        />
+        <SegmentedLinks
+          current={range}
+          ariaLabel={fa(pageContract, "range.aria")}
+          options={RANGES.map((r) => ({
+            value: r,
+            label: fa(pageContract, `range.${r}`),
+            href: hrefWith(searchParams, { range: r === "30" ? undefined : r }),
+          }))}
+        />
       </div>
 
       {failed ? (
@@ -272,7 +269,7 @@ function DirectedTabs({
   execution: FeedAnalyticsExecutionResponse | null;
   pageContract: AdminUiPageContract;
 }) {
-  const view = buildDirectedView(data, fa(pageContract, "tab.items"), fa(pageContract, "unit.heads"));
+  const view = buildDirectedView(data, fa(pageContract, "series.other"), fa(pageContract, "unit.heads"));
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
 

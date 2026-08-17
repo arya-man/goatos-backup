@@ -2976,6 +2976,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tab.peranimal":          "Per Animal",
 			"tab.execution":          "Execution",
 			"tab.experiment":         "Experiment",
+			"series.other":           "Other feeds",
 			"range.30":               "30 days",
 			"range.61":               "2 months",
 			"range.92":               "3 months",
