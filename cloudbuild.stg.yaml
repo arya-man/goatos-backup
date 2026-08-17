@@ -140,7 +140,7 @@ steps:
           exit 0
         fi
         apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git jq openjdk-21-jdk unzip
+        apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk unzip
         tools/deploy/stg-mobile-distribution.sh
 
   - id: stg-release-tag-bookkeeping
