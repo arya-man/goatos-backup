@@ -318,6 +318,16 @@ func init() {
 			if vertical == VerticalFeed && (tier == TierHead || tier == TierDirector) {
 				set[FeedDirectionRead] = struct{}{}
 			}
+			// The sales vertical's own module (/procurement/sales). Scoped to VerticalSales so
+			// the one-module-one-director split holds: no other vertical's tiers gain a sales
+			// read. Director/Head/Manager run the desk and record sales; the Assistant Manager
+			// tier reads the board but does not write the ledger.
+			if vertical == VerticalSales {
+				set[SalesRead] = struct{}{}
+				if tier == TierManager || tier == TierHead || tier == TierDirector {
+					set[SalesWrite] = struct{}{}
+				}
+			}
 			// registerRole panics on collision with a pre-existing role -- including the
 			// flat legacy roles declared in permissions.go. It replaces the previous
 			// hand-written collision check here AND closes the hole that check did not

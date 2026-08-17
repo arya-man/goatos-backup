@@ -127,6 +127,7 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
+					navLeaf("procurement-sales", "Sales", "/procurement/sales", nil),
 				},
 			},
 			{
@@ -245,6 +246,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
+		{Pattern: "/procurement/sales", Label: "Sales", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
@@ -420,6 +422,10 @@ func pages() []domain.PageContract {
 		// them on screen in every shoulder-surfing context the register is used in.
 		page("vendors", "/procurement/vendors", "/procurement/vendors", "Vendors", "The procurement register: livestock agents and stockists, transport, feed, manure, labour, insurance and site trades.", "module-surface",
 			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
+		// The SALES module: animal and manure sales, demand pipelines and evidence panels. The one
+		// table is the deals ledger; the overview blocks render from GET /sales/overview.
+		page("sales", "/procurement/sales", "/procurement/sales", "Sales", "Animal and manure sales across CBE and CPT — revenue, buyers, demand pipeline and weight evidence.", "module-surface",
+			[]domain.TableContract{tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100})}),
 		page("source-load", "/procurement/source-entry/loads/{load_id}", "/procurement/source-entry/loads/{load_id}", "Source load", "Full source-entry journey timeline, animal rows, decisions, and arrival gate.", "record-drilldown",
 			[]domain.TableContract{
 				table("load-goats", "Animals in load", "/procurement/source-entry/loads/{load_id}/goats", []string{"animal_ids", "selection", "current_stage", "source_entry", "ownership", "health", "warmup", "downstream"}, "load_goat"),
@@ -2319,6 +2325,165 @@ func pageSpecificCopy(id string) map[string]string {
 			// purpose -- see domain.VendorWrite.ValidateForCreate.
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
 			"disabled.write":       "Your current role can view vendors but not change them.",
+		}
+	case "sales":
+		// Backend-owned copy for the sales page. The client renders these verbatim; per the golden
+		// rule it must not hardcode a label, an empty state or a disabled reason of its own. Farm
+		// language only.
+		return map[string]string{
+			"crumb": "Procurement",
+
+			// Section headings.
+			"section.headline.title":    "Sales at a glance",
+			"section.headline.aria":     "Sales headline figures",
+			"section.monthly.title":     "Month by month",
+			"section.monthly.aria":      "Monthly sales trend",
+			"section.price_bands.title": "Price per kg by breed",
+			"section.price_bands.aria":  "Realized price bands",
+			"section.market.title":      "Market check",
+			"section.market.subtitle":   "What other sellers quote per kg, next to our own realized price.",
+			"section.buyers.title":      "Buyers",
+			"section.buyers.subtitle":   "Who buys from us, what they buy, and how much of the revenue they carry.",
+			"section.pipeline.title":    "Demand pipeline",
+			"section.pipeline.subtitle": "Buyers and farmer groups we are talking to, and where the calls stand.",
+			"section.evidence.title":    "Sale evidence",
+			"section.evidence.subtitle": "Tag lists handed over at sale, and video weight checked against the book.",
+			"section.ledger.title":      "Deals",
+			"section.ledger.aria":       "Sales ledger",
+			"section.ledger.row_hint":   "click a row to see full details",
+
+			// Headline KPI labels.
+			"kpi.revenue":              "Recorded sales revenue",
+			"kpi.animals":              "Animals sold",
+			"kpi.animals.detail":       "sheep and goats, closed deals",
+			"kpi.realized_price":       "Realized price per kg",
+			"kpi.realized_price.hint":  "Closed live-animal revenue over live weight sold.",
+			"kpi.manure":               "Manure sold",
+			"kpi.manure.detail":        "kg and revenue from manure deals",
+			"kpi.period":               "Covering",
+			"kpi.deals":                "Closed deals",
+			"kpi.live_weight":          "Live weight sold",
+			"value.kg_suffix":          "kg",
+			"value.per_kg_suffix":      "per kg",
+			"value.none":               "Not recorded",
+			"value.farm_all":           "Both farms",
+			"value.status.uncontacted": "Not yet called",
+
+			// Charts: label, what the value is, and the empty state -- one set per chart.
+			"chart.monthly_revenue.title": "Sales revenue by month",
+			"chart.monthly_revenue.value": "Revenue",
+			"chart.monthly_revenue.empty": "No closed sales in this view yet.",
+			"chart.monthly_animals.title": "Animals sold by month",
+			"chart.monthly_animals.value": "Animals",
+			"chart.monthly_animals.empty": "No animals sold in this view yet.",
+			"chart.monthly_manure.title":  "Manure sold by month",
+			"chart.monthly_manure.value":  "Manure (kg)",
+			"chart.monthly_manure.empty":  "No manure sales in this view yet.",
+			"chart.price_bands.title":     "Price per kg by breed",
+			"chart.price_bands.value":     "Price per kg",
+			"chart.price_bands.empty":     "No weighed and priced sales to compare yet.",
+			"chart.series.sheep":          "Sheep",
+			"chart.series.goat":           "Goats",
+			"chart.series.manure":         "Manure",
+
+			// Buyer board.
+			"column.buyer_name":    "Buyer",
+			"column.buyer_place":   "Place",
+			"column.product_types": "Buys",
+			"column.deals":         "Deals",
+			"column.animals":       "Animals",
+			"column.revenue":       "Revenue",
+			"column.share_pct":     "Share of revenue",
+			"empty.buyers":         "No buyers on the board yet. Buyers appear as deals close.",
+
+			// Pipeline panels.
+			"pipeline.buyers.title":   "Buyer pipeline",
+			"pipeline.buyers.total":   "buyer leads",
+			"pipeline.buyers.places":  "Where the interest is",
+			"pipeline.fpo.title":      "Farmer group pipeline",
+			"pipeline.fpo.total":      "farmer groups",
+			"pipeline.fpo.districts":  "Districts covered",
+			"pipeline.status_heading": "Where the calls stand",
+			"empty.buyer_pipeline":    "No buyer leads recorded yet.",
+			"empty.fpo_pipeline":      "No farmer groups recorded yet.",
+
+			// Evidence panels.
+			"evidence.tags.title":       "Sold animal tags",
+			"evidence.tags.total":       "animals tagged at sale",
+			"evidence.tags.sales":       "sales covered",
+			"evidence.tags.by_type":     "By animal",
+			"empty.tags":                "No tag lists recorded yet.",
+			"evidence.audit.title":      "Weight check",
+			"evidence.audit.subtitle":   "Video weight against the book, per animal.",
+			"evidence.audit.within_0_3": "Matches the book (within 0.3 kg)",
+			"evidence.audit.within_1":   "Slightly off (0.3 – 1 kg)",
+			"evidence.audit.over_1":     "More than 1 kg apart",
+			"evidence.audit.max_gap":    "Largest gap",
+			"empty.audit":               "No weight checks recorded yet.",
+
+			// Market check table.
+			"column.market":              "Market",
+			"column.category":            "Animal",
+			"column.breed":               "Breed",
+			"column.source":              "Quoted by",
+			"column.ex_farm_rate":        "Ex-farm rate",
+			"column.transport_rate":      "Transport",
+			"column.landing_cost_per_kg": "Landed cost per kg",
+			"column.market_price_per_kg": "Market price per kg",
+			"column.market_gap":          "Loss per kg",
+			"empty.market":               "No market quotes recorded yet.",
+
+			// Ledger columns.
+			"column.sale_date":       "Date",
+			"column.farm":            "Farm",
+			"column.product_type":    "Product",
+			"column.animal_count":    "Animals",
+			"column.total_weight_kg": "Weight (kg)",
+			"column.sales_value":     "Value",
+			"column.status":          "Status",
+			"empty.deals":            "No sales match this view.",
+			"empty.deals.unset":      "No sales recorded yet. Record the first sale to start the ledger.",
+			"summary.count":          "deals",
+
+			// Filters.
+			"filter.farm":  "Farm",
+			"filter.all":   "All farms",
+			"filter.clear": "Clear filters",
+
+			// Record-sale drawer.
+			"action.record_sale.label":  "Record sale",
+			"drawer.record_sale.title":  "Record a sale",
+			"drawer.detail.title":       "Sale details",
+			"field.sale_date":           "Sale date",
+			"field.farm":                "Farm",
+			"field.product_type":        "Product",
+			"field.breed":               "Breed",
+			"field.buyer_name":          "Buyer name",
+			"field.buyer_place":         "Buyer place",
+			"field.animal_count":        "Animals",
+			"field.male_count":          "Males",
+			"field.female_count":        "Females",
+			"field.total_weight_kg":     "Total weight (kg)",
+			"field.sales_value":         "Sale value",
+			"field.advance_amount":      "Advance received",
+			"field.comments":            "Comments",
+			"required.hint":             "Sale date, farm, product, breed, buyer name and sale value are required.",
+			"action.save":               "Save",
+			"action.saving":             "Saving...",
+			"action.cancel":             "Cancel",
+			"action.close":              "Close",
+			"action.next_page":          "Next",
+			"action.prev_page":          "Back",
+			"pager.page":                "Page",
+			"pager.of":                  "of",
+			"action.sale_recorded":      "Sale recorded.",
+			"action.sale_record_failed": "Could not record this sale. Check the fields and try again.",
+			"action.error_form":         "Could not complete that action.",
+
+			// Load/permission states.
+			"error.load":     "Could not load the sales board. Refresh to try again.",
+			"error.save":     "Could not record this sale.",
+			"disabled.write": "Your current role can view sales but not record them.",
 		}
 	case "source-entry":
 		return map[string]string{
@@ -4417,6 +4582,59 @@ func pageSpecificCopy(id string) map[string]string {
 // with a field error rather than storing an instruction nobody can follow. That is why the routes
 // in particular are a vocabulary and not free text: the difference between IM and IV is clinical,
 // and a stored typo renders on the operator's phone as an unfollowable instruction.
+// salesOptionGroups declares the sales page's closed vocabularies: the farm scope, the sellable
+// product types, and the breeds offered per product type. These are contract vocabulary (the same
+// closed sets the sales_deals CHECK constraints enforce), not live tenant rows, which is why they
+// may live here rather than be injected from a reference family.
+//
+// Breeds are grouped per product type as three groups because the option shape carries no
+// grouping metadata: the record-sale form switches which breed group it offers when the product
+// selection changes.
+func salesOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "sales_farms",
+			Options: []domain.Option{
+				option("all", "All farms", "", ""),
+				option("CBE", "CBE", "", ""),
+				option("CPT", "CPT", "", ""),
+			},
+		},
+		{
+			ID: "sales_product_types",
+			Options: []domain.Option{
+				option("Sheep", "Sheep", "", ""),
+				option("Goat", "Goat", "", ""),
+				option("Manure", "Manure", "", ""),
+			},
+		},
+		{
+			ID: "sales_breeds_sheep",
+			Options: []domain.Option{
+				option("Anantapur", "Anantapur", "", ""),
+				option("Kenguri", "Kenguri", "", ""),
+				option("Nipani", "Nipani", "", ""),
+			},
+		},
+		{
+			ID: "sales_breeds_goat",
+			Options: []domain.Option{
+				option("Malai", "Malai", "", ""),
+				option("Sojat", "Sojat", "", ""),
+				option("Osmanabadi", "Osmanabadi", "", ""),
+				option("Beetle", "Beetle", "", ""),
+				option("Sirohi", "Sirohi", "", ""),
+			},
+		},
+		{
+			ID: "sales_breeds_manure",
+			Options: []domain.Option{
+				option("Manure", "Manure", "", ""),
+			},
+		},
+	}
+}
+
 func healthConfigOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
 		{
@@ -4472,6 +4690,8 @@ func healthConfigOptionGroups() []domain.OptionGroup {
 
 func pageOptionGroups(id string) []domain.OptionGroup {
 	switch id {
+	case "sales":
+		return withGenericOptionGroups(salesOptionGroups())
 	case "health-config":
 		return withGenericOptionGroups(healthConfigOptionGroups())
 	case "control-tower":

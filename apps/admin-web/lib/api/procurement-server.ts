@@ -4,7 +4,7 @@ import "server-only";
 // the tenant-scoped admin API client and the same ApiResult envelope + helpers as lib/api/server.ts.
 // There is no client-side mock, fixture, or local route handler — these hit the backend process-integrity
 // and source-entry read models (GET) and the operator write contracts (POST, idempotency-keyed) directly.
-import { createAdminApiClient } from "@goatos/api-client";
+import { createAdminApiClient, createAppApiClient } from "@goatos/api-client";
 import type { AdminApiPaths } from "@goatos/api-client";
 import {
   apiClientOptions,
@@ -13,6 +13,12 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
+import type {
+  SalesDeal,
+  SalesDealPage,
+  SalesDealWrite,
+  SalesOverview,
+} from "@/lib/api/procurement";
 import type {
   AcceptProcurementIntakeRequest,
   AddProcurementLoadGoatRequest,
@@ -196,6 +202,56 @@ export async function recordProcurementArrivalReview(
   const path = `/procurement/source-entry/loads/${encodeURIComponent(loadId)}/arrival-review` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<ProcurementArrivalReviewResponse>(path, { method: "POST", cache: "no-store", headers: idempotentHeaders(idempotencyKey), body }),
+  );
+}
+
+// ---- Sales (app API) ----
+// The sales board reads the whole-page overview contract and one bounded page of the deals ledger.
+// These go through the APP api client (the /sales endpoints live in app-api.yaml), with the same
+// ApiResult envelope as everything else in this file.
+
+export async function getSalesOverview(
+  params: { farm?: string } = {},
+): Promise<ApiResult<SalesOverview>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesOverview>("/sales/overview", {
+      cache: "no-store",
+      query: compactQuery({ farm: params.farm }),
+    }),
+  );
+}
+
+export async function listSalesDeals(
+  params: { farm?: string; limit?: number; offset?: number } = {},
+): Promise<ApiResult<SalesDealPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDealPage>("/sales/deals", {
+      cache: "no-store",
+      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+export async function createSalesDeal(
+  body: SalesDealWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>("/sales/deals", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
   );
 }
 

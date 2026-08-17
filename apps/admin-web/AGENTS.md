@@ -581,6 +581,9 @@ Only these routes are current implemented product routes:
                            verification queue. Polls by re-running the server tree (router.refresh).
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
+/procurement/sales           Sales board — animal + manure sales overview, buyers, demand
+                            pipeline, sale evidence, deals ledger, record-sale drawer
+                            (backend "sales" page contract; sales.read / sales.write)
 /counts/herd                 Herd Register for vaccination trigger closure
 /counts/breakdown            Counts Breakdown census (farm x stage x breed x gender x shed)
 /operations/audit            Admin / Data Ops Audit Log (business surface)

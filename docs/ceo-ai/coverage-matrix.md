@@ -1175,6 +1175,32 @@ exclusion.
 | --- | --- | --- |
 | `func:RelabelItemBySource`, `func:Category`, `func:HasCountField`, `func:WithWeightCorrector`, `func:CorrectObservationWeight`, `func:RelabelWeighingVerification`, `func:NewWeightCorrectionService`, `func:WithVerificationRelabeler`, `func:Error`, `func:Unwrap`, `func:CorrectionCode`, `func:ValidateWeightCorrection`, `func:RecomputeAverageWeightKg`, `func:CorrectedSubjectLabel`, `func:FormatWeightKg` | EXCLUDED | Verifier write-path, UI copy registry, validation/result formatting, and verification item relabel helpers only. They correct recorded weighing observations and update the existing verification item label/audit trail; they do not introduce a new leadership read fact, aggregate, `ceo_ai.*` view, MCP Toolbox tool, Cube metric, or KPI. Leadership weighing answers continue to come from the governed weighing/growth read surfaces already covered by this matrix, while the correction act remains an operations-audit event. |
 
+## Sales module: covered read APIs + excluded internals (2026-08-17)
+
+The Sales module (migration `000173_sales_ledger.sql`, backend
+`backend/internal/sales/**`, admin-web `/procurement/sales`) records what the
+farm actually sold — live animals and manure across CBE and CPT — plus the
+demand pipelines and evidence panels behind those sales. The whole leadership
+read surface is TWO endpoints: `GET /sales/overview` (whole-filter aggregates:
+revenue, animals sold, realized price per kg, monthly series, price bands,
+buyer board, pipelines, weight audit, market benchmarks) and `GET /sales/deals`
+(the ledger rows). A Cube metric / `ceo_ai.*` view / MCP Toolbox tool mapping
+for official sales KPIs is FUTURE work; until it lands, the assistant answers
+sales questions through these read APIs or not at all.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| table:sales_deals | api (GET /sales/overview, GET /sales/deals) | The sales ledger: one row per deal (Sheep/Goat/Manure), status-bucketed; only `Deal Closed` rows feed the overview aggregates. Cube/`ceo_ai` mapping is future work. |
+| table:sales_buyer_leads | api (GET /sales/overview → buyer_pipeline) | Buyer demand pipeline, summarised as whole-filter status + top-places rollups. |
+| table:sales_fpo_leads | api (GET /sales/overview → fpo_pipeline) | FPO demand pipeline (company-wide; the source carries no farm), summarised as status + district rollups. |
+| table:sales_sold_animal_tags | api (GET /sales/overview → tag_roster) | Per-animal tag evidence behind sold deals; sheet-era tag strings, deliberately never joined to goat_identifiers. |
+| table:sales_weight_audit | api (GET /sales/overview → weight_audit) | Video-vs-book weight evidence, served as disjoint gap buckets (≤0.3 kg / 0.3–1 kg / >1 kg) + max gap. |
+| table:sales_market_benchmarks | api (GET /sales/overview → market_benchmarks) | Comparable market per-kg quotes; `market_price_per_kg` parsed at import time. |
+| path:/sales/overview (GET /sales/overview) | api | The whole sales page in one read; whole-filter aggregates only, per the operational read-model contract. |
+| path:/sales/deals (GET /sales/deals, POST /sales/deals) | api (read) / EXCLUDED (write) | The GET is the ledger read; the POST records a sale (idempotent, audited) and is a WRITE, not a leadership read surface — leadership sees the result through the two reads above. |
+| func:NewSalesService, func:GetOverview, func:ListDeals, func:CreateDeal, func:NewSalesHandler, func:NewRepository, func:Register, func:SalesHTTPError, func:BadRequest, func:NotFound, func:Conflict, func:Internal, func:Error | EXCLUDED | Service/handler/repository plumbing behind the two covered read APIs and the write; no independent read surface. |
+| func:BuildDealAggregates, func:BucketWeightGap, func:Animals, func:Month, func:PeriodFromCandidate, func:ClampDealPageSize, func:NormalizeFarmFilter, func:Normalize, func:Validate, func:IsFarm, func:IsProductType, func:IsLiveProduct, func:IsStatus | EXCLUDED | Pure domain rollup/validation helpers over rows the covered reads already serve; they derive no new fact and read no data themselves. |
+
 ## Feed direction proof validator: excluded constructor overload (2026-08-15)
 
 | Surface | Decision | Reason |
