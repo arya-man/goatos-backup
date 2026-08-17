@@ -774,12 +774,7 @@ export async function WeighingWeightsPage({
           </>
         )}
       </section>
-      <GrowthDirectorSection
-        result={growthDirector}
-        pageContract={pageContract}
-        searchParams={params}
-        pagePath={PAGE_PATH}
-      />
+      <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
     </div>
   );
 }
