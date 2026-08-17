@@ -488,7 +488,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			// Operator trim editor for proof video. OFF until a maintainer turns it on:
 			// the client gate additionally restricts it to the feed-packing capture surface,
 			// and treats an absent flag as off, so shipping it false changes nothing.
-			"proof_video_editing":         proofVideoEditingEnabled(),
+			"proof_video_editing": proofVideoEditingEnabled(),
 		},
 		VisibleNavigation:       visibleNav,
 		Modules:                 bootstrapModules,
