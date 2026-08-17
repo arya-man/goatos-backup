@@ -1488,6 +1488,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/directed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Windowed rollup of directed feed for the Feed Analytics page.
+         * @description Aggregates the FROZEN feed sheet (`feed_direction_issue_rows`) over a business-date window: per-day totals and per-(day, feed item) series of DIRECTED kg, head-days, and grams per head per day. Normal workflow only -- experiment sheets author absolute kg with informational head counts and are served by their own read.
+         *
+         *     DIRECTED, NOT CONSUMED. Every figure is what the sheet instructed, never a measured weight; completions carry proofs, not kg. Clients render the word "directed".
+         *
+         *     Head-days count each pen-grain (shed, partition, shed tag, breed) ONCE per feed day -- never once per session or per feed-item cell. A per-item figure divides by the heads whose sheet carried that item; the day figure divides by the day's distinct heads.
+         *
+         *     Blocked cells (`quantity_kg` null on the sheet) contribute nothing and are not counted here; config gaps surface on the Feed Direction screen instead. A day with no issued sheet is ABSENT from `days`, never fabricated as zero.
+         */
+        get: operations["getFeedAnalyticsDirected"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/preview": {
         parameters: {
             query?: never;
@@ -3867,6 +3893,46 @@ export interface components {
             code: "no_ration_rate" | "unknown_shed_tag" | "unknown_ration_group" | "no_session_template";
             /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
             detail: string;
+        };
+        /** @description One feed day of the normal workflow across every feed item. */
+        FeedAnalyticsDirectedDay: {
+            /** Format: date */
+            feed_day: string;
+            /** @description Summed resolved quantity as a decimal string. "0" means every resolved cell authored zero -- blocked cells contribute nothing and are never coerced to zero. */
+            directed_kg: string;
+            /**
+             * Format: int64
+             * @description Distinct pen-grain heads that day; experiment pens excluded.
+             */
+            head_days: number;
+            /** @description directed_kg x 1000 / head_days, one decimal; empty when head_days is zero. */
+            per_head_grams: string;
+        };
+        /** @description One (feed day, feed item) of the normal workflow. */
+        FeedAnalyticsDirectedItem: {
+            /** Format: date */
+            feed_day: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            directed_kg: string;
+            /**
+             * Format: int64
+             * @description Heads in pens whose sheet carried THIS item that day, pen-grain counted once.
+             */
+            head_days: number;
+            per_head_grams: string;
+        };
+        /** @description The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a measured weight. */
+        FeedAnalyticsDirectedResponse: {
+            /**
+             * Format: date
+             * @description The served window start after clamping (92-day cap, most recent kept).
+             */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            days: components["schemas"]["FeedAnalyticsDirectedDay"][];
+            items: components["schemas"]["FeedAnalyticsDirectedItem"][];
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
@@ -13112,6 +13178,47 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedAnalyticsDirected: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one park. Absent means every park the caller is authorized for -- a park-scoped principal can never widen past their grant. */
+                park_id?: string;
+                /** @description Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before `date_to`. The window is capped at 92 days, keeping the most recent days. */
+                date_from?: string;
+                /** @description Inclusive window end. Defaults to YESTERDAY: today's sheet is still being executed, so the backend owns the exclude-today rule rather than each client subtracting a day. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Day totals and per-item series, ordered by feed day ascending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsDirectedResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getFeedDirectionPreview: {
