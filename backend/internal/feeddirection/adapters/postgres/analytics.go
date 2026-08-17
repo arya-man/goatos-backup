@@ -15,16 +15,10 @@ var _ ports.DirectedAnalyticsReader = (*Repository)(nil)
 
 // Feed Analytics rollup over the frozen sheet.
 //
-// projection-review: producer unique key = feed_direction_issue_rows natural key
-// (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no,
-// shed_tag_key, breed_key, feed_item_key); consumer group keys below are
-// (feed_day, feed_item) after first collapsing to the PEN-GRAIN
-// (shed_id, partition_key, shed_tag_key, breed_key) per day×item.
-// Join multiplicity: issues → rows is 1:N by feed_direction_issue_id, and the
-// live-issue partial unique index (tenant, park, feed_day, workflow) guarantees
-// at most ONE normal-workflow issue per park-day, so a day's cells join exactly
-// once. Ratio key sets: PerHeadGrams divides SUM(quantity_kg) by SUM(head_count)
-// where BOTH range over the same grain set — the collapsed pen-grains of that
+// projection-review: membership=feed_direction_issue_rows at their natural key (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key), reached through the at-most-one live normal-workflow issue per (tenant, park, feed_day) enforced by feed_direction_issues_live_uidx; group_key=(feed_day, feed_item_label, feed_item_key) after first collapsing cells to the pen-grain (shed_id, partition_key, shed_tag_key, breed_key) so session and item cells cannot inflate head counts; join_cardinality=issues to rows is 1:N by feed_direction_issue_id and joins exactly once per day thanks to the live-issue partial unique index, and the pen_item CTE pre-aggregates the N side before the outer GROUP BY; pagination=none, whole-window aggregate invariant to any page size — there is no limit/offset input; scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
+//
+// Ratio key sets: per_head_grams divides SUM(quantity_kg) by SUM(head_count)
+// where BOTH range over the same collapsed pen-grain set of that
 // (feed_day, feed_item) group — never cell-level head counts, which repeat per
 // session and per item and would inflate the denominator ~6×.
 //
@@ -83,8 +77,9 @@ ORDER BY feed_day, feed_item_label`
 // Day totals reuse the same pen-grain collapse but count each pen-grain's heads
 // ONCE ACROSS ITEMS: the same animals eat every item on the sheet, so summing
 // per-item head-days into a day figure would multiply the herd by the number of
-// feed items. Ratio key sets: the day's kg ranges over all resolved cells, the
-// day's heads over the distinct pen-grains — both keyed by feed_day alone.
+// feed items.
+//
+// projection-review: membership=same issue-row natural-key set as above; group_key=feed_day alone, after collapsing to the pen-grain (shed_id, partition_key, shed_tag_key, breed_key) WITHOUT the feed item, so a day's heads count each pen once across items and sessions; join_cardinality=issues to rows 1:N pre-aggregated in the pen CTE before the outer day GROUP BY; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set
 const directedAnalyticsDaysSQL = `
 WITH iss AS (
     SELECT feed_direction_issue_id, feed_day
@@ -178,13 +173,7 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 // Execution analytics
 // ---------------------------------------------------------------------------
 
-// projection-review: producers are three completion tables, each already at the
-// grain being counted — packing/distribution at (tenant, park, shed, partition,
-// session, target_date, workflow) natural-key grain, transport at task grain —
-// so COUNT(*) per (date, status) fans nothing out. Latency's numerator and
-// denominator range over the same row set: rows whose verdict landed on that
-// IST date. No join crosses tables; the three streams aggregate independently
-// and merge by date in Go.
+// projection-review: membership=three completion tables each already at the grain being counted — feed_packing_completions and feed_distribution_completions at their (tenant, park, shed, partition, session, target_date, workflow) natural-key grain, feed_transport_tasks at task grain; group_key=(date, status) per stream, merged by date in Go with no cross-table join, so COUNT(*) fans nothing out; join_cardinality=no joins at all — three independent single-table aggregates plus a UNION ALL latency read whose numerator and denominator range over the same verdict rows; pagination=none, whole-window counts with no limit/offset input; scope=tenant_id plus the caller's authorized park set on every stream
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed status counts over
 // indexed date columns, the ADR's canonical-indexed-SQL default.
@@ -337,11 +326,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 // Experiment analytics
 // ---------------------------------------------------------------------------
 
-// projection-review: producer key is the issue-row natural key; consumer group
-// key is (feed_day, experiment_arm) after collapsing to the pen-grain. Pens
-// counts DISTINCT collapsed grains; kg sums resolved cells — both range over
-// the same grain set. Head counts on experiment rows are informational and are
-// deliberately absent from this read.
+// projection-review: membership=issue rows of the at-most-one live EXPERIMENT issue per (tenant, park, feed_day), same natural key as the directed read; group_key=(feed_day, experiment_arm) after collapsing to the pen-grain, so pens counts DISTINCT collapsed grains and kg sums resolved cells over the SAME grain set; join_cardinality=issues to rows 1:N pre-aggregated in the pen CTE before the arm GROUP BY; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set. Head counts on experiment rows are informational and deliberately absent from this read
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, same shape
 // as the directed rollup above.

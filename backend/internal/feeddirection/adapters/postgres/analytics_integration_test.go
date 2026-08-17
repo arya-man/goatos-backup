@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func analyticsCells() []domain.StoredCell {
 	}
 }
 
-func TestDirectedAnalyticsGrainProofs(t *testing.T) {
+func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
@@ -171,7 +172,7 @@ func TestDirectedAnalyticsGrainProofs(t *testing.T) {
 // inserted directly at their own natural grain — this is a package read-model
 // test of the status counting, not an E2E of the proof write paths (those have
 // their own verification-gate integration tests).
-func TestExecutionAndExperimentAnalytics(t *testing.T) {
+func TestExecutionAnalyticsStatusMatrixAndExperimentArms(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	exec := func(sql string, args ...any) {
@@ -267,5 +268,91 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, DATE '2026-07-30', $4, 'completed'),
 	}
 	if arms.Arms[1].AbsoluteKg != "20.000" || arms.Arms[1].Pens != 1 {
 		t.Errorf("sorghum arm: %+v", arms.Arms[1])
+	}
+}
+
+// TestDirectedAnalyticsParkScopeFilter pins the scope rule on its own: a park
+// the fixture never fed returns EMPTY series, never fabricated zeros, and the
+// unfiltered read is unchanged by asking twice (no hidden cursor state).
+func TestDirectedAnalyticsParkScopeFilter(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+	cmd := ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-07-30", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-scope",
+		IdempotencyKey: "issue:scope:" + fdiTenant, GeneratedBy: "test", Cells: analyticsCells(),
+	}
+	if _, err := repo.PersistIssue(ctx, cmd); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	window := domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()),
+	}
+	foreign := window
+	foreign.ParkIDs = []uuid.UUID{uuid.New()}
+	got, err := repo.DirectedAnalytics(ctx, fdiTenant, foreign)
+	if err != nil {
+		t.Fatalf("foreign park: %v", err)
+	}
+	if len(got.Days) != 0 || len(got.Items) != 0 {
+		t.Errorf("foreign park must be empty, got %+v", got)
+	}
+	own := window
+	own.ParkIDs = []uuid.UUID{uuid.MustParse(fdiPark)}
+	scoped, err := repo.DirectedAnalytics(ctx, fdiTenant, own)
+	if err != nil {
+		t.Fatalf("own park: %v", err)
+	}
+	all, err := repo.DirectedAnalytics(ctx, fdiTenant, window)
+	if err != nil {
+		t.Fatalf("unfiltered: %v", err)
+	}
+	if len(scoped.Days) != 1 || len(all.Days) != 1 || scoped.Days[0] != all.Days[0] {
+		t.Errorf("single-park tenant: scoped and unfiltered must agree, got %+v vs %+v", scoped.Days, all.Days)
+	}
+}
+
+// TestDirectedAnalyticsWindowSplitPageBoundary pins page-size invariance the
+// way this read expresses it: there IS no page input, so the whole-window
+// figures must equal the union of per-day windows — splitting the window can
+// never change a day's numbers.
+func TestDirectedAnalyticsWindowSplitPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+	for i, day := range []string{"2026-07-30", "2026-07-31"} {
+		cmd := ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fmt.Sprintf("fp-split-%d", i),
+			IdempotencyKey: "issue:split:" + day, GeneratedBy: "test", Cells: analyticsCells(),
+		}
+		if _, err := repo.PersistIssue(ctx, cmd); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+	}
+	at := func(d string) time.Time {
+		parsed, err := time.ParseInLocation("2006-01-02", d, biztime.DefaultLocation())
+		if err != nil {
+			t.Fatalf("parse %s: %v", d, err)
+		}
+		return parsed
+	}
+	whole, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: at("2026-07-30"), DateTo: at("2026-07-31")})
+	if err != nil {
+		t.Fatalf("whole: %v", err)
+	}
+	if len(whole.Days) != 2 {
+		t.Fatalf("want 2 days, got %+v", whole.Days)
+	}
+	for i, d := range []string{"2026-07-30", "2026-07-31"} {
+		single, err := repo.DirectedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: at(d), DateTo: at(d)})
+		if err != nil {
+			t.Fatalf("single %s: %v", d, err)
+		}
+		if len(single.Days) != 1 || single.Days[0] != whole.Days[i] {
+			t.Errorf("window split changed %s: %+v vs %+v", d, single.Days, whole.Days[i])
+		}
 	}
 }
