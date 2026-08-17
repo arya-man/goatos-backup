@@ -420,6 +420,11 @@ func (h *Handler) listQueue(
 		// capture-date range) on the CAPABILITY, never on a role string. See
 		// permissions.VerificationOversee and ports.ListQueueParams.OversightFiltersEnabled.
 		OversightFiltersEnabled: holdsVerificationPermission(r, permissions.VerificationOversee),
+		// CaptureDateFilterEnabled gates the CAPTURE-DATE RANGE separately from the cross-module
+		// chrome above (maintainer decision 2026-08-17): a verifier narrows her OWN queue to the
+		// days she is working, which crosses no module boundary. Same capability rule -- the
+		// permission, never a role string. See permissions.VerificationFilterByCaptureDate.
+		CaptureDateFilterEnabled: holdsVerificationPermission(r, permissions.VerificationFilterByCaptureDate),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {

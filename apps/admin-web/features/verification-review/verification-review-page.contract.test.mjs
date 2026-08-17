@@ -44,13 +44,31 @@ test("the module-chip row is gated on oversightFiltersEnabled", () => {
   );
 });
 
-test("the capture-date range picker is gated on oversightFiltersEnabled", () => {
+// The capture-date picker was SPLIT OUT of the oversight capability (maintainer decision
+// 2026-08-17). The 2026-08-12 incident was about CROSS-MODULE chrome -- module chips let a caller
+// reshape the queue across modules she has no duty in, and those stay leadership-only (the test
+// above still pins that). A date range crosses no module boundary: it narrows the caller's own
+// queue to the days she is working. Without it the verifier's board is pinned to a date she cannot
+// change, which on real data is an empty screen sitting on top of a full backlog.
+test("the capture-date range picker is gated on its OWN control, not on oversight", () => {
   const filterRow = source.match(/<div className="vr-frow">([\s\S]*?)\{sheds\.length \? \(/);
   assert.ok(filterRow, "expected the vr-frow filter row to precede the shed filter block");
   assert.match(
     filterRow[1],
-    /\{oversightFiltersEnabled \? \(\s*<ActionsDateFilter/,
-    "ActionsDateFilter must only render when oversightFiltersEnabled is true",
+    /\{captureDateFilterEnabled \? \(\s*<ActionsDateFilter/,
+    "ActionsDateFilter must render on captureDateFilterEnabled, which the verifier holds",
+  );
+  assert.doesNotMatch(
+    filterRow[1],
+    /oversightFiltersEnabled \? \(\s*<ActionsDateFilter/,
+    "the date picker must NOT be re-gated on the leadership oversight capability",
+  );
+  // The two must stay DISTINCT contract controls, or a future change to one visibility rule
+  // silently moves the other -- which is how the date picker ended up leadership-only to begin with.
+  assert.match(
+    source,
+    /controlEnabled\(pageContract, "capture_date_filter", false\)/,
+    "the picker must read its own backend control",
   );
 });
 

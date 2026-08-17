@@ -980,6 +980,28 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: oversightReason,
 		Action:         "",
 	})
+	// capture_date_filter gates the CAPTURE-DATE RANGE picker on /verify -- on every page of the
+	// verifier's workspace, since they are one component under different categories (maintainer
+	// decision 2026-08-17).
+	//
+	// SPLIT OUT of oversight_filters deliberately. The 2026-08-12 incident was CROSS-MODULE chrome
+	// leaking to every role, and the module chips stay leadership-only for exactly that reason. A
+	// date range crosses no module boundary: it narrows the caller's own queue to the days she is
+	// working. Without it the verifier's board is pinned to one date she cannot change, which on
+	// real data means an empty screen sitting on top of a full backlog.
+	mayFilterByCaptureDate := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationFilterByCaptureDate})
+	captureDateReason := ""
+	if !mayFilterByCaptureDate {
+		captureDateReason = controlCopy(copy, "capture_date_filter.disabled_no_access", "Filtering by capture date is limited to the video verification team and leadership.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "capture_date_filter",
+		Label:          controlCopy(copy, "capture_date_filter.label", "Capture date"),
+		Kind:           "visibility",
+		Enabled:        mayFilterByCaptureDate,
+		DisabledReason: captureDateReason,
+		Action:         "",
+	})
 	// oversight_analytics gates the CEO/Director analytics section ABOVE the queue table on
 	// /verify: waiting count, per-module pending, per-verifier last-14d, watch-integrity. Same
 	// capability as oversight_filters (permissions.VerificationOversee) -- it is a second, distinct
