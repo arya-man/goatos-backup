@@ -235,7 +235,7 @@ class MilkPreparationViewModel @Inject constructor(
     // the whole sheet had to be retyped before Submit re-enabled.
     private val draft = MutableStateFlow(MilkPreparationDraftState(goatMilkUsed = null, steps = emptyList()))
 
-    val state: StateFlow<MilkPreparationUiState> = combine(repo.observe(preparationDate), draft, refresh) { resource, local, syncState ->
+    val state: StateFlow<MilkPreparationUiState> = combine(repo.observe(preparationDate, parkId), draft, refresh) { resource, local, syncState ->
         val page = resource.data
         val task = page?.farmTasks?.firstOrNull { it.parkId == parkId }
         val backendSubmitted = task?.verificationStatus == "pending_verification" || task?.verificationStatus == "completed"
@@ -369,7 +369,7 @@ class MilkPreparationViewModel @Inject constructor(
 
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
-        val preparationResult = repo.refresh(preparationDate)
+        val preparationResult = repo.refresh(preparationDate, parkId)
         refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
     }
 

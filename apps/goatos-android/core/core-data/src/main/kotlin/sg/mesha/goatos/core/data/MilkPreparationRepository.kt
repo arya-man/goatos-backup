@@ -14,7 +14,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
 
-private const val MILK_PREPARATION_CACHE_PREFIX = "__milk_preparation__"
+private const val MILK_PREPARATION_CACHE_PREFIX = "__milk_preparation_v2__"
 
 /**
  * Room-backed current-day Milk Preparation worklist. The response's [MilkPreparationPageDto.farmTasks]
@@ -22,8 +22,8 @@ private const val MILK_PREPARATION_CACHE_PREFIX = "__milk_preparation__"
  * the backend and is not accumulated on the phone.
  */
 interface MilkPreparationRepository {
-    fun observe(preparationDate: String): Flow<Resource<MilkPreparationPageDto>>
-    suspend fun refresh(preparationDate: String): Result<Unit>
+    fun observe(preparationDate: String, parkId: String = ""): Flow<Resource<MilkPreparationPageDto>>
+    suspend fun refresh(preparationDate: String, parkId: String = ""): Result<Unit>
 }
 
 class DefaultMilkPreparationRepository(
@@ -32,8 +32,8 @@ class DefaultMilkPreparationRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : MilkPreparationRepository {
-    override fun observe(preparationDate: String): Flow<Resource<MilkPreparationPageDto>> {
-        val key = cacheKey(preparationDate)
+    override fun observe(preparationDate: String, parkId: String): Flow<Resource<MilkPreparationPageDto>> {
+        val key = cacheKey(preparationDate, parkId)
         return cache.observe(key)
             .map { entity ->
                 val cached = readCachedJson<MilkPreparationPageDto>(
@@ -49,11 +49,11 @@ class DefaultMilkPreparationRepository(
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun refresh(preparationDate: String): Result<Unit> = runCatching {
-        val page = api.getMilkPreparation(limit = 20, offset = 0)
+    override suspend fun refresh(preparationDate: String, parkId: String): Result<Unit> = runCatching {
+        val page = api.getMilkPreparation(parkId = parkId.ifBlank { null }, limit = 20, offset = 0)
         cache.upsert(
             CountsBreakdownMetaCacheEntity(
-                cacheKey = cacheKey(preparationDate),
+                cacheKey = cacheKey(preparationDate, parkId),
                 dtoJson = json.encodeToString(page),
                 updatedAt = clock(),
             ),
@@ -61,6 +61,6 @@ class DefaultMilkPreparationRepository(
         cache.enforceCacheBounds()
     }
 
-    private fun cacheKey(preparationDate: String): String =
-        "$MILK_PREPARATION_CACHE_PREFIX:${preparationDate.trim()}"
+    private fun cacheKey(preparationDate: String, parkId: String): String =
+        "$MILK_PREPARATION_CACHE_PREFIX:${preparationDate.trim()}:${parkId.trim()}"
 }
