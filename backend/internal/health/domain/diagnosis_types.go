@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
@@ -54,6 +55,22 @@ type SubmitObservationResult struct {
 	MayConfirm bool `json:"may_confirm"`
 
 	IdempotentReplay bool `json:"idempotent_replay"`
+}
+
+// MarshalJSON emits `confirmable` as a JSON ARRAY, never null -- same contract rule, and
+// same defect, as diagnosis.Proposal's own marshaller. A REJECTED run has nothing to
+// confirm, so the slice is nil, so Go emitted `null` into a field app-api.yaml declares as
+// an array and the client types as a non-optional list. The response then failed to decode
+// on the phone, the queued write was retried forever, and the screen sat on "Recorded."
+// for a form the engine had already judged. Fixing Proposal alone was not enough: this
+// wrapper is a second nil slice one layer up, and it broke exactly the same way.
+func (r SubmitObservationResult) MarshalJSON() ([]byte, error) {
+	type alias SubmitObservationResult
+	a := alias(r)
+	if a.Confirmable == nil {
+		a.Confirmable = []ConfirmableProblem{}
+	}
+	return json.Marshal(a)
 }
 
 // ConfirmableProblem is one proposed diagnosis together with everything the
@@ -192,6 +209,22 @@ type DiagnosisRun struct {
 
 	ConfirmedBy *string    `json:"confirmed_by"`
 	ConfirmedAt *time.Time `json:"confirmed_at"`
+}
+
+// MarshalJSON emits `confirmable` as a JSON ARRAY, never null -- same contract rule, and
+// same defect, as diagnosis.Proposal's own marshaller. A REJECTED run has nothing to
+// confirm, so the slice is nil, so Go emitted `null` into a field app-api.yaml declares as
+// an array and the client types as a non-optional list. The response then failed to decode
+// on the phone, the queued write was retried forever, and the screen sat on "Recorded."
+// for a form the engine had already judged. Fixing Proposal alone was not enough: this
+// wrapper is a second nil slice one layer up, and it broke exactly the same way.
+func (r DiagnosisRun) MarshalJSON() ([]byte, error) {
+	type alias DiagnosisRun
+	a := alias(r)
+	if a.Confirmable == nil {
+		a.Confirmable = []ConfirmableProblem{}
+	}
+	return json.Marshal(a)
 }
 
 // DiagnosisQueueFilter selects one page of the Director's queue.
