@@ -45,9 +45,7 @@ status, text, sha, build_id, triggered_by, include_panel, project_number, region
 color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
 build_query = urllib.parse.urlencode({"project": project_number, "authuser": authuser})
 build_url = f"https://console.cloud.google.com/cloud-build/builds;region={region}/{build_id}?{build_query}"
-firebase_console_url = f"https://console.firebase.google.com/u/0/project/goatos-stg/appdistribution/app/android:{firebase_app_id}/releases"
 firebase_tester_url = f"https://appdistribution.firebase.google.com/testerapps/{firebase_app_id}"
-play_tester_url = f"https://play.google.com/apps/testing/{package_name}"
 apk_url = "https://mesha.sg/app.apk"
 payload = {
     "attachments": [{
@@ -61,9 +59,7 @@ payload = {
         ],
         "actions": [
             {"type": "button", "text": "Cloud Build logs", "url": build_url},
-            {"type": "button", "text": "Firebase console", "url": firebase_console_url},
             {"type": "button", "text": "Firebase tester", "url": firebase_tester_url},
-            {"type": "button", "text": "Play tester", "url": play_tester_url},
             {"type": "button", "text": "Direct APK", "url": apk_url},
         ],
     }]
