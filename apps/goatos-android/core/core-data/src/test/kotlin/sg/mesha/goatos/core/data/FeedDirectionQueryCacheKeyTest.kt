@@ -6,7 +6,7 @@ import org.junit.Test
 
 class FeedDirectionQueryCacheKeyTest {
     @Test
-    fun `refresh nonce changes only the Room cache scope`() {
+    fun `refresh nonce keeps the same Room cache scope`() {
         val base = FeedDirectionQuery(
             parkId = "cbe",
             targetDate = "2026-08-17",
@@ -18,7 +18,8 @@ class FeedDirectionQueryCacheKeyTest {
 
         val refreshed = base.copy(refreshNonce = 1)
 
-        assertNotEquals(base.roomKey(), refreshed.roomKey())
-        assertEquals("direction-v2|cbe|2026-08-17|mandela-1||normal|pending|1|20", refreshed.roomKey())
+        assertNotEquals(base, refreshed)
+        assertEquals(base.roomKey(), refreshed.roomKey())
+        assertEquals("direction-v2|cbe|2026-08-17|mandela-1||normal|pending|20", refreshed.roomKey())
     }
 }

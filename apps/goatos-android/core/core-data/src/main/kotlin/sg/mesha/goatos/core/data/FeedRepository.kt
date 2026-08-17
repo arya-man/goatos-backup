@@ -62,8 +62,8 @@ data class FeedDirectionQuery(
     // Verification-lifecycle filter (pending | pending_verification | completed); null = every status.
     // Part of roomKey so a status change caches its own page/summary, never mixing two status scopes.
     val status: String? = null,
-    // Cache-only refresh namespace. The backend has no refresh_nonce parameter; this only forces a
-    // new Room/Paging scope so manual refresh/resume cannot keep serving a fresh-but-stale cache.
+    // Cache-only refresh trigger. The backend has no refresh_nonce parameter; this must not partition
+    // Room, but it must force the RemoteMediator to revalidate the current scope.
     val refreshNonce: Int = 0,
 ) {
     fun roomKey(): String = cacheKey(
@@ -74,7 +74,6 @@ data class FeedDirectionQuery(
         session?.toString(),
         workflow,
         status,
-        refreshNonce.toString(),
         FEED_PAGE_SIZE.toString(),
     )
 }
@@ -127,8 +126,8 @@ private const val MAX_STATUS_POLL_PAGES = 10
 /**
  * Bump whenever the cached direction row JSON or cache semantics change incompatibly.
  *
- * v2 = refresh/resume has its own cache namespace via FeedDirectionQuery.refreshNonce, so phones do
- * not keep reading an old fresh Room page after STG/API has gained a missing shed-partition row.
+ * v2 = refresh/resume bypasses the TTL through FeedDirectionQuery.refreshNonce, so phones do not
+ * keep reading an old fresh Room page after STG/API has gained a missing shed-partition row.
  */
 private const val DIRECTION_CACHE_SHAPE = "direction-v2"
 
@@ -593,6 +592,7 @@ private class FeedDirectionRemoteMediator(
     private val queryKey = query.roomKey()
 
     override suspend fun initialize(): InitializeAction {
+        if (query.refreshNonce > 0) return InitializeAction.LAUNCH_INITIAL_REFRESH
         val cachedAt = database.feedDirectionRemoteKeyDao().get(queryKey)?.updatedAt
         return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
             InitializeAction.SKIP_INITIAL_REFRESH
