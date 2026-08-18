@@ -49,6 +49,7 @@ type WeightGainBucket struct {
 type ShedCompositionChip struct {
 	Breed   string `json:"breed,omitempty"`
 	Sex     string `json:"sex,omitempty"`
+	Stage   string `json:"stage,omitempty"`
 	Animals int    `json:"animals"`
 }
 

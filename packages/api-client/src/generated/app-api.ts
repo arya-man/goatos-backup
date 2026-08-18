@@ -9002,6 +9002,7 @@ export interface components {
         WeighingGrowthLosingAnimal: {
             scanned_identifier: string;
             shed_display_name: string;
+            operational_location_display: string;
             previous_weight_kg: number;
             latest_weight_kg: number;
             adg_g_per_day: number;

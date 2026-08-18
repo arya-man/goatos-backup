@@ -13,7 +13,16 @@
 // correct in both themes and passes the banned-hex scan by construction. It renders
 // no copy of its own: every string is passed in already resolved from the page
 // contract by the caller.
-export type WeightBar = { key: string; label: string; value: number; valueLabel?: string };
+import { Tag, type Tone } from "@/components/ui-primitives";
+
+export type WeightBar = {
+  key: string;
+  label: string;
+  value: number;
+  valueLabel?: string;
+  modeLabel?: string;
+  modeTone?: Tone;
+};
 
 export function WeightBars({
   data,
@@ -88,7 +97,12 @@ export function WeightBars({
       {bars.map((bar) => (
         <li className="wbar" key={bar.key}>
           <span className="wbl" title={bar.label}>
-            {bar.label}
+            <span className="wbl-text">{bar.label}</span>
+            {bar.modeLabel ? (
+              <span className="wbar-mode">
+                <Tag tone={bar.modeTone ?? "mut"}>{bar.modeLabel}</Tag>
+              </span>
+            ) : null}
           </span>
           <span className="wbt">
             {/* The zero rule only appears when the series actually straddles zero;

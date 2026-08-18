@@ -540,6 +540,7 @@ run_backend() {
   step "weighing-close-gate-guard" make weighing-close-gate-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard
   step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
+  step "weighing-partition-composition-guard" make weighing-partition-composition-guard
   step "weighing-kernel-phase2-guard" make weighing-kernel-phase2-guard
   step "migration-duplicate-versions-guard" make migration-duplicate-versions-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard

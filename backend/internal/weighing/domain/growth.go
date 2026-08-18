@@ -215,11 +215,12 @@ type GrowthPark struct {
 //
 // Identified by its RAW SCANNED TAG only -- weighing never resolves a tag to a goat.
 type GrowthLosingAnimal struct {
-	ScannedIdentifier string  `json:"scanned_identifier"`
-	ShedDisplayName   string  `json:"shed_display_name"`
-	PreviousWeightKg  float64 `json:"previous_weight_kg"`
-	LatestWeightKg    float64 `json:"latest_weight_kg"`
-	ADGGPerDay        float64 `json:"adg_g_per_day"`
-	DaysBetween       float64 `json:"days_between"`
-	LatestWeighDate   string  `json:"latest_weigh_date"`
+	ScannedIdentifier          string  `json:"scanned_identifier"`
+	ShedDisplayName            string  `json:"shed_display_name"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	PreviousWeightKg           float64 `json:"previous_weight_kg"`
+	LatestWeightKg             float64 `json:"latest_weight_kg"`
+	ADGGPerDay                 float64 `json:"adg_g_per_day"`
+	DaysBetween                float64 `json:"days_between"`
+	LatestWeighDate            string  `json:"latest_weigh_date"`
 }

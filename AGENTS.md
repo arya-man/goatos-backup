@@ -18,6 +18,16 @@ not infer the local DB from a previous temp worktree, a random Docker port, or a
 stale shell variable. If a temp stack is unavoidable, clearly label it as
 throwaway and do not call it "the local DB".
 
+**HARD RULE - Weights/admin-web fixes require Chrome proof after the final
+edit.** For any change that touches `apps/admin-web` Weights UI, Weights page
+copy, Weights charts, generated API contracts used by Weights, or backend
+read-model data consumed by `/weighing/weights`, do not say the fix is done and
+do not push until Chrome has been reloaded on the exact target URL after the
+last code edit. Static tests, typecheck, and backend API checks are not enough.
+Verify that Chrome is not on `ERR_CONNECTION_REFUSED`, not showing backend-down
+copy, and not showing the React "Something went wrong" fallback; for chip/label
+changes, verify the actual rendered row labels and chips in Chrome.
+
 When the user says "my local DB" or "local frontend/backend", treat that as:
 
 ```text
@@ -115,12 +125,17 @@ BANNED on every path: `goats`, `goat_identifiers`, `herd_*`, `vaccination_*`,
 module's rules. Weighing knows a scanned string and a weight. It does not know
 what animal that is and must never ask.
 
-ONE RECORDED EXCEPTION (maintainer decision 2026-08-07). The admin-web Weights
+RECORDED REPORTING EXCEPTIONS (maintainer decisions 2026-08-07 and 2026-08-19). The admin-web Weights
 screen reports average weight by BREED, SEX and MANAGEMENT STAGE. Those three
 facts live only on the animal, so exactly one file may resolve a scanned tag:
 `backend/internal/weighing/adapters/postgres/weight_demographics.go`, allowlisted
 BY NAME in `check-weighing-free-flow-guard.mjs` (`HERD_JOIN_EXEMPT_FILES`) and
-permitted `goats` + `goat_identifiers` only. Everything else stays banned, on
+permitted `goats` + `goat_identifiers` for same-animal reporting only. The same
+file may read `goat_shed_partitions` only to label lump-sum Weights read-model
+rows by the exact `(shed, partition)` resident cohort (`Godel 2 - Part 1`,
+`Castro 1/2/3`, `Gandhi 1/2/3`, legacy `Gandi 1/2/3`). It must not use that
+table to gate capture, submit, close, expected animals, or any write path.
+Everything else stays banned, on
 every path, in every other weighing file — the exemption is file-scoped precisely
 so it cannot leak to the write path, which is the 2026-08-04 defect.
 
@@ -143,13 +158,16 @@ exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants
 `shed_partitions` (a task belongs to a park, a person, and a physical partition).
 Adding to that list is a MAINTAINER decision, never a developer convenience.
 
-CRITICAL DISTINCTION (maintainer decision 2026-08-06): `shed_partitions` is an
+CRITICAL DISTINCTION (maintainer decision 2026-08-06; reporting exception clarified 2026-08-19): `shed_partitions` is an
 ORG-scoped CATALOG of partitions that exist, keyed by (tenant_id, shed_id,
 normalized_label), with NO per-animal data. It is allowed. `goat_shed_partitions`
 is a PER-GOAT table (PK tenant_id, goat_id) that reveals which animal sits where.
-It is strictly BANNED. This distinction is enforced by the weighing isolation
-guard (`check-weighing-free-flow-guard.mjs` mode 16): reading one maintains
-isolation, reading the other breaks it.
+It is strictly BANNED except for the single reporting file named above, where it
+may be used only to label lump-sum composition at the selected operational
+location grain. This distinction is enforced by the weighing isolation guard
+(`check-weighing-free-flow-guard.mjs` mode 16): reading one maintains isolation,
+reading the other breaks it unless the read stays inside that file-scoped
+reporting exception.
 
 Also banned, because they are invented rules on a path that has none: any
 weighing CADENCE ("weekly", "monthly on the 15th", a minimum interval between
