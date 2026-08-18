@@ -14,14 +14,25 @@ import test from "node:test";
 
 const here = new URL(".", import.meta.url).pathname;
 const proxySource = readFileSync(join(here, "../../proxy.ts"), "utf8");
-const stgServicesSource = readFileSync(join(here, "../../../../infra/envs/stg/cloud_run_services.tf"), "utf8");
+const stgServicesSource = readFileSync(
+  join(here, "../../../../infra/envs/stg/cloud_run_services.tf"),
+  "utf8",
+);
 
 test("canonical-host middleware serves loopback self-fetch requests in place", () => {
   assert.match(proxySource, /isLoopbackHost\(requestHost\)/);
   // The exemption must live inside canonicalHostRedirect, before the redirect is composed.
-  const fn = proxySource.slice(proxySource.indexOf("function canonicalHostRedirect"));
+  const fn = proxySource.slice(
+    proxySource.indexOf("function canonicalHostRedirect"),
+  );
   const body = fn.slice(0, fn.indexOf("function ", 10));
-  assert.match(body, /isLoopbackHost/);
+  const loopbackCheck = body.indexOf("isLoopbackHost(requestHost)");
+  const redirectCompose = body.indexOf(
+    "const redirectUrl = request.nextUrl.clone()",
+  );
+  assert.notEqual(loopbackCheck, -1);
+  assert.notEqual(redirectCompose, -1);
+  assert.ok(loopbackCheck < redirectCompose);
   // Loopback shapes the container can self-address as.
   assert.match(proxySource, /127\.0\.0\.1/);
   assert.match(proxySource, /localhost/);
@@ -32,9 +43,12 @@ test("STG admin-web self-fetches its own container, not the public load balancer
   assert.match(stgServicesSource, /http:\/\/127\.0\.0\.1:8080/);
   // The env must sit on the admin-web service resource, not merely anywhere in the file.
   const adminWeb = stgServicesSource.slice(
-    stgServicesSource.indexOf('resource "google_cloud_run_v2_service" "admin_web"'),
+    stgServicesSource.indexOf(
+      'resource "google_cloud_run_v2_service" "admin_web"',
+    ),
   );
-  const nextResource = adminWeb.indexOf("resource \"", 10);
-  const adminWebBlock = nextResource === -1 ? adminWeb : adminWeb.slice(0, nextResource);
+  const nextResource = adminWeb.indexOf('resource "', 10);
+  const adminWebBlock =
+    nextResource === -1 ? adminWeb : adminWeb.slice(0, nextResource);
   assert.match(adminWebBlock, /__NEXT_PRIVATE_ORIGIN/);
 });
