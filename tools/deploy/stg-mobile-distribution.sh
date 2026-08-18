@@ -177,7 +177,6 @@ DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-}"
 cd apps/goatos-android
 gradle_args=(
   :app:assembleStgRelease \
-  :app:bundleStgRelease \
   :app:appDistributionUploadStgRelease \
   -x lintVitalAnalyzeRelease \
   -x lintVitalAnalyzeStgRelease \
@@ -198,7 +197,6 @@ cd "$repo_root"
 APK="apps/goatos-android/app/build/outputs/apk/stg/release/app-stg-release.apk"
 AAB="apps/goatos-android/app/build/outputs/bundle/stgRelease/app-stg-release.aab"
 test -f "$APK"
-test -f "$AAB"
 
 ANDROID_VERSION_NAME="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest version-name "$APK")"
 ANDROID_VERSION_CODE="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest version-code "$APK")"
@@ -233,7 +231,9 @@ curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.a
 apk_mirrored=true
 
 play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
-if play_access_token="$(gcloud auth print-access-token --scopes=https://www.googleapis.com/auth/androidpublisher)" &&
+if [[ ! -f "$AAB" ]]; then
+  echo "Play Internal upload skipped because no AAB was produced; Firebase and direct APK are published." >&2
+elif play_access_token="$(gcloud auth print-access-token --scopes=https://www.googleapis.com/auth/androidpublisher)" &&
   edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
   if [[ -n "$edit_id" ]]; then
