@@ -131,6 +131,59 @@ post_deploy_panel() {
     "$webhook" >/dev/null || true
 }
 
+play_access_token() {
+  local credentials="${GOOGLE_APPLICATION_CREDENTIALS:-}"
+  [[ -n "$credentials" && -f "$credentials" ]] || {
+    echo "GOOGLE_APPLICATION_CREDENTIALS must point at the Android Publisher service account JSON" >&2
+    return 1
+  }
+
+  local key_file=".local/android-signing/play-private-key.pem"
+  local assertion_file=".local/android-signing/play-jwt.txt"
+  jq -r '.private_key' "$credentials" > "$key_file"
+  chmod 600 "$key_file"
+
+  python3 - "$credentials" > "$assertion_file" <<'PY'
+import base64
+import json
+import subprocess
+import sys
+import time
+
+credentials_path = sys.argv[1]
+with open(credentials_path, encoding="utf-8") as fh:
+    credentials = json.load(fh)
+
+def b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+now = int(time.time())
+header = b64url(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
+payload = b64url(json.dumps({
+    "iss": credentials["client_email"],
+    "scope": "https://www.googleapis.com/auth/androidpublisher",
+    "aud": "https://oauth2.googleapis.com/token",
+    "iat": now,
+    "exp": now + 3600,
+}, separators=(",", ":")).encode())
+signing_input = f"{header}.{payload}"
+signature = subprocess.check_output(
+    ["openssl", "dgst", "-sha256", "-sign", ".local/android-signing/play-private-key.pem", "-binary"],
+    input=signing_input.encode(),
+)
+print(f"{signing_input}.{b64url(signature)}")
+PY
+
+  local token_response
+  token_response="$(
+    curl -fsS -X POST \
+      -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+      --data-urlencode "assertion@${assertion_file}" \
+      https://oauth2.googleapis.com/token
+  )" || return 1
+  jq -er '.access_token' <<<"$token_response"
+}
+
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -242,7 +295,7 @@ curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.a
 apk_mirrored=true
 
 play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
-if play_access_token="$(gcloud auth print-access-token --scopes=https://www.googleapis.com/auth/androidpublisher)" &&
+if play_access_token="$(play_access_token)" &&
   edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
   if [[ -n "$edit_id" ]]; then
