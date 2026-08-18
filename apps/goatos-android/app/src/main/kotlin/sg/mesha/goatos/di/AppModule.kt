@@ -127,6 +127,9 @@ import sg.mesha.goatos.core.data.sync.countsApprovalRejectRefreshHook
 import sg.mesha.goatos.core.data.sync.shiftingCompleteRefreshHook
 import sg.mesha.goatos.core.data.sync.shiftingCancelRefreshHook
 import sg.mesha.goatos.core.data.sync.countsPromoteIdentifierRefreshHook
+import sg.mesha.goatos.core.data.sync.healthCaseOpenRefreshHook
+import sg.mesha.goatos.core.data.sync.healthTreatmentCompleteFailureHook
+import sg.mesha.goatos.core.data.sync.healthTreatmentCompleteRefreshHook
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
@@ -740,6 +743,7 @@ object AppModule {
         countsRepository: CountsRepository,
         countsApprovalRepository: CountsApprovalRepository,
         shiftingPendingRepository: ShiftingPendingRepository,
+        healthRepository: HealthRepository,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -773,6 +777,15 @@ object AppModule {
             OutboxOpType.SHIFTING_COMPLETE to shiftingCompleteRefreshHook(shiftingPendingRepository),
             OutboxOpType.SHIFTING_CANCEL to shiftingCancelRefreshHook(shiftingPendingRepository),
             OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(countsRepository),
+            // Health operations
+            OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
+            OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteRefreshHook(healthRepository),
+        ),
+        preSuccessRefreshHooks = mapOf(
+            OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
+        ),
+        postTerminalFailureHooks = mapOf(
+            OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteFailureHook(healthRepository),
         ),
     )
 

@@ -39,6 +39,8 @@ data class HealthFilters(
     val shedId: String = "",
     val session: String = "",
 ) {
+    companion object
+
     val scopeKey: String
         get() = listOf(ageBand, date, status, diseaseKey, parkId, shedId, session)
             .joinToString("|") { it.trim().lowercase() }
@@ -48,9 +50,12 @@ interface HealthRepository {
     fun workItems(filters: HealthFilters): Flow<PagingData<HealthWorkItemDto>>
     fun observePageMeta(filters: HealthFilters): Flow<HealthWorkItemPageDto?>
     fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?>
+    suspend fun refreshWorkItems(filters: HealthFilters): Result<Unit>
     suspend fun refreshCaseOptions(ageBand: String, date: String): Result<Unit>
     suspend fun refreshDetail(healthSessionId: String): Result<Unit>
     suspend fun markCompleted(healthSessionId: String)
+    suspend fun reconcileSuccessfulTreatmentCompletion(healthSessionId: String): Result<Unit>
+    suspend fun reconcileRejectedTreatmentCompletion(healthSessionId: String): Result<Unit>
 }
 
 class DefaultHealthRepository(
@@ -85,6 +90,38 @@ class DefaultHealthRepository(
             entity?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
         }.flowOn(Dispatchers.Default)
 
+    override suspend fun refreshWorkItems(filters: HealthFilters): Result<Unit> = runCatching {
+        val response = api.listHealthWorkItems(
+            ageBand = filters.ageBand,
+            date = filters.date,
+            status = filters.status.ifBlank { null },
+            diseaseKey = filters.diseaseKey.ifBlank { null },
+            parkId = filters.parkId.ifBlank { null },
+            shedId = filters.shedId.ifBlank { null },
+            session = filters.session.ifBlank { null },
+            cursor = null,
+            limit = HEALTH_PAGE_SIZE,
+        )
+        val now = clock()
+        database.withTransaction {
+            val key = filters.scopeKey
+            val itemDao = database.healthWorkItemDao()
+            itemDao.deleteScope(key)
+            database.healthRemoteKeyDao().delete(key)
+            itemDao.upsertAll(response.items.mapIndexed { index, item ->
+                HealthWorkItemEntity(key, item.healthSessionId, index, json.encodeToString(item), now)
+            })
+            database.healthRemoteKeyDao().upsert(
+                HealthRemoteKeyEntity(key, response.nextCursor, response.nextCursor == null, now),
+            )
+            database.healthPageMetaDao().upsert(
+                HealthPageMetaEntity(key, json.encodeToString(response.copy(items = emptyList())), now),
+            )
+            itemDao.deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
+            database.healthRemoteKeyDao().deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
+        }
+    }
+
     override suspend fun refreshCaseOptions(ageBand: String, date: String): Result<Unit> = runCatching {
         val filters = HealthFilters(ageBand = ageBand, date = date)
         val page = api.listHealthWorkItems(
@@ -105,26 +142,40 @@ class DefaultHealthRepository(
 
     override suspend fun refreshDetail(healthSessionId: String): Result<Unit> = runCatching {
         val detail = api.getHealthWorkItem(healthSessionId)
-        database.healthWorkItemDetailDao().upsert(
-            HealthWorkItemDetailEntity(healthSessionId, json.encodeToString(detail), clock()),
-        )
-        database.healthWorkItemDetailDao().deleteOldestBeyond(HEALTH_RETAINED_DETAILS)
+        val now = clock()
+        database.withTransaction {
+            val detailDao = database.healthWorkItemDetailDao()
+            detailDao.upsert(
+                HealthWorkItemDetailEntity(healthSessionId, json.encodeToString(detail), now),
+            )
+            detailDao.deleteOldestBeyond(HEALTH_RETAINED_DETAILS)
+
+            val canonicalItem = detail.toWorkItemDto()
+            val itemDao = database.healthWorkItemDao()
+            val cachedRows = itemDao.findAll(healthSessionId)
+            val rows = cachedRows.filter { it.scopeAccepts(detail.status) }.map { row ->
+                row.copy(dtoJson = json.encodeToString(canonicalItem), updatedAt = now)
+            }
+            if (rows.isNotEmpty()) itemDao.upsertAll(rows)
+            cachedRows.filterNot { it.scopeAccepts(detail.status) }.forEach { row ->
+                itemDao.delete(row.scopeKey, healthSessionId)
+            }
+        }
     }
 
     override suspend fun markCompleted(healthSessionId: String) {
         val now = clock()
         database.withTransaction {
-            val dao = database.healthWorkItemDao()
-            val rows = dao.findAll(healthSessionId).mapNotNull { row ->
+            val itemDao = database.healthWorkItemDao()
+            val rows = itemDao.findAll(healthSessionId).mapNotNull { row ->
                 runCatching { json.decodeFromString<HealthWorkItemDto>(row.dtoJson) }.getOrNull()
                     ?.copy(status = "completed")
                     ?.let { row.copy(dtoJson = json.encodeToString(it), updatedAt = now) }
             }
-            if (rows.isNotEmpty()) dao.upsertAll(rows)
+            if (rows.isNotEmpty()) itemDao.upsertAll(rows)
 
             val detailDao = database.healthWorkItemDetailDao()
-            val detailRow = detailDao.get(healthSessionId)
-            val completedDetail = detailRow?.let { row ->
+            val completedDetail = detailDao.get(healthSessionId)?.let { row ->
                 runCatching { json.decodeFromString<HealthWorkItemDetailDto>(row.dtoJson) }.getOrNull()
                     ?.copy(status = "completed")
                     ?.let { row.copy(dtoJson = json.encodeToString(it), updatedAt = now) }
@@ -132,7 +183,89 @@ class DefaultHealthRepository(
             if (completedDetail != null) detailDao.upsert(completedDetail)
         }
     }
+
+    override suspend fun reconcileSuccessfulTreatmentCompletion(healthSessionId: String): Result<Unit> =
+        reconcileTreatmentCompletion(healthSessionId)
+
+    override suspend fun reconcileRejectedTreatmentCompletion(healthSessionId: String): Result<Unit> {
+        val cachedDetailCompleted = database.healthWorkItemDetailDao().get(healthSessionId)
+            ?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
+            ?.status.equals("completed", ignoreCase = true)
+        val cachedListCompleted = database.healthWorkItemDao().findAll(healthSessionId).any { row ->
+            runCatching { json.decodeFromString<HealthWorkItemDto>(row.dtoJson) }.getOrNull()
+                ?.status.equals("completed", ignoreCase = true)
+        }
+        return if (cachedDetailCompleted || cachedListCompleted) {
+            reconcileTreatmentCompletion(healthSessionId)
+        } else {
+            Result.success(Unit)
+        }
+    }
+
+    private suspend fun reconcileTreatmentCompletion(healthSessionId: String): Result<Unit> {
+        val cachedScopes = database.healthWorkItemDao().findAll(healthSessionId)
+            .mapNotNull { HealthFilters.fromScopeKey(it.scopeKey) }
+        val detailRefresh = refreshDetail(healthSessionId)
+        if (detailRefresh.isFailure) return detailRefresh
+        val detail = database.healthWorkItemDetailDao().get(healthSessionId)
+            ?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
+            ?: return Result.failure(IllegalStateException("Health detail missing after refresh: $healthSessionId"))
+        val scopes = buildList {
+            addAll(cachedScopes)
+            add(HealthFilters(ageBand = detail.ageBand, date = detail.businessDate))
+            if (detail.diseaseKey.isNotBlank()) {
+                add(HealthFilters(ageBand = detail.ageBand, date = detail.businessDate, diseaseKey = detail.diseaseKey))
+            }
+        }.distinctBy(HealthFilters::scopeKey)
+        scopes.forEach { filters ->
+            val result = refreshWorkItems(filters)
+            if (result.isFailure) return result
+        }
+        return Result.success(Unit)
+    }
 }
+
+private fun HealthWorkItemEntity.scopeAccepts(status: String): Boolean {
+    val statusFilter = scopeKey.split('|', limit = 7).getOrNull(2).orEmpty()
+    return statusFilter.isBlank() || statusFilter.equals(status, ignoreCase = true)
+}
+
+private fun HealthFilters.Companion.fromScopeKey(scopeKey: String): HealthFilters? {
+    val parts = scopeKey.split('|', limit = 7)
+    if (parts.size != 7) return null
+    return HealthFilters(
+        ageBand = parts[0],
+        date = parts[1],
+        status = parts[2],
+        diseaseKey = parts[3],
+        parkId = parts[4],
+        shedId = parts[5],
+        session = parts[6],
+    )
+}
+
+private fun HealthWorkItemDetailDto.toWorkItemDto() = HealthWorkItemDto(
+    healthSessionId = healthSessionId,
+    caseId = caseId,
+    goatId = goatId,
+    goatDisplayId = goatDisplayId,
+    diseaseKey = diseaseKey,
+    diseaseName = diseaseName,
+    ageBand = ageBand,
+    dayNo = dayNo,
+    durationDays = durationDays,
+    businessDate = businessDate,
+    session = session,
+    dueAt = dueAt,
+    status = status,
+    parkId = parkId,
+    parkLabel = parkLabel,
+    shedId = shedId,
+    shedLabel = shedLabel,
+    stepCount = stepCount,
+    medicationCount = medicationCount,
+    hasCriticalStep = hasCriticalStep,
+)
 
 @OptIn(ExperimentalPagingApi::class)
 private class HealthRemoteMediator(
