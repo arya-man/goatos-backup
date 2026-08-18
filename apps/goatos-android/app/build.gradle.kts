@@ -54,6 +54,7 @@ fun quotedBuildConfig(value: String): String =
 
 val sourceCommit: String =
     System.getenv("GITHUB_SHA")?.takeIf { it.isNotBlank() }
+        ?: System.getenv("COMMIT_SHA")?.takeIf { it.isNotBlank() }
         ?: gitOutput("rev-parse", "HEAD").ifBlank { "unknown" }
 val shortSourceCommit = sourceCommit.take(12)
 val sourceTag: String =
