@@ -47,7 +47,7 @@ import { FeedFaroView } from "./feed-faro-view";
 // both as URL params so a view survives reload and pastes as a link.
 
 const PAGE_PATH = "/feed/analytics";
-const TABS = ["overview", "items", "peranimal", "execution", "experiment"] as const;
+const TABS = ["overview", "items", "peranimal", "experiment", "execution"] as const;
 type Tab = (typeof TABS)[number];
 const RANGES = ["30", "61", "92"] as const;
 type Range = (typeof RANGES)[number];
@@ -408,7 +408,11 @@ function DirectedTabs({
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        <section className="grid g4 kpi-row" aria-label={fa(pageContract, "chart.spend.title")}>
+        <section
+          className="grid g4 kpi-row"
+          style={{ marginTop: 14, gap: 14 }}
+          aria-label={fa(pageContract, "chart.spend.title")}
+        >
           {([
             ["week", stock.spend.this_week],
             ["month", stock.spend.this_month],
