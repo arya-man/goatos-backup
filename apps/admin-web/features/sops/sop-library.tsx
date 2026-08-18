@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BookText,
@@ -25,7 +25,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { type SopCardView, type SopTrigger } from "./sop-derive";
+import { sopSliceKey, type SopCardView, type SopTrigger } from "./sop-derive";
 import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The New SOP builder is a dedicated full-page surface at /sops?compose=1 (same top-level authority
@@ -80,15 +80,25 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
 	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
 	  const activeSopChips = optionGroup(pageContract, "domain_chips");
+  // Filter chips are the backend-owned `domain_chips` vocabulary (all / vaccination / counts / feed).
+  // Each card resolves to a slice via sopSliceKey; "all" shows everything, including any future SOP
+  // whose module has no chip yet.
+  const [activeChip, setActiveChip] = useState<string>(activeSopChips[0]?.key ?? "all");
+  const chipCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sops) {
+      const key = sopSliceKey(s.code, s.name);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [sops]);
 
-  // Counts are computed from the vaccination-visible slice only (sops already filtered to vaccination
-  // on the server). The only live bucket is "All"; the other mock domain chips stay for layout fidelity
-  // but read 0 and are disabled — they must not imply built product.
   const list = useMemo(() => {
+    const sliced = activeChip === "all" ? sops : sops.filter((s) => sopSliceKey(s.code, s.name) === activeChip);
     const q = query.trim().toLowerCase();
-    if (!q) return sops;
-    return sops.filter((s) => `${s.name} ${s.code} ${s.domainLabel}`.toLowerCase().includes(q));
-  }, [sops, query]);
+    if (!q) return sliced;
+    return sliced.filter((s) => `${s.name} ${s.code} ${s.domainLabel}`.toLowerCase().includes(q));
+  }, [sops, query, activeChip]);
   const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
   const page = Math.min(requestedPage, totalPages);
   const start = list.length === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -131,17 +141,19 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
         </div>
         <div className="subtabs" style={{ margin: 0 }}>
 	          {activeSopChips.map((c) => {
+            const count = c.key === "all" ? sops.length : (chipCounts.get(c.key) ?? 0);
             return (
               <button
 	                key={c.key}
                 type="button"
-                className="on"
-                disabled
-                title={copy(pageContract, "filter.domain.current")}
-                style={{ cursor: "not-allowed" }}
+                className={activeChip === c.key ? "on" : ""}
+                onClick={() => {
+                  setActiveChip(c.key);
+                  setRequestedPage(1);
+                }}
               >
 	                {c.label}
-                <span className="cbq">{sops.length}</span>
+                <span className="cbq">{count}</span>
               </button>
             );
           })}
@@ -288,6 +300,14 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
 }
 
 function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void }) {
+  // Overlay close contract: Escape must close the modal, alongside the X button and backdrop click.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <>
       <div className="cfgback on" onClick={onClose} />

@@ -13,6 +13,7 @@
 
 export type DomainId =
   | "counts"
+  | "feed"
   | "health"
   | "breeding"
   | "parks"
@@ -23,6 +24,7 @@ export type DomainId =
 
 const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   counts: "Counts",
+  feed: "Feed",
   health: "Health",
   breeding: "Breeding",
   parks: "Parks",
@@ -47,6 +49,12 @@ const DOMAIN_KEYWORDS: Array<{ id: DomainId; words: string[] }> = [
 ];
 
 export function classifyDomain(code: string, name: string): DomainId | "general" {
+  const c = (code || "").toLowerCase();
+  // Code-prefix classification wins over keyword guessing: the migration-seeded library codes are
+  // module-prefixed and authoritative. Without this, keyword priority mislabels counts.birth as
+  // "Breeding" ("birth"), counts.death as "Health" ("death"), and feed.* as "Parks" ("feed").
+  if (c === "shifting" || c.startsWith("counts.")) return "counts";
+  if (c.startsWith("feed.")) return "feed";
   const hay = `${code} ${name}`.toLowerCase();
   for (const rule of DOMAIN_KEYWORDS) {
     if (rule.words.some((w) => hay.includes(w))) return rule.id;
@@ -54,10 +62,20 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
   return "general";
 }
 
-// SCOPE LOCK (context/execution/sop-vaccination-backend-handoff.md): the visible /sops slice is
-// vaccination ONLY. The shared SOP engine is generic, but the product surface is not yet. A SOP is in
-// the visible slice when its real `code`/`name` is clearly vaccination (`vaccination.drive`,
-// `vaccination.*`, or "vaccin…"). Everything else (shifting, feed, counts, …) is hidden from /sops.
+// Chip slice key for the library filter bar. Must stay aligned with the backend-owned
+// `domain_chips` option group (adminui sopOptionGroups): vaccination | counts | feed, with
+// everything else visible only under "all".
+export function sopSliceKey(code: string, name: string): "vaccination" | "counts" | "feed" | "general" {
+  if (isVaccinationSop(code, name)) return "vaccination";
+  const domain = classifyDomain(code, name);
+  return domain === "counts" || domain === "feed" ? domain : "general";
+}
+
+// SLICE WIDENED (maintainer request 2026-08-18, superseding the vaccination-only scope lock from
+// context/execution/sop-vaccination-backend-handoff.md): /sops now lists EVERY real SOP definition —
+// vaccination, plus the migration-seeded Counts (birth / death / shifting) and Feed (distribution /
+// packing / transport) library documents. isVaccinationSop still decides which cards carry the
+// "Vaccination" chip label and which map to the vaccination filter chip.
 export const VACCINATION_SLICE_LABEL = "Vaccination";
 
 export function isVaccinationSop(code: string, name: string): boolean {
@@ -229,8 +247,8 @@ export type SopCardView = {
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
 export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopCardView {
   const domain = classifyDomain(def.code, def.name);
-  // The page only passes vaccination SOPs into this slice, so the card chip reads "Vaccination" rather
-  // than the generic classifier label — the surface must not imply all-domain SOP launch.
+  // Vaccination cards keep their named slice label; every other card carries its classifier label
+  // (Counts, Feed, …) so the widened library reads by module.
   const label = isVaccinationSop(def.code, def.name) ? VACCINATION_SLICE_LABEL : domainLabel(domain);
   return {
     sopId: def.sop_id,
