@@ -39,6 +39,13 @@ whole screen. For individual weighing free-flow, animal A's pending save must
 not disable or ignore animal B. Required guard: `make
 android-row-action-scope-guard` (also in `make mobile-guard` and local CI).
 
+Android outbox lifecycle: every `OutboxOpType` must have an explicit production-owned
+policy for immediate UI/overlay, success reconciliation, terminal-failure repair, and
+process-death recovery. Do not assume every operation uses the same mechanism, and do
+not add an `else` fallback that silently covers future operation types. Run `make
+mobile-guard`; the exhaustive Kotlin mapping, JVM test, and adversarial structural
+guard are documented in `docs/decisions/android-offline-first.md`.
+
 Android Compose list identity: repeated rows must use the full operational
 grain as the Compose key. `campaignShedId` alone is not unique once one
 shed/campaign can appear as separate category, period, partition, or leadership
