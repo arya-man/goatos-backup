@@ -216,7 +216,20 @@ export function MeshaShell({
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
   const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
-  const lockTopBarParkSelector = pathname === "/counts/breakdown";
+  // Pages that own a PARK CONTROL OF THEIR OWN, on the same `park` parameter. Two controls writing
+  // one value is the defect: the reader picks a park in the page's own filter bar, and the top bar
+  // still offers a second, identical choice that silently rewrites it. The page's control wins here
+  // because it sits with the filters it is used beside — period, mode, breed — and those are picked
+  // together in one pass.
+  //
+  // The top-bar control is HIDDEN on these routes (maintainer decision 2026-08-18, replacing the
+  // disabled-with-a-reason treatment that shipped first). A greyed-out chip still reads as a
+  // control and still shows a park name, so on a page whose own bar already carries the park it
+  // was a second, stale-looking answer to the same question sitting three inches above the real
+  // one. Nothing is lost by removing it: these pages own the park in their own filter bar, so the
+  // choice is still on screen, once.
+  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights"];
+  const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
 
@@ -427,6 +440,13 @@ export function MeshaShell({
     };
   }, [scopeMenuOpen, roleMenuOpen]);
 
+  useEffect(() => {
+    if (lockTopBarParkSelector && scopeMenuOpen) {
+      const id = window.setTimeout(() => setScopeMenuOpen(false), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [lockTopBarParkSelector, scopeMenuOpen]);
+
   function toggleTheme() {
     const next = !document.documentElement.classList.contains("light");
     document.documentElement.classList.toggle("light", next);
@@ -512,19 +532,17 @@ export function MeshaShell({
         {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
             this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
             never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
+        {lockTopBarParkSelector ? null : (
         <div className="parksel" data-menu-root style={{ marginRight: 4 }}>
           <button
             type="button"
             className="pscope"
-            disabled={lockTopBarParkSelector}
             onClick={() => {
-              if (lockTopBarParkSelector) return;
               setScopeMenuOpen((o) => !o);
               setRoleMenuOpen(false);
             }}
-            aria-expanded={lockTopBarParkSelector ? false : scopeMenuOpen}
-            title={lockTopBarParkSelector ? currentPageLabel : contract.top_bar.park_selector.label}
-            style={lockTopBarParkSelector ? { cursor: "not-allowed", opacity: 0.55 } : undefined}
+            aria-expanded={scopeMenuOpen}
+            title={contract.top_bar.park_selector.label}
           >
             <MapPin className="ic" style={{ width: 14 }} aria-hidden="true" />
             <b>{activeParkLabel}</b>
@@ -535,7 +553,7 @@ export function MeshaShell({
             ) : null}
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
-          <div className={`parkmenu ${scopeMenuOpen && !lockTopBarParkSelector ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
+          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link
@@ -572,6 +590,7 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
+        )}
         <button
           type="button"
           className="iconbtn"
