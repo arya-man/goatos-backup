@@ -71,6 +71,11 @@ import sg.mesha.goatos.feature.feed.FeedDistributionStatus
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
+import sg.mesha.goatos.feature.feed.FeedWastageCompleteEvent
+import sg.mesha.goatos.feature.feed.FeedWastageCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedWastageCompleteStatus
+import sg.mesha.goatos.feature.feed.FeedWastageEvent
+import sg.mesha.goatos.feature.feed.FeedWastageScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -157,6 +162,8 @@ import sg.mesha.goatos.viewmodel.MilkFeedingListViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel
+import sg.mesha.goatos.viewmodel.FeedWastageCompleteViewModel
+import sg.mesha.goatos.viewmodel.FeedWastageViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel
@@ -384,11 +391,16 @@ object Routes {
         "&$COUNTS_PROMOTE_LOCATION_ARG=${Uri.encode(locationDisplay)}" +
         "&$COUNTS_PROMOTE_ROW_VERSION_ARG=$rowVersion"
 
-    // Feed module bar (backend module `feed_direction`). Both are L0 roots and match the
+    // Feed module bar (backend module `feed_direction`). All are L0 roots and match the
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
     const val FEED_DIRECTION = "/feed/direction"
     const val FEED_PACKING = "/feed/packing"
     const val FEED_TRANSPORT = "/feed/transport"
+
+    // The 4th feed tab (maintainer decision 2026-08-18): the per-EXPERIMENT-pen leftover-feed
+    // worklist. The backend's nav item carries this href verbatim ({key:"feed_wastage",
+    // href:"/feed/wastage"}), so registering the route is what makes the tab work.
+    const val FEED_WASTAGE = "/feed/wastage"
     const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
     // [lifecycleStatus] is the task's backend-owned status AT THE MOMENT the row was tapped — only a
     // FIRST-PAINT hint for FeedTransportCaptureViewModel; see its ARG_LIFECYCLE_STATUS kdoc.
@@ -479,6 +491,36 @@ object Routes {
         return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}" +
             "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
+    }
+
+    // L2 verifier-GATED feed-WASTAGE completion (maintainer decision 2026-08-18), reached ONLY by
+    // tapping a pen row on Feed Wastage. Distinct route from every other feed destination — never
+    // a prefix reuse. The grain is the PEN-DAY: no {session_no} and no {workflow} segment on
+    // purpose (wastage is measured once per day, and the server stamps `experiment`).
+    const val FEED_WASTAGE_COMPLETE =
+        "/feed/wastage/complete/{park_id}/{shed_id}/{target_date}?shed_label={shed_label}&park_label={park_label}&partition_label={partition_label}&experiment_arm={experiment_arm}&lifecycle_status={lifecycle_status}"
+
+    fun feedWastageCompleteRoute(
+        parkId: String,
+        shedId: String,
+        targetDate: String,
+        shedLabel: String,
+        parkLabel: String,
+        // The PEN whose leftover was filmed, "" for an undivided shed. The completion needs it
+        // because a partitioned shed has one wastage task PER PEN.
+        partitionLabel: String,
+        // The pen's authored trial group — display context for the capture screen's subtitle.
+        experimentArm: String,
+        // The row's backend-owned lifecycle bucket; first-paint hint for the capture screen's
+        // already-submitted lock (a reinstall wipes the local draft).
+        lifecycleStatus: String,
+    ): String {
+        fun e(value: String): String = Uri.encode(value)
+        val park = parkId.ifBlank { "-" }
+        return "/feed/wastage/complete/${e(park)}/${e(shedId)}/${e(targetDate)}" +
+            "?shed_label=${e(shedLabel)}&park_label=${e(parkLabel)}" +
+            "&partition_label=${e(partitionLabel)}&experiment_arm=${e(experimentArm)}" +
+            "&lifecycle_status=${e(lifecycleStatus)}"
     }
 
     /**
@@ -2433,6 +2475,107 @@ fun AppNavHost(
 
         composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel,event.row.parkLabel,event.row.status))}else vm.onEvent(event)}}
 
+        // L1 Feed Wastage worklist (maintainer decision 2026-08-18): one leftover-feed video per
+        // EXPERIMENT pen per feed day. Mirrors the Packing list; the 4th feed-module tab.
+        composable(Routes.FEED_WASTAGE) {
+            val vm: FeedWastageViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            FeedWastageScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        FeedWastageEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        // Pen rows open the verifier-GATED wastage flow (ONE mandatory proof ->
+                        // pending_verification), mirroring Packing rows above.
+                        is FeedWastageEvent.OpenRow -> {
+                            vm.onEvent(event)
+                            navController.navigate(
+                                Routes.feedWastageCompleteRoute(
+                                    parkId = event.parkId,
+                                    shedId = event.shedId,
+                                    // Wastage is measured ON the feed day, so the selected date is
+                                    // the backend target_date verbatim (no packing +1 axis).
+                                    targetDate = state.targetDateLabel,
+                                    shedLabel = event.shedLabel,
+                                    parkLabel = event.parkLabel,
+                                    partitionLabel = event.partitionLabel,
+                                    experimentArm = event.experimentArm,
+                                    lifecycleStatus = event.lifecycleStatus,
+                                ),
+                            ) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // L2 verifier-GATED feed-WASTAGE completion: ONE MANDATORY leftover-feed video ->
+        // pending_verification. Camera binding is held only while composed (operator capture role
+        // gated), releasing on leave. Same single-proof shape as [FEED_PACKING_COMPLETE].
+        composable(
+            route = Routes.FEED_WASTAGE_COMPLETE,
+            arguments = listOf(
+                navArgument(FeedWastageCompleteViewModel.ARG_PARK_ID) { type = NavType.StringType },
+                navArgument(FeedWastageCompleteViewModel.ARG_SHED_ID) { type = NavType.StringType },
+                navArgument(FeedWastageCompleteViewModel.ARG_TARGET_DATE) { type = NavType.StringType },
+                navArgument(FeedWastageCompleteViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_PARK_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_PARTITION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_EXPERIMENT_ARM) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_LIFECYCLE_STATUS) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: FeedWastageCompleteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val onEvent: (FeedWastageCompleteEvent) -> Unit = { event ->
+                when (event) {
+                    FeedWastageCompleteEvent.Back -> navController.popBackStack()
+                    else -> vm.onEvent(event)
+                }
+            }
+            // On a successful submission the wastage video is durably enqueued (QUEUED) or already
+            // SYNCED: show the success tone briefly, then pop back to the Feed Wastage list (which
+            // is RefreshOnResume, so it refreshes once on landing and shows the pen in review).
+            val submitted = state.result?.status == FeedWastageCompleteStatus.SYNCED ||
+                state.result?.status == FeedWastageCompleteStatus.QUEUED
+            LaunchedEffect(submitted) {
+                if (submitted) {
+                    delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
+                    navController.popBackStack(Routes.FEED_WASTAGE_COMPLETE, inclusive = true)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                FeedWastageCompleteScreen(state = state, onEvent = onEvent)
+            }
+        }
+
         composable(
             route = Routes.FEED_TRANSPORT_CAPTURE,
             arguments = listOf(
@@ -2978,6 +3121,10 @@ private val supportedRootDestinations = setOf(
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,
     Routes.FEED_TRANSPORT,
+    // The 4th backend-composed feed tab (maintainer decision 2026-08-18). A bottom-bar
+    // destination is a root exactly like its siblings — registering the composable alone would
+    // leave a notification or deep link naming it treated as unhosted and bounced to home.
+    Routes.FEED_WASTAGE,
     // Counts roots: a Counts principal's default landing is the first capture page they may
     // open (/counts/birth). These are registered top-level composables, so cold start must
     // accept them instead of falling back to Calendar (which a Counts-only principal may not

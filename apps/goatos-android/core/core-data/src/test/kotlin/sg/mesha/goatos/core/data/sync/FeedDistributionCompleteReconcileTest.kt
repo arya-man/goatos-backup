@@ -73,6 +73,27 @@ class FeedDistributionCompleteReconcileTest {
         override suspend fun fetchProofDownloadUrl(proofId: String): String? = null
 
         override suspend fun probeDirectionSummary(query: sg.mesha.goatos.core.data.FeedDirectionQuery): Boolean = false
+
+        override fun observeWastageTotals(query: sg.mesha.goatos.core.data.FeedWastageQuery) =
+            kotlinx.coroutines.flow.flowOf(sg.mesha.goatos.core.common.Resource<sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto>(data = null))
+
+        override fun wastageRows(query: sg.mesha.goatos.core.data.FeedWastageQuery) =
+            kotlinx.coroutines.flow.flowOf(androidx.paging.PagingData.empty<sg.mesha.goatos.core.network.dto.FeedWastageRowDto>())
+
+        override fun observeWastageRowStatus(shedId: String, partitionLabel: String, workflow: String) =
+            kotlinx.coroutines.flow.flowOf<String?>(null)
+
+        override suspend fun fetchWastageRowStatus(parkId: String, shedId: String, partitionLabel: String, targetDate: String): String? = null
+
+        override suspend fun persistWastageRowStatus(
+            shedId: String,
+            partitionLabel: String,
+            workflow: String,
+            lifecycleStatus: String,
+        ) {
+            val key = "$shedId|$partitionLabel|$workflow"
+            updatedSessions[key] = lifecycleStatus
+        }
     }
 
     @Test

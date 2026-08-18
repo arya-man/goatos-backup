@@ -1214,3 +1214,43 @@ val MIGRATION_46_47: Migration = object : Migration(46, 47) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `clientTaskKey` TEXT DEFAULT NULL")
     }
 }
+
+/**
+ * v47 -> v48: adds the three Feed WASTAGE read-model tables (maintainer decision 2026-08-18) — the
+ * per-EXPERIMENT-pen leftover-feed worklist as a summary-envelope blob + normalized paged rows +
+ * per-scope remote keys, the same offline-first trio shape as [MIGRATION_16_17]'s Direction and
+ * Packing tables. Purely additive; no existing table changes, so an installed APK carrying an
+ * unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v48 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_47_48: Migration = object : Migration(47, 48) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_wastage_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_wastage_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_wastage_items_queryKey_sortIndex` " +
+                "ON `feed_wastage_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_wastage_items_grainKey` " +
+                "ON `feed_wastage_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_wastage_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}

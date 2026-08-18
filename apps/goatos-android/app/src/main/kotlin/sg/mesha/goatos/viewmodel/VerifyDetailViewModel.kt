@@ -76,6 +76,14 @@ private const val VERIFY_DETAIL_PAGE_SIZE = 20
  *  no head count and the backend refuses one -- see [VerifyDetailViewModel.correctWeight]. */
 private const val REF_TYPE_INDIVIDUAL_OBSERVATION = "weighing_observation"
 
+/** The feed-WASTAGE measurement grain (maintainer decision 2026-08-18). The same control renders,
+ *  but the value routes to the feed measurement endpoint, ZERO IS VALID (an empty trough), the
+ *  range is 0..10000 kg, and there is no head count and no reason field. */
+private const val REF_TYPE_FEED_WASTAGE_COMPLETION = "feed_wastage_completion"
+
+/** The wastage measurement's backend range ceiling (`wastage_out_of_range`: 0 to 10000 kg). */
+private const val MAX_WASTAGE_KG = 10_000.0
+
 /** Upper bound on how long the screen holds its skeleton waiting for the refetch to return the
  *  decided item. Generous enough for a slow round trip, short enough that a refetch which never
  *  arrives degrades to the ordinary empty state instead of a permanent skeleton. */
@@ -386,6 +394,14 @@ class VerifyDetailViewModel @Inject constructor(
      * number she just entered rather than the one she replaced.
      */
     private fun correctWeight(event: VerifyDetailEvent.CorrectWeight) = viewModelScope.launch {
+        // THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18) shares the control
+        // but not the endpoint: it routes to the feed measurement route, where ZERO IS VALID (an
+        // empty trough is a real, good measurement) — so it branches BEFORE the weighing-only
+        // non-positive guard below, which would refuse the very value wastage exists to record.
+        if (event.refType == REF_TYPE_FEED_WASTAGE_COMPLETION) {
+            recordWastageMeasurement(event)
+            return@launch
+        }
         // Belt-and-braces mirror of the card's own submit gate: a malformed event can never enqueue
         // a non-positive weight, which the server would refuse anyway.
         if (event.weightKg <= 0 || !event.weightKg.isFinite()) return@launch
@@ -424,6 +440,45 @@ class VerifyDetailViewModel @Inject constructor(
                     crashReporter.recordException(
                         IllegalStateException(result.message),
                         "weighing weight correction enqueue failed",
+                    )
+                }
+                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
+            }
+        }
+    }
+
+    /**
+     * Records the leftover weight the verifier reads off a feed-wastage video, in kg
+     * (maintainer decision 2026-08-18). Not a decision — like [correctWeight]'s weighing path it
+     * never arms awaitingBackendDecision and never auto-closes; she records the value and then
+     * decides on the ordinary verdict route. The `completion_id` is the item's own
+     * `measurement_correction.observation_id`, posted back verbatim.
+     *
+     * ZERO IS VALID and the range is 0..10000 kg — the card's own gate mirrors this, so the guard
+     * here only stops a malformed event. No head count (the write path has no field for one) and
+     * no reason (ditto). Rides the outbox with a value-bearing stable key so a double-tap is one
+     * write while 3 kg then 3.5 kg are two.
+     */
+    private suspend fun recordWastageMeasurement(event: VerifyDetailEvent.CorrectWeight) {
+        if (event.weightKg < 0 || event.weightKg > MAX_WASTAGE_KG || !event.weightKg.isFinite()) return
+        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
+        val result = syncRepo.enqueueFeedWastageMeasurement(
+            completionId = event.observationId,
+            wastageKg = event.weightKg,
+        )
+        when (result) {
+            is AppResult.Ok -> {
+                analytics.track(AnalyticsEventsVerification.WASTAGE_MEASUREMENT_SUBMITTED)
+                _flags.update { it.copy(isSubmitting = false) }
+                // Pull the re-labelled item back so the card shows the recorded value: the backend
+                // recomposes the subject label around the measurement and pushes it onto the item.
+                refresh()
+            }
+            is AppResult.Err -> {
+                runCatching {
+                    crashReporter.recordException(
+                        IllegalStateException(result.message),
+                        "feed wastage measurement enqueue failed",
                     )
                 }
                 _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
@@ -714,6 +769,11 @@ class VerifyDetailViewModel @Inject constructor(
             weightCorrection = measurementCorrection
                 ?.takeIf { it.observationId.isNotBlank() && it.refType.isNotBlank() }
                 ?.let { correction ->
+                    // Feed wastage (2026-08-18) shares the control shape with the weighing
+                    // correction but not its validation: zero is a real measurement there (an
+                    // empty trough), and its write path carries no reason field, so the card
+                    // must not offer one that would be silently dropped.
+                    val isWastage = correction.refType == REF_TYPE_FEED_WASTAGE_COMPLETION
                     VerifyWeightCorrection(
                         refType = correction.refType,
                         observationId = correction.observationId,
@@ -722,6 +782,8 @@ class VerifyDetailViewModel @Inject constructor(
                         valueLabel = correction.valueLabel,
                         submitLabel = correction.submitLabel,
                         countLabel = correction.countLabel?.takeIf { it.isNotBlank() },
+                        allowZero = isWastage,
+                        showReason = !isWastage,
                     )
                 },
             media = media.map {

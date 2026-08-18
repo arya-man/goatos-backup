@@ -59,6 +59,7 @@ internal fun buildFeedProofIdentity(
         "feed-pack" -> ProofFlow.FEED_PACKING
         "feed-dist" -> ProofFlow.FEED_DISTRIBUTION
         "feed-transport" -> ProofFlow.FEED_TRANSPORT
+        "feed-wastage" -> ProofFlow.FEED_WASTAGE
         else -> ProofFlow.FEED_COMPLETE
     }
 

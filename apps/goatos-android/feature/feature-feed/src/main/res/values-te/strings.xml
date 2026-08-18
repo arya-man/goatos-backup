@@ -130,4 +130,21 @@
     <string name="feed_complete_already_submitted_title">ఇప్పటికే సబ్మిట్ చేసారు</string>
     <string name="feed_complete_already_submitted_body">ఈ వీడియో వెరిఫైయర్కు వెళ్లింది. ఇక్కడ మరో రికార్డు అవసరం లేదు.</string>
     <string name="feed_dist_session_submitted_body">ఈ సెషన్ ప్రూఫ్‌లు వెరిఫైయర్‌కు వెళ్లాయి. ఇక్కడ మరేమీ రికార్డ్ చేయవలసిన అవసరం లేదు — సమీక్ష తర్వాత ఫలితం కనిపిస్తుంది.</string>
+    <string name="feed_wastage_title">ఫీడ్ వృథా</string>
+    <string name="feed_wastage_caption">ఈరోజు ప్రతి ప్రయోగ పెన్‌కు మిగిలిన దాణాను రికార్డ్ చేయండి</string>
+    <string name="feed_wastage_summary_title">పెన్‌లు (మొత్తం ఫారం)</string>
+    <string name="feed_wastage_stat_pens">పెన్‌లు</string>
+    <string name="feed_wastage_recorded_fmt">వృథా నమోదైంది: %1$s కిలోలు</string>
+    <string name="feed_wastage_complete_caption">ఈ పెన్‌లో మిగిలిన దాణా వీడియోను ఒకటి రికార్డ్ చేయండి. వెరిఫయర్ వీడియో నుండి మిగిలిన దాణా బరువును చదివి నమోదు చేస్తారు.</string>
+    <string name="feed_wastage_video_title">మిగిలిన దాణా వీడియో (అవసరం)</string>
+    <string name="feed_wastage_record_video">మిగిలిన దాణా వీడియో రికార్డ్ చేయండి</string>
+    <string name="feed_wastage_video_uploading">అప్‌లోడ్ అవుతోంది…</string>
+    <string name="feed_wastage_video_recorded">మిగిలిన దాణా వీడియో రికార్డ్ చేయబడింది</string>
+    <string name="feed_wastage_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
+    <string name="feed_wastage_need_video">సమర్పించడానికి మిగిలిన దాణా వీడియోను రికార్డ్ చేయండి.</string>
+    <string name="feed_wastage_retry_video">మిగిలిన దాణా వీడియోను మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="feed_wastage_waiting_sync">మిగిలిన దాణా వీడియో అప్‌లోడ్ అవుతోంది. సిద్ధమైనప్పుడు సమర్పణ కనిపిస్తుంది.</string>
+    <string name="feed_wastage_ready_to_submit">మిగిలిన దాణా వీడియో సిద్ధంగా ఉంది. వెరిఫికేషన్ కోసం సమర్పించండి.</string>
+    <string name="feed_wastage_submitted">వెరిఫికేషన్ కోసం పంపబడింది.</string>
+    <string name="feed_wastage_retry_submit">వెరిఫికేషన్ కోసం మళ్లీ పంపండి</string>
 </resources>

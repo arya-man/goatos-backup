@@ -502,6 +502,22 @@ object AnalyticsEvents {
     /** A feed-packing completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_PACKING_COMPLETE_FAILURE = "feed_packing_complete_failure"
 
+    /** The Feed Wastage worklist screen was opened (maintainer decision 2026-08-18). */
+    const val FEED_WASTAGE_VIEWED = "feed_wastage_viewed"
+
+    /** The verifier-gated feed-wastage capture detail was opened (a pen row was tapped). */
+    const val FEED_WASTAGE_COMPLETE_OPENED = "feed_wastage_complete_opened"
+
+    /** The MANDATORY leftover-feed video was captured on the wastage capture detail. */
+    const val FEED_WASTAGE_VIDEO_CAPTURED = "feed_wastage_video_captured"
+
+    /** A feed-wastage completion was submitted for verification (proof queued, completion enqueued
+     *  -> the pen-day moves to pending_verification). */
+    const val FEED_WASTAGE_SUBMITTED = "feed_wastage_submitted"
+
+    /** A feed-wastage completion or proof could not be queued. [Params.REASON] a coarse cause. */
+    const val FEED_WASTAGE_COMPLETE_FAILURE = "feed_wastage_complete_failure"
+
     /** The feed-transport proof/submit detail was opened from the Transport worklist. */
     const val FEED_TRANSPORT_OPENED = "feed_transport_opened"
 

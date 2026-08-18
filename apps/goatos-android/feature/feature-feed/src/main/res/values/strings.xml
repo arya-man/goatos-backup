@@ -130,4 +130,21 @@
     <string name="feed_complete_already_submitted_title">Already submitted</string>
     <string name="feed_complete_already_submitted_body">This video has gone to the verifier. Nothing more to record here — you will see the result once it is reviewed.</string>
     <string name="feed_dist_session_submitted_body">This session\'s proofs have gone to the verifier. Nothing more to record here — you will see the result once it is reviewed.</string>
+    <string name="feed_wastage_title">Feed Wastage</string>
+    <string name="feed_wastage_caption">Leftover feed to record for each experiment pen today</string>
+    <string name="feed_wastage_summary_title">Pens (whole farm)</string>
+    <string name="feed_wastage_stat_pens">Pens</string>
+    <string name="feed_wastage_recorded_fmt">Wastage recorded: %1$s kg</string>
+    <string name="feed_wastage_complete_caption">Record one video of the leftover feed in this pen. A verifier reads the leftover weight off the video and records it.</string>
+    <string name="feed_wastage_video_title">Leftover feed video (required)</string>
+    <string name="feed_wastage_record_video">Record leftover feed video</string>
+    <string name="feed_wastage_video_uploading">Uploading…</string>
+    <string name="feed_wastage_video_recorded">Leftover feed video recorded</string>
+    <string name="feed_wastage_submit">Submit for verification</string>
+    <string name="feed_wastage_need_video">Record the leftover feed video to submit.</string>
+    <string name="feed_wastage_retry_video">Retry leftover feed video</string>
+    <string name="feed_wastage_waiting_sync">Leftover feed video upload is in progress. Submit appears when it is ready.</string>
+    <string name="feed_wastage_ready_to_submit">Leftover feed video is ready. Submit for verification.</string>
+    <string name="feed_wastage_submitted">Sent for verification.</string>
+    <string name="feed_wastage_retry_submit">Retry sending for verification</string>
 </resources>

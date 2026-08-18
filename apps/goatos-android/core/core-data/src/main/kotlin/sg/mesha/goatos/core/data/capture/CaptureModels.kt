@@ -51,7 +51,9 @@ data class ProofIdentity(
         return when (flow) {
             ProofFlow.VACCINATION -> "vaccination:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:$subjectKey"
             ProofFlow.WEIGHING_INDIVIDUAL, ProofFlow.WEIGHING_SHED -> "weighing:$taskId:$subjectKey"
-            ProofFlow.FEED_COMPLETE, ProofFlow.FEED_DISTRIBUTION, ProofFlow.FEED_PACKING, ProofFlow.FEED_TRANSPORT ->
+            ProofFlow.FEED_COMPLETE, ProofFlow.FEED_DISTRIBUTION, ProofFlow.FEED_PACKING,
+            ProofFlow.FEED_WASTAGE, ProofFlow.FEED_TRANSPORT,
+            ->
                 "feed:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:${flow.wireValue}:$subjectKey"
             else -> "proof:$taskId:${flow.wireValue}:$subjectKey"
         }
@@ -66,7 +68,9 @@ data class ProofIdentity(
             }
             ProofFlow.WEIGHING_INDIVIDUAL, ProofFlow.WEIGHING_SHED ->
                 "weighing:capture:$taskId:$shedId:$subjectKey"
-            ProofFlow.FEED_COMPLETE, ProofFlow.FEED_DISTRIBUTION, ProofFlow.FEED_PACKING, ProofFlow.FEED_TRANSPORT ->
+            ProofFlow.FEED_COMPLETE, ProofFlow.FEED_DISTRIBUTION, ProofFlow.FEED_PACKING,
+            ProofFlow.FEED_WASTAGE, ProofFlow.FEED_TRANSPORT,
+            ->
                 "feed:capture:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:${flow.wireValue}:$subjectKey"
             else -> "proof:capture:$taskId:${flow.wireValue}:$subjectKey"
         }
@@ -123,6 +127,7 @@ enum class ProofFlow(val wireValue: String) {
     FEED_COMPLETE("feed_complete"),
     FEED_DISTRIBUTION("feed_distribution"),
     FEED_PACKING("feed_packing"),
+    FEED_WASTAGE("feed_wastage"),
     FEED_TRANSPORT("feed_transport"),
     SHIFTING("shifting"),
     MILK("milk"),

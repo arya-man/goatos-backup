@@ -74,6 +74,7 @@ import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
 import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.DefaultRosterRepository
@@ -275,6 +276,11 @@ object AppModule {
     @Provides
     fun provideFeedPackingMetaCacheDao(db: GoatDatabase): FeedPackingMetaCacheDao =
         db.feedPackingMetaCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideFeedWastageMetaCacheDao(db: GoatDatabase): FeedWastageMetaCacheDao =
+        db.feedWastageMetaCacheDao()
 
     @Provides
     fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
@@ -481,12 +487,13 @@ object AppModule {
     @Provides
     @Singleton
     fun provideFeedRepository(
+        wastageMetaDao: FeedWastageMetaCacheDao,
         api: AppApi,
         database: GoatDatabase,
         directionMetaDao: FeedDirectionMetaCacheDao,
         packingMetaDao: FeedPackingMetaCacheDao,
     ): FeedRepository =
-        DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao)
+        DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao, wastageMetaDao)
 
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.

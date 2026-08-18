@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">నీటి పంపిణీ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_feed_packing_title">మేత ప్యాకింగ్‌ను రికార్డ్ చేయండి</string>
     <string name="proof_camera_feed_packing_instruction">మేత ప్యాకింగ్ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
+    <string name="proof_camera_feed_wastage_title">మిగిలిన దాణాను రికార్డ్ చేయండి</string>
+    <string name="proof_camera_feed_wastage_instruction">తొట్టిలో మిగిలిన దాణా స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_milk_preparation_title">పాల తయారీ దశను రికార్డ్ చేయండి</string>
     <string name="proof_camera_milk_preparation_instruction">ఈ తయారీ దశ మరియు దాని కొలత స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_feed_transport_title">మేత రవాణా వీడియో</string>

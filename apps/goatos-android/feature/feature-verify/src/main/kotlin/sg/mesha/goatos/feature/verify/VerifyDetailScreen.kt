@@ -178,6 +178,19 @@ data class VerifyWeightCorrection(
      * invite a value the server rejects.
      */
     val countLabel: String? = null,
+    /**
+     * True when ZERO is a valid measurement — the feed-wastage route (maintainer decision
+     * 2026-08-18), where an empty trough is a real, good reading. False for weighing, whose
+     * write path refuses a non-positive weight. A blank field is still blank either way: the
+     * card never coerces "she has not typed" into 0.
+     */
+    val allowZero: Boolean = false,
+    /**
+     * Whether the optional free-text reason field renders. Weighing accepts a correction reason;
+     * the wastage measurement route carries no reason at all, so offering the field there would
+     * collect words the write path silently drops.
+     */
+    val showReason: Boolean = true,
 )
 
 @Immutable
@@ -263,6 +276,10 @@ enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNA
 /** Approve is irreversible, so the screen asks once before sending it. Reject already has its own
  *  mandatory-reason dialog, so this keeps the two decisions symmetric. */
 private const val APPROVE_NEEDS_CONFIRMATION = true
+
+/** Upper bound for an allow-zero measurement (feed wastage: 0..10000 kg, the backend's own
+ *  `wastage_out_of_range` window), so the server's refusal is unreachable from the UI. */
+private const val MAX_MEASUREMENT_KG = 10_000.0
 
 enum class VideoPlaybackAction {
     /** Fired synchronously at the play/pause TAP, before player.play()/pause() is even called —
@@ -637,7 +654,15 @@ private fun WeightCorrectionCard(
     val trimmedCount = countText.trim()
     val animalCount = trimmedCount.toIntOrNull()
     val countIsUsable = trimmedCount.isEmpty() || (animalCount != null && animalCount > 0)
-    val canSubmit = weightKg != null && weightKg > 0 && countIsUsable && !isSubmitting
+    // Zero is a VALID typed measurement only where the control says so (feed wastage: an empty
+    // trough). The wastage route also bounds the value at 10000 kg, so the server's refusal stays
+    // unreachable from the UI in both directions.
+    val valueInRange = weightKg != null && if (correction.allowZero) {
+        weightKg >= 0 && weightKg <= MAX_MEASUREMENT_KG
+    } else {
+        weightKg > 0
+    }
+    val canSubmit = valueInRange && countIsUsable && !isSubmitting
 
     Column(
         modifier = Modifier
@@ -671,13 +696,15 @@ private fun WeightCorrectionCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
         }
-        OutlinedTextField(
-            value = reasonText,
-            onValueChange = { reasonText = it },
-            label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
-            singleLine = false,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        )
+        if (correction.showReason) {
+            OutlinedTextField(
+                value = reasonText,
+                onValueChange = { reasonText = it },
+                label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
+                singleLine = false,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+        }
         Button(
             onClick = {
                 val kg = weightKg ?: return@Button

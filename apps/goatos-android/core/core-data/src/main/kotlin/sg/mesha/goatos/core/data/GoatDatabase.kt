@@ -47,6 +47,12 @@ import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageItemDao
+import sg.mesha.goatos.core.data.cache.FeedWastageItemEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportItemDao
 import sg.mesha.goatos.core.data.cache.FeedTransportItemEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyDao
@@ -224,6 +230,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         FeedPackingMetaCacheEntity::class,
         FeedPackingItemEntity::class,
         FeedPackingRemoteKeyEntity::class,
+        FeedWastageMetaCacheEntity::class,
+        FeedWastageItemEntity::class,
+        FeedWastageRemoteKeyEntity::class,
         ShiftingPendingItemEntity::class,
         ShiftingPendingRemoteKeyEntity::class,
         AwaitingRfidItemEntity::class,
@@ -261,7 +270,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
     ],
-    version = 47,
+    version = 48,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -348,6 +357,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v46 (see [MIGRATION_45_46]) adds supersedesRowId to proof_capture — a durable
     // captureReplacingLatest supersession marker (P1 fix) so the replaced row's retirement
     // survives process death instead of living only in an in-memory ticket.
+    // v48 (see [MIGRATION_47_48]) adds the three Feed WASTAGE read-model tables (maintainer
+    // decision 2026-08-18) — the per-EXPERIMENT-pen leftover-feed worklist as a summary-envelope
+    // blob + normalized paged rows + per-scope remote keys, the same offline-first shape as the
+    // Direction and Packing trios.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -390,6 +403,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun feedPackingMetaCacheDao(): FeedPackingMetaCacheDao
     abstract fun feedPackingItemDao(): FeedPackingItemDao
     abstract fun feedPackingRemoteKeyDao(): FeedPackingRemoteKeyDao
+    abstract fun feedWastageMetaCacheDao(): FeedWastageMetaCacheDao
+    abstract fun feedWastageItemDao(): FeedWastageItemDao
+    abstract fun feedWastageRemoteKeyDao(): FeedWastageRemoteKeyDao
     abstract fun shiftingPendingItemDao(): ShiftingPendingItemDao
     abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
     abstract fun awaitingRfidItemDao(): AwaitingRfidItemDao

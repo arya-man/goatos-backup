@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">Keep the water distribution work clearly visible</string>
     <string name="proof_camera_feed_packing_title">Record feed packing</string>
     <string name="proof_camera_feed_packing_instruction">Keep the feed packing work clearly visible</string>
+    <string name="proof_camera_feed_wastage_title">Record leftover feed</string>
+    <string name="proof_camera_feed_wastage_instruction">Keep the leftover feed in the trough clearly visible</string>
     <string name="proof_camera_milk_preparation_title">Record milk preparation step</string>
     <string name="proof_camera_milk_preparation_instruction">Keep this preparation step and its measurement clearly visible</string>
     <string name="proof_camera_recording_title">Record proof video</string>
