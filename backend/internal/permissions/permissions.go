@@ -440,6 +440,16 @@ const (
 	// the generation result. A future capture surface needs its own write permission, and reusing
 	// this one for it would silently turn every reader into a recorder.
 	FeedPackingRead = "feed_packing.read"
+	// FeedWastageRead gates the Feed WASTAGE worklist (/feed-wastage/worklist): the per-pen daily
+	// list of EXPERIMENT pens owing a leftover-feed video (maintainer decision 2026-08-18).
+	//
+	// Its own permission for the same forward-looking reason FeedPackingRead is not ProtocolRead:
+	// each feed surface's audience must stay independently expressible. Granted exactly where
+	// FeedPackingRead is granted — the operator who films the leftover, the park head who runs the
+	// ground, the Feed Director who owns the chain, and RoleCEOInternal (founder/builder visibility
+	// invariant). READ-ONLY; the completion write rides FeedDirectionComplete, and the verifier's
+	// measured value rides VerificationVerdict on the producer's own route.
+	FeedWastageRead = "feed_wastage.read"
 	// FeedDirectionRead gates the feed-DIRECTION read surface (/feed-direction/preview,
 	// /feed-direction/generation-preview, and the counts-projection exception list).
 	//
@@ -631,6 +641,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// record a shed-session as fed. They still hold no feed_config.* grant: executing a ration is
 		// not authoring one.
 		FeedPackingRead:       {},
+		FeedWastageRead:       {},
 		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
 		FeedTransportRead:     {},
@@ -750,7 +761,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
 		GoatRead: {}, SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		FeedConfigRead: {}, FeedConfigWrite: {},
-		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {},
+		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {}, FeedWastageRead: {},
 		// The transport worklist READ (maintainer decision 2026-08-05). Paired deliberately with
 		// the absence of FeedDirectionComplete below: the director sees every page of the feed
 		// chain including the daily transport tasks, and still cannot record one as done.
@@ -892,6 +903,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// authoring the ration grid (feed_config.write) stays with the CEO/CXO tier and is NOT added.
 		ProtocolRead:          {},
 		FeedPackingRead:       {},
+		FeedWastageRead:       {},
 		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
 		FeedTransportRead:     {},
@@ -934,6 +946,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedConfigRead:       {},
 		FeedConfigWrite:      {},
 		FeedPackingRead:      {},
+		FeedWastageRead:      {},
 		FeedDirectionRead:    {},
 		FeedDirectionOversee: {},
 		FeedTransportRead:    {},

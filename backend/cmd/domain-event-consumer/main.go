@@ -178,6 +178,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedWastageVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	// Weighing verdict applier: weighing enqueues a verification item for every
 	// observation, so without this consumer every approve/reject is a silent drop.
 	weighingapp.NewVerificationVerdictHandler(weighingRepo, logger).Register(bus)
