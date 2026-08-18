@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- seed-fixture-guard:ignore: operational Weighing free-flow tables are written by the Weighing planner/mobile/verifier flow; they do not change the Vaccination HRMS seed contract
 --
 -- VERIFIER WEIGHT CORRECTION (maintainer decision 2026-08-17).
@@ -85,17 +86,17 @@ ALTER TABLE public.weighing_shed_observations
 -- "Which weights did a verifier change, most recent first" is the leadership
 -- read this feature owes an auditor, and it is a small partial index because
 -- corrections are rare against the volume of captures.
-CREATE INDEX IF NOT EXISTS weighing_observations_weight_corrected_idx
+CREATE INDEX CONCURRENTLY IF NOT EXISTS weighing_observations_weight_corrected_idx
   ON public.weighing_observations (tenant_id, weight_corrected_at DESC)
   WHERE weight_corrected_at IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS weighing_shed_observations_weight_corrected_idx
+CREATE INDEX CONCURRENTLY IF NOT EXISTS weighing_shed_observations_weight_corrected_idx
   ON public.weighing_shed_observations (tenant_id, weight_corrected_at DESC)
   WHERE weight_corrected_at IS NOT NULL;
 
 -- +goose Down
-DROP INDEX IF EXISTS public.weighing_shed_observations_weight_corrected_idx;
-DROP INDEX IF EXISTS public.weighing_observations_weight_corrected_idx;
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_shed_observations_weight_corrected_idx;
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_observations_weight_corrected_idx;
 
 ALTER TABLE public.weighing_shed_observations
   DROP CONSTRAINT IF EXISTS weighing_shed_observations_operator_weight_positive_check;

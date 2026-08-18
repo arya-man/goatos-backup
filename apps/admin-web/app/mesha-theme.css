@@ -2374,7 +2374,7 @@ select:disabled { opacity: .45; }
 .wbars-short{height:150px}
 .wbars::-webkit-scrollbar{width:8px}
 .wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
-.wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px}
+.wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px;min-height:24px}
 /* Full-width cards can afford a real label column. 132px is sized for the half-width
    charts and clips a load's supplier name to "131 · Krishnamorrth…", which defeats the
    point of putting the supplier on the label. */
@@ -2441,9 +2441,10 @@ select:disabled { opacity: .45; }
 .wcols .wbars,
 .wcols .wbars-empty{margin-top:8px}
 .wcol-h{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
-/* Half the page is wider than the old half-width card, so the label column can afford
-   the full "Castro 2 (shed avg, 29d)" instead of clipping at the generic 132px. */
-.wcols .wbar{grid-template-columns:200px minmax(0,1fr) 68px}
+/* Half the page is wider than the old half-width card, so the label column can carry
+   the shed's breed and sex context instead of clipping it at the generic 132px. */
+.wcols .wbar{grid-template-columns:260px minmax(0,1fr) 68px}
+.wcols .wbar .wbl{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;overflow-wrap:anywhere}
 @media(max-width:1200px){.wcols .wbar{grid-template-columns:150px minmax(0,1fr) 62px}}
 @media(max-width:900px){.wcols{grid-template-columns:1fr;gap:14px}}
 /* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
@@ -2466,6 +2467,9 @@ select:disabled { opacity: .45; }
    separators must still reach the frame. */
 .wtable table.tbl th:first-child,
 .wtable table.tbl td:first-child{padding-left:16px}
+.wcomp-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;max-width:340px}
+.wcomp-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 76%,var(--bg));color:var(--muted);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:750;line-height:1.25;white-space:nowrap}
+.wcomp-chip span{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:var(--brand-soft);color:var(--brand-d);font-size:10px;font-weight:850}
 .wtable table.tbl th:last-child,
 .wtable table.tbl td:last-child{padding-right:16px}
 /* THE TABLE OWNS ITS HORIZONTAL SCROLL. `.tablewrap` had no rule at all on this page — it was a

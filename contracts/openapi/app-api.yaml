@@ -21891,10 +21891,43 @@ components:
           type: number
           format: double
           description: "Median across those animals, so one scale misread cannot swing a breed."
+    WeighingShedCompositionChip:
+      type: object
+      additionalProperties: false
+      required: [animals]
+      properties:
+        breed:
+          type: string
+          description: Breed label from the herd register, or Unknown breed when unresolved.
+        sex:
+          type: string
+          description: Sex label from the herd register, or unknown sex when unresolved.
+        animals:
+          type: integer
+          description: Animals in this breed+sex cohort.
+    WeighingShedComposition:
+      type: object
+      additionalProperties: false
+      required: [location_id, source, total_animals, chips]
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        partition_label:
+          type: string
+        source:
+          type: string
+          enum: [scanned_tags, live_shed_cohort]
+          description: Whether chips came from the actual scanned tags or the live shed cohort for a whole-shed weigh.
+        total_animals:
+          type: integer
+        chips:
+          type: array
+          items: {$ref: "#/components/schemas/WeighingShedCompositionChip"}
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
       properties:
         by_breed:
           type: array
@@ -21926,6 +21959,10 @@ components:
         lump_sum_unattributed_animals:
           type: integer
           description: "Animals in whole-shed weighs whose shed holds more than one stage, so no stage row claims them."
+        shed_composition:
+          type: array
+          description: "Breed+sex chips keyed by location_id + partition_label for the weighed shed rows. Mixed sheds are listed as multiple chips; clients must not split one whole-shed average across them."
+          items: {$ref: "#/components/schemas/WeighingShedComposition"}
     WeighingShedWeightsRow:
       type: object
       additionalProperties: false
@@ -21994,9 +22031,8 @@ components:
             How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed
             more than once in the window. NOT per-animal growth: a shed's population
             changes between weighs, so if the lightest animals leave the average rises
-            while no animal gained a gram. Measured across the full span, because
-            consecutive pairs at this grain are unusably noisy (the same shed produced
-            45 g/day one week and 391 the next).
+            while no animal gained a gram. Measured from the first accepted weigh date
+            in the selected window to the latest accepted weigh date in that same window.
         gain_span_days:
           type: integer
           description: >-
@@ -22121,12 +22157,12 @@ components:
           type: number
           format: double
           description: >-
-            Each shed's last-two-weighs movement, blended by head count. Absent when
-            no shed in the load was weighed twice — a load with a single weigh has a
-            weight but no growth, and 0 would read as flat. This is shed-average
-            movement, NOT per-animal growth: a shed's population changes between
-            weighs, so if the lightest animals leave the average rises while no
-            animal gained a gram.
+            Each shed's selected-window movement, blended by head count. Absent when
+            no shed in the load was weighed twice inside the selected date range --
+            a load with a single visible weigh has a weight but no growth, and 0
+            would read as flat. This is shed-average movement, NOT per-animal
+            growth: a shed's population changes between weighs, so if the lightest
+            animals leave the average rises while no animal gained a gram.
         gain_span_days:
           type: integer
           description: >-

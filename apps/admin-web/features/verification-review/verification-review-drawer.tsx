@@ -563,7 +563,7 @@ function VerificationReviewDrawerPanel({
 
           {/* THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17).
 
-              Rendered ONLY when the backend attaches measurement_correction to this item -- today
+              Shown ONLY when the backend attaches measurement_correction to this item -- today
               that is weighing, whose proof shows a number an operator typed. Every visible word
               (heading, help, field labels, button) comes from that block; this component composes
               none of it, and the head-count field appears only when the backend sent count_label,

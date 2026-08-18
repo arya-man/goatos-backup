@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +31,9 @@ type config struct {
 	SigningSecret   string
 	AllowedUsers    map[string]bool
 	ConsoleAuthUser string
+	GitHubPATSecret string
+	GitHubOwner     string
+	GitHubRepo      string
 }
 
 type slackActionPayload struct {
@@ -84,6 +89,35 @@ type cloudBuildGetBuild struct {
 	} `json:"steps"`
 }
 
+type androidReleaseVersion struct {
+	Name      string
+	Code      int
+	CommitSHA string
+}
+
+type githubContentResponse struct {
+	SHA      string `json:"sha"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+}
+
+type githubUpdateRequest struct {
+	Message   string `json:"message"`
+	Content   string `json:"content"`
+	SHA       string `json:"sha"`
+	Branch    string `json:"branch"`
+	Committer struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	} `json:"committer"`
+}
+
+type githubUpdateResponse struct {
+	Commit struct {
+		SHA string `json:"sha"`
+	} `json:"commit"`
+}
+
 func main() {
 	cfg := config{
 		ProjectID:       env("PROJECT_ID", "goatos-stg"),
@@ -93,6 +127,9 @@ func main() {
 		SigningSecret:   mustEnv("SLACK_SIGNING_SECRET"),
 		AllowedUsers:    parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
 		ConsoleAuthUser: env("CONSOLE_AUTHUSER", "ravi@mesha.sg"),
+		GitHubPATSecret: env("GITHUB_PAT_SECRET", "goatos-github-pat"),
+		GitHubOwner:     env("GITHUB_OWNER", "vgoats"),
+		GitHubRepo:      env("GITHUB_REPO", "goatos"),
 	}
 
 	mux := http.NewServeMux()
@@ -105,6 +142,175 @@ func main() {
 	port := env("PORT", "8080")
 	log.Printf("goatos stg deploy bot listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
+}
+
+func (cfg config) bumpAndroidReleaseVersion(ctx context.Context, triggeredBy string) (androidReleaseVersion, error) {
+	pat, err := cfg.secret(ctx, cfg.GitHubPATSecret)
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+	if strings.TrimSpace(pat) == "" {
+		return androidReleaseVersion{}, fmt.Errorf("secret %s is empty", cfg.GitHubPATSecret)
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		next, err := cfg.bumpAndroidReleaseVersionOnce(ctx, strings.TrimSpace(pat), triggeredBy)
+		if err == nil {
+			return next, nil
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "409") {
+			break
+		}
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+	}
+	return androidReleaseVersion{}, lastErr
+}
+
+func (cfg config) bumpAndroidReleaseVersionOnce(ctx context.Context, pat, triggeredBy string) (androidReleaseVersion, error) {
+	const path = "apps/goatos-android/app/build.gradle.kts"
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=main", cfg.GitHubOwner, cfg.GitHubRepo, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pat)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return androidReleaseVersion{}, fmt.Errorf("github contents get returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var current githubContentResponse
+	if err := json.Unmarshal(respBody, &current); err != nil {
+		return androidReleaseVersion{}, err
+	}
+	if current.Encoding != "base64" {
+		return androidReleaseVersion{}, fmt.Errorf("github contents encoding %q is not base64", current.Encoding)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(current.Content, "\n", ""))
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+
+	updated, next, err := nextAndroidVersionFile(string(decoded))
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+
+	var update githubUpdateRequest
+	update.Message = fmt.Sprintf("chore(android): bump STG release to %s (%d)", next.Name, next.Code)
+	update.Content = base64.StdEncoding.EncodeToString([]byte(updated))
+	update.SHA = current.SHA
+	update.Branch = "main"
+	update.Committer.Name = "Goat OS Deploy Bot"
+	update.Committer.Email = "deploy@vgoats.com"
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(update); err != nil {
+		return androidReleaseVersion{}, err
+	}
+	putReq, err := http.NewRequestWithContext(ctx, http.MethodPut, strings.Split(endpoint, "?")[0], bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+	putReq.Header.Set("Authorization", "Bearer "+pat)
+	putReq.Header.Set("Accept", "application/vnd.github+json")
+	putReq.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	putReq.Header.Set("Content-Type", "application/json")
+
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		return androidReleaseVersion{}, err
+	}
+	defer putResp.Body.Close()
+	putBody, _ := io.ReadAll(io.LimitReader(putResp.Body, 1<<20))
+	if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
+		return androidReleaseVersion{}, fmt.Errorf("github contents update returned %s: %s", putResp.Status, strings.TrimSpace(string(putBody)))
+	}
+	var updatedContent githubUpdateResponse
+	if err := json.Unmarshal(putBody, &updatedContent); err != nil {
+		return androidReleaseVersion{}, err
+	}
+	if updatedContent.Commit.SHA == "" {
+		return androidReleaseVersion{}, errors.New("github contents update did not return a commit SHA")
+	}
+
+	log.Printf("Android release version bumped by %s to %s (%d)", triggeredBy, next.Name, next.Code)
+	next.CommitSHA = updatedContent.Commit.SHA
+	return next, nil
+}
+
+func nextAndroidVersionFile(content string) (string, androidReleaseVersion, error) {
+	codeRe := regexp.MustCompile(`(?s)(val releaseVersionCode = \([\s\S]*?\)\s*\?\.\s*takeIf \{ it\.isNotBlank\(\) \}\s*\?\.\s*toInt\(\)\s*\?: )(\d+)`)
+	nameRe := regexp.MustCompile(`(?s)(val releaseVersionName = \([\s\S]*?\)\s*\?\.\s*takeIf \{ it\.isNotBlank\(\) \}\s*\?: ")(0\.1\.)(\d+)(")`)
+
+	codeMatch := codeRe.FindStringSubmatch(content)
+	nameMatch := nameRe.FindStringSubmatch(content)
+	if len(codeMatch) != 3 || len(nameMatch) != 5 {
+		return "", androidReleaseVersion{}, errors.New("could not find checked-in Android release version fields")
+	}
+
+	code, err := strconv.Atoi(codeMatch[2])
+	if err != nil {
+		return "", androidReleaseVersion{}, err
+	}
+	patch, err := strconv.Atoi(nameMatch[3])
+	if err != nil {
+		return "", androidReleaseVersion{}, err
+	}
+
+	next := androidReleaseVersion{
+		Name: fmt.Sprintf("%s%d", nameMatch[2], patch+1),
+		Code: code + 1,
+	}
+	updated := codeRe.ReplaceAllString(content, fmt.Sprintf("${1}%d", next.Code))
+	updated = nameRe.ReplaceAllString(updated, fmt.Sprintf("${1}%s${4}", next.Name))
+	return updated, next, nil
+}
+
+func (cfg config) secret(ctx context.Context, secretName string) (string, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	endpoint := fmt.Sprintf("https://secretmanager.googleapis.com/v1/projects/%s/secrets/%s/versions/latest:access", cfg.ProjectID, secretName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("secret access returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+	var parsed struct {
+		Payload struct {
+			Data string `json:"data"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(parsed.Payload.Data)
+	if err != nil {
+		return "", err
+	}
+	return string(decoded), nil
 }
 
 func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
@@ -170,6 +376,13 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribution bool, slackUserID, triggeredBy, actionLabel string) {
+	cfg.postSlackResponse(responseURL, map[string]any{
+		"response_type":    "in_channel",
+		"replace_original": false,
+		"text":             fmt.Sprintf("%s request received from `main` by %s. Starting deploy checks now.", actionLabel, triggeredBy),
+		"blocks":           deployQueuedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution),
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -193,7 +406,22 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 		return
 	}
 
-	buildID, err := cfg.runTrigger(ctx, deploySTG, mobileDistribution, slackUserID, triggeredBy)
+	sourceCommitSHA := ""
+	if mobileDistribution {
+		next, err := cfg.bumpAndroidReleaseVersion(ctx, triggeredBy)
+		if err != nil {
+			log.Printf("android version bump failed: %v", err)
+			cfg.postSlackResponse(responseURL, map[string]any{
+				"response_type": "ephemeral",
+				"text":          fmt.Sprintf("Failed to bump Android release version before deploy: `%s`", err.Error()),
+			})
+			return
+		}
+		log.Printf("bumped Android STG release to %s (%d)", next.Name, next.Code)
+		sourceCommitSHA = next.CommitSHA
+	}
+
+	buildID, err := cfg.runTrigger(ctx, deploySTG, mobileDistribution, slackUserID, triggeredBy, sourceCommitSHA)
 	if err != nil {
 		log.Printf("run trigger failed: %v", err)
 		cfg.postSlackResponse(responseURL, map[string]any{
@@ -212,6 +440,18 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 		"blocks":           deployStartedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
 	go cfg.monitorBuild(responseURL, buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution)
+}
+
+func deployQueuedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*%s request received* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nStarting active-deploy checks now.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+			},
+		},
+	}
 }
 
 func deployAcceptedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
@@ -495,22 +735,27 @@ func (cfg config) postDeployPanel(responseURL string) {
 	})
 }
 
-func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool, slackUserID, triggeredBy string) (string, error) {
+func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution bool, slackUserID, triggeredBy, sourceCommitSHA string) (string, error) {
 	token, err := metadataToken(ctx)
 	if err != nil {
 		return "", err
 	}
 	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/locations/%s/triggers/%s:run", cfg.ProjectID, cfg.Location, cfg.TriggerID)
-	requestBody := map[string]any{
-		"source": map[string]any{
-			"branchName": "main",
-			"substitutions": map[string]string{
-				"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
-				"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
-				"_SLACK_USER_ID": slackUserID,
-				"_TRIGGERED_BY":  triggeredBy,
-			},
+	source := map[string]any{
+		"branchName": "main",
+		"substitutions": map[string]string{
+			"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
+			"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
+			"_SLACK_USER_ID": slackUserID,
+			"_TRIGGERED_BY":  triggeredBy,
 		},
+	}
+	if sourceCommitSHA != "" {
+		delete(source, "branchName")
+		source["commitSha"] = sourceCommitSHA
+	}
+	requestBody := map[string]any{
+		"source": source,
 	}
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(requestBody); err != nil {

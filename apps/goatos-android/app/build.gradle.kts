@@ -71,6 +71,19 @@ val sourceLabel = listOfNotNull(
     sourceBranch.takeIf { it.isNotBlank() }?.let { "branch=$it" },
     if (sourceDirty) "dirty=true" else null,
 ).joinToString(" ")
+val releaseVersionCode = (
+    project.findProperty("goatosVersionCode") as String?
+        ?: System.getenv("GOATOS_ANDROID_VERSION_CODE")
+    )
+    ?.takeIf { it.isNotBlank() }
+    ?.toInt()
+    ?: 24
+val releaseVersionName = (
+    project.findProperty("goatosVersionName") as String?
+        ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
+    )
+    ?.takeIf { it.isNotBlank() }
+    ?: "0.1.23"
 
 android {
     namespace = "sg.mesha.goatos"
@@ -96,8 +109,8 @@ android {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.1.20"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
         multiDexKeepProguard = file("multidex-startup-rules.pro")
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
