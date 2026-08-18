@@ -1255,12 +1255,12 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nil => module absent
 	}{
-		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport"}},
+		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport", "feed_wastage"}},
 		{permissions.RoleParkHead, nil},
 		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
-		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport"}},
+		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport", "feed_wastage"}},
 		// A standalone verifier does NOT get registry modules at all: modulesFor composes
 		// per-feature verification modules ("verify_counts", "verify_feed_direction", ...),
 		// each with its own [Verify, Alerts, You] bar. Nothing keyed "counts"/"feed_direction".
@@ -1478,7 +1478,7 @@ func TestFeedDirectorSeesEveryFeedPage(t *testing.T) {
 	for _, item := range feed.NavItems {
 		got = append(got, item.Key)
 	}
-	want := []string{"feed_direction", "feed_packing", "feed_transport"}
+	want := []string{"feed_direction", "feed_packing", "feed_transport", "feed_wastage"}
 	if len(got) != len(want) {
 		t.Fatalf("feed_director feed tabs = %v, want %v", got, want)
 	}
@@ -1505,6 +1505,7 @@ func TestFeedNavGatesEqualTheirBackingRoutePermissions(t *testing.T) {
 		"feed_direction": {"GET", "/feed-direction/preview"},
 		"feed_packing":   {"GET", "/feed-packing/worklist"},
 		"feed_transport": {"GET", "/feed-transport/tasks"},
+		"feed_wastage":   {"GET", "/feed-wastage/worklist"},
 	}
 	for _, item := range moduleNavRegistry["feed_direction"].contributions {
 		route, ok := backing[item.key]

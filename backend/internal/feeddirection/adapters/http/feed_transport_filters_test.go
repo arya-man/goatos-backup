@@ -43,6 +43,14 @@ func (transportFilterService) CompleteDistribution(context.Context, app.Complete
 func (transportFilterService) CompletePacking(context.Context, app.CompletePackingInput) (ports.CompletePackingResult, error) {
 	return ports.CompletePackingResult{}, nil
 }
+
+func (transportFilterService) WastageWorklist(context.Context, domain.WastageQuery) (domain.WastagePage, error) {
+	return domain.WastagePage{}, nil
+}
+
+func (transportFilterService) CompleteWastage(context.Context, app.CompleteWastageInput) (ports.CompleteWastageResult, error) {
+	return ports.CompleteWastageResult{}, nil
+}
 func (transportFilterService) ListTransportTasks(_ context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error) {
 	tasks := []ports.FeedTransportTask{
 		{TaskID: "10000000-0000-4000-8000-000000000001", ParkID: "20000000-0000-4000-8000-000000000001", ParkLabel: "Farm A", ShedID: "30000000-0000-4000-8000-000000000001", ShedLabel: "Shed A", BusinessDate: "2026-07-29", Status: "due", ScheduledAt: time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)},
@@ -152,6 +160,14 @@ func (s *transportScopeSpyService) CompletePacking(_ context.Context, in app.Com
 		return ports.CompletePackingResult{}, s.completePackingErr
 	}
 	return ports.CompletePackingResult{CompletionID: "50000000-0000-4000-8000-000000000001", Status: "pending_verification", NewlyPending: true}, nil
+}
+
+func (s *transportScopeSpyService) WastageWorklist(context.Context, domain.WastageQuery) (domain.WastagePage, error) {
+	return domain.WastagePage{}, nil
+}
+
+func (s *transportScopeSpyService) CompleteWastage(context.Context, app.CompleteWastageInput) (ports.CompleteWastageResult, error) {
+	return ports.CompleteWastageResult{}, nil
 }
 
 func TestGetTransportTasksResolvesCapabilityAwareParkScope(t *testing.T) {

@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"strings"
 
+	"encoding/json"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
-	"encoding/json"
 )
 
 // FEED WASTAGE HTTP adapter (maintainer decision 2026-08-18). Three routes:
