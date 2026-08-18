@@ -104,11 +104,16 @@ test("small shed charts do not reserve the tall empty panel height", () => {
 
 test("full-width shed chart labels wrap instead of truncating composition", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  assert.match(css, /\.wcols \.wbar \.wbl\{white-space:normal;/);
+  assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*white-space:normal/);
   assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*text-overflow:clip/);
   assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*overflow-wrap:anywhere/);
   assert.doesNotMatch(css, /\.wcols \.wbar \.wbl\{[^}]*text-overflow:ellipsis/);
-  assert.match(css, /\.wbar\{[^}]*min-height:24px/);
+  assert.match(css, /\.wbar\{[^}]*grid-template-columns:minmax\(0,clamp\(160px,36%,260px\)\) minmax\(180px,1fr\) 72px/);
+  assert.match(css, /\.wbar\{[^}]*min-height:34px/);
+  assert.match(css, /\.wbar \.wbl\{[^}]*min-width:0/);
+  assert.match(css, /\.wbar \.wbl\{[^}]*-webkit-line-clamp:2/);
+  assert.match(css, /\.wbar \.wbt\{[^}]*min-width:0/);
+  assert.match(css, /@media\(max-width:900px\)\{\.wbar\{[^}]*minmax\(0,112px\)/);
 });
 
 test("the two table cards are inset without losing their full-bleed tables", () => {

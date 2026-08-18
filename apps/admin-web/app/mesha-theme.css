@@ -2377,13 +2377,13 @@ select:disabled { opacity: .45; }
 .wbars-short{height:150px}
 .wbars::-webkit-scrollbar{width:8px}
 .wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
-.wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px;min-height:24px}
+.wbar{display:grid;grid-template-columns:minmax(0,clamp(160px,36%,260px)) minmax(180px,1fr) 72px;align-items:center;gap:12px;min-height:34px;font-size:12.5px}
 /* Full-width cards can afford a real label column. 132px is sized for the half-width
    charts and clips a load's supplier name to "131 · Krishnamorrth…", which defeats the
    point of putting the supplier on the label. */
-.wbars-wide .wbar{grid-template-columns:250px minmax(0,1fr) 68px}
-.wbar .wbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600}
-.wbar .wbt{background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden;position:relative}
+.wbars-wide .wbar{grid-template-columns:minmax(0,clamp(240px,42%,420px)) minmax(220px,1fr) 72px}
+.wbar .wbl{min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--ink);font-weight:600;line-height:1.18}
+.wbar .wbt{min-width:0;background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden;position:relative}
 .wbar .wbt i{display:block;height:100%;border-radius:5px;background:var(--brand)}
 /* A loss is red and sits left of the zero rule, so it reads as going backwards
    rather than as a short green bar. */
@@ -2391,7 +2391,7 @@ select:disabled { opacity: .45; }
 .wbar .wbzero{position:absolute;top:0;bottom:0;width:1px;background:var(--muted);opacity:.65}
 .wbar .wbv.neg{color:var(--danger)}
 .wbar .wbv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
-@media(max-width:900px){.wbar{grid-template-columns:96px minmax(0,1fr) 62px}}
+@media(max-width:900px){.wbar{grid-template-columns:minmax(0,112px) minmax(96px,1fr) 62px;gap:8px}.wbar .wbl{display:block;white-space:nowrap;text-overflow:ellipsis}}
 
 /* Per-chart metric toggle. Links, not buttons, so the page stays a server
    component and each chart's choice survives a reload and a shared URL. */
@@ -2446,9 +2446,9 @@ select:disabled { opacity: .45; }
 .wcol-h{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 /* Half the page is wider than the old half-width card, so the label column can carry
    the shed's breed and sex context instead of clipping it at the generic 132px. */
-.wcols .wbar{grid-template-columns:260px minmax(0,1fr) 68px}
-.wcols .wbar .wbl{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;overflow-wrap:anywhere}
-@media(max-width:1200px){.wcols .wbar{grid-template-columns:150px minmax(0,1fr) 62px}}
+.wcols .wbar{grid-template-columns:minmax(0,clamp(220px,42%,320px)) minmax(180px,1fr) 72px}
+.wcols .wbar .wbl{display:block;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;overflow-wrap:anywhere}
+@media(max-width:1200px){.wcols .wbar{grid-template-columns:minmax(0,150px) minmax(120px,1fr) 62px}}
 @media(max-width:900px){.wcols{grid-template-columns:1fr;gap:14px}}
 /* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
    their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the
