@@ -729,7 +729,13 @@ function StockCards({
   stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
 }) {
-  if (!stock || stock.items.length === 0) {
+  // Only items with a live days-left figure make a card (maintainer request
+  // 2026-08-18): an item not directed recently has no burn rate to divide by,
+  // and a wall of "not directed recently" boxes buried the ones that matter.
+  const active = (stock?.items ?? []).filter(
+    (item) => item.days_left !== null && item.days_left !== undefined,
+  );
+  if (!stock || active.length === 0) {
     return (
       <section className="card" style={{ marginTop: 14 }}>
         <h2 className="h">{fa(pageContract, "stock.title")}</h2>
@@ -742,7 +748,7 @@ function StockCards({
       <h2 className="h">{fa(pageContract, "stock.title")}</h2>
       <p className="muted small">{fa(pageContract, "stock.hint")}</p>
       <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
-        {stock.items.map((item) => (
+        {active.map((item) => (
           <div className="kpi card" key={item.feed_item_key}>
             <div className="dl" title={item.feed_item_label}>{item.feed_item_label}</div>
             <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
