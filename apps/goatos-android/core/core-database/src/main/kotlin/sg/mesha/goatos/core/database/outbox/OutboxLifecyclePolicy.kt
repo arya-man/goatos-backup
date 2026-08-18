@@ -77,6 +77,13 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.VERIFY_TASK -> exactItemLifecycle()
         OutboxOpType.REWORK_TASK -> exactItemLifecycle()
         OutboxOpType.VERIFICATION_VERDICT -> exactItemLifecycle()
+        OutboxOpType.VERIFICATION_REVIEW_EVENTS -> lifecycle(
+            userImpact = OutboxUserImpact.BACKGROUND_SUPPORT_WRITE,
+            immediate = OutboxImmediateUiPolicy.NO_USER_VISIBLE_STATE,
+            success = OutboxSuccessPolicy.NO_USER_VISIBLE_STATE,
+            terminalFailure = OutboxTerminalFailurePolicy.NO_USER_VISIBLE_STATE,
+            processDeath = OutboxProcessDeathPolicy.OUTBOX_REPLAY,
+        )
         OutboxOpType.VERIFICATION_CLOSE -> exactItemLifecycle()
         OutboxOpType.VERIFICATION_CLOSE_SUBMISSION -> exactItemLifecycle()
         OutboxOpType.VERIFICATION_CLOSE_BATCH -> exactItemLifecycle()
