@@ -236,7 +236,9 @@ abstract class WorkflowListViewModel(
         val next = nextAction
         return WorkflowCardUi(
             workflowId = workflowId,
-            displayId = if (templateKey == TEMPLATE_BIRTH_MOTHER) {
+            // Death (like the birth-mother card) headlines the physical RFID the operator can
+            // actually read on the animal; the passport id is only a fallback when no tag exists.
+            displayId = if (templateKey == TEMPLATE_BIRTH_MOTHER || moduleKey == MODULE_DEATH) {
                 subject.tag.ifBlank { subject.displayId }
             } else {
                 subject.displayId.ifBlank { subject.tag }
