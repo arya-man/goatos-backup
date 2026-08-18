@@ -127,8 +127,8 @@ type RecordWastageMeasurementResult struct {
 	CompletionID string  `json:"completion_id"`
 	WastageKg    float64 `json:"wastage_kg"`
 	// PreviousWastageKg is what the row held immediately before this entry, nil on a first entry.
-	PreviousWastageKg *float64 `json:"previous_wastage_kg,omitempty"`
-	RecordedBy        string   `json:"recorded_by"`
+	PreviousWastageKg *float64  `json:"previous_wastage_kg,omitempty"`
+	RecordedBy        string    `json:"recorded_by"`
 	RecordedAt        time.Time `json:"recorded_at"`
 	// SubjectLabel is the recomposed verifier-facing label for this pen-day, carrying the recorded
 	// value. The caller pushes it back onto the verification item so the queue shows the number.

@@ -69,6 +69,26 @@ func (f *fakeFeedStore) ReopenPackingForFeedChange(context.Context, feedports.Re
 	return feedports.ReopenPackingResult{}, nil
 }
 
+func (f *fakeFeedStore) CompleteWastage(context.Context, feedports.CompleteWastageParams) (feedports.CompleteWastageResult, error) {
+	return feedports.CompleteWastageResult{}, nil
+}
+
+func (f *fakeFeedStore) ListWastageCompletionStatuses(context.Context, string, string, time.Time) ([]feedports.WastageCompletionStatus, error) {
+	return nil, nil
+}
+
+func (f *fakeFeedStore) ApplyVerifiedWastage(context.Context, feedports.ApplyWastageParams) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeFeedStore) BounceWastageForRework(context.Context, feedports.BounceWastageParams) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeFeedStore) RecordWastageMeasurement(context.Context, feedports.RecordWastageMeasurementParams) (feedports.RecordWastageMeasurementResult, error) {
+	return feedports.RecordWastageMeasurementResult{}, nil
+}
+
 func (f *fakeFeedStore) MaterializeTransportTasks(context.Context, feedports.MaterializeTransportParams) (feedports.MaterializeTransportResult, error) {
 	return feedports.MaterializeTransportResult{}, nil
 }
