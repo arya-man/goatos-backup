@@ -125,6 +125,30 @@ function MetricToggle({
 // One row of the full-width shed chart: a WeightBars bar plus the park it belongs to.
 type ShedChartBar = { key: string; park_name: string; label: string; value: number };
 
+function shedKey(locationID: string, partitionLabel?: string | null): string {
+  return `${locationID}|${partitionLabel ?? ""}`;
+}
+
+function compositionLabel(
+  chip: { breed?: string; sex?: string; animals: number },
+  pageContract: AdminUiPageContract,
+): string {
+  const breed = chip.breed?.trim() || copy(pageContract, "composition.unknown_breed");
+  const sex = chip.sex?.trim() || copy(pageContract, "composition.unknown_sex");
+  return `${breed} · ${sex}`;
+}
+
+function shedLabelWithComposition(
+  shedName: string,
+  composition: { chips: readonly { breed?: string; sex?: string; animals: number }[] } | undefined,
+  pageContract: AdminUiPageContract,
+): string {
+  const chips = composition?.chips ?? [];
+  if (chips.length === 0) return shedName;
+  const suffix = chips.map((chip) => compositionLabel(chip, pageContract).replace(" · ", " - ")).join(", ");
+  return `${shedName} (${suffix})`;
+}
+
 /**
  * The shed chart's two columns. With rows from more than one park, each park gets its
  * own column (heading = park), so the two farms stop interleaving in one long list.
@@ -221,9 +245,12 @@ export async function WeighingWeightsPage({
   // Mode narrowing changes the TABLE and CHART only. The KPI cards keep reporting the backend's
   // whole-filter truth — recomputing a card from the visible slice is the capped read-time rollup
   // anti-pattern and would make the cards disagree with the table.
+  const weighedRows = rows.filter((row) => row.animals_weighed > 0);
   const visibleRows =
-    modeFilter === "all" ? rows : rows.filter((row) => row.weighing_category === modeFilter);
+    modeFilter === "all" ? weighedRows : weighedRows.filter((row) => row.weighing_category === modeFilter);
   const slice = visibleRows.slice(offset, offset + limit);
+  const weighedRowKeys = new Set(weighedRows.map((row) => shedKey(row.location_id, row.partition_label)));
+  const visibleRowKeys = new Set(visibleRows.map((row) => shedKey(row.location_id, row.partition_label)));
 
   // Losing kids come from the growth read, which already computes "latest pair went down".
   // A growth failure must not take the whole page down: the weights half is independent.
@@ -249,7 +276,7 @@ export async function WeighingWeightsPage({
             const parts: Array<{ value: number; weight: number }> = [];
             if (result.ok) {
               for (const shed of result.data.shed_leaderboard) {
-                if (shed.adg_pair_count > 0) {
+                if (shed.adg_pair_count > 0 && weighedRowKeys.has(shedKey(shed.location_id, shed.partition_label))) {
                   parts.push({ value: shed.median_adg_g_per_day, weight: shed.adg_pair_count });
                 }
               }
@@ -345,29 +372,36 @@ export async function WeighingWeightsPage({
   const shedColumns = tableLabels(pageContract, "shed-weights");
   const losingColumns = tableLabels(pageContract, "losing-kids");
 
+  const demo = demographics.ok ? demographics.data : null;
+  const compositionByShed = new Map(
+    (demo?.shed_composition ?? []).map((item) => [shedKey(item.location_id, item.partition_label), item]),
+  );
+
   const chartData = visibleRows
     .filter((row) => row.animals_weighed > 0)
     .slice()
     .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
-    .map((row) => ({
-      key: `${row.location_id}|${row.partition_label ?? ""}`,
-      // The park is carried as its own field, not a label prefix: the shed chart
-      // renders one column per park, and the column heading names the park once
-      // instead of every row repeating it. 39 shed names exist in BOTH parks, so
-      // the park must still travel with the row — it just travels as data.
-      park_name: row.park_name,
-      label: row.operational_location_display || row.shed_display_name,
-      value: Number(row.average_weight_kg.toFixed(1)),
-    }));
-
-  const demo = demographics.ok ? demographics.data : null;
+    .map((row) => {
+      const key = shedKey(row.location_id, row.partition_label);
+      const shedName = row.operational_location_display || row.shed_display_name;
+      return {
+        key,
+        // The park is carried as its own field, not a label prefix: the shed chart
+        // renders one column per park, and the column heading names the park once
+        // instead of every row repeating it. 39 shed names exist in BOTH parks, so
+        // the park must still travel with the row as data.
+        park_name: row.park_name,
+        label: shedLabelWithComposition(shedName, compositionByShed.get(key), pageContract),
+        value: Number(row.average_weight_kg.toFixed(1)),
+      };
+    });
   // The headline blends the same two inputs the per-park cards do, weighted by
   // animals. Leaving it on per-animal pairs alone made it contradict its own park
   // cards on screen — "all parks -60 g" sitting above "CPT 118 g" and "CBE 187 g".
   const headlineParts: Array<{ value: number; weight: number }> = [];
   if (growth.ok) {
     for (const shed of growth.data.shed_leaderboard) {
-      if (shed.adg_pair_count > 0) {
+      if (shed.adg_pair_count > 0 && weighedRowKeys.has(shedKey(shed.location_id, shed.partition_label))) {
         headlineParts.push({ value: shed.median_adg_g_per_day, weight: shed.adg_pair_count });
       }
     }
@@ -396,7 +430,7 @@ export async function WeighingWeightsPage({
   // now have real history for.
   const gainChartData = [
     ...(growth.ok ? growth.data.shed_leaderboard : [])
-      .filter((shed) => shed.adg_pair_count > 0)
+      .filter((shed) => shed.adg_pair_count > 0 && visibleRowKeys.has(shedKey(shed.location_id, shed.partition_label)))
       .map((shed) => ({
         // Keyed by location AND partition, because that is the grain the leaderboard is
         // grouped at (`GROUP BY location_id, partition_label` in growth.go). A partitioned
@@ -404,7 +438,7 @@ export async function WeighingWeightsPage({
         // -- so keying on location_id alone gave nine React children the same key, which is
         // a duplicate-key crash, not a cosmetic warning. Matches the sibling series below and
         // the shed-weights chart above, both of which already key on the pair.
-        key: `${shed.location_id}|${shed.partition_label ?? ""}`,
+        key: shedKey(shed.location_id, shed.partition_label),
         // The park travels as a FIELD, never a label prefix (it used to be one): 39
         // shed names exist in BOTH parks, so "Mandela 1 - Part 5" alone names two
         // different pens — but the chart now renders one column per park and the
@@ -421,16 +455,20 @@ export async function WeighingWeightsPage({
     ...visibleRows
       .filter((row) => row.shed_average_gain_g_per_day != null)
       .map((row) => ({
-        key: `${row.location_id}|${row.partition_label ?? ""}-shed`,
+        key: `${shedKey(row.location_id, row.partition_label)}-shed`,
         park_name: row.park_name,
-        // The label is the SHED NAME AND NOTHING ELSE (maintainer decision 2026-08-18).
-        // It used to carry a "(shed avg, Nd)" suffix marking which of the chart's two
-        // measurements the row is and how many days it spans. That is real context —
-        // Channapatna's Castro 2 reads +1,532 g/day across a 2-day gap, which is 1.5 kg
-        // per kid per day and impossible — but it doubled the length of every label on
-        // the one chart whose rows are already thirty-character park+shed+pen strings,
-        // and it appeared on some rows and not others. The caption still states that the
-        // chart mixes the two measurements; the per-row suffix is gone.
+        // The label on the DAILY-GAIN view is the SHED NAME AND NOTHING ELSE (maintainer
+        // instruction, 2026-08-18). It has carried two different suffixes: first the
+        // measurement span, naming which of this chart's two measurements the row is and over
+        // how many days, and then the breed/sex composition that replaced it. Both are real
+        // context -- Channapatna's Castro 2 reads +1,532 g/day across a 2-day gap, which is
+        // 1.5 kg per kid per day and impossible -- but this is the one chart whose rows are
+        // already thirty-character park+shed+pen strings, and a suffix present on some rows
+        // and absent on others reads as a difference between the SHEDS rather than between
+        // the measurements. The caption still states that the chart mixes the two.
+        //
+        // The WEIGHT view of this same card KEEPS its composition suffix, so nothing landed on
+        // main is deleted -- flip this one line to put it back on gain too.
         label: row.operational_location_display || row.shed_display_name,
         value: Math.round(row.shed_average_gain_g_per_day as number),
       })),
@@ -443,6 +481,7 @@ export async function WeighingWeightsPage({
   // same thing whichever column it lands in.
   const shedChartBars: readonly ShedChartBar[] = shedMetric === "adg" ? gainChartData : chartData;
   const shedChartCols = shedChartColumns(shedChartBars);
+  const shedChartSize = shedChartBars.length <= 8 ? "short" : "tall";
   const shedChartDomain = {
     lo: Math.min(0, ...shedChartBars.map((bar) => bar.value)),
     hi: Math.max(0, ...shedChartBars.map((bar) => bar.value)),
@@ -620,7 +659,7 @@ export async function WeighingWeightsPage({
             }
             unit={shedMetric === "adg" ? "g" : "kg"}
             chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
-            size="tall"
+            size={shedChartSize}
           />
         ) : (
           <div className="wcols">
@@ -639,7 +678,7 @@ export async function WeighingWeightsPage({
                   }
                   unit={shedMetric === "adg" ? "g" : "kg"}
                   chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
-                  size="tall"
+                  size={shedChartSize}
                 />
               </div>
             ))}
@@ -769,11 +808,24 @@ export async function WeighingWeightsPage({
                 <tbody>
                   {slice.map((row) => {
                     const mode = modeTag(row, pageContract);
+                    const composition = compositionByShed.get(shedKey(row.location_id, row.partition_label));
                     return (
-                      <tr key={`${row.location_id}|${row.partition_label ?? ""}`}>
+                      <tr key={shedKey(row.location_id, row.partition_label)}>
                         <td>{row.park_name}</td>
                         <td>
                           <b>{row.operational_location_display || row.shed_display_name}</b>
+                          {composition?.chips.length ? (
+                            <span className="wcomp-chips" aria-label="Breed and sex composition">
+                              {composition.chips.map((chip) => (
+                                <span className="wcomp-chip" key={`${chip.breed ?? ""}|${chip.sex ?? ""}`}>
+                                  {compositionLabel(chip, pageContract)}
+                                  {composition.source === "scanned_tags" ? (
+                                    <span>{chip.animals.toLocaleString("en-IN")}</span>
+                                  ) : null}
+                                </span>
+                              ))}
+                            </span>
+                          ) : null}
                         </td>
                         <td>
                           <Tag tone={mode.tone}>{mode.label}</Tag>
