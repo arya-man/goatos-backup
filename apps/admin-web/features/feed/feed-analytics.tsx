@@ -408,6 +408,23 @@ function DirectedTabs({
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
+        <section className="grid g4 kpi-row" aria-label={fa(pageContract, "chart.spend.title")}>
+          {([
+            ["week", stock.spend.this_week],
+            ["month", stock.spend.this_month],
+            ["quarter", stock.spend.three_months],
+            ["year", stock.spend.this_year],
+          ] as const).map(([period, rupees]) => (
+            <div className="kpi card" key={period}>
+              <div className="val">{`₹${nf(num(rupees))}`}</div>
+              <div className="dl">{fa(pageContract, `spend.${period}.label`)}</div>
+              <div className="muted small">{fa(pageContract, `spend.${period}.sub`)}</div>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {tab === "overview" && stock && stock.expenditure.length > 0 ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.spend.title")}>
           <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
           <p className="muted small">{fa(pageContract, "chart.spend.hint")}</p>

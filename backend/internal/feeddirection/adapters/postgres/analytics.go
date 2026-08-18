@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 
 	"github.com/google/uuid"
 
@@ -480,6 +483,45 @@ JOIN LATERAL (
 GROUP BY di.feed_day
 ORDER BY di.feed_day`
 
+// Spend periods: same day_item × latest-load pricing as the daily series, one
+// scan from Jan 1 of the current IST year, bucketed by fixed period starts.
+// Every bucket's numerator and denominator (none — plain sums) range over the
+// same priced (day, item) set; feed_day < today keeps the still-executing day
+// out, matching every other figure on the page.
+const stockSpendSQL = `
+WITH day_item AS (
+    SELECT i.feed_day, r.feed_item_key, SUM(r.quantity_kg) AS kg
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.state IN ('issued', 'amended', 'locked')
+      AND i.feed_day >= date_trunc('year', $3::date)::date
+      AND i.feed_day < $3::date
+    GROUP BY i.feed_day, r.feed_item_key
+),
+priced AS (
+    SELECT di.feed_day, di.kg * price.per_kg AS spend
+    FROM day_item di
+    JOIN LATERAL (
+        SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
+        FROM feed_purchases p
+        WHERE p.tenant_id = $1
+          AND ($2::uuid[] IS NULL OR p.park_id = ANY ($2::uuid[]))
+          AND p.feed_item_key = di.feed_item_key
+          AND p.purchase_date <= di.feed_day
+        ORDER BY p.purchase_date DESC, p.batch_no DESC
+        LIMIT 1
+    ) price ON price.per_kg IS NOT NULL
+)
+SELECT
+  COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= date_trunc('week',  $3::date)::date), 0), 0)::text,
+  COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= date_trunc('month', $3::date)::date), 0), 0)::text,
+  COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= $3::date - 91), 0), 0)::text,
+  COALESCE(round(SUM(spend), 0), 0)::text
+FROM priced`
+
 // StockAnalytics serves the stock cards and the expenditure series.
 func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -523,6 +565,12 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 	if err := expRows.Err(); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure rows: %w", err)
+	}
+
+	today := biztime.BusinessDate(time.Now())
+	if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
+		Scan(&out.Spend.ThisWeek, &out.Spend.ThisMonth, &out.Spend.ThreeMonths, &out.Spend.ThisYear); err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
 	}
 	return out, nil
 }

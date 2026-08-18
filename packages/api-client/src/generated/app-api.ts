@@ -4070,6 +4070,17 @@ export interface components {
             /** @description Directed kg priced at each item's most recent load rate on or before the day. */
             rupees: string;
         };
+        /** @description Rupee totals over the standing leadership periods, each ending yesterday and priced like the daily series (most recent load rate per item). "0" when nothing priced. */
+        FeedAnalyticsSpendSummary: {
+            /** @description Monday of the current IST week through yesterday. */
+            this_week: string;
+            /** @description The 1st of the current IST month through yesterday. */
+            this_month: string;
+            /** @description Rolling 92 days through yesterday. */
+            three_months: string;
+            /** @description Jan 1 of the current IST year through yesterday. */
+            this_year: string;
+        };
         FeedAnalyticsStockResponse: {
             /** Format: date */
             date_from: string;
@@ -4077,6 +4088,7 @@ export interface components {
             date_to: string;
             items: components["schemas"]["FeedAnalyticsStockItem"][];
             expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
+            spend: components["schemas"]["FeedAnalyticsSpendSummary"];
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
