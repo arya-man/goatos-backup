@@ -74,6 +74,13 @@ fun interface PostSuccessRefreshHook {
     suspend fun onSuccess(payloadJson: String)
 }
 
+/** Repairs feature cache state after a definitive outbox failure. The hook is replayed from the
+ * durable terminal row after process death, so an optimistic cache mutation cannot survive a
+ * server rejection merely because the app died between terminalization and local rollback. */
+fun interface PostTerminalFailureHook {
+    suspend fun onTerminalFailure(payloadJson: String)
+}
+
 /**
  * A definitive, non-retryable server rejection (e.g. a failed submission validation).
  * Retrying with the SAME payload would only reproduce the same rejection, so [SyncEngine]
@@ -146,6 +153,10 @@ class SyncEngine(
      * wiring registers the Milk Feeding/Preparation refresh callbacks in `AppModule`.
      */
     private val postSuccessRefreshHooks: Map<OutboxOpType, PostSuccessRefreshHook> = emptyMap(),
+    /** Cache handoffs that must finish before the active outbox overlay retracts. The same hook
+     * remains registered in [postSuccessRefreshHooks] for durable restart replay. */
+    private val preSuccessRefreshHooks: Map<OutboxOpType, PostSuccessRefreshHook> = emptyMap(),
+    private val postTerminalFailureHooks: Map<OutboxOpType, PostTerminalFailureHook> = emptyMap(),
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -175,13 +186,17 @@ class SyncEngine(
         // Repair already-accepted feature state even while offline. A process can die after
         // markSucceeded and before Room reconciliation; replaying that durable response is local.
         withContext(dispatchers.io) {
-            store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
-                .filter { it.status == "SUCCEEDED" }
-                .forEach { terminal ->
-                    runCatching { reconcileFeatureSuccess(terminal) }
-                        .onFailure { reportCacheReconcileFailure(terminal, it) }
+            store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT).forEach { terminal ->
+                runCatching {
+                    when {
+                        terminal.status == OutboxStatus.SUCCEEDED.name -> reconcileFeatureSuccess(terminal)
+                        terminal.status == OutboxStatus.FAILED.name &&
+                            (terminal.conflict || terminal.attemptCount >= terminal.maxAttempts) ->
+                            reconcileFeatureTerminalFailure(terminal)
+                    }
+                }.onFailure { reportCacheReconcileFailure(terminal, it) }
                 }
-        }
+            }
         if (!connectivityGate.isOnline()) return false
         val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
         fun rememberRetryDue(epochMillis: Long) {
@@ -266,10 +281,14 @@ class SyncEngine(
         )
         return try {
             val resultJson = dispatch(item)
+            val preSuccessRefreshApplied = reconcileFeatureBeforeSuccess(item)
             if (store.markSucceeded(item.id, resultJson, clock())) {
                 // Reconcile with the response from this successful dispatch. The original
                 // in-memory item predates markSucceeded and therefore has resultJson=null.
-                reconcileFeatureSuccess(item.copy(resultJson = resultJson))
+                reconcileFeatureSuccess(
+                    item.copy(resultJson = resultJson),
+                    skipPostSuccessRefresh = preSuccessRefreshApplied,
+                )
             }
             true
         } catch (cancellation: CancellationException) {
@@ -354,6 +373,7 @@ class SyncEngine(
                     )
                 },
             )
+            if (terminal) reconcileFeatureTerminalFailure(item)
         }
         return if (applied && !terminal) {
             nextAttemptAt
@@ -426,7 +446,22 @@ class SyncEngine(
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
     }
 
-    private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
+    private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
+        val opType = runCatching { OutboxOpType.valueOf(item.opType) }.getOrNull() ?: return false
+        val hook = preSuccessRefreshHooks[opType] ?: return false
+        return runCatching {
+            hook.onSuccess(item.payloadJson)
+            true
+        }.getOrElse {
+            reportCacheReconcileFailure(item, it)
+            false
+        }
+    }
+
+    private suspend fun reconcileFeatureSuccess(
+        item: OutboxEntity,
+        skipPostSuccessRefresh: Boolean = false,
+    ) {
         when (OutboxOpType.valueOf(item.opType)) {
             OutboxOpType.SCAN_CAPTURE -> {
                 val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
@@ -517,8 +552,20 @@ class SyncEngine(
         }
         // Whole-page-blob opTypes (no server-truth row to write directly into a Room table) — run
         // AFTER the opType-specific arm above so any row-shaped reconcile still happens first.
-        postSuccessRefreshHooks[OutboxOpType.valueOf(item.opType)]?.let { hook ->
+        postSuccessRefreshHooks[OutboxOpType.valueOf(item.opType)]?.takeUnless { skipPostSuccessRefresh }?.let { hook ->
             runCatching { hook.onSuccess(item.payloadJson) }
+                .onFailure { reportCacheReconcileFailure(item, it) }
+        }
+    }
+
+    private suspend fun reconcileFeatureTerminalFailure(item: OutboxEntity) {
+        val opType = runCatching { OutboxOpType.valueOf(item.opType) }
+            .getOrElse {
+                reportCacheReconcileFailure(item, it)
+                return
+            }
+        postTerminalFailureHooks[opType]?.let { hook ->
+            runCatching { hook.onTerminalFailure(item.payloadJson) }
                 .onFailure { reportCacheReconcileFailure(item, it) }
         }
     }

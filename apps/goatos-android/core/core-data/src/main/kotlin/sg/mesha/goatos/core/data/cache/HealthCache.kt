@@ -62,6 +62,9 @@ interface HealthWorkItemDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<HealthWorkItemEntity>)
 
+    @Query("DELETE FROM health_work_items WHERE scopeKey = :scopeKey AND healthSessionId = :healthSessionId")
+    suspend fun delete(scopeKey: String, healthSessionId: String)
+
     @Query("DELETE FROM health_work_items WHERE scopeKey = :scopeKey")
     suspend fun deleteScope(scopeKey: String)
 
