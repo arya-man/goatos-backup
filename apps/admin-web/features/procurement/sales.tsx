@@ -581,7 +581,7 @@ export async function SalesPage({
           </div>
         ) : (
           <div className="twrap">
-            <table aria-label={copy(pageContract, "section.ledger.aria")}>
+            <table className="sales-deals-table" aria-label={copy(pageContract, "section.ledger.aria")}>
               <thead>
                 <tr>
                   {dealColumns.map((label) => (
