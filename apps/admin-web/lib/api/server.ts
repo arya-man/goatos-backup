@@ -870,6 +870,78 @@ export async function getFeedDirectionPreview(
   );
 }
 
+
+// ---- Feed Analytics (windowed rollups of the frozen sheet; DIRECTED kg only) ----
+
+export type FeedAnalyticsDirectedResponse = AppApiComponents["schemas"]["FeedAnalyticsDirectedResponse"];
+export type FeedAnalyticsExecutionResponse = AppApiComponents["schemas"]["FeedAnalyticsExecutionResponse"];
+export type FeedAnalyticsExperimentResponse = AppApiComponents["schemas"]["FeedAnalyticsExperimentResponse"];
+export type FeedAnalyticsStockResponse = AppApiComponents["schemas"]["FeedAnalyticsStockResponse"];
+
+export type FeedAnalyticsParams = {
+  /** Optional: absent means every authorized park. */
+  park_id?: string;
+  /** Optional inclusive business dates; the backend defaults to the 30 days ending yesterday. */
+  date_from?: string;
+  date_to?: string;
+};
+
+export async function getFeedAnalyticsDirected(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsDirectedResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsDirectedResponse>("/feed-analytics/directed", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedAnalyticsExecution(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsExecutionResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsExecutionResponse>("/feed-analytics/execution", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedAnalyticsExperiment(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsExperimentResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsExperimentResponse>("/feed-analytics/experiment", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedAnalyticsStock(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsStockResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsStockResponse>("/feed-analytics/stock", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
 export async function getFeedPackingWorklist(params: {
   park_id: string;
   target_date: string;

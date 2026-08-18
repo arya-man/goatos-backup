@@ -3773,6 +3773,205 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-analytics/directed:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsDirected
+      summary: Windowed rollup of directed feed for the Feed Analytics page.
+      description: >-
+        Aggregates the FROZEN feed sheet (`feed_direction_issue_rows`) over a business-date window:
+        per-day totals and per-(day, feed item) series of DIRECTED kg, head-days, and grams per
+        head per day. Normal workflow only -- experiment sheets author absolute kg with
+        informational head counts and are served by their own read.
+
+
+        DIRECTED, NOT CONSUMED. Every figure is what the sheet instructed, never a measured
+        weight; completions carry proofs, not kg. Clients render the word "directed".
+
+
+        Head-days count each pen-grain (shed, partition, shed tag, breed) ONCE per feed day --
+        never once per session or per feed-item cell. A per-item figure divides by the heads whose
+        sheet carried that item; the day figure divides by the day's distinct heads.
+
+
+        Blocked cells (`quantity_kg` null on the sheet) contribute nothing and are not counted
+        here; config gaps surface on the Feed Direction screen instead. A day with no issued sheet
+        is ABSENT from `days`, never fabricated as zero.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrow to one park. Absent means every park the caller is authorized for -- a
+            park-scoped principal can never widen past their grant.
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before
+            `date_to`. The window is capped at 92 days, keeping the most recent days.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: >-
+            Inclusive window end. Defaults to YESTERDAY: today's sheet is still being executed, so
+            the backend owns the exclude-today rule rather than each client subtracting a day.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Day totals and per-item series, ordered by feed day ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsDirectedResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/execution:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsExecution
+      summary: Per-day execution adherence for the Feed Analytics page.
+      description: >-
+        Status counts per business date across the three proof-gated feed stages -- packing and
+        distribution pen-session completions (verified / awaiting verdict / rework) and transport
+        shed tasks (completed / open / awaiting verdict / rework) -- plus the daily median
+        submit-to-verdict latency of packing and distribution verdicts, bucketed by the
+        Asia/Kolkata date the verdict landed. STATUS COUNTS ONLY: completions carry proofs, never
+        kg, so execution is judged on whether work was proved and verified, not on quantity.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-day status counts, ordered by date ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsExecutionResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/experiment:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsExperiment
+      summary: Trial-arm absolute kg series for the Feed Analytics page.
+      description: >-
+        The experiment workflow's authored kg per (feed day, experiment arm), with the distinct
+        pen count feeding under each arm. Experiment rations are ABSOLUTE shed/pen totals -- head
+        counts on those sheet rows are informational, so no per-head figure exists here and none
+        may be derived by a client.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-(day, arm) authored kg, ordered by feed day then arm.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsExperimentResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/stock:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsStock
+      summary: Feed stock positions and daily expenditure for the Feed Analytics page.
+      description: >-
+        Per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time
+        sheet import; entry screens arrive with the Procurement vertical) plus the window's daily
+        expenditure series.
+
+
+        STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) -
+        directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left
+        divides the balance by the item's average directed kg over its 7 most recent locked feed
+        days; a negative balance is served as-is, saying the ledger is missing a load.
+        Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on
+        or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive expenditure-window end, defaulting to yesterday; capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Stock cards (all items) and the expenditure series for the window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsStockResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
   /feed-direction/preview:
     get:
       tags:
@@ -11138,6 +11337,231 @@ components:
           description: >-
             The exact missing coordinate in human-readable form. A gap an operator cannot locate is
             a gap they cannot close.
+    FeedAnalyticsDirectedDay:
+      type: object
+      description: One feed day of the normal workflow across every feed item.
+      required: [feed_day, directed_kg, head_days, per_head_grams]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        directed_kg:
+          type: string
+          description: >-
+            Summed resolved quantity as a decimal string. "0" means every resolved cell authored
+            zero -- blocked cells contribute nothing and are never coerced to zero.
+        head_days:
+          type: integer
+          format: int64
+          description: Distinct pen-grain heads that day; experiment pens excluded.
+        per_head_grams:
+          type: string
+          description: directed_kg x 1000 / head_days, one decimal; empty when head_days is zero.
+    FeedAnalyticsDirectedItem:
+      type: object
+      description: One (feed day, feed item) of the normal workflow.
+      required: [feed_day, feed_item_label, feed_item_key, directed_kg, head_days, per_head_grams]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        directed_kg:
+          type: string
+        head_days:
+          type: integer
+          format: int64
+          description: Heads in pens whose sheet carried THIS item that day, pen-grain counted once.
+        per_head_grams:
+          type: string
+    FeedAnalyticsDirectedResponse:
+      type: object
+      description: >-
+        The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a
+        measured weight.
+      required: [date_from, date_to, days, items]
+      properties:
+        date_from:
+          type: string
+          format: date
+          description: The served window start after clamping (92-day cap, most recent kept).
+        date_to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsDirectedDay"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsDirectedItem"
+    FeedAnalyticsExecutionDay:
+      type: object
+      description: One business date of proof-gated feed execution statuses.
+      required:
+        [date, packing_verified, packing_awaiting, packing_rework, distribution_verified,
+         distribution_awaiting, distribution_rework, transport_completed, transport_open,
+         transport_awaiting_verdict, transport_rework]
+      properties:
+        date:
+          type: string
+          format: date
+        packing_verified:
+          type: integer
+          format: int64
+        packing_awaiting:
+          type: integer
+          format: int64
+        packing_rework:
+          type: integer
+          format: int64
+        distribution_verified:
+          type: integer
+          format: int64
+        distribution_awaiting:
+          type: integer
+          format: int64
+        distribution_rework:
+          type: integer
+          format: int64
+        transport_completed:
+          type: integer
+          format: int64
+        transport_open:
+          type: integer
+          format: int64
+        transport_awaiting_verdict:
+          type: integer
+          format: int64
+        transport_rework:
+          type: integer
+          format: int64
+        median_verify_latency_minutes:
+          type: integer
+          format: int64
+          nullable: true
+          description: Median submit-to-verdict latency of verdicts landing that IST date; null when none landed.
+    FeedAnalyticsExecutionResponse:
+      type: object
+      required: [date_from, date_to, days]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExecutionDay"
+    FeedAnalyticsExperimentArm:
+      type: object
+      description: One (feed day, experiment arm) of authored absolute kg.
+      required: [feed_day, experiment_arm, absolute_kg, pens]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        experiment_arm:
+          type: string
+        absolute_kg:
+          type: string
+          description: Authored shed/pen TOTAL kg as a decimal string -- never multiplied by heads.
+        pens:
+          type: integer
+          format: int64
+    FeedAnalyticsExperimentResponse:
+      type: object
+      required: [date_from, date_to, arms]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        arms:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExperimentArm"
+    FeedAnalyticsStockItem:
+      type: object
+      description: One feed item's current stock position off the purchase ledger.
+      required: [feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
+      properties:
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        balance_kg:
+          type: string
+          description: May be negative -- the ledger is missing a load, never clamped.
+        avg_daily_kg:
+          type: string
+          description: Average directed kg over the item's 7 most recent locked feed days; empty when never directed.
+        days_left:
+          type: integer
+          format: int64
+          nullable: true
+        latest_batch_no:
+          type: integer
+          format: int64
+        low_stock:
+          type: boolean
+    FeedAnalyticsExpenditureDay:
+      type: object
+      required: [feed_day, rupees]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        rupees:
+          type: string
+          description: Directed kg priced at each item's most recent load rate on or before the day.
+    FeedAnalyticsSpendSummary:
+      type: object
+      description: >-
+        Rupee totals over the standing leadership periods, each ending yesterday and priced like
+        the daily series (most recent load rate per item). "0" when nothing priced.
+      required: [this_week, this_month, three_months, this_year]
+      properties:
+        this_week:
+          type: string
+          description: Monday of the current IST week through yesterday.
+        this_month:
+          type: string
+          description: The 1st of the current IST month through yesterday.
+        three_months:
+          type: string
+          description: Rolling 92 days through yesterday.
+        this_year:
+          type: string
+          description: Jan 1 of the current IST year through yesterday.
+    FeedAnalyticsStockResponse:
+      type: object
+      required: [date_from, date_to, items, expenditure, spend]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsStockItem"
+        expenditure:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExpenditureDay"
+        spend:
+          $ref: "#/components/schemas/FeedAnalyticsSpendSummary"
     FeedDirectionRow:
       type: object
       additionalProperties: false
