@@ -25,9 +25,10 @@ import (
 // lump-sum counts are returned so that gap is legible rather than looking broken.
 func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
-		ByBreed: []domain.WeightDemographicBucket{},
-		BySex:   []domain.WeightDemographicBucket{},
-		ByStage: []domain.WeightDemographicBucket{},
+		ByBreed:         []domain.WeightDemographicBucket{},
+		BySex:           []domain.WeightDemographicBucket{},
+		ByStage:         []domain.WeightDemographicBucket{},
+		ShedComposition: []domain.ShedComposition{},
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -35,14 +36,15 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
 WITH scoped AS (
-  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.weighing_category
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
   WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
 ),
 latest AS (
   SELECT DISTINCT ON (lower(btrim(o.scanned_identifier)))
-         lower(btrim(o.scanned_identifier)) AS tag, o.weight_kg
+         lower(btrim(o.scanned_identifier)) AS tag, o.weight_kg,
+         s.location_id, s.partition_label
   FROM weighing_observations o
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
   WHERE o.tenant_id = $1::uuid
@@ -85,7 +87,7 @@ ident AS (
   ORDER BY lower(btrim(gi.identifier_value)), gi.created_at DESC
 ),
 resolved AS (
-  SELECT l.tag, l.weight_kg, g.breed, g.sex, g.management_stage
+  SELECT l.tag, l.weight_kg, l.location_id, l.partition_label, g.breed, g.sex, g.management_stage
   FROM latest l
   LEFT JOIN ident i ON i.tag = l.tag
   LEFT JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
@@ -142,11 +144,33 @@ shed_cohort AS (
    AND g.lifecycle_status = 'alive'
   GROUP BY src.location_id
 ),
+shed_cohort_detail AS (
+  SELECT src.location_id,
+         COALESCE(NULLIF(g.breed, ''), 'Unknown breed') AS breed,
+         COALESCE(NULLIF(g.sex, ''), 'unknown sex') AS sex,
+         count(*)::int AS animals
+  FROM (
+    SELECT l.location_id, COALESCE(
+      CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
+                          AND gg.lifecycle_status = 'alive' AND gg.shed_id = l.location_id)
+           THEN l.location_id END,
+      (SELECT phys.location_id FROM locations phys
+        WHERE phys.tenant_id = l.tenant_id
+          AND phys.parent_location_id = l.parent_location_id
+          AND phys.location_type = 'shed'
+          AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+        LIMIT 1)) AS resolved_id
+    FROM locations l WHERE l.tenant_id = $1::uuid
+  ) src
+  JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
+   AND g.lifecycle_status = 'alive'
+  GROUP BY src.location_id, COALESCE(NULLIF(g.breed, ''), 'Unknown breed'), COALESCE(NULLIF(g.sex, ''), 'unknown sex')
+),
 shed_stage AS (
   SELECT location_id, stage FROM shed_cohort WHERE stages = 1
 ),
 lump AS (
-  SELECT s.location_id, sh.animal_count, sh.average_weight_kg
+  SELECT s.location_id, s.partition_label, sh.animal_count, sh.average_weight_kg
   FROM scoped s
   JOIN weighing_shed_observations sh
     ON sh.campaign_shed_id = s.campaign_shed_id AND sh.tenant_id = s.tenant_id
@@ -156,22 +180,23 @@ lump AS (
   WHERE s.weighing_category = 'per_shed_partition'
 ),
 lump_span AS (
-  -- Four-week movement matching the shed rows: anchor on the latest weigh and
-  -- compare it with the weigh closest to 28 days earlier, allowing weekly capture
-  -- slippage but not falling back to a too-recent previous row.
+  -- Selected-range movement matching the shed rows: first weighed date in the
+  -- selected window to latest weighed date in the same selected window.
   --
-  -- projection-review: membership=one row per lump-sum location with a latest weigh and a baseline near four weeks earlier; group_key=location_id via latest.rn=1 plus LATERAL LIMIT 1; join_cardinality=baseline is 0..1 per latest row, campaign_sheds 1 per bucket (PK), campaigns 1 per campaign (PK); pagination=NONE, joined 0..1 into the gain arms; scope=tenant_id + park_id = ANY($2)
+  -- projection-review: membership=one row per lump-sum operational row with first+latest weighs inside the selected range; group_key=(location_id, partition_label) via latest.rn=1 and first.rn=1; join_cardinality=first is 1 per latest row when at least two weighed dates exist, campaign_sheds 1 per bucket (PK), campaigns 1 per campaign (PK); pagination=NONE, joined 0..1 into the gain arms; scope=tenant_id + park_id = ANY($2)
   --
   -- Ratio key sets: the two averages and the day gap are drawn from the SAME
-  -- location, so the division is always one shed against its own four-week baseline.
-  SELECT latest.location_id,
-         (latest.average_weight_kg - baseline.average_weight_kg) * 1000.0
-          / NULLIF(latest.d - baseline.d, 0) AS g_per_day,
+  -- operational row, so the division is always one shed/partition inside the
+  -- selected window.
+  SELECT latest.location_id, latest.partition_label,
+         (latest.average_weight_kg - first.average_weight_kg) * 1000.0
+          / NULLIF(latest.d - first.d, 0) AS g_per_day,
          latest.animal_count                 AS animals
   FROM (
-    SELECT cs2.location_id, so.average_weight_kg, so.animal_count,
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+           so.average_weight_kg, so.animal_count,
            (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
-           row_number() OVER (PARTITION BY cs2.location_id ORDER BY so.accepted_at DESC) AS rn
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY so.accepted_at DESC) AS rn
     FROM weighing_shed_observations so
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = so.campaign_shed_id
     JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
@@ -179,23 +204,52 @@ lump_span AS (
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
       AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
   ) latest
-  JOIN LATERAL (
-    SELECT cs2.location_id, so.average_weight_kg,
-           (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  JOIN (
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+           so.average_weight_kg,
+           (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY so.accepted_at ASC) AS rn
     FROM weighing_shed_observations so
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = so.campaign_shed_id
     JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
     WHERE so.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
-      AND cs2.location_id = latest.location_id
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
-      AND (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date < latest.d
-      AND abs((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date - (latest.d - 28)) <= 7
-    ORDER BY abs((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date - (latest.d - 28)),
-             (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date DESC,
-             so.accepted_at DESC
-    LIMIT 1
-  ) baseline ON true
-  WHERE latest.rn = 1
+      AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+  ) first ON first.location_id = latest.location_id
+    AND first.partition_label = latest.partition_label
+    AND first.rn = 1
+  WHERE latest.rn = 1 AND latest.d > first.d
+),
+individual_composition AS (
+  SELECT location_id, partition_label, 'scanned_tags'::text AS source,
+         sum(animals)::int AS total_animals,
+         jsonb_agg(jsonb_build_object('breed', breed, 'sex', sex, 'animals', animals)
+                   ORDER BY animals DESC, breed, sex) AS chips
+  FROM (
+    SELECT location_id, partition_label,
+           COALESCE(NULLIF(breed, ''), 'Unknown breed') AS breed,
+           COALESCE(NULLIF(sex, ''), 'unknown sex') AS sex,
+           count(*)::int AS animals
+    FROM resolved
+    GROUP BY location_id, partition_label,
+             COALESCE(NULLIF(breed, ''), 'Unknown breed'),
+             COALESCE(NULLIF(sex, ''), 'unknown sex')
+  ) chips
+  GROUP BY location_id, partition_label
+),
+lump_composition AS (
+  SELECT l.location_id, l.partition_label, 'live_shed_cohort'::text AS source,
+         sum(scd.animals)::int AS total_animals,
+         jsonb_agg(jsonb_build_object('breed', scd.breed, 'sex', scd.sex, 'animals', scd.animals)
+                   ORDER BY scd.animals DESC, scd.breed, scd.sex) AS chips
+  FROM (SELECT DISTINCT location_id, partition_label FROM lump) l
+  JOIN shed_cohort_detail scd ON scd.location_id = l.location_id
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM individual_composition ic
+    WHERE ic.location_id = l.location_id AND ic.partition_label = l.partition_label
+  )
+  GROUP BY l.location_id, l.partition_label
 )
 SELECT
   (SELECT count(*) FROM resolved WHERE breed IS NOT NULL),
@@ -262,17 +316,31 @@ SELECT
              SELECT sc.stage, sum(ls.animals)::bigint, sum(ls.g_per_day * ls.animals)::float8
                FROM lump_span ls JOIN shed_cohort sc ON sc.location_id = ls.location_id
                WHERE sc.stages = 1 AND sc.stage IS NOT NULL GROUP BY sc.stage) gp
-           GROUP BY management_stage) gs)`
+           GROUP BY management_stage) gs),
+  (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+       'location_id', location_id::text,
+       'partition_label', partition_label,
+       'source', source,
+       'total_animals', total_animals,
+       'chips', chips
+     ) ORDER BY location_id::text, partition_label, source), '[]'::jsonb)
+   FROM (
+     SELECT * FROM individual_composition
+     UNION ALL
+     SELECT * FROM lump_composition
+   ) c)`
 
 	var (
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
 		breedJSON, sexJSON, stageJSON                               []byte
 		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
+		compositionJSON                                             []byte
 	)
 	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
+		&compositionJSON,
 	); err != nil {
 		return domain.WeightDemographics{}, err
 	}
@@ -298,6 +366,9 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByStage, err = decodeWeightGainBuckets(gainStageJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.ShedComposition, err = decodeShedComposition(compositionJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	return out, nil
@@ -345,6 +416,22 @@ func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
 		out = append(out, domain.WeightGainBucket{
 			Label: row.Label, Animals: row.Animals, MedianGainGPerDay: row.AverageWeightKg,
 		})
+	}
+	return out, nil
+}
+
+func decodeShedComposition(raw []byte) ([]domain.ShedComposition, error) {
+	out := []domain.ShedComposition{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Chips == nil {
+			out[i].Chips = []domain.ShedCompositionChip{}
+		}
 	}
 	return out, nil
 }

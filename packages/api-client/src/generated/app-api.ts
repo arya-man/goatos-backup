@@ -8808,6 +8808,26 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        WeighingShedCompositionChip: {
+            /** @description Breed label from the herd register, or Unknown breed when unresolved. */
+            breed?: string;
+            /** @description Sex label from the herd register, or unknown sex when unresolved. */
+            sex?: string;
+            /** @description Animals in this breed+sex cohort. */
+            animals: number;
+        };
+        WeighingShedComposition: {
+            /** Format: uuid */
+            location_id: string;
+            partition_label?: string;
+            /**
+             * @description Whether chips came from the actual scanned tags or the live shed cohort for a whole-shed weigh.
+             * @enum {string}
+             */
+            source: "scanned_tags" | "live_shed_cohort";
+            total_animals: number;
+            chips: components["schemas"]["WeighingShedCompositionChip"][];
+        };
         WeighingWeightDemographicsResponse: {
             /** @description Per-animal weighs only; a whole-shed total cannot be split by breed. */
             by_breed: components["schemas"]["WeighingWeightDemographicBucket"][];
@@ -8825,6 +8845,8 @@ export interface components {
             lump_sum_animals: number;
             /** @description Animals in whole-shed weighs whose shed holds more than one stage, so no stage row claims them. */
             lump_sum_unattributed_animals: number;
+            /** @description Breed+sex chips keyed by location_id + partition_label for the weighed shed rows. Mixed sheds are listed as multiple chips; clients must not split one whole-shed average across them. */
+            shed_composition: components["schemas"]["WeighingShedComposition"][];
         };
         /** @description ONE operational shed's most recent weigh. Grain is the physical shed partition, not the campaign bucket. */
         WeighingShedWeightsRow: {
@@ -8858,7 +8880,7 @@ export interface components {
             bucket_status: "pending" | "in_progress" | "completed" | "canceled";
             /**
              * Format: double
-             * @description How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed more than once in the window. NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram. Measured across the full span, because consecutive pairs at this grain are unusably noisy (the same shed produced 45 g/day one week and 391 the next).
+             * @description How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed more than once in the window. NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram. Measured from the first accepted weigh date in the selected window to the latest accepted weigh date in that same window.
              */
             shed_average_gain_g_per_day?: number;
             /** @description The span that gain was measured over, so a short-span figure can be discounted rather than hidden. */
@@ -8912,7 +8934,7 @@ export interface components {
             average_weight_kg: number;
             /**
              * Format: double
-             * @description Each shed's last-two-weighs movement, blended by head count. Absent when no shed in the load was weighed twice — a load with a single weigh has a weight but no growth, and 0 would read as flat. This is shed-average movement, NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram.
+             * @description Each shed's selected-window movement, blended by head count. Absent when no shed in the load was weighed twice inside the selected date range -- a load with a single visible weigh has a weight but no growth, and 0 would read as flat. This is shed-average movement, NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram.
              */
             gain_g_per_day?: number;
             /** @description Widest span any contributing shed was measured over, so a figure drawn from two days can be discounted on sight rather than hidden. */

@@ -765,6 +765,15 @@ findings are about PLUMBING: writes landing, evidence being reviewable, failures
 visible, screens showing honest numbers. Full statement:
 `docs/features/weighing/TRD.md` → "What weighing IS".
 
+Weights dashboard reporting rule: when a user selects a date range, whole-shed
+daily gain and load gain use the first and latest accepted weighs inside that
+same selected range. Do not borrow a 28-day/four-week baseline from outside the
+visible period. The table and daily-gain chart show only sheds that have accepted
+weigh data in the selected range. Breed+sex chips on shed rows are allowed only
+through the recorded `weight_demographics.go` read-only exception; they are row
+labels, not scan validation, and mixed whole-shed averages must not be split by
+breed or sex.
+
 Isolation does not exempt Weighing from shared operational coordination.
 Weighing emits its domain/audit/idempotency/proof/outbox facts atomically; a
 shared-kernel consumer outside the Weighing package consumes those events

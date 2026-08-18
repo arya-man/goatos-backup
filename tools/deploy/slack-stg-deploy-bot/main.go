@@ -376,6 +376,13 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribution bool, slackUserID, triggeredBy, actionLabel string) {
+	cfg.postSlackResponse(responseURL, map[string]any{
+		"response_type":    "in_channel",
+		"replace_original": false,
+		"text":             fmt.Sprintf("%s request received from `main` by %s. Starting deploy checks now.", actionLabel, triggeredBy),
+		"blocks":           deployQueuedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution),
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -433,6 +440,18 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 		"blocks":           deployStartedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
 	go cfg.monitorBuild(responseURL, buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution)
+}
+
+func deployQueuedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {
+	return []map[string]any{
+		{
+			"type": "section",
+			"text": map[string]string{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("*%s request received* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nStarting active-deploy checks now.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+			},
+		},
+	}
 }
 
 func deployAcceptedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) []map[string]any {

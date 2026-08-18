@@ -1132,6 +1132,19 @@ Projection grain requirements:
   page of rows;
 - every projection row must carry tenant, campaign, farm/park, work group and,
   where relevant, shed/partition grain.
+- The Weights dashboard selected date range is binding for gain. Whole-shed
+  daily gain and procurement-load gain compare the first accepted weigh date in
+  the selected range with the latest accepted weigh date in that same range. If
+  the selected range contains only one accepted date for a shed, gain is unknown;
+  do not borrow a 28-day/four-week baseline from outside the visible period.
+- Weights dashboard shed rows and gain charts show only sheds with accepted
+  weigh data inside the selected range. Planned-but-unweighed sheds may still be
+  counted in scope summaries, but they are not row/chart items.
+- Admin-web row composition chips may show the real breed+sex mix for a weighed
+  shed through the recorded `weight_demographics.go` read-only exception. Render
+  actual chips such as `F2 / female` and `Anantapur Sheep / male`, not generic
+  `mixed breed / mixed gender`. Mixed whole-shed averages are labelled only; one
+  shed average must never be split into breed or sex buckets.
 
 Projection/update rules:
 

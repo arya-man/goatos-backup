@@ -58,7 +58,7 @@ func TestShedWeightsOneToManyDeduplicatesRepeatScansPerTag(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "TAG-B", 30.0, day)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestShedWeightsStatusMatrixExcludesOnlyCanceledFromScope(t *testing.T) {
 			`UPDATE weighing_campaign_sheds SET status = $1 WHERE campaign_shed_id = $2::uuid`,
 			status, repoAnimalScope)
 
-		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
 		if err != nil {
 			t.Fatalf("GetShedWeights(%s): %v", status, err)
 		}
@@ -141,7 +141,7 @@ func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "PAGE-2", 22.0, day)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -215,7 +215,7 @@ ON CONFLICT (campaign_shed_id) DO NOTHING`,
 		repoTenant, repoPark, repoCampaign, repoOperator)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestShedWeightsParkScopeReturnsNothingOutsideTheRequestedParks(t *testing.T
 
 	from, to := shedWeightsWindow()
 	other := "00000000-0000-4000-8000-0000000030ff"
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestShedWeightsDateShiftHonoursHalfOpenWindow(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "WINDOW-IN", 19.0, inside)
 	seedShedWeightScan(t, ctx, pool, "WINDOW-OUT", 40.0, boundary)
 
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark},
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), boundary)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
@@ -298,11 +298,11 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $4::date + 6, $4::date, 'publish
 ON CONFLICT (campaign_id) DO NOTHING`, campaignID, repoTenant, repoPark, start, repoOperator)
 }
 
-// FOUR-WEEK BASELINE. A whole-shed row must not use the immediately previous
-// weigh when a proper four-week baseline exists. Castro-style data has 3 Aug as
-// latest, 29 Jul as the previous row, and 6 Jul exactly four weeks earlier; the
-// dashboard must render the 6 Jul -> 3 Aug rate.
-func TestShedWeightsFourWeekGainOneToManyPageBoundaryParkScopeStatusMatrixUsesBaselineNotPreviousEntry(t *testing.T) {
+// SELECTED-WINDOW GAIN. A whole-shed row must use the first and latest weighed
+// dates inside the reader's selected date range. Castro-style data has 3 Aug as
+// latest, 29 Jul inside the selected range, and 6 Jul outside it; the dashboard
+// must render the 29 Jul -> 3 Aug rate.
+func TestShedWeightsSelectedWindowGainUsesFirstAndLatestInWindow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -327,8 +327,9 @@ func TestShedWeightsFourWeekGainOneToManyPageBoundaryParkScopeStatusMatrixUsesBa
 	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 30.793650793650794, 63,
 		time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
 
-	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -337,23 +338,73 @@ func TestShedWeightsFourWeekGainOneToManyPageBoundaryParkScopeStatusMatrixUsesBa
 			continue
 		}
 		if row.ShedAverageGainGPerDay == nil {
-			t.Fatal("four-week baseline must produce a gain")
+			t.Fatal("two in-window weighs must produce a gain")
 		}
-		if got := fmt.Sprintf("%.1f", *row.ShedAverageGainGPerDay); got != "223.7" {
-			t.Fatalf("gain must use 6 Jul -> 3 Aug, not 29 Jul -> 3 Aug: got %s g/day", got)
+		if got := fmt.Sprintf("%.1f", *row.ShedAverageGainGPerDay); got != "315.0" {
+			t.Fatalf("gain must use 29 Jul -> 3 Aug, not the older 6 Jul baseline: got %s g/day", got)
 		}
-		if row.GainSpanDays != 28 {
-			t.Fatalf("span must be 28 days, got %d", row.GainSpanDays)
+		if row.GainSpanDays != 5 {
+			t.Fatalf("span must be 5 days, got %d", row.GainSpanDays)
 		}
 		return
 	}
 	t.Fatal("expected the per-shed row")
 }
 
-// NO SHORT-SPAN FALLBACK. If the only older row is a few days before latest, the
-// 4-week ADG is unknown. Returning last-two here would show a plausible but wrong
-// short-interval number on a card labelled as four-week growth.
-func TestShedWeightsGainDoesNotFallbackToTooRecentPreviousEntry(t *testing.T) {
+// PARTITION GRAIN. Two operational rows can share one physical location_id while
+// carrying different partition labels. Each row's selected-window gain must stay
+// on its own partition; otherwise Part B can quietly inherit Part A's movement.
+func TestShedWeightsSelectedWindowGainPartitionOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	repo := NewRepository(pool, 5*time.Second)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoPerShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, repoPerShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoPerShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoPerShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, row := range out.Rows {
+		if row.LocationID != repoPerShed || row.PartitionLabel == "" || row.ShedAverageGainGPerDay == nil {
+			continue
+		}
+		got[row.PartitionLabel] = fmt.Sprintf("%.1f", *row.ShedAverageGainGPerDay)
+		if row.GainSpanDays != 7 {
+			t.Fatalf("%s span must be 7 days, got %d", row.PartitionLabel, row.GainSpanDays)
+		}
+	}
+	if got["Part A"] != "1000.0" {
+		t.Fatalf("Part A gain must use Part A rows only: got %q", got["Part A"])
+	}
+	if got["Part B"] != "142.9" {
+		t.Fatalf("Part B gain must use Part B rows only: got %q", got["Part B"])
+	}
+}
+
+// ONE IN-WINDOW WEIGH. If the selected range only contains one accepted weigh,
+// the row has a weight but no selected-window gain.
+func TestShedWeightsGainNeedsTwoWeighedDatesInsideSelectedWindow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -371,8 +422,9 @@ func TestShedWeightsGainDoesNotFallbackToTooRecentPreviousEntry(t *testing.T) {
 	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 30.793650793650794, 63,
 		time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
 
-	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -381,7 +433,7 @@ func TestShedWeightsGainDoesNotFallbackToTooRecentPreviousEntry(t *testing.T) {
 			continue
 		}
 		if row.ShedAverageGainGPerDay != nil {
-			t.Fatalf("short-span previous row must not produce 4-week ADG, got %.1f", *row.ShedAverageGainGPerDay)
+			t.Fatalf("one in-window weigh must not produce selected-window gain, got %.1f", *row.ShedAverageGainGPerDay)
 		}
 		return
 	}
