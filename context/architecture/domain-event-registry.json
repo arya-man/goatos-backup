@@ -28,6 +28,7 @@
     "feed.direction.completed",
     "feed.distribution.completed",
     "feed.packing.completed",
+    "feed.wastage.completed",
     "vaccination.capacity.changed",
     "vaccination.roster.changed",
     "vaccination.leave.changed",
@@ -782,6 +783,11 @@
           "notes": "Filters source.module=feed + ref_type=feed_transport_attempt; approval marks the immutable attempt approved and its daily shed task completed."
         },
         {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_wastage_verification_handler.go",
+          "notes": "FeedWastageVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_wastage_completion (distinct from the distribution/packing/transport handlers, which share module=feed) and calls WastageCompletionStore.ApplyVerifiedWastage, which flips the feed_wastage_completions row 'pending_verification' -> 'completed' and emits feed.wastage.completed. Maintainer-2026-08-18 gate: a pen-day's wastage task (EXPERIMENT pens only, one mandatory leftover-feed video) is completed only at verifier approval; the verifier's measured leftover kg rides her own producer route (POST /feed-direction/wastage/{completion_id}/measurement) and never the verdict payload."
+        },
+        {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
@@ -854,6 +860,11 @@
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_transport_verification_handler.go",
           "notes": "Filters source.module=feed + ref_type=feed_transport_attempt; rejection preserves the rejected attempt/proof and returns the daily task to rework for the same operator and a fresh attempt."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_wastage_verification_handler.go",
+          "notes": "FeedWastageVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_wastage_completion and calls WastageCompletionStore.BounceWastageForRework: REJECT bounces the pen-day to rework for a re-shoot (the verifier could not read a leftover weight in the video); re-submitting returns it to pending_verification."
         },
         {
           "module": "tasks",
@@ -1112,6 +1123,23 @@
       ]
     },
     {
+      "eventType": "feed.wastage.completed",
+      "producer": "feed WASTAGE verifier approval (maintainer decision, 2026-08-18): feeddirection.Repository.ApplyVerifiedWastage, consuming verification.verdict.approved for a feed_wastage item, flips the NEW feed_wastage_completions row 'pending_verification' -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator completion and never at measurement recording. Grain is the PEN-DAY (no session) and the workflow is constrained to 'experiment' -- the worklist is derived from the day's frozen experiment sheet. The payload carries wastage_kg only when the verifier recorded it before approving; absence means 'not yet measured', never zero.",
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/wastage_completions.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/feed-distribution-verification.md",
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/feed_wastage_verification_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
       "eventType": "vaccination.capacity.changed",
       "producer": "vaccination-execution operator assignment config write (N/active-operators-per-day change), durable outbox enqueue",
       "producerFiles": [
@@ -1209,56 +1237,104 @@
     {
       "eventType": "health.protocol.published",
       "producer": "strict Health SOP snapshot import transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/protocol_import.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/protocol_import.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.opened",
       "producer": "Health diagnosis/course open transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.death_held",
       "producer": "Health counts.death.reported consumer transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.death_resumed",
       "producer": "Health counts.death.rejected consumer transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.case.closed_dead",
       "producer": "Health goat.exited consumer transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/app/event_handlers_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "health.treatment.completed",
       "producer": "Health treatment-session completion transaction",
-      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/repository.go"
+      ],
       "consumers": [],
       "owningDoc": "docs/decisions/health-workflows.md",
-      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     },
     {
       "eventType": "weighing.work_item.merged_on_carry_over",

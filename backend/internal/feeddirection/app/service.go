@@ -88,6 +88,13 @@ type Service struct {
 	// CompletePacking fails closed rather than stranding a pending_verification row with nothing for a
 	// verifier to act on.
 	packingEnqueuer FeedPackingVerificationEnqueuer
+	// wastage is the OPTIONAL feed WASTAGE verification-gated store (maintainer decision 2026-08-18;
+	// a SEPARATE table from every sibling store). Without it the wastage worklist overlays no
+	// completion state and CompleteWastage returns ports.ErrWastageStoreUnavailable.
+	wastage ports.WastageCompletionStore
+	// wastageEnqueuer enqueues the verifier queue item for a fresh pending wastage completion.
+	// Without it CompleteWastage fails closed rather than stranding a pending_verification row.
+	wastageEnqueuer FeedWastageVerificationEnqueuer
 	// transports owns the daily, non-session Feed Transport shed task and append-only proof attempts.
 	transports        ports.TransportStore
 	transportEnqueuer FeedTransportVerificationEnqueuer
@@ -200,6 +207,21 @@ func (s *Service) WithPackingStore(store ports.PackingCompletionStore) *Service 
 // queue item.
 func (s *Service) WithPackingVerificationEnqueuer(enqueuer FeedPackingVerificationEnqueuer) *Service {
 	s.packingEnqueuer = enqueuer
+	return s
+}
+
+// WithWastageStore wires the feed WASTAGE verification-gated table. Without it the wastage worklist
+// overlays no completion state and CompleteWastage returns ports.ErrWastageStoreUnavailable.
+func (s *Service) WithWastageStore(store ports.WastageCompletionStore) *Service {
+	s.wastage = store
+	return s
+}
+
+// WithWastageVerificationEnqueuer wires the verifier-queue enqueue seam for wastage. Without it,
+// CompleteWastage fails closed rather than flipping a pen-day to pending_verification with no
+// verifier queue item.
+func (s *Service) WithWastageVerificationEnqueuer(enqueuer FeedWastageVerificationEnqueuer) *Service {
+	s.wastageEnqueuer = enqueuer
 	return s
 }
 

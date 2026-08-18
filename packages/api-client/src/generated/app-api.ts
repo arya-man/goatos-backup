@@ -1738,6 +1738,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-wastage/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-pen Feed Wastage worklist for one park and one feed day.
+         * @description Feed Wastage (maintainer decision 2026-08-18) is a daily task on EXPERIMENT pens only: each pen on a hand-authored feed experiment owes ONE leftover-feed video per feed day. The rows are DERIVED from the day's frozen EXPERIMENT sheet — the same rows the packing worklist reads — so a pen appears here if and only if the experiment sheet covers it, and there is no second planner to drift from.
+         *
+         *     The grain is the PEN-DAY. There is deliberately NO session: packing and distribution are per-bag work (morning and evening are two bags, two videos), but wastage is what is LEFT OVER after the day's feeding, measured once. One pen, one feed day, one video, one recorded value.
+         *
+         *     `lifecycle_status` and `completed` report the pen-day's verification state, recorded through `POST /feed-direction/wastage/complete`. `wastage_kg` is the VERIFIER'S measured leftover weight, present only once she has recorded one ("0" is a real measurement — an empty trough).
+         *
+         *     `items` is a page of SHEDS; `summary` covers the WHOLE filtered worklist and is invariant to `limit`/`offset`.
+         */
+        get: operations["getFeedWastageWorklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/wastage/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit one experiment pen's daily wastage video for verifier review.
+         * @description The verifier-GATED feed WASTAGE completion (maintainer decision 2026-08-18). The operator submits ONE mandatory wastage VIDEO (`wastage_proof_ref`) — the leftover feed in the pen — which writes a `pending_verification` row and enqueues ONE verification item carrying the video. NOTHING is completed here.
+         *
+         *     The grain is the PEN-DAY: no `session_no` (wastage is measured once per day) and no `workflow` (the server stamps `experiment` — wastage exists only for experiment pens). A completion naming a pen the day's experiment sheet does not cover is rejected `422 not_experiment_pen`: it would be work no worklist line ever matches.
+         *
+         *     The verifier watches the clip. When she can read the leftover weight in it she RECORDS that weight (her own route, declared to clients by the item's `measurement_correction` block) and APPROVES; when she cannot, she REJECTS and this pen-day bounces to `rework` for a re-shoot. Re-submitting returns it to `pending_verification`.
+         *
+         *     The wastage video is MANDATORY: a request missing `wastage_proof_ref` is rejected `422 proof_required` before any state changes. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the pen-day natural key.
+         */
+        post: operations["completeFeedWastage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/wastage/{completion_id}/measurement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the leftover feed weight the VERIFIER reads off a wastage video.
+         * @description The VERIFIER'S measurement (maintainer decision 2026-08-18), the second producer-owned measurement route after the weighing weight correction. She watches the pen's wastage video and records the leftover weight she can see, in kg; a later entry REPLACES the value. ZERO IS VALID — an empty trough is a real, good measurement — so clients must keep a blank field distinct from an explicit 0 and never coerce one into the other.
+         *
+         *     It is deliberately SEPARATE from her verdict: she records the value and then approves the video on the ordinary verdict route; when she cannot read a value at all, she rejects for a re-shoot and records nothing. Recording never changes the completion's status.
+         *
+         *     ONE route serves her phone and her admin-web drawer. Authorization is the verifier-exclusive `verification.verdict` capability, so the person who judges the evidence is the person who records what it shows. The `completion_id` comes from the verification item's own `measurement_correction.observation_id` (which echoes `source.ref_id`); clients never compose that address themselves.
+         */
+        post: operations["recordFeedWastageMeasurement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-transport/tasks": {
         parameters: {
             query?: never;
@@ -5015,6 +5091,122 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+        };
+        FeedWastageRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The pen this wastage task is for ("1", "Part 3"), absent for an undivided shed. Part of the row's identity: one pen's video must never close another pen's task. Clients MUST render shed + partition together. */
+            partition_label?: string;
+            /** @description Backend-composed physical location label. Render verbatim. */
+            operational_location_display: string;
+            /**
+             * @description Always `experiment` — wastage exists only for experiment pens.
+             * @enum {string}
+             */
+            workflow: "experiment";
+            /** @description The pen's authored trial group. Farm copy; render verbatim. */
+            experiment_arm: string;
+            /**
+             * Format: int64
+             * @description The pen's projected head count — context, never a gate or a quantity.
+             */
+            head_count: number;
+            /**
+             * @description The pen-day's verification-lifecycle bucket. `rework` merges into `pending`, because a bounced pen is the operator's to act on again.
+             * @enum {string}
+             */
+            lifecycle_status: "pending" | "pending_verification" | "completed";
+            completed: boolean;
+            /** @description Why this pen came back to the operator, present only while it is in rework (surfacing above as `lifecycle_status: pending`). Backend-composed farm copy; render verbatim. */
+            rework_reason?: string;
+            /** @description The VERIFIER'S recorded leftover weight in kg, as an exact decimal string, present only once she has recorded one. "0" is a real measurement (an empty trough), a different statement from the field being absent (not yet measured). */
+            wastage_kg?: string;
+        };
+        FeedWastageWorklistSummary: {
+            /** @description Experiment pens owing a wastage video on this feed day, across the WHOLE filtered scope — invariant to `limit`/`offset`. The three buckets below are disjoint and sum to this figure. */
+            total_pens: number;
+            /** @description Pens with no submitted video yet, or bounced back for a re-shoot. */
+            pending_pens: number;
+            /** @description Pens with a submitted video awaiting the verifier. */
+            in_review_pens: number;
+            /** @description Verifier-approved pens. */
+            completed_pens: number;
+        };
+        FeedWastageWorklistPage: {
+            items: components["schemas"]["FeedWastageRow"][];
+            summary: components["schemas"]["FeedWastageWorklistSummary"];
+            lifecycle: components["schemas"]["FeedDirectionLifecycle"];
+            filters: components["schemas"]["FeedDirectionFilterOptions"];
+            /** Format: date */
+            target_date: string;
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedWastageCompleteRequest: {
+            /**
+             * Format: uuid
+             * @description The park the shed belongs to. Optional: when omitted the server resolves the tenant's default park, matching the read routes. Exactly one park per completion.
+             */
+            park_id?: string;
+            /** Format: uuid */
+            shed_id: string;
+            /** @description The PEN whose leftover was filmed ("2", "Part 3"). Omit or send "" for an undivided shed. Part of the completion's IDENTITY: a partitioned shed has one wastage task PER PEN. */
+            partition_label?: string;
+            /**
+             * Format: date
+             * @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+             */
+            target_date: string;
+            /** @description MANDATORY. The server-minted `proof_id` of the wastage VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
+            wastage_proof_ref: string;
+        };
+        FeedWastageCompleteResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /**
+             * @description `pending_verification` on a fresh submit or a rework re-submit; `completed` when the pen-day had already been verifier-approved. Never `completed` on a first submit.
+             * @enum {string}
+             */
+            status: "pending_verification" | "completed";
+            /** @description True when this call flipped the pen-day into pending_verification and enqueued a verification item. False on an idempotent replay or an already-pending/already-completed no-op. */
+            newly_pending: boolean;
+        };
+        FeedWastageMeasurementRequest: {
+            /**
+             * Format: double
+             * @description The leftover feed weight the verifier reads off the video, in kg. ZERO IS VALID (an empty trough). Clients must never coerce a blank field into 0 — blank means she has not typed a value, and is refused as `missing_wastage`, never sent as a number she never entered.
+             */
+            wastage_kg: number;
+            /** @description Derived, not random, so a double-tap is ONE write. Include the value in the key — recording 3 kg and then 3.5 kg are two different acts. The `Idempotency-Key` header is the fallback when this field is absent. */
+            idempotency_key?: string;
+        };
+        FeedWastageMeasurementResult: {
+            /** Format: uuid */
+            completion_id: string;
+            /**
+             * Format: double
+             * @description The value AFTER this entry.
+             */
+            wastage_kg: number;
+            /**
+             * Format: double
+             * @description What the row held immediately before this entry. Absent on a first entry — a wastage measurement is born on the verifier's screen, so there is no operator original to preserve.
+             */
+            previous_wastage_kg?: number;
+            /** Format: uuid */
+            recorded_by: string;
+            /** Format: date-time */
+            recorded_at: string;
+            /** @description The recomposed verifier-facing label for this pen-day, carrying the recorded value. The server also pushes it onto the verification item, so the queue stops advertising the bare pen. */
+            subject_label: string;
+        };
+        FeedWastageMeasurementResponse: {
+            wastage_measurement: components["schemas"]["FeedWastageMeasurementResult"];
         };
         FeedConfigSessionTemplatePage: {
             items: components["schemas"]["FeedConfigSessionTemplate"][];
@@ -14208,6 +14400,134 @@ export interface operations {
                 };
             };
             /** @description The mandatory packing video is missing (`code: proof_required`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedWastageWorklist: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
+                target_date: string;
+                shed_id?: string;
+                /** @description Narrow to one pen; only meaningful with shed_id. */
+                partition_label?: string;
+                /** @description Narrow to one verification-lifecycle bucket. Absent returns every status. Applied over the whole scope before paging, so a filtered page and its summary agree. */
+                status?: "pending" | "pending_verification" | "completed";
+                /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+                limit?: components["parameters"]["FeedDirectionLimit"];
+                /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedDirectionOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the wastage worklist plus its lifecycle, or the sheet's pending/never-issued state with zero rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedWastageWorklistPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeFeedWastage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedWastageCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The pen-day is recorded pending_verification (or already held THIS SAME video). The wastage task is not done until a verifier approves. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedWastageCompleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Either the `Idempotency-Key` was reused with a different payload, or this pen-day already holds a DIFFERENT wastage video. A pen-day accepts exactly ONE video, so a second, different one is a CONFLICT and not a replay — the client must treat this as TERMINAL and surface it, never retry it. A genuine re-send of the SAME `wastage_proof_ref` under a new key still returns `200`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The mandatory wastage video is missing (`code: proof_required`), or the pen is not on that day's experiment sheet (`code: not_experiment_pen`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordFeedWastageMeasurement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                completion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedWastageMeasurementRequest"];
+            };
+        };
+        responses: {
+            /** @description The measurement is recorded and the queue item's label restated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedWastageMeasurementResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The value is missing (`code: missing_wastage`) or out of range (`code: wastage_out_of_range` — 0 to 10000 kg). The message is the sentence to render. */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -459,6 +459,14 @@ var protectedRoutes = []Route{
 	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
 	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
 	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
+	// Feed WASTAGE (maintainer decision 2026-08-18): the per-pen experiment worklist read, the
+	// operator's completion write (same write twin as packing/distribution), and the VERIFIER'S
+	// measurement write. The measurement rides VerificationVerdict — the verifier-exclusive
+	// capability that owns approve/reject — mirroring the weighing weight-correction route: the
+	// person who judges the evidence is the person who records what it shows.
+	{OperationID: "getFeedWastageWorklist", Method: "GET", Pattern: "/feed-wastage/worklist", Permissions: []string{FeedWastageRead}},
+	{OperationID: "completeFeedWastage", Method: "POST", Pattern: "/feed-direction/wastage/complete", Permissions: []string{FeedDirectionComplete}},
+	{OperationID: "recordFeedWastageMeasurement", Method: "POST", Pattern: "/feed-direction/wastage/{completion_id}/measurement", Permissions: []string{VerificationVerdict}},
 	// Daily feed transport. The LIST is a read and gates on its own read permission; only the
 	// SUBMIT keeps the write twin (maintainer decision 2026-08-05). Both were FeedDirectionComplete,
 	// which meant looking at the transport worklist required the authority to record that transport

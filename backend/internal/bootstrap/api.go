@@ -567,6 +567,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// instant" rule): a SEPARATE store on a NEW table (feed_packing_completions). The packing overlay
 		// now reads verified rows from here, and the enqueue seam is wired below.
 		WithPackingStore(feedDirectionRepo).
+		// Feed WASTAGE verification gate (maintainer decision, 2026-08-18): a SEPARATE store on a
+		// NEW table (feed_wastage_completions), one pen-day task per EXPERIMENT pen. The enqueue
+		// seam is wired below, once verificationService exists.
+		WithWastageStore(feedDirectionRepo).
 		WithTransportStore(feedDirectionRepo).
 		WithProofValidator(feeddirectionproof.NewValidatorWithPool(proofRepo, pool)).
 		WithAnalyticsReader(feedDirectionRepo).
@@ -775,6 +779,41 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 	feedDirectionService.WithTransportVerificationEnqueuer(feeddirectionverificationbridge.NewTransport(verificationService))
+	// Feed WASTAGE verification (maintainer decision, 2026-08-18): a daily task on EXPERIMENT pens
+	// only — one mandatory leftover-feed video per pen per feed day, reviewed under the same feed
+	// module with its own category so the four feed gates never cross-fire.
+	//
+	// THE VERIFIER RECORDS THE MEASURED VALUE. Wastage is the second category (after weighing) to
+	// declare a correctable/recordable measurement: the operator submits only a video, and the
+	// number is born on the verifier's screen — she reads the leftover weight off the clip, records
+	// it, and approves; an unreadable value is a rejection, never a guess. Every visible word lives
+	// here because the backend owns labels (her phone and admin-web drawer render this same copy).
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
+		Category:      feeddirectiondomain.VerificationCategoryWastage,
+		ExpectedMedia: []string{"video"},
+		MediaLabels:   []string{"Feed wastage video"},
+		MeasurementCorrection: &verificationdomain.MeasurementCorrectionSpec{
+			Title:       "Record the wastage",
+			Help:        "Enter the leftover feed weight you can see in the video. It replaces any wastage weight recorded here.",
+			ValueLabel:  "Measured wastage (kg)",
+			SubmitLabel: "Save wastage weight",
+		},
+		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+		PageKey: "feed_wastage", PageLabel: "Feed Wastage", PageOrder: 4,
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	feedWastageBridge := feeddirectionverificationbridge.NewWastage(verificationService)
+	feedDirectionService.WithWastageVerificationEnqueuer(feedWastageBridge)
+	// The measurement is served by its own small service and the SAME bridge's relabel seam, NOT by
+	// feedDirectionService: it is the verifier's act on one completion and must not be able to
+	// reach the generation/completion writes (same shape as the weighing weight correction).
+	feedDirectionHandler.WithWastageMeasurer(
+		feeddirectionapp.NewWastageMeasurementService(feedDirectionRepo, log).
+			WithVerificationRelabeler(feedWastageBridge),
+	)
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as

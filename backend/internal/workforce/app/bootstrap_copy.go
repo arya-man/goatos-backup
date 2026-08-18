@@ -238,6 +238,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.FeedDirectionRead}, //nav-composition:ignore: registry entry
 			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},         //nav-composition:ignore: registry entry
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedTransportRead}, //nav-composition:ignore: registry entry
+			// Feed Wastage (maintainer decision 2026-08-18): the daily experiment-pen leftover-video
+			// worklist. Gated on its OWN read permission — the same permission its backing route
+			// (/feed-wastage/worklist) requires, per TestFeedNavGatesEqualTheirBackingRoutePermissions.
+			{key: "feed_wastage", labelKey: "nav.feed_wastage", href: "/feed/wastage", shared_key: "", priority: 4, requiredPermission: permissions.FeedWastageRead}, //nav-composition:ignore: registry entry
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/feed", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
@@ -1118,6 +1122,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "Colostrum",
 		"nav.feed_direction":   "Feed Direction",
 		"nav.feed_packing":     "Feed Packing",
+		"nav.feed_wastage":     "Feed Wastage",
 		"nav.feed_transport":   "Feed Transport",
 		"nav.birth_death":      "Birth/Death",
 		"nav.approval":         "Approval",
@@ -1159,6 +1164,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "खीस",
 		"nav.feed_direction":   "फ़ीड दिशा",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
+		"nav.feed_wastage":     "फ़ीड बर्बादी",
 		"nav.feed_transport":   "फ़ीड परिवहन",
 		"nav.birth_death":      "जन्म/मृत्यु",
 		"nav.approval":         "अनुमोदन",
@@ -1200,6 +1206,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "ಗಿಣ್ಣು ಹಾಲು",
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
+		"nav.feed_wastage":     "ಆಹಾರ ವ್ಯರ್ಥ",
 		"nav.feed_transport":   "ಆಹಾರ ಸಾಗಣೆ",
 		"nav.birth_death":      "ಜನನ/ಮರಣ",
 		"nav.approval":         "ಅನುಮೋದನೆ",
@@ -1241,6 +1248,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "జున్నుపాలు",
 		"nav.feed_direction":   "ఫీడ్ దిశ",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
+		"nav.feed_wastage":     "ఫీడ్ వృథా",
 		"nav.feed_transport":   "ఫీడ్ రవాణా",
 		"nav.birth_death":      "జననం/మరణం",
 		"nav.approval":         "ఆమోదం",

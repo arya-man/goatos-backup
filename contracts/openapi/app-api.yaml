@@ -4485,6 +4485,229 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-wastage/worklist:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedWastageWorklist
+      summary: Per-pen Feed Wastage worklist for one park and one feed day.
+      description: >-
+        Feed Wastage (maintainer decision 2026-08-18) is a daily task on EXPERIMENT pens only: each
+        pen on a hand-authored feed experiment owes ONE leftover-feed video per feed day. The rows
+        are DERIVED from the day's frozen EXPERIMENT sheet — the same rows the packing worklist
+        reads — so a pen appears here if and only if the experiment sheet covers it, and there is no
+        second planner to drift from.
+
+
+        The grain is the PEN-DAY. There is deliberately NO session: packing and distribution are
+        per-bag work (morning and evening are two bags, two videos), but wastage is what is LEFT
+        OVER after the day's feeding, measured once. One pen, one feed day, one video, one recorded
+        value.
+
+
+        `lifecycle_status` and `completed` report the pen-day's verification state, recorded through
+        `POST /feed-direction/wastage/complete`. `wastage_kg` is the VERIFIER'S measured leftover
+        weight, present only once she has recorded one ("0" is a real measurement — an empty
+        trough).
+
+
+        `items` is a page of SHEDS; `summary` covers the WHOLE filtered worklist and is invariant to
+        `limit`/`offset`.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: target_date
+          in: query
+          required: true
+          description: The feed day, as an India business-calendar date (Asia/Kolkata).
+          schema:
+            type: string
+            format: date
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: partition_label
+          in: query
+          required: false
+          description: Narrow to one pen; only meaningful with shed_id.
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          description: >-
+            Narrow to one verification-lifecycle bucket. Absent returns every status. Applied over
+            the whole scope before paging, so a filtered page and its summary agree.
+          schema:
+            type: string
+            enum: [pending, pending_verification, completed]
+        - $ref: "#/components/parameters/FeedDirectionLimit"
+        - $ref: "#/components/parameters/FeedDirectionOffset"
+      responses:
+        "200":
+          description: >-
+            One page of the wastage worklist plus its lifecycle, or the sheet's pending/never-issued
+            state with zero rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedWastageWorklistPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /feed-direction/wastage/complete:
+    post:
+      tags:
+        - Feed Direction
+      operationId: completeFeedWastage
+      summary: Submit one experiment pen's daily wastage video for verifier review.
+      description: >-
+        The verifier-GATED feed WASTAGE completion (maintainer decision 2026-08-18). The operator
+        submits ONE mandatory wastage VIDEO (`wastage_proof_ref`) — the leftover feed in the pen —
+        which writes a `pending_verification` row and enqueues ONE verification item carrying the
+        video. NOTHING is completed here.
+
+
+        The grain is the PEN-DAY: no `session_no` (wastage is measured once per day) and no
+        `workflow` (the server stamps `experiment` — wastage exists only for experiment pens). A
+        completion naming a pen the day's experiment sheet does not cover is rejected
+        `422 not_experiment_pen`: it would be work no worklist line ever matches.
+
+
+        The verifier watches the clip. When she can read the leftover weight in it she RECORDS that
+        weight (her own route, declared to clients by the item's `measurement_correction` block) and
+        APPROVES; when she cannot, she REJECTS and this pen-day bounces to `rework` for a re-shoot.
+        Re-submitting returns it to `pending_verification`.
+
+
+        The wastage video is MANDATORY: a request missing `wastage_proof_ref` is rejected
+        `422 proof_required` before any state changes. Idempotent on the `Idempotency-Key` header
+        (an exact replay returns the original result and runs no side effects; the same key with a
+        different payload is `409`) and on the pen-day natural key.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedWastageCompleteRequest"
+      responses:
+        "200":
+          description: >-
+            The pen-day is recorded pending_verification (or already held THIS SAME video). The
+            wastage task is not done until a verifier approves.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedWastageCompleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          description: >-
+            Either the `Idempotency-Key` was reused with a different payload, or this pen-day
+            already holds a DIFFERENT wastage video. A pen-day accepts exactly ONE video, so a
+            second, different one is a CONFLICT and not a replay — the client must treat this as
+            TERMINAL and surface it, never retry it. A genuine re-send of the SAME
+            `wastage_proof_ref` under a new key still returns `200`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: >-
+            The mandatory wastage video is missing (`code: proof_required`), or the pen is not on
+            that day's experiment sheet (`code: not_experiment_pen`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /feed-direction/wastage/{completion_id}/measurement:
+    post:
+      tags:
+        - Feed Direction
+      operationId: recordFeedWastageMeasurement
+      summary: Record the leftover feed weight the VERIFIER reads off a wastage video.
+      description: >-
+        The VERIFIER'S measurement (maintainer decision 2026-08-18), the second producer-owned
+        measurement route after the weighing weight correction. She watches the pen's wastage video
+        and records the leftover weight she can see, in kg; a later entry REPLACES the value. ZERO
+        IS VALID — an empty trough is a real, good measurement — so clients must keep a blank field
+        distinct from an explicit 0 and never coerce one into the other.
+
+
+        It is deliberately SEPARATE from her verdict: she records the value and then approves the
+        video on the ordinary verdict route; when she cannot read a value at all, she rejects for a
+        re-shoot and records nothing. Recording never changes the completion's status.
+
+
+        ONE route serves her phone and her admin-web drawer. Authorization is the verifier-exclusive
+        `verification.verdict` capability, so the person who judges the evidence is the person who
+        records what it shows. The `completion_id` comes from the verification item's own
+        `measurement_correction.observation_id` (which echoes `source.ref_id`); clients never
+        compose that address themselves.
+      parameters:
+        - name: completion_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedWastageMeasurementRequest"
+      responses:
+        "200":
+          description: The measurement is recorded and the queue item's label restated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedWastageMeasurementResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: >-
+            The value is missing (`code: missing_wastage`) or out of range
+            (`code: wastage_out_of_range` — 0 to 10000 kg). The message is the sentence to render.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-transport/tasks:
     get:
       tags: [Feed Direction]
@@ -12545,6 +12768,251 @@ components:
           type: integer
         has_more:
           type: boolean
+    FeedWastageRow:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - park_label
+        - shed_id
+        - shed_label
+        - operational_location_display
+        - workflow
+        - experiment_arm
+        - head_count
+        - lifecycle_status
+        - completed
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_label:
+          type: string
+        partition_label:
+          type: string
+          description: >-
+            The pen this wastage task is for ("1", "Part 3"), absent for an undivided shed. Part of
+            the row's identity: one pen's video must never close another pen's task. Clients MUST
+            render shed + partition together.
+        operational_location_display:
+          type: string
+          description: Backend-composed physical location label. Render verbatim.
+        workflow:
+          type: string
+          enum: [experiment]
+          description: Always `experiment` — wastage exists only for experiment pens.
+        experiment_arm:
+          type: string
+          description: The pen's authored trial group. Farm copy; render verbatim.
+        head_count:
+          type: integer
+          format: int64
+          description: The pen's projected head count — context, never a gate or a quantity.
+        lifecycle_status:
+          type: string
+          enum: [pending, pending_verification, completed]
+          description: >-
+            The pen-day's verification-lifecycle bucket. `rework` merges into `pending`, because a
+            bounced pen is the operator's to act on again.
+        completed:
+          type: boolean
+        rework_reason:
+          type: string
+          description: >-
+            Why this pen came back to the operator, present only while it is in rework (surfacing
+            above as `lifecycle_status: pending`). Backend-composed farm copy; render verbatim.
+        wastage_kg:
+          type: string
+          description: >-
+            The VERIFIER'S recorded leftover weight in kg, as an exact decimal string, present only
+            once she has recorded one. "0" is a real measurement (an empty trough), a different
+            statement from the field being absent (not yet measured).
+    FeedWastageWorklistSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - total_pens
+        - pending_pens
+        - in_review_pens
+        - completed_pens
+      properties:
+        total_pens:
+          type: integer
+          description: >-
+            Experiment pens owing a wastage video on this feed day, across the WHOLE filtered
+            scope — invariant to `limit`/`offset`. The three buckets below are disjoint and sum to
+            this figure.
+        pending_pens:
+          type: integer
+          description: Pens with no submitted video yet, or bounced back for a re-shoot.
+        in_review_pens:
+          type: integer
+          description: Pens with a submitted video awaiting the verifier.
+        completed_pens:
+          type: integer
+          description: Verifier-approved pens.
+    FeedWastageWorklistPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - summary
+        - lifecycle
+        - filters
+        - target_date
+        - limit
+        - offset
+        - has_more
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedWastageRow"
+        summary:
+          $ref: "#/components/schemas/FeedWastageWorklistSummary"
+        lifecycle:
+          $ref: "#/components/schemas/FeedDirectionLifecycle"
+        filters:
+          $ref: "#/components/schemas/FeedDirectionFilterOptions"
+        target_date:
+          type: string
+          format: date
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+    FeedWastageCompleteRequest:
+      type: object
+      # additionalProperties: false is load-bearing on a write that consumes an operator's video —
+      # a field this server does not understand is a 400 they can see, never a 200 that silently
+      # drops half the submission.
+      additionalProperties: false
+      required:
+        - shed_id
+        - target_date
+        - wastage_proof_ref
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          description: >-
+            The park the shed belongs to. Optional: when omitted the server resolves the tenant's
+            default park, matching the read routes. Exactly one park per completion.
+        shed_id:
+          type: string
+          format: uuid
+        partition_label:
+          type: string
+          description: >-
+            The PEN whose leftover was filmed ("2", "Part 3"). Omit or send "" for an undivided
+            shed. Part of the completion's IDENTITY: a partitioned shed has one wastage task PER
+            PEN.
+        target_date:
+          type: string
+          format: date
+          description: The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+        wastage_proof_ref:
+          type: string
+          minLength: 1
+          description: >-
+            MANDATORY. The server-minted `proof_id` of the wastage VIDEO. A blank value is rejected
+            `422 proof_required`. The bytes live in GCS; only the reference is recorded.
+    FeedWastageCompleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - status
+        - newly_pending
+      properties:
+        completion_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_verification, completed]
+          description: >-
+            `pending_verification` on a fresh submit or a rework re-submit; `completed` when the
+            pen-day had already been verifier-approved. Never `completed` on a first submit.
+        newly_pending:
+          type: boolean
+          description: >-
+            True when this call flipped the pen-day into pending_verification and enqueued a
+            verification item. False on an idempotent replay or an already-pending/already-completed
+            no-op.
+    FeedWastageMeasurementRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - wastage_kg
+      properties:
+        wastage_kg:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 10000
+          description: >-
+            The leftover feed weight the verifier reads off the video, in kg. ZERO IS VALID (an
+            empty trough). Clients must never coerce a blank field into 0 — blank means she has not
+            typed a value, and is refused as `missing_wastage`, never sent as a number she never
+            entered.
+        idempotency_key:
+          type: string
+          description: >-
+            Derived, not random, so a double-tap is ONE write. Include the value in the key —
+            recording 3 kg and then 3.5 kg are two different acts. The `Idempotency-Key` header is
+            the fallback when this field is absent.
+    FeedWastageMeasurementResult:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - wastage_kg
+        - recorded_by
+        - recorded_at
+        - subject_label
+      properties:
+        completion_id:
+          type: string
+          format: uuid
+        wastage_kg:
+          type: number
+          format: double
+          description: The value AFTER this entry.
+        previous_wastage_kg:
+          type: number
+          format: double
+          description: >-
+            What the row held immediately before this entry. Absent on a first entry — a wastage
+            measurement is born on the verifier's screen, so there is no operator original to
+            preserve.
+        recorded_by:
+          type: string
+          format: uuid
+        recorded_at:
+          type: string
+          format: date-time
+        subject_label:
+          type: string
+          description: >-
+            The recomposed verifier-facing label for this pen-day, carrying the recorded value. The
+            server also pushes it onto the verification item, so the queue stops advertising the
+            bare pen.
+    FeedWastageMeasurementResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - wastage_measurement
+      properties:
+        wastage_measurement:
+          $ref: "#/components/schemas/FeedWastageMeasurementResult"
     FeedConfigSessionTemplatePage:
       type: object
       additionalProperties: false

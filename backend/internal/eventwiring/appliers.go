@@ -36,6 +36,7 @@ type FeedCompletionStore interface {
 	feeddirectionports.DistributionCompletionStore
 	feeddirectionports.PackingCompletionStore
 	feeddirectionports.TransportStore
+	feeddirectionports.WastageCompletionStore
 }
 
 // WeighingVerdictStore is satisfied by *weighingpg.Repository. Weighing enqueued a verification item
@@ -64,6 +65,11 @@ func RegisterVerificationAppliers(
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)
+	// Feed WASTAGE (maintainer decision 2026-08-18): the fourth feed gate's applier, filtered to
+	// feed/feed_wastage_completion. Registered HERE, in the one shared list, so the API bus, the
+	// outbox relay, and the Pub/Sub consumer cannot drift apart — the exact incident this package
+	// exists to prevent.
+	feeddirectionapp.NewFeedWastageVerificationHandler(feed, log).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is
