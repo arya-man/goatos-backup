@@ -114,7 +114,7 @@ async function verifySopAuthoring(page) {
     .slice(0, 42);
   const sopName = `Vaccination Authoring ${suffix}`;
 
-  await goto(page, "/sops?scope_mode=company&new=1");
+  await goto(page, "/vaccination/sops?scope_mode=company&new=1");
   const builder = page.locator("main").first();
   await builder.getByLabel("SOP name").fill(sopName);
   const choiceInputs = builder.locator('input[placeholder="Choice text"]');
@@ -471,7 +471,7 @@ async function saveDryRunPublish(dialog, savedPattern, label) {
 }
 
 async function openSopDetail(page, sopName) {
-  await goto(page, "/sops?scope_mode=company");
+  await goto(page, "/vaccination/sops?scope_mode=company");
   const search = page.locator(".tsearch input").first();
   await expectAtLeastOne("SOP search", search);
   await search.fill(sopName);
