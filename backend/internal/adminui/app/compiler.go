@@ -788,6 +788,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
+		case "sales":
+			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -844,6 +846,43 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 		controls = upsertControl(controls, c)
 	}
 	return controls
+}
+
+// compileSalesControls splits /procurement/sales by authority: SalesRead reaches the board and
+// reads the ledger; only SalesWrite may record a sale.
+//
+// The control is declared for every principal who reaches the page and DISABLED with a reason for
+// those who may not use it, rather than omitted -- a missing button reads as a broken page, a
+// disabled one carrying "your role can view sales but not record them" is an answer. Same shape as
+// compileHealthConfigControls. The route behind it requires the same permission, so a principal
+// who defeats the disabled state still gets 403; the control is the honest label, not the lock.
+func compileSalesControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
+	// enabled, matching compileConfigControls and compileHealthConfigControls.
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.write", "Your current role can view sales but not record them.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_sale",
+		Label:          controlCopy(copy, "action.record_sale.label", "Record sale"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals",
+	})
+	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
+	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
+	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
+	return upsertControl(controls, domain.Control{
+		ID:             "record_pipeline",
+		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
+		Kind:           "secondary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/buyer-leads",
+	})
 }
 
 func compileConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
@@ -1371,6 +1410,10 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
+	case "procurement-sales":
+		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
+		// and realized prices -- the selling side, not the intake screens operators work.
+		return []string{permissions.SalesRead}
 	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
 	case "weighing-weights":

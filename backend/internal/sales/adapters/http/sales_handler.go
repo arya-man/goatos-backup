@@ -1,0 +1,180 @@
+// Package http serves the sales module's routes.
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/sales/app"
+	"github.com/vgoats/goatos/backend/internal/sales/domain"
+	"github.com/vgoats/goatos/backend/internal/sales/ports"
+)
+
+// SalesService is the behaviour this transport depends on.
+type SalesService interface {
+	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
+	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
+	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	ListBuyerLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.BuyerLeadPage, error)
+	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+	SetBuyerLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+	ListFPOLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.FPOLeadPage, error)
+	CreateFPOLead(ctx context.Context, tenantID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+	SetFPOLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+	CreateBenchmark(ctx context.Context, tenantID string, write domain.BenchmarkWrite, actorID, idempotencyKey string) error
+	CreateSoldTags(ctx context.Context, tenantID string, write domain.SoldTagsWrite, actorID, idempotencyKey string) (int, error)
+	CreateWeightCheck(ctx context.Context, tenantID string, write domain.WeightCheckWrite, actorID, idempotencyKey string) error
+}
+
+// SalesHandler serves /sales.
+type SalesHandler struct {
+	service SalesService
+	log     *slog.Logger
+}
+
+func NewSalesHandler(service SalesService, log ...*slog.Logger) *SalesHandler {
+	l := slog.Default()
+	if len(log) > 0 && log[0] != nil {
+		l = log[0]
+	}
+	return &SalesHandler{service: service, log: l}
+}
+
+// Register mounts the sales module.
+//
+// Patterns here must stay byte-identical to the entries in permissions/routes.go -- the permission
+// table is matched by method + pattern, and a mismatch serves the route ungated.
+func Register(mux *http.ServeMux, h *SalesHandler) {
+	mux.HandleFunc("GET /sales/overview", h.GetOverview)
+	mux.HandleFunc("GET /sales/deals", h.ListDeals)
+	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
+	mux.HandleFunc("GET /sales/buyer-leads", h.ListBuyerLeads)
+	mux.HandleFunc("POST /sales/buyer-leads", h.CreateBuyerLead)
+	mux.HandleFunc("POST /sales/buyer-leads/{lead_id}/status", h.SetBuyerLeadStatus)
+	mux.HandleFunc("GET /sales/fpo-leads", h.ListFPOLeads)
+	mux.HandleFunc("POST /sales/fpo-leads", h.CreateFPOLead)
+	mux.HandleFunc("POST /sales/fpo-leads/{lead_id}/status", h.SetFPOLeadStatus)
+	mux.HandleFunc("POST /sales/market-benchmarks", h.CreateBenchmark)
+	mux.HandleFunc("POST /sales/sold-tags", h.CreateSoldTags)
+	mux.HandleFunc("POST /sales/weight-checks", h.CreateWeightCheck)
+}
+
+// maxSalesRequestBytes caps a write body. The largest legitimate record-sale payload is well under
+// a kilobyte; the cap stops a hostile client streaming an unbounded body into memory.
+const maxSalesRequestBytes = 64 * 1024
+
+// GetOverview serves GET /sales/overview.
+func (h *SalesHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
+	overview, err := h.service.GetOverview(r.Context(), tenantID(r), r.URL.Query().Get("farm"))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toOverviewPayload(overview))
+}
+
+// ListDeals serves GET /sales/deals.
+func (h *SalesHandler) ListDeals(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 0
+	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			h.writeErr(w, r, app.BadRequest("invalid_limit", "That page size is not valid."))
+			return
+		}
+		limit = parsed
+	}
+	offset := 0
+	if raw := strings.TrimSpace(q.Get("offset")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			h.writeErr(w, r, app.BadRequest("invalid_offset", "That page is not valid."))
+			return
+		}
+		offset = parsed
+	}
+
+	page, err := h.service.ListDeals(r.Context(), tenantID(r), app.DealListQuery{
+		Farm:   q.Get("farm"),
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+
+	items := make([]dealPayload, 0, len(page.Deals))
+	for _, d := range page.Deals {
+		items = append(items, toDealPayload(d))
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dealPagePayload{
+		Deals: items,
+		// Total is the WHOLE-FILTER count, not len(Deals); the screen derives the page count
+		// from it.
+		Total:  page.Total,
+		Limit:  domain.ClampDealPageSize(limit),
+		Offset: offset,
+	})
+}
+
+// CreateDeal serves POST /sales/deals.
+func (h *SalesHandler) CreateDeal(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This sale could not be recorded safely. Try again."))
+		return
+	}
+	var body dealWritePayload
+	if !h.decode(w, r, &body) {
+		return
+	}
+	created, err := h.service.CreateDeal(r.Context(), tenantID(r), body.toDomain(),
+		httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, toDealPayload(created))
+}
+
+// decode reads and validates a JSON write body.
+//
+// DisallowUnknownFields is deliberate: a client sending "sales_valu" must be told, not silently
+// ignored into a zero required field. Same fail-loud rule the fixture loaders use.
+func (h *SalesHandler) decode(w http.ResponseWriter, r *http.Request, dst *dealWritePayload) bool {
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxSalesRequestBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That sale form could not be read. Check the fields and try again."))
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		h.writeErr(w, r, app.BadRequest("invalid_body", "That sale form could not be read. Check the fields and try again."))
+		return false
+	}
+	return true
+}
+
+func (h *SalesHandler) writeErr(w http.ResponseWriter, r *http.Request, appErr *app.Error) {
+	if appErr == nil {
+		return
+	}
+	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, map[string]any{
+		"error":   appErr.Code,
+		"message": appErr.Message,
+	}, errors.New(appErr.Code))
+}
+
+func tenantID(r *http.Request) string {
+	return httpmiddleware.TenantIDFromContext(r.Context())
+}

@@ -1,0 +1,5211 @@
+{
+ "exported_at": "2026-08-17",
+ "source": "Sales DB Google Sheet 1ACQJIQIZRkoQx76HtO_vORsGCVekHsI6TFFH-vohT8I",
+ "note": "Buyer/vendor phone numbers deliberately omitted from the committed snapshot.",
+ "deals": [
+  {
+   "sale_date": "2025-04-15",
+   "farm": "CPT",
+   "source_sales_id": 1,
+   "source_purchase_id": null,
+   "buyer_name": "Tanveer",
+   "buyer_place": "Madur",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 23.0,
+   "male_count": 12.0,
+   "female_count": 11.0,
+   "total_weight_kg": 600.0,
+   "advance_amount": 201500.0,
+   "sales_value": 201500.0,
+   "status": "Deal Closed",
+   "feedback": "The meat and bone ratio is good, the fat is less and on the shoulders, some portion is looks like bundles it formed",
+   "comments": "sold, All payment deposited in bank"
+  },
+  {
+   "sale_date": "2025-04-15",
+   "farm": "CBE",
+   "source_sales_id": 2,
+   "source_purchase_id": null,
+   "buyer_name": "Riyaz",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 16.0,
+   "male_count": 16.0,
+   "female_count": null,
+   "total_weight_kg": 514.0,
+   "advance_amount": 180800.0,
+   "sales_value": 180800.0,
+   "status": "Deal Closed",
+   "feedback": "Meat and bone ration is good",
+   "comments": "sold, All payment deposited in bank"
+  },
+  {
+   "sale_date": "2025-04-15",
+   "farm": "CBE",
+   "source_sales_id": 2,
+   "source_purchase_id": null,
+   "buyer_name": "Riyaz",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 8.0,
+   "male_count": 0.0,
+   "female_count": 8.0,
+   "total_weight_kg": 224.0,
+   "advance_amount": 76000.0,
+   "sales_value": 76000.0,
+   "status": "Deal Closed",
+   "feedback": "Meat and bone ration is good",
+   "comments": "sold, All payment deposited in bank"
+  },
+  {
+   "sale_date": "2025-05-17",
+   "farm": "CBE",
+   "source_sales_id": 3,
+   "source_purchase_id": null,
+   "buyer_name": "Riyaz",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 4.0,
+   "male_count": 0.0,
+   "female_count": 4.0,
+   "total_weight_kg": 143.0,
+   "advance_amount": 48000.0,
+   "sales_value": 48000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "sold, 22500 Bank Trasfer and 25500 Cash received by Arvind"
+  },
+  {
+   "sale_date": "2025-06-07",
+   "farm": "CBE",
+   "source_sales_id": 4,
+   "source_purchase_id": null,
+   "buyer_name": "Buyer",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Osmanabadi",
+   "animal_count": 2.0,
+   "male_count": 2.0,
+   "female_count": null,
+   "total_weight_kg": 45.6,
+   "advance_amount": 20500.0,
+   "sales_value": 20500.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment Received by Aryman, 2 male 450 Rs per kg"
+  },
+  {
+   "sale_date": "2025-08-04",
+   "farm": "CPT",
+   "source_sales_id": 5,
+   "source_purchase_id": null,
+   "buyer_name": "Investor 2",
+   "buyer_place": null,
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 1.0,
+   "male_count": 1.0,
+   "female_count": null,
+   "total_weight_kg": 34.0,
+   "advance_amount": null,
+   "sales_value": 13600.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": null
+  },
+  {
+   "sale_date": "2025-08-03",
+   "farm": "CPT",
+   "source_sales_id": 6,
+   "source_purchase_id": null,
+   "buyer_name": "Investor 2",
+   "buyer_place": null,
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 1.0,
+   "male_count": 1.0,
+   "female_count": null,
+   "total_weight_kg": 33.0,
+   "advance_amount": null,
+   "sales_value": 17000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": null
+  },
+  {
+   "sale_date": "2025-09-21",
+   "farm": "CPT",
+   "source_sales_id": 7,
+   "source_purchase_id": null,
+   "buyer_name": "Masti",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 2.0,
+   "male_count": 2.0,
+   "female_count": null,
+   "total_weight_kg": 79.0,
+   "advance_amount": null,
+   "sales_value": 5000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Manju will collect payment"
+  },
+  {
+   "sale_date": "2025-11-22",
+   "farm": "CPT",
+   "source_sales_id": 8,
+   "source_purchase_id": null,
+   "buyer_name": "Nischit",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 5.0,
+   "male_count": 5.0,
+   "female_count": null,
+   "total_weight_kg": 120.0,
+   "advance_amount": 42000.0,
+   "sales_value": 42000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment to Manju( 16000+26000 Rs )"
+  },
+  {
+   "sale_date": "2025-11-25",
+   "farm": "CPT",
+   "source_sales_id": 9,
+   "source_purchase_id": null,
+   "buyer_name": "Nischit",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 6.0,
+   "male_count": 6.0,
+   "female_count": null,
+   "total_weight_kg": 207.0,
+   "advance_amount": 72485.0,
+   "sales_value": 72485.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment to Manju (40000+32485 Rs )"
+  },
+  {
+   "sale_date": "2025-11-27",
+   "farm": "CPT",
+   "source_sales_id": 10,
+   "source_purchase_id": null,
+   "buyer_name": "Tabrez Pasha",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 5.0,
+   "male_count": 5.0,
+   "female_count": null,
+   "total_weight_kg": 168.0,
+   "advance_amount": 59000.0,
+   "sales_value": 59000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment to Company from Hemant (64000 Rs )"
+  },
+  {
+   "sale_date": "2025-12-01",
+   "farm": "CPT",
+   "source_sales_id": 11,
+   "source_purchase_id": null,
+   "buyer_name": "Tabrez Pasha",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 5.0,
+   "male_count": 5.0,
+   "female_count": null,
+   "total_weight_kg": 159.8,
+   "advance_amount": 55930.00000000001,
+   "sales_value": 55930.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment to Company from Hemant (50933 Rs)"
+  },
+  {
+   "sale_date": "2025-12-03",
+   "farm": "CBE",
+   "source_sales_id": 12,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 10.0,
+   "male_count": 10.0,
+   "female_count": null,
+   "total_weight_kg": 425.5,
+   "advance_amount": 152460.0,
+   "sales_value": 152460.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "90k transper To company from Hemant +62460 rs"
+  },
+  {
+   "sale_date": "2025-12-06",
+   "farm": "CBE",
+   "source_sales_id": 13,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 7.0,
+   "male_count": 7.0,
+   "female_count": null,
+   "total_weight_kg": 228.0,
+   "advance_amount": 93480.0,
+   "sales_value": 93480.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "20k advance paid to company on 27 Nov by Hemant Singh and Balalce payment in this amount 252400 Rs ( 6 Dec) -Sales id 13 and 14 payment togther"
+  },
+  {
+   "sale_date": "2025-12-06",
+   "farm": "CBE",
+   "source_sales_id": 14,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 17.0,
+   "male_count": 17.0,
+   "female_count": null,
+   "total_weight_kg": 497.0,
+   "advance_amount": 178920.0,
+   "sales_value": 178920.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "252400 Rs ( 6 Dec) into bank -Sales id 13 and 14 payment togther"
+  },
+  {
+   "sale_date": "2025-12-09",
+   "farm": "CPT",
+   "source_sales_id": 15,
+   "source_purchase_id": null,
+   "buyer_name": "Tabrez Pasha",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 1.0,
+   "male_count": 1.0,
+   "female_count": null,
+   "total_weight_kg": 34.5,
+   "advance_amount": 12075.0,
+   "sales_value": 12075.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment to Company from Hemant (12075 Rs)"
+  },
+  {
+   "sale_date": "2025-12-19",
+   "farm": "CPT",
+   "source_sales_id": 16,
+   "source_purchase_id": null,
+   "buyer_name": "Asif",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 4.0,
+   "male_count": 4.0,
+   "female_count": null,
+   "total_weight_kg": 128.0,
+   "advance_amount": 46080.0,
+   "sales_value": 46080.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "New Customer"
+  },
+  {
+   "sale_date": "2025-12-27",
+   "farm": "CBE",
+   "source_sales_id": 17,
+   "source_purchase_id": null,
+   "buyer_name": "Kartik",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 50.0,
+   "male_count": null,
+   "female_count": 50.0,
+   "total_weight_kg": 1800.0,
+   "advance_amount": 544700.0,
+   "sales_value": 565000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "11300 Per goat- 50 Goats,544700 Deposited in bank, 20300 with dinkaer, he will deposit on 29Dec2025"
+  },
+  {
+   "sale_date": "2025-12-31",
+   "farm": "CBE",
+   "source_sales_id": 18,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 17.0,
+   "male_count": null,
+   "female_count": 17.0,
+   "total_weight_kg": 228.0,
+   "advance_amount": 72800.0,
+   "sales_value": 72800.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "5150 Rs Per goat, week goats and 11000 Rs only for 5 goats about to die goats"
+  },
+  {
+   "sale_date": "2026-01-03",
+   "farm": "CPT",
+   "source_sales_id": 19,
+   "source_purchase_id": null,
+   "buyer_name": "Asif",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 2.0,
+   "male_count": 2.0,
+   "female_count": null,
+   "total_weight_kg": 64.0,
+   "advance_amount": 25600.0,
+   "sales_value": 25600.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "400 rs per kg"
+  },
+  {
+   "sale_date": "2026-01-22",
+   "farm": "CBE",
+   "source_sales_id": 20,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Sojat",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": 1.0,
+   "total_weight_kg": null,
+   "advance_amount": null,
+   "sales_value": 4500.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "4500 rs with aryman"
+  },
+  {
+   "sale_date": "2026-02-09",
+   "farm": "CBE",
+   "source_sales_id": 21,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Sojat",
+   "animal_count": 4.0,
+   "male_count": null,
+   "female_count": 4.0,
+   "total_weight_kg": null,
+   "advance_amount": null,
+   "sales_value": 11000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Deposited, 13000 Rs , 21 and 22 sales id togther"
+  },
+  {
+   "sale_date": "2026-02-13",
+   "farm": "CBE",
+   "source_sales_id": 22,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Sojat",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": 1.0,
+   "total_weight_kg": null,
+   "advance_amount": null,
+   "sales_value": 2000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Deposited, 13000 Rs , 21 and 22 sales id togther"
+  },
+  {
+   "sale_date": "2026-02-17",
+   "farm": "CBE",
+   "source_sales_id": 23,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Sojat",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": 1.0,
+   "total_weight_kg": null,
+   "advance_amount": null,
+   "sales_value": 1000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment Deposited by dinkaer"
+  },
+  {
+   "sale_date": "2026-02-28",
+   "farm": "CBE",
+   "source_sales_id": 24,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 2.0,
+   "male_count": 2.0,
+   "female_count": null,
+   "total_weight_kg": 78.5,
+   "advance_amount": null,
+   "sales_value": 31400.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment Deposited by dinkaer, 48000"
+  },
+  {
+   "sale_date": "2026-02-28",
+   "farm": "CBE",
+   "source_sales_id": 24,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 1.0,
+   "male_count": 1.0,
+   "female_count": null,
+   "total_weight_kg": 41.5,
+   "advance_amount": null,
+   "sales_value": 16600.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Payment Deposited by dinkaer, 48000"
+  },
+  {
+   "sale_date": "2026-03-05",
+   "farm": "CPT",
+   "source_sales_id": 25,
+   "source_purchase_id": null,
+   "buyer_name": "Tanveer",
+   "buyer_place": "Madur",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 11.0,
+   "male_count": 11.0,
+   "female_count": null,
+   "total_weight_kg": 375.0,
+   "advance_amount": 150000.0,
+   "sales_value": 150000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "All paymnet used in procument of MP bhusa- \\"
+  },
+  {
+   "sale_date": "2026-03-10",
+   "farm": "CBE",
+   "source_sales_id": 26,
+   "source_purchase_id": null,
+   "buyer_name": "Nagraj",
+   "buyer_place": "Coimbatore",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 960.0,
+   "advance_amount": 4600.0,
+   "sales_value": 4600.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Deposited, 13000 Rs"
+  },
+  {
+   "sale_date": "2026-03-10",
+   "farm": "CBE",
+   "source_sales_id": 27,
+   "source_purchase_id": null,
+   "buyer_name": "Giri",
+   "buyer_place": "pollachi",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 10630.0,
+   "advance_amount": 42500.0,
+   "sales_value": 42500.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "Deposited, 42500 in three part- 27000+14100+1400"
+  },
+  {
+   "sale_date": "2026-03-11",
+   "farm": "CBE",
+   "source_sales_id": 28,
+   "source_purchase_id": null,
+   "buyer_name": "Kuppasamy",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 42.0,
+   "male_count": null,
+   "female_count": 42.0,
+   "total_weight_kg": 35.0,
+   "advance_amount": 420000.0,
+   "sales_value": 420000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "10000+360100+9900+40000 deposited"
+  },
+  {
+   "sale_date": "2026-03-14",
+   "farm": "CBE",
+   "source_sales_id": 27,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 14110.0,
+   "advance_amount": 57310.0,
+   "sales_value": 57310.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "7310+25000+25000 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-03-19",
+   "farm": "CBE",
+   "source_sales_id": 28,
+   "source_purchase_id": null,
+   "buyer_name": "Nagraj",
+   "buyer_place": "Coimbatore",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 1340.0,
+   "advance_amount": null,
+   "sales_value": 6700.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "6500+200 deposited into account"
+  },
+  {
+   "sale_date": "2026-03-18",
+   "farm": "CBE",
+   "source_sales_id": 29,
+   "source_purchase_id": null,
+   "buyer_name": "Nagraj",
+   "buyer_place": "Coimbatore",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 3170.0,
+   "advance_amount": null,
+   "sales_value": 15800.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "15700+150 Rs"
+  },
+  {
+   "sale_date": "2026-03-14",
+   "farm": "CBE",
+   "source_sales_id": 30,
+   "source_purchase_id": null,
+   "buyer_name": "Nagraj",
+   "buyer_place": "Coimbatore",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 1550.0,
+   "advance_amount": null,
+   "sales_value": 7750.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "7700+50 Deposited into account"
+  },
+  {
+   "sale_date": "2026-03-14",
+   "farm": "CBE",
+   "source_sales_id": 31,
+   "source_purchase_id": null,
+   "buyer_name": "Nagraj",
+   "buyer_place": "Coimbatore",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 870.0,
+   "advance_amount": null,
+   "sales_value": 4350.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "7310+25000+25000 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-03-28",
+   "farm": "CPT",
+   "source_sales_id": 32,
+   "source_purchase_id": null,
+   "buyer_name": "Tanveer",
+   "buyer_place": "Maddur",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 10.0,
+   "male_count": 10.0,
+   "female_count": null,
+   "total_weight_kg": 346.0,
+   "advance_amount": null,
+   "sales_value": 152000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "57000+94000(27 marc)+1000 rs ( 30 march) Deposited"
+  },
+  {
+   "sale_date": "2026-04-01",
+   "farm": "CBE",
+   "source_sales_id": 33,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 2.0,
+   "male_count": 2.0,
+   "female_count": null,
+   "total_weight_kg": 350.0,
+   "advance_amount": null,
+   "sales_value": 40250.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "41150+100 Rs received into company"
+  },
+  {
+   "sale_date": "2026-04-01",
+   "farm": "CBE",
+   "source_sales_id": 34,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 1.0,
+   "male_count": 1.0,
+   "female_count": null,
+   "total_weight_kg": 350.0,
+   "advance_amount": 1000.0,
+   "sales_value": null,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "41150+100 Rs received into company"
+  },
+  {
+   "sale_date": "2026-04-09",
+   "farm": "CBE",
+   "source_sales_id": 35,
+   "source_purchase_id": null,
+   "buyer_name": "S Narayanswamy",
+   "buyer_place": "Pollachi",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 31450.0,
+   "advance_amount": 82590.0,
+   "sales_value": 82590.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "82590 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-04-14",
+   "farm": "CBE",
+   "source_sales_id": 36,
+   "source_purchase_id": null,
+   "buyer_name": "S Narayanswamy",
+   "buyer_place": "Pollachi",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 31260.0,
+   "advance_amount": null,
+   "sales_value": 31260.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "63300 Deposited"
+  },
+  {
+   "sale_date": "2026-04-15",
+   "farm": "CBE",
+   "source_sales_id": 37,
+   "source_purchase_id": null,
+   "buyer_name": "S Narayanswamy",
+   "buyer_place": "Pollachi",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 32040.0,
+   "advance_amount": null,
+   "sales_value": 32040.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "63300 Deposited"
+  },
+  {
+   "sale_date": "2026-03-24",
+   "farm": "CBE",
+   "source_sales_id": 38,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 14170.0,
+   "advance_amount": null,
+   "sales_value": 56680.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "56680 Deposited in bank"
+  },
+  {
+   "sale_date": "2026-04-30",
+   "farm": "CPT",
+   "source_sales_id": 39,
+   "source_purchase_id": 100,
+   "buyer_name": "Yousuf",
+   "buyer_place": "Kanakapura",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 23.0,
+   "male_count": 23.0,
+   "female_count": null,
+   "total_weight_kg": 870.0,
+   "advance_amount": null,
+   "sales_value": 384000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "50000*4+184000 deposited into bank"
+  },
+  {
+   "sale_date": "2026-05-02",
+   "farm": "CPT",
+   "source_sales_id": 40,
+   "source_purchase_id": 101,
+   "buyer_name": "Suraj",
+   "buyer_place": "Maddur",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 11.0,
+   "male_count": 11.0,
+   "female_count": null,
+   "total_weight_kg": 400.0,
+   "advance_amount": null,
+   "sales_value": 172000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "90000+52000+30000= 172000 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-05-03",
+   "farm": "CBE",
+   "source_sales_id": 41,
+   "source_purchase_id": null,
+   "buyer_name": "Ramesh",
+   "buyer_place": "Madurai",
+   "product_type": "Goat",
+   "breed": "Osmanabadi",
+   "animal_count": 17.0,
+   "male_count": 10.0,
+   "female_count": 7.0,
+   "total_weight_kg": 535.0,
+   "advance_amount": null,
+   "sales_value": 230000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "30000+99500+97500+3000 = 230000 Rs Deposited"
+  },
+  {
+   "sale_date": "2026-05-08",
+   "farm": "CPT",
+   "source_sales_id": 42,
+   "source_purchase_id": 100,
+   "buyer_name": "Moshin",
+   "buyer_place": "Bangalore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 71.0,
+   "male_count": 71.0,
+   "female_count": null,
+   "total_weight_kg": 2353.0,
+   "advance_amount": 1000000.0,
+   "sales_value": 1000000.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "300000 Deposited advance on 4 May and 700000 on 8 may"
+  },
+  {
+   "sale_date": "2026-05-08",
+   "farm": "CPT",
+   "source_sales_id": 42,
+   "source_purchase_id": 101,
+   "buyer_name": "Moshin",
+   "buyer_place": "Bangalore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": null,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": null,
+   "advance_amount": null,
+   "sales_value": null,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": null
+  },
+  {
+   "sale_date": "2026-05-05",
+   "farm": "CBE",
+   "source_sales_id": 43,
+   "source_purchase_id": 113,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 46.0,
+   "male_count": 46.0,
+   "female_count": null,
+   "total_weight_kg": null,
+   "advance_amount": 50000.0,
+   "sales_value": null,
+   "status": "Deal Failed",
+   "feedback": null,
+   "comments": "50k Deposited on 6 may and returned 49900 rs + 100 on 20 May"
+  },
+  {
+   "sale_date": "2026-05-08",
+   "farm": "CPT",
+   "source_sales_id": 44,
+   "source_purchase_id": null,
+   "buyer_name": "Boobesh",
+   "buyer_place": "Gobichittipalyam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 8130.0,
+   "advance_amount": null,
+   "sales_value": 20325.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "20325 Deposited on 8 may"
+  },
+  {
+   "sale_date": "2026-05-09",
+   "farm": "CPT",
+   "source_sales_id": 46,
+   "source_purchase_id": null,
+   "buyer_name": "Boobesh",
+   "buyer_place": "Gobichittipalyam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 8435.0,
+   "advance_amount": null,
+   "sales_value": 21087.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "21087 Deposited on 9 may"
+  },
+  {
+   "sale_date": "2026-05-13",
+   "farm": "CBE",
+   "source_sales_id": 47,
+   "source_purchase_id": 113,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 47.0,
+   "male_count": 47.0,
+   "female_count": null,
+   "total_weight_kg": 1469.5,
+   "advance_amount": null,
+   "sales_value": 639232.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "500000+232+100000+39000 Deposited into bank account"
+  },
+  {
+   "sale_date": "2026-05-14",
+   "farm": "CPT",
+   "source_sales_id": 45,
+   "source_purchase_id": 101,
+   "buyer_name": "Moshin",
+   "buyer_place": "Bangalore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 9.0,
+   "male_count": 9.0,
+   "female_count": null,
+   "total_weight_kg": 245.0,
+   "advance_amount": null,
+   "sales_value": 104405.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "104405 Rs Depsoited into account"
+  },
+  {
+   "sale_date": "2026-05-19",
+   "farm": "CPT",
+   "source_sales_id": 46,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 10580.0,
+   "advance_amount": null,
+   "sales_value": 31740.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "31740 Deposited in bank"
+  },
+  {
+   "sale_date": "2026-05-20",
+   "farm": "CBE",
+   "source_sales_id": 48,
+   "source_purchase_id": 113,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 46.0,
+   "male_count": 46.0,
+   "female_count": null,
+   "total_weight_kg": 1458.9,
+   "advance_amount": null,
+   "sales_value": 634600.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "435 Rs per kg ,400000 Rs+234600 Rs Deposited on 20 may"
+  },
+  {
+   "sale_date": "2026-05-23",
+   "farm": "CPT",
+   "source_sales_id": 49,
+   "source_purchase_id": 100,
+   "buyer_name": "Mujeeb",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 11.0,
+   "male_count": 11.0,
+   "female_count": null,
+   "total_weight_kg": 370.0,
+   "advance_amount": null,
+   "sales_value": 166500.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "166500 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-05-26",
+   "farm": "CPT",
+   "source_sales_id": 50,
+   "source_purchase_id": null,
+   "buyer_name": "Naveen",
+   "buyer_place": "Bangalore",
+   "product_type": "Goat",
+   "breed": "Beetle",
+   "animal_count": 17.0,
+   "male_count": 17.0,
+   "female_count": null,
+   "total_weight_kg": 484.7,
+   "advance_amount": null,
+   "sales_value": 226430.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "100000+90000+36430 Deposited into account"
+  },
+  {
+   "sale_date": "2026-05-27",
+   "farm": "CPT",
+   "source_sales_id": 51,
+   "source_purchase_id": 101,
+   "buyer_name": "Mujeeb",
+   "buyer_place": "Channapatna",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 2.0,
+   "male_count": 2.0,
+   "female_count": null,
+   "total_weight_kg": 81.0,
+   "advance_amount": null,
+   "sales_value": 36450.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "100+36350 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-06-10",
+   "farm": "CBE",
+   "source_sales_id": 52,
+   "source_purchase_id": null,
+   "buyer_name": "Mahendran",
+   "buyer_place": "Coimbatore",
+   "product_type": "Sheep",
+   "breed": "Anantapur",
+   "animal_count": 11.0,
+   "male_count": 11.0,
+   "female_count": null,
+   "total_weight_kg": 346.0,
+   "advance_amount": null,
+   "sales_value": 155700.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "10000 Deposited on 6 June 2026 and 90000+10000+45700 Rs Depisted on 10 June"
+  },
+  {
+   "sale_date": "2026-06-14",
+   "farm": "CBE",
+   "source_sales_id": 53,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 13550.0,
+   "advance_amount": null,
+   "sales_value": 67750.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "67750 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-06-15",
+   "farm": "CBE",
+   "source_sales_id": 54,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 12410.0,
+   "advance_amount": null,
+   "sales_value": 62050.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "62050 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-07-06",
+   "farm": "CBE",
+   "source_sales_id": 55,
+   "source_purchase_id": null,
+   "buyer_name": "Shanmugam",
+   "buyer_place": "Coimbatore",
+   "product_type": "Goat",
+   "breed": "Malai",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": 1.0,
+   "total_weight_kg": 23.5,
+   "advance_amount": null,
+   "sales_value": 11750.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "11750 Rs deposited into account"
+  },
+  {
+   "sale_date": "2026-07-18",
+   "farm": "CBE",
+   "source_sales_id": 56,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 14450.0,
+   "advance_amount": null,
+   "sales_value": 57800.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "57800 Deposited into bank"
+  },
+  {
+   "sale_date": "2026-08-11",
+   "farm": "CPT",
+   "source_sales_id": 57,
+   "source_purchase_id": null,
+   "buyer_name": "Firoz",
+   "buyer_place": "Palladam",
+   "product_type": "Manure",
+   "breed": "Manure",
+   "animal_count": 1.0,
+   "male_count": null,
+   "female_count": null,
+   "total_weight_kg": 10200.0,
+   "advance_amount": null,
+   "sales_value": 30600.0,
+   "status": "Deal Closed",
+   "feedback": null,
+   "comments": "30600 Rs Deposited into bank"
+  }
+ ],
+ "buyer_leads": [
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Mutton shop",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Mutton animal Intrested"
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": 4,
+   "buyer_name": "Lognathan Meat Shop",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Al Madina",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Mutton animal Intrested"
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "A Abbas",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Mutton animal Intrested"
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Bhupathi",
+   "buyer_place": "Vellor",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Breeding Animal Intrested"
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 8,
+   "buyer_name": "Madhu",
+   "buyer_place": "Chikkballpur",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 9,
+   "buyer_name": "Shimbhu Lal",
+   "buyer_place": "Ajmer",
+   "animal_type": "Goat",
+   "breed": "Sirohi",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 10,
+   "buyer_name": "Vinayak",
+   "buyer_place": "Channapatna",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 11,
+   "buyer_name": "Farmer",
+   "buyer_place": "Kodamballi",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 12,
+   "buyer_name": "Ramchandrudu",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 13,
+   "buyer_name": "M Gowda",
+   "buyer_place": "Anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 14,
+   "buyer_name": "Narayan",
+   "buyer_place": "Anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 15,
+   "buyer_name": "Krishna Reddy",
+   "buyer_place": "Anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 16,
+   "buyer_name": "Giri",
+   "buyer_place": "Anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CPT",
+   "source_sales_id": 17,
+   "buyer_name": "Farm Markert",
+   "buyer_place": "Dharwad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": 18,
+   "buyer_name": "Vijay",
+   "buyer_place": "Velupuram",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-16",
+   "farm": "CBE",
+   "source_sales_id": 19,
+   "buyer_name": "SS Goat Farm",
+   "buyer_place": "Krishnagiri",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-19",
+   "farm": "CBE",
+   "source_sales_id": 20,
+   "buyer_name": "Narayanaswamy",
+   "buyer_place": "Anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-19",
+   "farm": "CBE",
+   "source_sales_id": 21,
+   "buyer_name": "Kareem",
+   "buyer_place": "Anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 22,
+   "buyer_name": "Navalandi Farm",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 23,
+   "buyer_name": "Meatton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Quality Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Mutton animal Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 25,
+   "buyer_name": "Asb Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 26,
+   "buyer_name": "MBS Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 27,
+   "buyer_name": "Ponnammal Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 28,
+   "buyer_name": "Erani Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 29,
+   "buyer_name": "Abc Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 30,
+   "buyer_name": "Rahman mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 31,
+   "buyer_name": "Kandsamy Mutton",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CBE",
+   "source_sales_id": 32,
+   "buyer_name": "Le Natural",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Sheep",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CPT",
+   "source_sales_id": 33,
+   "buyer_name": "Srinivas",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CPT",
+   "source_sales_id": 34,
+   "buyer_name": "Amma Bhagwan Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CPT",
+   "source_sales_id": 35,
+   "buyer_name": "Sri Gangadharwshwara",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CPT",
+   "source_sales_id": 36,
+   "buyer_name": "Farmer",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CPT",
+   "source_sales_id": 37,
+   "buyer_name": "Rusingappa",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-22",
+   "farm": "CPT",
+   "source_sales_id": 38,
+   "buyer_name": "Venkatanarayana",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 39,
+   "buyer_name": "Ashok",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 40,
+   "buyer_name": "Giri",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 41,
+   "buyer_name": "Pedaiah",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 42,
+   "buyer_name": "Beerappa",
+   "buyer_place": "anantapur",
+   "animal_type": "Sheep",
+   "breed": "Anantapur",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 43,
+   "buyer_name": "my goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 44,
+   "buyer_name": "Mandya Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 45,
+   "buyer_name": "Parishrama Goat Farm and trading",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 46,
+   "buyer_name": "osmanabadi Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 47,
+   "buyer_name": "Sri Sai Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 48,
+   "buyer_name": "ISRI Sheep Goat",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 49,
+   "buyer_name": "Taj Goat Sheep Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 50,
+   "buyer_name": "HD Sheep and Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 51,
+   "buyer_name": "Chickadevamma and Beetal Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 52,
+   "buyer_name": "SRS Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 53,
+   "buyer_name": "HS Sheep Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 54,
+   "buyer_name": "Bhoo Siri Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 55,
+   "buyer_name": "Goat and sheep Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 56,
+   "buyer_name": "Anil Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 57,
+   "buyer_name": "Isiri Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 58,
+   "buyer_name": "Tipu Sheep and Goat Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-23",
+   "farm": "CPT",
+   "source_sales_id": 59,
+   "buyer_name": "P V High Tech Farm",
+   "buyer_place": "Mysuru",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 60,
+   "buyer_name": "Alina Sheep and Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 61,
+   "buyer_name": "Limra Goat Farm Hyd",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 62,
+   "buyer_name": "Mashallah Goat Sales",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 63,
+   "buyer_name": "Al Rahmah Fresh Goat Milk",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 64,
+   "buyer_name": "Nisaraga Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 65,
+   "buyer_name": "Potla The Meat - Muntaha Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 66,
+   "buyer_name": "Halal Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 67,
+   "buyer_name": "Sheep And Goat Farming",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 68,
+   "buyer_name": "Sk Deccan Goat",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 69,
+   "buyer_name": "MM Group Indian Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 70,
+   "buyer_name": "Yadav sheep and Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 71,
+   "buyer_name": "Ahmed Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 72,
+   "buyer_name": "BJ Sheep and Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 73,
+   "buyer_name": "Papi Reddy Agro Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 74,
+   "buyer_name": "Royal Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 75,
+   "buyer_name": "KBN Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 76,
+   "buyer_name": "Farmz Sheep and Goat Farm",
+   "buyer_place": "Hyderbad",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 77,
+   "buyer_name": "Usman Goat Farm",
+   "buyer_place": "Solapur",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 78,
+   "buyer_name": "Smat Farm",
+   "buyer_place": "Solapur",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 79,
+   "buyer_name": "Famly Goat Farm",
+   "buyer_place": "Solapur",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 80,
+   "buyer_name": "Royal Goat Farm",
+   "buyer_place": "Solapur",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-26",
+   "farm": "CPT",
+   "source_sales_id": 81,
+   "buyer_name": "Raje Farm",
+   "buyer_place": "Solapur",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 82,
+   "buyer_name": "Goat and sheep Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 83,
+   "buyer_name": "Goat and sheep Service",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 84,
+   "buyer_name": "Jane Goat Sales",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 85,
+   "buyer_name": "Qasar Goat Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 86,
+   "buyer_name": "BASTA GOAT MILK",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 87,
+   "buyer_name": "NAMMA GOAT Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 88,
+   "buyer_name": "Dhanlakshmi Goat",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 89,
+   "buyer_name": "Gangadhar Goat",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 90,
+   "buyer_name": "Sinchana Goat and Sheep Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 91,
+   "buyer_name": "Nature Sheep and Goat Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 92,
+   "buyer_name": "Vk Sheep and Goat Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 93,
+   "buyer_name": "Vismaya Intergrated Farm tech",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 94,
+   "buyer_name": "SLN Goat Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 95,
+   "buyer_name": "bharava Goat Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-27",
+   "farm": "CPT",
+   "source_sales_id": 96,
+   "buyer_name": "ADJ Goat Farm",
+   "buyer_place": "Benglore",
+   "animal_type": "Goat",
+   "breed": "Beetle",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 97,
+   "buyer_name": "Trichy Al Amantha Goat Farm",
+   "buyer_place": "Tirchy",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 98,
+   "buyer_name": "SS Goat Farm",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 99,
+   "buyer_name": "The Green Hoof",
+   "buyer_place": "Theni",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 100,
+   "buyer_name": "SKE Goat Farm",
+   "buyer_place": "Didigul",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 101,
+   "buyer_name": "Agal Goat Farm",
+   "buyer_place": "Didigul",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 102,
+   "buyer_name": "Sun Livestock Goat Farm",
+   "buyer_place": "Didigul",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 103,
+   "buyer_name": "Keedhari Goat Farm",
+   "buyer_place": "Didigul",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 104,
+   "buyer_name": "Ibrahim Farm",
+   "buyer_place": "Puddukottai",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 105,
+   "buyer_name": "Mahil Goat Farm",
+   "buyer_place": "Palani",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 106,
+   "buyer_name": "Theni Goat Farmer Producer Company",
+   "buyer_place": "Theni",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 107,
+   "buyer_name": "Goat Farm",
+   "buyer_place": "Palani",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 108,
+   "buyer_name": "Munnar Goat Farm",
+   "buyer_place": "Munnar",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 109,
+   "buyer_name": "Al Madina Nirmal",
+   "buyer_place": "kochin",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 110,
+   "buyer_name": "CK Goat",
+   "buyer_place": "kochin",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 111,
+   "buyer_name": "Green City Goat Farm",
+   "buyer_place": "kochin",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 112,
+   "buyer_name": "K R Goat Farm",
+   "buyer_place": "kochin",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 113,
+   "buyer_name": "Gireesh Bethelehem Farms",
+   "buyer_place": "kochin",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 114,
+   "buyer_name": "NRV Goat Farm",
+   "buyer_place": "kochin",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 115,
+   "buyer_name": "Chola Integrated Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 116,
+   "buyer_name": "R P Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 117,
+   "buyer_name": "Senthilraja Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 118,
+   "buyer_name": "Ideal Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 119,
+   "buyer_name": "aravathi Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 120,
+   "buyer_name": "Nagendra Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 121,
+   "buyer_name": "Muneeshwara Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 122,
+   "buyer_name": "RMS Goat Farmning",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 123,
+   "buyer_name": "The AES Goat Farm",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 124,
+   "buyer_name": "MJ Goat",
+   "buyer_place": "Pondichery",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 125,
+   "buyer_name": "jayam Goat Farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 126,
+   "buyer_name": "Kavi meena Sheep and Goat Farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 127,
+   "buyer_name": "Zainab Goat Farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 128,
+   "buyer_name": "V2 Goat Farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 129,
+   "buyer_name": "Gramiya kalnadai Panni",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 130,
+   "buyer_name": "Saila Farms",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 131,
+   "buyer_name": "Pasupathi Goat Farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 132,
+   "buyer_name": "Udyam Goat Sheep farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 133,
+   "buyer_name": "Al Nazir Farms",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 134,
+   "buyer_name": "Jeeva Goat Farm",
+   "buyer_place": "Chennai",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-28",
+   "farm": "CBE",
+   "source_sales_id": 135,
+   "buyer_name": "Goat Sale and farming",
+   "buyer_place": "Vijayawada",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 139,
+   "buyer_name": "Mr. Selvam",
+   "buyer_place": "Kovilpatti",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 140,
+   "buyer_name": "Tamil Vivasayi",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 141,
+   "buyer_name": "P kani",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 142,
+   "buyer_name": "F Kani kodi Aadukovil",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 143,
+   "buyer_name": "Vinod tirchy",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 145,
+   "buyer_name": "Balamuragan",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 146,
+   "buyer_name": "Tha",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 147,
+   "buyer_name": "Kalyan",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 148,
+   "buyer_name": "Youtube- Farming Business",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 149,
+   "buyer_name": "Bismillah Sheep and Goats",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 150,
+   "buyer_name": "Israth",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 151,
+   "buyer_name": "Chandra",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 152,
+   "buyer_name": "Devadas k",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 153,
+   "buyer_name": "Devadas k",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 154,
+   "buyer_name": "Sathish",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 155,
+   "buyer_name": "Uzhavan goat farming",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 156,
+   "buyer_name": "Alamelu Saravanan",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 157,
+   "buyer_name": "Thiru kumar",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 158,
+   "buyer_name": "Vinoth K",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 159,
+   "buyer_name": "Bangala sundar",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 160,
+   "buyer_name": "Chandra kumar",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 161,
+   "buyer_name": "Murugan Vallandu",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 162,
+   "buyer_name": "Subbaih",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 163,
+   "buyer_name": "Praveen",
+   "buyer_place": "salem",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 164,
+   "buyer_name": "Anchor Goat Farm",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 165,
+   "buyer_name": "Vallananda",
+   "buyer_place": "Thoothukodi",
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 166,
+   "buyer_name": "Pishparaj",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 168,
+   "buyer_name": "Arul",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 169,
+   "buyer_name": "shivam goat farm",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 171,
+   "buyer_name": "RTR Farm",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 172,
+   "buyer_name": "Hajee",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 173,
+   "buyer_name": "Ashik",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 174,
+   "buyer_name": "PK padai",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 175,
+   "buyer_name": "Bala Ganesh",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-30",
+   "farm": "CBE",
+   "source_sales_id": 176,
+   "buyer_name": "KK",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": "Malai",
+   "call_status": null
+  },
+  {
+   "recorded_date": "2025-04-02",
+   "farm": "CPT",
+   "source_sales_id": 177,
+   "buyer_name": "Gundu rao",
+   "buyer_place": null,
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Malabari Goat Farm Nallepilly",
+   "buyer_place": "Nallepilly",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Suhail Farm",
+   "buyer_place": "Palakkad",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "M.B Goat Farm",
+   "buyer_place": "Koduvayur",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Krisach Goat Farm Thoottipadam",
+   "buyer_place": "Kollengode",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Anugraha goat farm",
+   "buyer_place": "Mundur",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Kalathil Dairy Farm",
+   "buyer_place": "Palakkad",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Wrong No"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Vinayaga Goat farm",
+   "buyer_place": "Erode",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Vela Goat farm",
+   "buyer_place": "Erode",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "MR Goat Farm",
+   "buyer_place": "erode",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Prabha Goat Farm",
+   "buyer_place": "Salem",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "JR Goat Farm",
+   "buyer_place": "Salem",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "MRK Goat Farm",
+   "buyer_place": "Salem",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Thulasi Goat Farm",
+   "buyer_place": "Salem",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "No Answer"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "PS sheep Farm",
+   "buyer_place": "Salem",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Not Intrested"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Mohan",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Breeding Animal Intrested"
+  },
+  {
+   "recorded_date": "2026-04-20",
+   "farm": "CBE",
+   "source_sales_id": null,
+   "buyer_name": "Kathik",
+   "buyer_place": "Coimbatore",
+   "animal_type": "Goat",
+   "breed": null,
+   "call_status": "Breeding Animal Intrested"
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Bala Goat Farm",
+   "buyer_place": "Dharmapuri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Uzhavan Goat Farm",
+   "buyer_place": "Dharmapuri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Muneshwar goat farm",
+   "buyer_place": "Dharmapuri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "APR Goat Farm",
+   "buyer_place": "Dharmapuri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Thagadur Farm Feeds (Moorthi Farm)",
+   "buyer_place": "Dharmapuri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Sivaki Goat Farm",
+   "buyer_place": "Krishnagiri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Success Goat Farm",
+   "buyer_place": "Krishnagiri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Success Goat Farm",
+   "buyer_place": "Krishnagiri",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Selvam Sheep and goat farm",
+   "buyer_place": "tirupttur",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Javeed Sheep Farm",
+   "buyer_place": "tirupttur",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Vijay Goat farm",
+   "buyer_place": "vellor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "NG Farm",
+   "buyer_place": "vellor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Star Sheep-",
+   "buyer_place": "vellor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Palani Sheep",
+   "buyer_place": "vellor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Rajagopal",
+   "buyer_place": "Ranipet",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Basha Goat and sheep farm",
+   "buyer_place": "kacnhipuram",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Good Shepard",
+   "buyer_place": "kacnhipuram",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "SOF Organic integrated farm",
+   "buyer_place": "Tiruvannamali",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Goat world",
+   "buyer_place": "Tiruvannamali",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Dheeran Goat Farm",
+   "buyer_place": "Tiruvannamali",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "chendur murgan goat",
+   "buyer_place": "Cuddlor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Ah nuha Farm",
+   "buyer_place": "Cuddlor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  },
+  {
+   "recorded_date": null,
+   "farm": null,
+   "source_sales_id": null,
+   "buyer_name": "Sri Stya Sai Goat",
+   "buyer_place": "Cuddlor",
+   "animal_type": null,
+   "breed": null,
+   "call_status": null
+  }
+ ],
+ "fpo_leads": [
+  {
+   "fpo_name": "Raitha Dwani FPCL",
+   "crops": "Mango, Banana, Coconut, Tomato, Green Chillies and other vegetables",
+   "district": "Chamarajanagar",
+   "taluk": "Chamarajanagar",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Sankramana FPCL",
+   "crops": "Banana, Coconut, Tomato, Green Chillies and other vegetables",
+   "district": "Chamarajanagar",
+   "taluk": "Gundlupete",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Aniketana FPCL",
+   "crops": "Banana, Coconut, Tomato, Green Chillies and other vegetables",
+   "district": "Chamarajanagar",
+   "taluk": "Yelandur",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Nagathihalli HFPC Limited",
+   "crops": "COCONUT",
+   "district": "Mandya",
+   "taluk": "Nagamangala",
+   "state": "Karnataka",
+   "call_status": "Dont Use this fertilizer"
+  },
+  {
+   "fpo_name": "Bukanakere HFPCL",
+   "crops": "COCONUT",
+   "district": "Mandya",
+   "taluk": "K.R. Pete",
+   "state": "Karnataka",
+   "call_status": "Dont Use this fertilizer"
+  },
+  {
+   "fpo_name": "MH Marigowda FPCL",
+   "crops": "Banana, Coconut, Tomato, Green Chillies and other vegetables",
+   "district": "Mysore",
+   "taluk": "T. Narasipura",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Bhutayi FPCL",
+   "crops": "Banana, Coconut, Water Melon, Cabbage, Green Chillies etc.,",
+   "district": "Mysore",
+   "taluk": "Periyapattana",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Sangama HFPC Ltd.",
+   "crops": "Banana,coconut,Papaya",
+   "district": "Ramnagra",
+   "taluk": "Kanakapura",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Kengal",
+   "crops": "Coconut & Tomato",
+   "district": "Ramnagra",
+   "taluk": "Channapatna",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Coconut Tiptur Farmer Producer Compny Limited",
+   "crops": "Coconut",
+   "district": "Tumkur",
+   "taluk": "Tiptur",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Gadinadu HFPC Ltd",
+   "crops": "Pomengranate, Coconut, Arecanut.",
+   "district": "Tumkur",
+   "taluk": "Sira",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Hemavathi HFPC Ltd",
+   "crops": "Coconut, Arecanut, Banana",
+   "district": "Tumkur",
+   "taluk": "Gubbi",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Hebburu",
+   "crops": "Tomato, Coconut & Arecanut",
+   "district": "Tumkur",
+   "taluk": "Tumkur",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Godekere",
+   "crops": "Tomato, Green Chilli, Coconut & Arecanut",
+   "district": "Tumkur",
+   "taluk": "Chiknayakana halli",
+   "state": "Karnataka",
+   "call_status": "No Answer"
+  },
+  {
+   "fpo_name": "Pollachi Karpakavircham",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Nagalingeshwarar",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Madhuram Coconut",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Pollachi South",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Vettaikaranpudur",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Thalakarai",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Thappattaikilavanpudur",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Mannur Sri Ayyasamy",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Senbagam Coconut",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Elaneer Coconut",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Samathur Coconut",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Connected and he will get back"
+  },
+  {
+   "fpo_name": "Karpagatharu",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Karthigai Coconut",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Uzhaipaligal",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Devamdadi Pudur",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Namathu Bharatham",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Kappalankarai",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Kinathukadavu",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Sethumadai",
+   "crops": "Coconut",
+   "district": "Coimbatore",
+   "taluk": "Pollachi",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Batlagundu Vattaram",
+   "crops": "Coconut",
+   "district": "Dindigul",
+   "taluk": "Nilakottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Virupatchi Coconut",
+   "crops": "Coconut",
+   "district": "Dindigul",
+   "taluk": "Ottanchathiram",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Aranthanki Coconut",
+   "crops": "Coconut",
+   "district": "Pudukottai",
+   "taluk": "Aranthanki",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Valavadi East",
+   "crops": "Coconut",
+   "district": "Tiruppur",
+   "taluk": "Udumalpet",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Ravanapuram Coconut",
+   "crops": "Coconut",
+   "district": "Tiruppur",
+   "taluk": "Udumalpet",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Pungamuthur Coconut",
+   "crops": "Coconut",
+   "district": "Tiruppur",
+   "taluk": "Udumalpet",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Snehalaya Agriculture",
+   "crops": "Coconut",
+   "district": "Tiruppur",
+   "taluk": "Udumalpet",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Udumalpet Coconut",
+   "crops": "Coconut",
+   "district": "Tiruppur",
+   "taluk": "Udumalpet",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Pasumai Coconut",
+   "crops": "Coconut",
+   "district": "Theni",
+   "taluk": "Uthamapalayam",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Padayal Coconut",
+   "crops": "Coconut",
+   "district": "Theni",
+   "taluk": "Uthamapalayam",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Duraisamipuram",
+   "crops": "Coconut",
+   "district": "Theni",
+   "taluk": "Aundipatti",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Gandhiji Coconut",
+   "crops": "Coconut",
+   "district": "Theni",
+   "taluk": "Bodinayackanur",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Eye Three Federation",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Kondraikadu Coconut",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Peravurani",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "East Coast Coconut",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Alathur Coconut",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Ayya Vishvanathan",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Pattukottai Vattam",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Thamarankottai",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Enathi Welfare",
+   "crops": "Coconut",
+   "district": "Thanjavur",
+   "taluk": "Pattukottai",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  },
+  {
+   "fpo_name": "Ambur Coconut",
+   "crops": "Coconut",
+   "district": "Vellore",
+   "taluk": "Ambur",
+   "state": "Tamilnadu",
+   "call_status": "Not Connected"
+  }
+ ],
+ "sold_animal_tags": [
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "155",
+   "weight_kg": 39.5,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "147",
+   "weight_kg": 41.0,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "71",
+   "weight_kg": 39.5,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "44",
+   "weight_kg": 45.8,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "59",
+   "weight_kg": 44.6,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "43",
+   "weight_kg": 40.0,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Osmanbadi",
+   "tag_number": "540",
+   "weight_kg": 23.4,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Osmanbadi",
+   "tag_number": "592",
+   "weight_kg": 22.0,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "719",
+   "weight_kg": 39.0,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "723",
+   "weight_kg": 40.0,
+   "farm": "CBE",
+   "source_sales_id": null
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "2194",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 8
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "977",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 8
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "755",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 8
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "780",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 8
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "742",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 8
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "2189",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 9
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "716",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 9
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "879",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 9
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "748",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 9
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "227",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 9
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "737",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 9
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "799",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 10
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "739",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 10
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "936",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 10
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "937",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 10
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "802",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 10
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "809",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 11
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "729",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 11
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "233",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 11
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "712",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 11
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "720",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 11
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "883",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "554",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "575",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "547",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "527",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "591",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "597",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "518",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "874",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "264",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 12
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "589",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "876",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "504",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "868",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "656",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "643",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "695",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "1558",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "640",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "676",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "639",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "684",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "No Tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "517",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "586",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "577",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "574",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 14
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "511",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "539",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "569",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "453",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "594",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "544",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Goats",
+   "tag_number": "No tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 13
+  },
+  {
+   "animal_label": "Sheep",
+   "tag_number": "751",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 16
+  },
+  {
+   "animal_label": "Sheep",
+   "tag_number": "714",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 16
+  },
+  {
+   "animal_label": "Sheep",
+   "tag_number": "747",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 16
+  },
+  {
+   "animal_label": "Sheep",
+   "tag_number": "721",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 16
+  },
+  {
+   "animal_label": "Sheep",
+   "tag_number": "810",
+   "weight_kg": null,
+   "farm": "CPT",
+   "source_sales_id": 15
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "210",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "18",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "66",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "59",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "No tags",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "95",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "43",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "975",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "28",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "278",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "663",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "No tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "No tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "71",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "170",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "521",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "169",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "no tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "40",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "89",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "no tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "286",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "124",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "37",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "no tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "207",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "no tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "84",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "54",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "179",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "224",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "19",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "81",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "271",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "125",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "80",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "no tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "106",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "531",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "254",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "155",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "90",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "63",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "251",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "600",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "275",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "50",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "653",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "no tag",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "92",
+   "weight_kg": null,
+   "farm": "CBE",
+   "source_sales_id": 17
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "972",
+   "weight_kg": null,
+   "farm": "cpt",
+   "source_sales_id": 19
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "926",
+   "weight_kg": null,
+   "farm": "cpt",
+   "source_sales_id": 19
+  },
+  {
+   "animal_label": "sojat",
+   "tag_number": "826",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 20
+  },
+  {
+   "animal_label": "sojat",
+   "tag_number": "370",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 21
+  },
+  {
+   "animal_label": "sojat",
+   "tag_number": "198",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 21
+  },
+  {
+   "animal_label": "sojat",
+   "tag_number": "750",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 21
+  },
+  {
+   "animal_label": "sojat",
+   "tag_number": "2174",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 22
+  },
+  {
+   "animal_label": "sojat",
+   "tag_number": "1576",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 23
+  },
+  {
+   "animal_label": "Anantapur Sheep",
+   "tag_number": "557",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 24
+  },
+  {
+   "animal_label": "Malai Goat",
+   "tag_number": "632",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 24
+  },
+  {
+   "animal_label": "BEETAL GOAT",
+   "tag_number": "679",
+   "weight_kg": null,
+   "farm": "Cbe",
+   "source_sales_id": 24
+  }
+ ],
+ "weight_audit": [
+  {
+   "video_weight_kg": 23.0,
+   "book_weight_kg": 23.0,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 24.5,
+   "book_weight_kg": 24.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 25.8,
+   "book_weight_kg": 25.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 27.3,
+   "book_weight_kg": 27.1,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 27.4,
+   "book_weight_kg": 27.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 27.7,
+   "book_weight_kg": 27.4,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 27.8,
+   "book_weight_kg": 27.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 27.9,
+   "book_weight_kg": 27.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 28.3,
+   "book_weight_kg": 28.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 28.4,
+   "book_weight_kg": 28.5,
+   "farm_born": true,
+   "tag_number": "887"
+  },
+  {
+   "video_weight_kg": 28.5,
+   "book_weight_kg": 28.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 28.6,
+   "book_weight_kg": 28.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 28.68,
+   "book_weight_kg": 28.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 28.7,
+   "book_weight_kg": 28.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 29.0,
+   "book_weight_kg": 28.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 29.1,
+   "book_weight_kg": 29.2,
+   "farm_born": true,
+   "tag_number": "2032"
+  },
+  {
+   "video_weight_kg": 29.3,
+   "book_weight_kg": 29.4,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 29.5,
+   "book_weight_kg": 29.4,
+   "farm_born": true,
+   "tag_number": "713"
+  },
+  {
+   "video_weight_kg": 29.62,
+   "book_weight_kg": 29.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 29.7,
+   "book_weight_kg": 29.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 29.9,
+   "book_weight_kg": 30.0,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.4,
+   "book_weight_kg": 30.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.4,
+   "book_weight_kg": 30.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.4,
+   "book_weight_kg": 30.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.5,
+   "book_weight_kg": 30.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.7,
+   "book_weight_kg": 30.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.8,
+   "book_weight_kg": 30.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.9,
+   "book_weight_kg": 30.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 30.9,
+   "book_weight_kg": 31.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 31.3,
+   "book_weight_kg": 31.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 31.4,
+   "book_weight_kg": 31.4,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 31.5,
+   "book_weight_kg": 31.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 31.82,
+   "book_weight_kg": 31.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.0,
+   "book_weight_kg": 31.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.1,
+   "book_weight_kg": 31.700000000000003,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.1,
+   "book_weight_kg": 31.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.3,
+   "book_weight_kg": 31.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.3,
+   "book_weight_kg": 32.1,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.3,
+   "book_weight_kg": 32.1,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.62,
+   "book_weight_kg": 32.2,
+   "farm_born": true,
+   "tag_number": "NO TAG"
+  },
+  {
+   "video_weight_kg": 32.64,
+   "book_weight_kg": 32.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.64,
+   "book_weight_kg": 32.8,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.7,
+   "book_weight_kg": 32.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.7,
+   "book_weight_kg": 32.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 33.0,
+   "book_weight_kg": 32.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 33.3,
+   "book_weight_kg": 33.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 33.3,
+   "book_weight_kg": 33.4,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 33.7,
+   "book_weight_kg": 33.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 33.7,
+   "book_weight_kg": 33.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 33.9,
+   "book_weight_kg": 33.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.0,
+   "book_weight_kg": 33.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.0,
+   "book_weight_kg": 33.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.4,
+   "book_weight_kg": 33.7,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.4,
+   "book_weight_kg": 33.8,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.4,
+   "book_weight_kg": 34.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.5,
+   "book_weight_kg": 34.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.7,
+   "book_weight_kg": 34.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.7,
+   "book_weight_kg": 34.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 34.9,
+   "book_weight_kg": 34.8,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 35.0,
+   "book_weight_kg": 34.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 35.1,
+   "book_weight_kg": 34.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 35.2,
+   "book_weight_kg": 35.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 35.8,
+   "book_weight_kg": 35.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 36.2,
+   "book_weight_kg": 35.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 36.2,
+   "book_weight_kg": 35.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 36.4,
+   "book_weight_kg": 35.9,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 36.5,
+   "book_weight_kg": 36.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 36.7,
+   "book_weight_kg": 36.4,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 36.9,
+   "book_weight_kg": 36.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 37.3,
+   "book_weight_kg": 37.0,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 37.4,
+   "book_weight_kg": 37.0,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 37.7,
+   "book_weight_kg": 37.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 37.7,
+   "book_weight_kg": 37.2,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 37.7,
+   "book_weight_kg": 37.3,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 38.3,
+   "book_weight_kg": 37.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 39.1,
+   "book_weight_kg": 37.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 39.3,
+   "book_weight_kg": 38.5,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 39.4,
+   "book_weight_kg": 39.1,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 39.9,
+   "book_weight_kg": 39.7,
+   "farm_born": true,
+   "tag_number": "986"
+  },
+  {
+   "video_weight_kg": 41.5,
+   "book_weight_kg": 41.6,
+   "farm_born": false,
+   "tag_number": null
+  },
+  {
+   "video_weight_kg": 32.65400000000001,
+   "book_weight_kg": 32.482499999999995,
+   "farm_born": false,
+   "tag_number": null
+  }
+ ],
+ "market_benchmarks": [
+  {
+   "market": "Chennai -Sheep - 370 Rs Per kg",
+   "category": "Sheep",
+   "breed": "Ongole, Telanagan",
+   "source": "Green Farm Fesh-Hyderbad",
+   "ex_farm_rate": "432 Rs/kg",
+   "transport_rate": "22 Rs/Kg",
+   "landing_cost_per_kg": 477.89
+  },
+  {
+   "market": "Chennai -Sheep - 370 Rs Per kg",
+   "category": "Sheep",
+   "breed": "Kenguri",
+   "source": "Athani -Bagalkote",
+   "ex_farm_rate": "450 Rs/kg",
+   "transport_rate": "30 Rs/Kg",
+   "landing_cost_per_kg": 505.26
+  },
+  {
+   "market": "Chennai -Sheep - 370 Rs Per kg",
+   "category": "Sheep",
+   "breed": "Anantpur",
+   "source": "Dr Praneeth -Tirupati",
+   "ex_farm_rate": "450 Rs/kg",
+   "transport_rate": "20 Rs/Kg",
+   "landing_cost_per_kg": 494.74
+  },
+  {
+   "market": "Chennai -Sheep - 370 Rs Per kg",
+   "category": "Sheep",
+   "breed": "Nipani",
+   "source": "Somsekhar- Pune",
+   "ex_farm_rate": null,
+   "transport_rate": null,
+   "landing_cost_per_kg": null
+  },
+  {
+   "market": "Chennai -Sheep - 370 Rs Per kg",
+   "category": "Sheep",
+   "breed": "kenguri",
+   "source": "Nagesh -Tumkur",
+   "ex_farm_rate": null,
+   "transport_rate": null,
+   "landing_cost_per_kg": null
+  },
+  {
+   "market": "Chennai -Goat - 370 Rs Per kg",
+   "category": "Goat",
+   "breed": "Malwa",
+   "source": "Bhopal Agro- Bhopal",
+   "ex_farm_rate": "400 Rs/kg",
+   "transport_rate": "60 Rs/Kg",
+   "landing_cost_per_kg": 484.21
+  },
+  {
+   "market": "Chennai -Goat - 370 Rs Per kg",
+   "category": "Goat",
+   "breed": "Serohi",
+   "source": "Gurukripa Goat Farm-Ajmer",
+   "ex_farm_rate": "400 Rs/kg",
+   "transport_rate": "60 Rs/Kg",
+   "landing_cost_per_kg": 484.21
+  },
+  {
+   "market": "Chennai -Goat - 370 Rs Per kg",
+   "category": "Goat",
+   "breed": "Marwari",
+   "source": "Gurukripa Goat Farm-Ajmer",
+   "ex_farm_rate": null,
+   "transport_rate": null,
+   "landing_cost_per_kg": null
+  },
+  {
+   "market": "Chennai -Goat - 370 Rs Per kg",
+   "category": "Goat",
+   "breed": "Bundelkhandi",
+   "source": "Rajaasthan Goat Farm-Kalpi",
+   "ex_farm_rate": null,
+   "transport_rate": null,
+   "landing_cost_per_kg": null
+  },
+  {
+   "market": "Chennai -Goat - 370 Rs Per kg",
+   "category": "Goat",
+   "breed": "Osmanabadi",
+   "source": "Bhupati Goat Farm - Vellore",
+   "ex_farm_rate": null,
+   "transport_rate": null,
+   "landing_cost_per_kg": 505.26
+  }
+ ]
+}
