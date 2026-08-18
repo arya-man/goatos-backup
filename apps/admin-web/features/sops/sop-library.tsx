@@ -25,13 +25,11 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { sopSliceKey, type SopCardView, type SopTrigger } from "./sop-derive";
-import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { type SopCardView, type SopTrigger } from "./sop-derive";
+import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
-// The New SOP builder is a dedicated full-page surface at /sops?compose=1 (same top-level authority
-// route — the IA guard forbids a nested /sops/new page). The library links out to it; it is no longer a
-// modal. Legacy `?new=1` deep-links (vaccination SOP quick-view) resolve to the same builder.
-const BUILDER_HREF = "/sops?compose=1";
+// The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
+// route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
 
 const TRIGGER_ICON: Record<SopTrigger, React.ElementType> = {
   form: SquarePen,
@@ -64,41 +62,31 @@ export interface SopLibraryProps {
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
   pageContract: AdminUiPageContract;
+  /** The module SOP page path this library is mounted on (e.g. "/vaccination/sops"). */
+  basePath: string;
 }
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
 // card grid, detail modal). "New SOP" / "Edit" navigate to the dedicated full-page builder
-// (/sops?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
+// (<basePath>?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
 // real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibraryProps) {
+export function SopLibrary({ sops, error, authRequired, pageContract, basePath }: SopLibraryProps) {
   const router = useRouter();
+  const builderHref = `${basePath}?compose=1`;
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<SopCardView | null>(null);
-  const openBuilder = () => router.push(BUILDER_HREF);
-  const openEditor = (sopId: string) => router.push(`${BUILDER_HREF}&edit=${sopId}`);
+  const openBuilder = () => router.push(builderHref);
+  const openEditor = (sopId: string) => router.push(`${builderHref}&edit=${sopId}`);
   const [requestedPage, setRequestedPage] = useState(1);
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
 	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
-	  const activeSopChips = optionGroup(pageContract, "domain_chips");
-  // Filter chips are the backend-owned `domain_chips` vocabulary (all / vaccination / counts / feed).
-  // Each card resolves to a slice via sopSliceKey; "all" shows everything, including any future SOP
-  // whose module has no chip yet.
-  const [activeChip, setActiveChip] = useState<string>(activeSopChips[0]?.key ?? "all");
-  const chipCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of sops) {
-      const key = sopSliceKey(s.code, s.name);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return counts;
-  }, [sops]);
-
+  // The page is pre-scoped to its module's SOP codes (SOP split, maintainer decision 2026-08-18),
+  // so the only client-side filter is the text search.
   const list = useMemo(() => {
-    const sliced = activeChip === "all" ? sops : sops.filter((s) => sopSliceKey(s.code, s.name) === activeChip);
     const q = query.trim().toLowerCase();
-    if (!q) return sliced;
-    return sliced.filter((s) => `${s.name} ${s.code} ${s.domainLabel}`.toLowerCase().includes(q));
-  }, [sops, query, activeChip]);
+    if (!q) return sops;
+    return sops.filter((s) => `${s.name} ${s.code} ${s.domainLabel}`.toLowerCase().includes(q));
+  }, [sops, query]);
   const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
   const page = Math.min(requestedPage, totalPages);
   const start = list.length === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -138,25 +126,6 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
               setRequestedPage(1);
             }}
           />
-        </div>
-        <div className="subtabs" style={{ margin: 0 }}>
-	          {activeSopChips.map((c) => {
-            const count = c.key === "all" ? sops.length : (chipCounts.get(c.key) ?? 0);
-            return (
-              <button
-	                key={c.key}
-                type="button"
-                className={activeChip === c.key ? "on" : ""}
-                onClick={() => {
-                  setActiveChip(c.key);
-                  setRequestedPage(1);
-                }}
-              >
-	                {c.label}
-                <span className="cbq">{count}</span>
-              </button>
-            );
-          })}
         </div>
       </div>
 

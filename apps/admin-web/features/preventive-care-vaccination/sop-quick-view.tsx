@@ -182,7 +182,7 @@ function VaccinationSopModal({
             {copy(pageContract, "action.close")}
           </button>
           <div className="sp" style={{ flex: 1 }} />
-          <Link href="/sops" className="lk" title={copy(pageContract, "drawer.sop.library_title")}>
+          <Link href="/vaccination/sops" className="lk" title={copy(pageContract, "drawer.sop.library_title")}>
             {copy(pageContract, "action.open_in_sop_library")}
           </Link>
         </div>

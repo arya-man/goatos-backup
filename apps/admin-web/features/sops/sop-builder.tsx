@@ -65,11 +65,14 @@ function sanitizeVisibility(rows: BuilderStep[]): BuilderStep[] {
 
 export function SopBuilder({
   pageContract,
+  basePath,
   initial,
   editSopId,
   editBlocked = false,
 }: {
   pageContract: AdminUiPageContract;
+  /** The module SOP page path this builder returns to (e.g. "/vaccination/sops"). */
+  basePath: string;
   initial?: BuilderInitial;
   editSopId?: string;
   editBlocked?: boolean;
@@ -194,7 +197,7 @@ export function SopBuilder({
       const res = await publishSop(saved.sopId!, saved.versionId!, saved.rowVersion!);
       setNotice({ ok: res.ok, message: res.message });
       if (res.ok) {
-        router.push("/sops");
+        router.push(basePath);
         router.refresh();
       }
     });
@@ -214,7 +217,7 @@ export function SopBuilder({
         <button type="button" className="btn p" onClick={() => setPreviewOpen(true)}>
           <Eye className="ic" /> {copy(pc, "builder.preview.open")}
         </button>
-        <Link className="btn" href="/sops">
+        <Link className="btn" href={basePath}>
           <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
         </Link>
       </div>
