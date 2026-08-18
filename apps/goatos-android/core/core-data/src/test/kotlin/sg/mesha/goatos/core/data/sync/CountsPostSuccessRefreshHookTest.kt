@@ -8,6 +8,8 @@ import org.junit.Test
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.AwaitingRfidFilter
+import sg.mesha.goatos.core.data.AwaitingRfidRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -21,6 +23,7 @@ import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
+import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
 import androidx.paging.PagingData
 
@@ -38,6 +41,19 @@ import androidx.paging.PagingData
  * `repository.refresh(...)` or `repository.forget(...)` with the exact affected cache keys.
  */
 class CountsPostSuccessRefreshHookTest {
+
+    private class RecordingAwaitingRfidRepository : AwaitingRfidRepository {
+        val forgottenGoatIds = mutableListOf<String>()
+
+        override fun awaiting(filter: AwaitingRfidFilter): Flow<PagingData<TemporaryTaggedGoatDto>> =
+            flowOf(PagingData.empty())
+
+        override suspend fun forgetPromoted(goatId: String) {
+            forgottenGoatIds += goatId
+        }
+
+        override suspend fun findCached(goatId: String): TemporaryTaggedGoatDto? = null
+    }
 
     private class RecordingCountsRepository : CountsRepository {
         val refreshHerdSummaryCalls = mutableListOf<Unit>()
@@ -464,13 +480,17 @@ class CountsPostSuccessRefreshHookTest {
     @Test
     fun `COUNTS_PROMOTE_IDENTIFIER success refreshes herd summary`() = runBlocking {
         val countsRepo = RecordingCountsRepository()
+        val awaitingRfidRepo = RecordingAwaitingRfidRepository()
         val store = FakeOutboxStore()
         val engine = SyncEngine(
             store = store,
             api = ScriptedAppApi(),
             connectivityGate = { true },
             postSuccessRefreshHooks = mapOf(
-                OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(countsRepo),
+                OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(
+                    countsRepo,
+                    awaitingRfidRepo,
+                ),
             ),
         )
 
@@ -505,5 +525,6 @@ class CountsPostSuccessRefreshHookTest {
             listOf(Unit),
             countsRepo.refreshHerdSummaryCalls,
         )
+        assertEquals(listOf("goat-1"), awaitingRfidRepo.forgottenGoatIds)
     }
 }

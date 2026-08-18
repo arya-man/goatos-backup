@@ -56,6 +56,10 @@ data class SyncQueueItem(
         get() = status == SyncItemStatus.QUEUED ||
             status == SyncItemStatus.IN_FLIGHT ||
             (status == SyncItemStatus.FAILED && !conflict && attemptCount < maxAttempts)
+
+    /** A failure the sync engine will never retry without an explicit operator correction. */
+    val isTerminalFailure: Boolean
+        get() = status == SyncItemStatus.FAILED && (conflict || isDeadLetter)
 }
 
 /**

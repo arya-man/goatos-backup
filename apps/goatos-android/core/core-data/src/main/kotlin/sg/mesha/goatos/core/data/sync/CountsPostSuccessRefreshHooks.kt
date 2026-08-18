@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.sync
 
+import sg.mesha.goatos.core.data.AwaitingRfidRepository
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
@@ -77,8 +78,13 @@ fun shiftingCancelRefreshHook(repository: ShiftingPendingRepository): PostSucces
         repository.forgetExecuted(payload.shiftingEventId)
     }
 
-fun countsPromoteIdentifierRefreshHook(repository: CountsRepository): PostSuccessRefreshHook =
+fun countsPromoteIdentifierRefreshHook(
+    repository: CountsRepository,
+    awaitingRfidRepository: AwaitingRfidRepository,
+): PostSuccessRefreshHook =
     PostSuccessRefreshHook { payloadJson ->
+        val payload = syncJson.decodeFromString<PromoteIdentifierPayload>(payloadJson)
+        awaitingRfidRepository.forgetPromoted(payload.goatId)
         // A permanent RFID assignment may update the animal's identity state (e.g., moving it
         // from a "awaiting_id" to "identified" lifecycle stage), affecting the herd summary.
         repository.refreshHerdSummary().getOrThrow()

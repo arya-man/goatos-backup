@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCaptureSource
@@ -214,6 +215,7 @@ class WorkflowDetailViewModel @Inject constructor(
                     // Optimistic: Room flips the action to completed and re-emits; the next
                     // refresh reconciles with the backend counters.
                     repo.markActionAnswered(workflowId, actionId, value)
+                    observeActionWrite(result.value, actionId)
                     analytics.track(AnalyticsEvents.WORKFLOW_ACTION_ANSWERED)
                     _state.update { it.copy(message = QUEUED_MESSAGE, isErrorMessage = false) }
                 }
@@ -233,11 +235,29 @@ class WorkflowDetailViewModel @Inject constructor(
             when (result) {
                 is AppResult.Ok -> {
                     repo.markActionCompleted(workflowId, actionId, inReview = false)
+                    observeActionWrite(result.value, actionId)
                     analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
                     _state.update { it.copy(message = QUEUED_MESSAGE, isErrorMessage = false) }
                 }
                 is AppResult.Err -> onWriteFailed("workflow_complete", result)
             }
+        }
+    }
+
+    private fun observeActionWrite(itemId: String, actionId: String) = viewModelScope.launch {
+        val item = syncRepository.observeItem(itemId).first { candidate ->
+            candidate?.status == SyncItemStatus.SUCCEEDED || candidate?.isTerminalFailure == true
+        } ?: return@launch
+        if (item.isTerminalFailure) {
+            repo.rollbackAction(workflowId, actionId)
+            _state.update {
+                it.copy(
+                    message = item.lastError ?: ACTION_FAILED_MESSAGE,
+                    isErrorMessage = true,
+                )
+            }
+        } else {
+            repo.refreshDetail(workflowId, lens, lensDate)
         }
     }
 
@@ -366,6 +386,7 @@ class WorkflowDetailViewModel @Inject constructor(
             }
             when (writeResult) {
                 is AppResult.Ok -> {
+                    observeActionWrite(writeResult.value, actionId)
                     if (answerValue != null) {
                         repo.markActionAnswered(workflowId, actionId, answerValue)
                         analytics.track(AnalyticsEvents.WORKFLOW_ACTION_ANSWERED)
@@ -708,6 +729,7 @@ class WorkflowDetailViewModel @Inject constructor(
 
         private const val SUBMITTED_MESSAGE = "Submitted. Both videos are saved to the backend."
         private const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
+        private const val ACTION_FAILED_MESSAGE = "This action did not go through. Review it and try again."
         private const val VIDEO_QUEUED_MESSAGE =
             "Video saved on this phone. It will upload and submit automatically."
     }

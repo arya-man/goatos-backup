@@ -742,6 +742,7 @@ object AppModule {
         milkPreparationRepository: MilkPreparationRepository,
         countsRepository: CountsRepository,
         countsApprovalRepository: CountsApprovalRepository,
+        awaitingRfidRepository: AwaitingRfidRepository,
         shiftingPendingRepository: ShiftingPendingRepository,
         healthRepository: HealthRepository,
     ): SyncEngine = SyncEngine(
@@ -776,7 +777,10 @@ object AppModule {
             OutboxOpType.COUNTS_APPROVAL_REJECT to countsApprovalRejectRefreshHook(countsApprovalRepository),
             OutboxOpType.SHIFTING_COMPLETE to shiftingCompleteRefreshHook(shiftingPendingRepository),
             OutboxOpType.SHIFTING_CANCEL to shiftingCancelRefreshHook(shiftingPendingRepository),
-            OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(
+                countsRepository,
+                awaitingRfidRepository,
+            ),
             // Health operations
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
             OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteRefreshHook(healthRepository),

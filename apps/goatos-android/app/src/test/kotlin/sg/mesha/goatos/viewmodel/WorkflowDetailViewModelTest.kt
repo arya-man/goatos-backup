@@ -286,6 +286,59 @@ class WorkflowDetailViewModelTest {
             syncRepository.outboxItemIdsForKey(firstCall.idempotencyKey).size,
         )
     }
+
+    @Test
+    fun `terminal complete failure rolls optimistic action back to pending`() = runTest(dispatcher) {
+        val workflowsRepository = FakeWorkflowDetailRepository(
+            requiresVideoDetail().copy(actions = requiresVideoDetail().actions.map { it.copy(requiresVideo = false) }),
+        )
+        val syncRepository = FakeWorkflowDetailSyncRepository()
+        val viewModel = buildViewModel(
+            workflowsRepository,
+            syncRepository,
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(WorkflowDetailEvent.Complete("action-1"))
+        advanceUntilIdle()
+        assertEquals("completed", workflowsRepository.actionStatus("action-1"))
+
+        syncRepository.emitTerminalFailure("wf-complete:action-1", "Completion was rejected.")
+        advanceUntilIdle()
+
+        assertEquals("pending", workflowsRepository.actionStatus("action-1"))
+    }
+
+    @Test
+    fun `terminal answer failure rolls optimistic answer back to pending`() = runTest(dispatcher) {
+        val detail = requiresVideoDetail().copy(
+            actions = requiresVideoDetail().actions.map {
+                it.copy(actionType = "question", requiresVideo = false, options = listOf("Yes", "No"))
+            },
+        )
+        val workflowsRepository = FakeWorkflowDetailRepository(detail)
+        val syncRepository = FakeWorkflowDetailSyncRepository()
+        val viewModel = buildViewModel(
+            workflowsRepository,
+            syncRepository,
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(WorkflowDetailEvent.Answer("action-1", "Yes"))
+        advanceUntilIdle()
+        assertEquals("completed", workflowsRepository.actionStatus("action-1"))
+
+        syncRepository.emitTerminalFailure("wf-answer:action-1", "Answer was rejected.")
+        advanceUntilIdle()
+
+        assertEquals("pending", workflowsRepository.actionStatus("action-1"))
+    }
 }
 
 /**
@@ -325,6 +378,15 @@ private class FakeWorkflowDetailRepository(initialDetail: WorkflowDetailResponse
             detail.copy(actions = detail.actions.map { if (it.actionId == actionId) it.copy(status = if (inReview) "in_review" else "completed") else it })
         }
     }
+
+    fun actionStatus(actionId: String): String? =
+        detailFlow.value?.actions?.firstOrNull { it.actionId == actionId }?.status
+
+    override suspend fun rollbackAction(workflowId: String, actionId: String) {
+        detailFlow.value = detailFlow.value?.let { detail ->
+            detail.copy(actions = detail.actions.map { if (it.actionId == actionId) it.copy(status = "pending", answerValue = null) else it })
+        }
+    }
 }
 
 /**
@@ -334,8 +396,10 @@ private class FakeWorkflowDetailRepository(initialDetail: WorkflowDetailResponse
  */
 private class FakeWorkflowDetailSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
     override fun observeStatus() = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = MutableStateFlow(null)
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
+        items.getOrPut(itemId) { MutableStateFlow(null) }
 
     data class CompleteCall(val groupKey: String, val idempotencyKey: String, val workflowId: String, val actionId: String, val proofOutboxItemId: String?)
     data class AnswerCall(val groupKey: String, val idempotencyKey: String, val workflowId: String, val actionId: String, val answerValue: String, val proofOutboxItemId: String?)
@@ -348,6 +412,23 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
 
     fun completeCallsByKey(key: String) = completeCalls.filter { it.idempotencyKey == key }
     fun outboxItemIdsForKey(key: String): Set<String> = setOfNotNull(outboxItemIdByKey[key])
+
+    fun emitTerminalFailure(idempotencyKey: String, message: String) {
+        val id = outboxItemIdByKey.getValue(idempotencyKey)
+        items.getOrPut(id) { MutableStateFlow(null) }.value = SyncQueueItem(
+            id = id,
+            opType = "WORKFLOW_ACTION_COMPLETE",
+            idempotencyKey = idempotencyKey,
+            groupKey = "wf-1",
+            status = sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED,
+            attemptCount = 1,
+            maxAttempts = 3,
+            conflict = true,
+            createdAt = 1L,
+            updatedAt = 2L,
+            lastError = message,
+        )
+    }
 
     override suspend fun enqueueWorkflowActionAnswer(
         groupKey: String,
