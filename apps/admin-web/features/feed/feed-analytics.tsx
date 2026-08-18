@@ -14,6 +14,7 @@ import {
   type FeedAnalyticsStockResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ChartHover } from "@/components/chart-hover";
@@ -87,15 +88,14 @@ function hrefWith(sp: RouteSearchParams | undefined, next: Record<string, string
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-function rangeDates(range: Range): { date_from: string; date_to?: string } {
-  // The backend owns "yesterday"; the page only widens date_from for 61/92.
+function rangeDates(range: Range): { date_from: string; date_to: string } {
+  // Asia/Kolkata calendar arithmetic via the shared IST helpers — the same
+  // business-day rule the backend applies to its own defaults. The previous
+  // Date/toISOString version ran on the server's UTC clock and dropped
+  // yesterday for any request between 00:00 and 05:29 IST (review, PR #64).
   const days = Number(range);
-  const to = new Date();
-  to.setDate(to.getDate() - 1);
-  const from = new Date(to);
-  from.setDate(from.getDate() - (days - 1));
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  return { date_from: iso(from), date_to: iso(to) };
+  const to = istDayPlus(todayIso(), -1);
+  return { date_from: istDayPlus(to, -(days - 1)), date_to: to };
 }
 
 // ---------------------------------------------------------------------------
