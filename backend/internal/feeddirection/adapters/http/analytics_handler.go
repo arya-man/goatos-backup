@@ -227,11 +227,19 @@ type expenditureDayDTO struct {
 	Rupees  string `json:"rupees"`
 }
 
+type spendSummaryDTO struct {
+	ThisWeek    string `json:"this_week"`
+	ThisMonth   string `json:"this_month"`
+	ThreeMonths string `json:"three_months"`
+	ThisYear    string `json:"this_year"`
+}
+
 type stockAnalyticsDTO struct {
 	DateFrom    string              `json:"date_from"`
 	DateTo      string              `json:"date_to"`
 	Items       []stockItemDTO      `json:"items"`
 	Expenditure []expenditureDayDTO `json:"expenditure"`
+	Spend       spendSummaryDTO     `json:"spend"`
 }
 
 // GetStockAnalytics serves GET /feed-analytics/stock.
@@ -258,5 +266,6 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 	for _, d := range result.Expenditure {
 		dto.Expenditure = append(dto.Expenditure, expenditureDayDTO(d))
 	}
+	dto.Spend = spendSummaryDTO(result.Spend)
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }

@@ -10640,9 +10640,28 @@ components:
         rupees:
           type: string
           description: Directed kg priced at each item's most recent load rate on or before the day.
+    FeedAnalyticsSpendSummary:
+      type: object
+      description: >-
+        Rupee totals over the standing leadership periods, each ending yesterday and priced like
+        the daily series (most recent load rate per item). "0" when nothing priced.
+      required: [this_week, this_month, three_months, this_year]
+      properties:
+        this_week:
+          type: string
+          description: Monday of the current IST week through yesterday.
+        this_month:
+          type: string
+          description: The 1st of the current IST month through yesterday.
+        three_months:
+          type: string
+          description: Rolling 92 days through yesterday.
+        this_year:
+          type: string
+          description: Jan 1 of the current IST year through yesterday.
     FeedAnalyticsStockResponse:
       type: object
-      required: [date_from, date_to, items, expenditure]
+      required: [date_from, date_to, items, expenditure, spend]
       properties:
         date_from:
           type: string
@@ -10658,6 +10677,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsExpenditureDay"
+        spend:
+          $ref: "#/components/schemas/FeedAnalyticsSpendSummary"
     FeedDirectionRow:
       type: object
       additionalProperties: false

@@ -178,8 +178,24 @@ type ExpenditureDay struct {
 	Rupees  string
 }
 
+// SpendSummary totals the expenditure over the standing periods leadership
+// asks about, independent of the page's chart window. Every bucket ends at
+// YESTERDAY (today's sheet is still being executed) and is priced the same way
+// as the daily series. Rupee strings, "0" when nothing priced.
+type SpendSummary struct {
+	// ThisWeek is Monday of the current IST week through yesterday.
+	ThisWeek string
+	// ThisMonth is the 1st of the current IST month through yesterday.
+	ThisMonth string
+	// ThreeMonths is the rolling 92 days through yesterday.
+	ThreeMonths string
+	// ThisYear is Jan 1 of the current IST year through yesterday.
+	ThisYear string
+}
+
 // StockAnalytics is the /feed-analytics/stock payload.
 type StockAnalytics struct {
 	Items       []StockItem
 	Expenditure []ExpenditureDay
+	Spend       SpendSummary
 }
