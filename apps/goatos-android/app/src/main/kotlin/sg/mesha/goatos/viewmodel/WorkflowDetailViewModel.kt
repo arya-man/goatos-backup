@@ -500,7 +500,9 @@ class WorkflowDetailViewModel @Inject constructor(
             loading = false,
             notFound = false,
             isDeath = module == MODULE_DEATH,
-            displayId = if (templateKey == TEMPLATE_KEY_BIRTH_MOTHER) {
+            // Death (like the birth-mother header) headlines the physical RFID the operator can
+            // actually read on the animal; the passport id is only a fallback when no tag exists.
+            displayId = if (templateKey == TEMPLATE_KEY_BIRTH_MOTHER || module == MODULE_DEATH) {
                 subject.tag.ifBlank { subject.displayId }
             } else {
                 subject.displayId.ifBlank { subject.tag }

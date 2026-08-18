@@ -199,6 +199,40 @@ class WorkflowDetailViewModelTest {
         assertEquals("/proof/kid-video-2.mp4", survivingRows.last().localUri)
     }
 
+    // A death card is about a real tagged animal the operator finds by its physical RFID, so the
+    // header must lead with the tag; the G-… passport id is only a fallback when no tag exists.
+    @Test
+    fun `death detail headlines the RFID tag and falls back to the passport id only when no tag exists`() = runTest(dispatcher) {
+        val deathDetail = requiresVideoDetail().copy(
+            module = "death",
+            templateKey = "death",
+            subject = WorkflowSubjectDto(goatId = "goat-1", displayId = "G-000123", tag = "982000123456789"),
+        )
+        val workflowsRepository = FakeWorkflowDetailRepository(deathDetail)
+        val viewModel = buildViewModel(
+            workflowsRepository,
+            FakeWorkflowDetailSyncRepository(),
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("982000123456789", viewModel.state.value.displayId)
+
+        // No tag on the animal -> the passport id is the honest fallback, never a blank header.
+        val untagged = deathDetail.copy(subject = deathDetail.subject.copy(tag = ""))
+        val untaggedRepository = FakeWorkflowDetailRepository(untagged)
+        val fallbackViewModel = buildViewModel(
+            untaggedRepository,
+            FakeWorkflowDetailSyncRepository(),
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { fallbackViewModel.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("G-000123", fallbackViewModel.state.value.displayId)
+    }
+
     /**
      * (c) Submit idempotency for the death-submission (video-gated completion) outbox write: the
      * enqueued WORKFLOW_ACTION_COMPLETE idempotency key includes the NEW proof's outboxItemId
