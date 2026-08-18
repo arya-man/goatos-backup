@@ -59,6 +59,9 @@ func SalesHTTPError(err error) *Error {
 	case errors.Is(err, ports.ErrDealNotFound):
 		return NotFound("Sale not found.")
 
+	case errors.Is(err, ports.ErrLeadNotFound):
+		return NotFound("Lead not found.")
+
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict",
 			"This request was already submitted with different details. Review the recorded sale before trying again.")
@@ -78,6 +81,14 @@ func SalesHTTPError(err error) *Error {
 			return &Error{
 				Code:       "sales_invalid_" + v.Field,
 				Message:    salesFieldLabel(v.Field) + " " + v.Reason + ".",
+				HTTPStatus: http.StatusBadRequest,
+			}
+		}
+		var f domain.ErrFieldValidation
+		if errors.As(err, &f) {
+			return &Error{
+				Code:       "sales_invalid_" + f.Field,
+				Message:    salesFieldLabel(f.Field) + " " + f.Reason + ".",
 				HTTPStatus: http.StatusBadRequest,
 			}
 		}
@@ -115,6 +126,48 @@ func salesFieldLabel(field string) string {
 		return "Advance amount"
 	case "comments":
 		return "Comments"
+	case "recorded_date":
+		return "Recorded date"
+	case "call_status":
+		return "Call status"
+	case "animal_type":
+		return "Animal type"
+	case "fpo_name":
+		return "Farmer group name"
+	case "crops":
+		return "Crops"
+	case "district":
+		return "District"
+	case "taluk":
+		return "Taluk"
+	case "state":
+		return "State"
+	case "market":
+		return "Market"
+	case "category":
+		return "Animal"
+	case "source":
+		return "Quoted by"
+	case "ex_farm_rate":
+		return "Ex-farm rate"
+	case "transport_rate":
+		return "Transport rate"
+	case "landing_cost_per_kg":
+		return "Landed cost per kg"
+	case "market_price_per_kg":
+		return "Market price per kg"
+	case "rows":
+		return "Tag list"
+	case "animal_label":
+		return "Animal label"
+	case "weight_kg":
+		return "Weight"
+	case "tag_number":
+		return "Tag number"
+	case "book_weight_kg":
+		return "Book weight"
+	case "video_weight_kg":
+		return "Video weight"
 	default:
 		return field
 	}

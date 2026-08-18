@@ -40,7 +40,113 @@ func (f *fakeRepo) CreateDeal(_ context.Context, _ string, write domain.DealWrit
 	return domain.Deal{DealID: "d-1"}, nil
 }
 
+// Pipeline methods: thin recorders, same idea as the deal ones.
+func (f *fakeRepo) ListBuyerLeads(_ context.Context, _ string, limit, offset int) (ports.BuyerLeadPage, error) {
+	f.listLimit, f.listOffset = limit, offset
+	return ports.BuyerLeadPage{Total: 208}, nil
+}
+
+func (f *fakeRepo) CreateBuyerLead(_ context.Context, _ string, write domain.BuyerLeadWrite, _ string, key string) (domain.BuyerLead, error) {
+	f.createCalls++
+	f.createdKey = key
+	return domain.BuyerLead{LeadID: "l-1", BuyerName: write.BuyerName}, nil
+}
+
+func (f *fakeRepo) SetBuyerLeadStatus(_ context.Context, _ string, leadID string, write domain.LeadStatusWrite, _ string, key string) (domain.BuyerLead, error) {
+	f.createCalls++
+	f.createdKey = key
+	status := write.CallStatus
+	return domain.BuyerLead{LeadID: leadID, CallStatus: &status}, nil
+}
+
+func (f *fakeRepo) ListFPOLeads(_ context.Context, _ string, limit, offset int) (ports.FPOLeadPage, error) {
+	f.listLimit, f.listOffset = limit, offset
+	return ports.FPOLeadPage{Total: 53}, nil
+}
+
+func (f *fakeRepo) CreateFPOLead(_ context.Context, _ string, write domain.FPOLeadWrite, _ string, key string) (domain.FPOLead, error) {
+	f.createCalls++
+	f.createdKey = key
+	return domain.FPOLead{LeadID: "f-1", FPOName: write.FPOName}, nil
+}
+
+func (f *fakeRepo) SetFPOLeadStatus(_ context.Context, _ string, leadID string, write domain.LeadStatusWrite, _ string, key string) (domain.FPOLead, error) {
+	f.createCalls++
+	f.createdKey = key
+	status := write.CallStatus
+	return domain.FPOLead{LeadID: leadID, CallStatus: &status}, nil
+}
+
+func (f *fakeRepo) CreateBenchmark(_ context.Context, _ string, _ domain.BenchmarkWrite, _ string, key string) error {
+	f.createCalls++
+	f.createdKey = key
+	return nil
+}
+
+func (f *fakeRepo) CreateSoldTags(_ context.Context, _ string, write domain.SoldTagsWrite, _ string, key string) (int, error) {
+	f.createCalls++
+	f.createdKey = key
+	return len(write.Rows), nil
+}
+
+func (f *fakeRepo) CreateWeightCheck(_ context.Context, _ string, _ domain.WeightCheckWrite, _ string, key string) error {
+	f.createCalls++
+	f.createdKey = key
+	return nil
+}
+
 const tenant = "00000000-0000-4000-8000-000000000001"
+
+func TestPipelineWritesRequireIdempotencyKeyAndValidate(t *testing.T) {
+	repo := &fakeRepo{}
+	s := NewSalesService(repo)
+	ctx := context.Background()
+
+	// Every pipeline write refuses a blank Idempotency-Key before touching the repository.
+	if _, err := s.CreateBuyerLead(ctx, tenant, domain.BuyerLeadWrite{BuyerName: "Firoz"}, "actor", " "); !errors.Is(err, ErrSalesIdempotencyKeyRequired) {
+		t.Fatalf("lead blank key: %v", err)
+	}
+	if err := s.CreateBenchmark(ctx, tenant, domain.BenchmarkWrite{Breed: "Malai"}, "actor", ""); !errors.Is(err, ErrSalesIdempotencyKeyRequired) {
+		t.Fatalf("benchmark blank key: %v", err)
+	}
+	if repo.createCalls != 0 {
+		t.Fatalf("repo touched on refused writes: %d", repo.createCalls)
+	}
+
+	// Required fields are rejected with the field named.
+	var f domain.ErrFieldValidation
+	if _, err := s.CreateBuyerLead(ctx, tenant, domain.BuyerLeadWrite{BuyerName: "  "}, "actor", "k1"); !errors.As(err, &f) || f.Field != "buyer_name" {
+		t.Fatalf("blank buyer name: %v", err)
+	}
+	if _, err := s.CreateFPOLead(ctx, tenant, domain.FPOLeadWrite{}, "actor", "k2"); !errors.As(err, &f) || f.Field != "fpo_name" {
+		t.Fatalf("blank fpo name: %v", err)
+	}
+	if _, err := s.CreateSoldTags(ctx, tenant, domain.SoldTagsWrite{}, "actor", "k3"); !errors.As(err, &f) || f.Field != "rows" {
+		t.Fatalf("empty tag rows: %v", err)
+	}
+	if err := s.CreateWeightCheck(ctx, tenant, domain.WeightCheckWrite{BookWeightKg: 0, VideoWeightKg: 20}, "actor", "k4"); !errors.As(err, &f) || f.Field != "book_weight_kg" {
+		t.Fatalf("zero book weight: %v", err)
+	}
+	// A farm outside the vocabulary is rejected, never rewritten.
+	if _, err := s.CreateBuyerLead(ctx, tenant, domain.BuyerLeadWrite{BuyerName: "Firoz", Farm: "HF"}, "actor", "k5"); !errors.As(err, &f) || f.Field != "farm" {
+		t.Fatalf("unknown farm: %v", err)
+	}
+	if repo.createCalls != 0 {
+		t.Fatalf("repo touched on rejected writes: %d", repo.createCalls)
+	}
+
+	// A valid write normalizes (whitespace collapsed) and reaches the repository with its key.
+	lead, err := s.CreateBuyerLead(ctx, tenant, domain.BuyerLeadWrite{BuyerName: "  Firoz   Khan "}, "actor", " k6 ")
+	if err != nil {
+		t.Fatalf("valid lead: %v", err)
+	}
+	if lead.BuyerName != "Firoz Khan" {
+		t.Fatalf("not normalized: %q", lead.BuyerName)
+	}
+	if repo.createdKey != "k6" {
+		t.Fatalf("key not trimmed: %q", repo.createdKey)
+	}
+}
 
 func TestGetOverviewNormalizesTheFarmFilter(t *testing.T) {
 	repo := &fakeRepo{}

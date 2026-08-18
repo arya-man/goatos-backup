@@ -2700,3 +2700,10 @@ select:disabled { opacity: .45; }
 .main .sales-card>p.muted.small,.main .sales-card .chips{padding-left:14px;padding-right:14px}
 .main .sales-card .chips{padding-top:2px;padding-bottom:4px}
 .main .sales-card .hbarlist{padding-top:10px;padding-bottom:12px}
+
+/* Sales pipeline drawers: the recent-leads list (name · detail | status select | save). */
+.sales-leadlist{display:grid;gap:8px;margin-top:8px}
+.sales-leadrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,150px) auto;gap:8px;align-items:center}
+.sales-leadname{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+.sales-leadrow select{width:100%;min-width:0}
+.sales-check{display:flex;align-items:center;gap:8px;cursor:pointer}

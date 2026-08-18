@@ -19,8 +19,9 @@ import {
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
-import { getSalesOverview, listSalesDeals } from "@/lib/api/procurement-server";
+import { getSalesOverview, listSalesBuyerLeads, listSalesDeals, listSalesFpoLeads } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
+import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   dealStatusTone,
@@ -59,9 +60,12 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
 function OverviewSections({
   overview,
   pageContract,
+  panelLink,
 }: {
   overview: SalesOverview;
   pageContract: AdminUiPageContract;
+  /** Renders the header button that opens one entry drawer, or null when the caller cannot record. */
+  panelLink: (panel: SalesPanel, labelKey: string) => ReactNode;
 }) {
   const summary = overview.summary;
   const none = copy(pageContract, "value.none");
@@ -189,6 +193,7 @@ function OverviewSections({
               <h3>{copy(pageContract, "section.market.title")}</h3>
               <div className="sp" style={{ flex: 1 }} />
               <span className="muted small">{copy(pageContract, "section.market.subtitle")}</span>
+              {panelLink("quote", "action.add_quote")}
             </div>
             {overview.market_benchmarks.length === 0 ? (
               <div className="empty">{copy(pageContract, "empty.market")}</div>
@@ -300,6 +305,8 @@ function OverviewSections({
                 <Tag tone={overview.buyer_pipeline.total > 0 ? "info" : "mut"}>
                   {num(overview.buyer_pipeline.total)} {copy(pageContract, "pipeline.buyers.total")}
                 </Tag>
+                <div className="sp" style={{ flex: 1 }} />
+                {panelLink("buyer_leads", "action.add_lead")}
               </div>
               {overview.buyer_pipeline.total === 0 ? (
                 <div className="empty">{copy(pageContract, "empty.buyer_pipeline")}</div>
@@ -336,6 +343,8 @@ function OverviewSections({
                 <Tag tone={overview.fpo_pipeline.total > 0 ? "info" : "mut"}>
                   {num(overview.fpo_pipeline.total)} {copy(pageContract, "pipeline.fpo.total")}
                 </Tag>
+                <div className="sp" style={{ flex: 1 }} />
+                {panelLink("fpo_leads", "action.add_fpo")}
               </div>
               {overview.fpo_pipeline.total === 0 ? (
                 <div className="empty">{copy(pageContract, "empty.fpo_pipeline")}</div>
@@ -373,6 +382,8 @@ function OverviewSections({
             <div className="card sales-card">
               <div className="hd">
                 <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.tags.title")}</h3>
+                <div className="sp" style={{ flex: 1 }} />
+                {panelLink("tags", "action.add_tags")}
               </div>
               <p className="muted small" style={{ marginTop: 0 }}>
                 {copy(pageContract, "section.evidence.subtitle")}
@@ -404,6 +415,8 @@ function OverviewSections({
             <div className="card sales-card">
               <div className="hd">
                 <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.audit.title")}</h3>
+                <div className="sp" style={{ flex: 1 }} />
+                {panelLink("weight_check", "action.add_weight_check")}
               </div>
               <p className="muted small" style={{ marginTop: 0 }}>
                 {copy(pageContract, "evidence.audit.subtitle")}
@@ -469,10 +482,14 @@ export async function SalesPage({
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
 
-  // The whole screen's data: ONE parallel pair — the overview contract and one ledger page.
-  const [overviewResult, dealsResult] = await Promise.all([
+  // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
+  // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
+  // without an RSC request, so drawer data must ride with the page).
+  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
+    listSalesBuyerLeads({ limit: 20 }),
+    listSalesFpoLeads({ limit: 20 }),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -486,9 +503,22 @@ export async function SalesPage({
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const canRecord = controlEnabled(pageContract, "record_sale", false);
+  const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
-  const listHref = hrefWithQuery(sp, { deal_id: null });
+  const listHref = hrefWithQuery(sp, { deal_id: null, panel: null });
+  const panelHrefFor = (panel: SalesPanel) => hrefWithQuery(sp, { deal_id: null, panel });
+  // The header button that opens one entry drawer. Rendered only for principals the contract
+  // grants the write capability; the routes behind it enforce the same permission.
+  const panelLink = (panel: SalesPanel, labelKey: string): ReactNode =>
+    canRecordPipeline ? (
+      <LocalOverlayLink href={panelHrefFor(panel)} className="btn sm" scroll={false}>
+        {copy(pageContract, labelKey)}
+      </LocalOverlayLink>
+    ) : null;
+
+  const buyerLeadPage = buyerLeadsResult.ok ? buyerLeadsResult.data : { leads: [], total: 0, status_options: [] };
+  const fpoLeadPage = fpoLeadsResult.ok ? fpoLeadsResult.data : { leads: [], total: 0, status_options: [] };
 
   return (
     <div className="screen on">
@@ -553,7 +583,7 @@ export async function SalesPage({
         ))}
       </div>
 
-      {overview ? <OverviewSections overview={overview} pageContract={pageContract} /> : null}
+      {overview ? <OverviewSections overview={overview} pageContract={pageContract} panelLink={panelLink} /> : null}
 
       {/* 8 — the deals ledger. */}
       <section className="card">
@@ -651,6 +681,22 @@ export async function SalesPage({
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}
       <SalesRecordDrawer deals={deals} pageContract={pageContract} listHref={listHref} canRecord={canRecord} />
+      <SalesPipelineDrawers
+        pageContract={pageContract}
+        listHref={listHref}
+        panelHrefs={{
+          buyer_leads: panelHrefFor("buyer_leads"),
+          fpo_leads: panelHrefFor("fpo_leads"),
+          quote: panelHrefFor("quote"),
+          tags: panelHrefFor("tags"),
+          weight_check: panelHrefFor("weight_check"),
+        }}
+        canRecord={canRecordPipeline}
+        buyerLeads={buyerLeadPage.leads}
+        buyerStatusOptions={buyerLeadPage.status_options}
+        fpoLeads={fpoLeadPage.leads}
+        fpoStatusOptions={fpoLeadPage.status_options}
+      />
     </div>
   );
 }

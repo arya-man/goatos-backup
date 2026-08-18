@@ -864,13 +864,24 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 	if !allowed {
 		reason = controlCopy(copy, "disabled.write", "Your current role can view sales but not record them.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_sale",
 		Label:          controlCopy(copy, "action.record_sale.label", "Record sale"),
 		Kind:           "primary_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals",
+	})
+	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
+	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
+	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
+	return upsertControl(controls, domain.Control{
+		ID:             "record_pipeline",
+		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
+		Kind:           "secondary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/buyer-leads",
 	})
 }
 

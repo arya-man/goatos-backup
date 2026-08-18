@@ -16,6 +16,18 @@ export type SalesMarketBenchmark = AppApiComponents["schemas"]["SalesMarketBench
 export type SalesDeal = AppApiComponents["schemas"]["SalesDeal"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
+export type SalesBuyerLead = AppApiComponents["schemas"]["SalesBuyerLead"];
+export type SalesBuyerLeadPage = AppApiComponents["schemas"]["SalesBuyerLeadPage"];
+export type SalesBuyerLeadWrite = AppApiComponents["schemas"]["SalesBuyerLeadWrite"];
+export type SalesFpoLead = AppApiComponents["schemas"]["SalesFpoLead"];
+export type SalesFpoLeadPage = AppApiComponents["schemas"]["SalesFpoLeadPage"];
+export type SalesFpoLeadWrite = AppApiComponents["schemas"]["SalesFpoLeadWrite"];
+export type SalesLeadStatusWrite = AppApiComponents["schemas"]["SalesLeadStatusWrite"];
+export type SalesBenchmarkWrite = AppApiComponents["schemas"]["SalesBenchmarkWrite"];
+export type SalesSoldTagsWrite = AppApiComponents["schemas"]["SalesSoldTagsWrite"];
+export type SalesSoldTagsResult = AppApiComponents["schemas"]["SalesSoldTagsResult"];
+export type SalesWeightCheckWrite = AppApiComponents["schemas"]["SalesWeightCheckWrite"];
+export type SalesRecorded = AppApiComponents["schemas"]["SalesRecorded"];
 
 // Write request bodies (operator POST flows).
 export type CreateProcurementLoadRequest = AdminApiComponents["schemas"]["CreateProcurementLoadRequest"];
