@@ -60,7 +60,7 @@ payload = {
         "text": text,
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
-            {"title": "Channels", "value": "Firebase App Distribution, mesha.sg/app.apk; Play Internal best-effort", "short": False},
+            {"title": "Channels", "value": "Firebase App Distribution, Play Internal Testing, mesha.sg/app.apk", "short": False},
             {"title": "Triggered by", "value": triggered_by, "short": False},
         ],
         "actions": [
@@ -90,7 +90,7 @@ if include_panel == "1":
                     "text": {"type": "plain_text", "text": "Also distribute Android mobile"},
                     "description": {
                         "type": "plain_text",
-                        "text": "Firebase App Distribution and mesha.sg/app.apk; Play Internal best-effort",
+                        "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
                     },
                     "value": "mobile_distribution",
                 }],
@@ -290,11 +290,12 @@ else
   echo "Could not start Play Internal upload; Firebase and direct APK are published." >&2
 fi
 
-if [[ "$play_uploaded" == "true" ]]; then
-  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
-else
-  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}. Play Internal did not update because Google Play returned a non-success response."
+if [[ "$play_uploaded" != "true" ]]; then
+  echo "Play Internal did not update; failing mobile distribution instead of leaving a partial publish." >&2
+  exit 1
 fi
+
+notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
 post_deploy_panel
 trap - EXIT
 
