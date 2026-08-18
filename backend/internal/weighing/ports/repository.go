@@ -461,7 +461,12 @@ type Repository interface {
 	// rather than summed. See domain.ShedWeights for the grain and threshold-basis
 	// contract. parkIDs must be non-empty and already authorization-checked by the
 	// caller: this method does no scoping of its own.
-	GetShedWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.ShedWeights, error)
+	// scopeParkIDs is the caller's AUTHORIZED park scope and selectedParkID is the filter, and the
+	// two are separate on purpose: the returned Parks vocabulary is built from the SCOPE while the
+	// rows are narrowed by the SELECTION. Building both from one filtered slice collapsed the park
+	// dropdown to whichever park was already chosen, so a reader who picked CPT could not get back
+	// to CBE without clearing the filter by hand.
+	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time) (domain.ShedWeights, error)
 
 	// GetWeightDemographics returns average weight by breed, sex and management stage.
 	// This is the ONE weighing read permitted to resolve a scanned tag to its animal

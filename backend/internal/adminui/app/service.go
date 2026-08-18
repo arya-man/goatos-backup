@@ -309,6 +309,10 @@ func chromeCopy() map[string]string {
 		"nav.back_to_prefix":            "Back to",
 		"scope.no_parks_for_park_scope": "No parks available for park-wise scope",
 		"scope.park_menu_aria":          "Park scope",
+		// Why the top-bar park control is disabled on pages that carry their own park filter.
+		// A disabled control must say WHY, and naming the page (the previous behaviour) did not:
+		// on a route with no label rule it fell through to "Route unavailable", which is both
+		// wrong -- the route is available -- and internal wording on a CEO screen.
 		"scope.all_sheds":               "all sheds",
 		"scope.all_parks":               "All parks",
 		"scope.selected_park":           "Selected park",
@@ -2555,10 +2559,15 @@ func pageSpecificCopy(id string) map[string]string {
 	case "weighing-weights":
 		// Every visible string on /weighing/weights. The renderer owns layout only.
 		//
-		// COPY FIREWALL: farm language throughout. No "lump sum", "bucket",
-		// "observation", "campaign shed" or "per_shed_partition" reaches a screen —
-		// those are storage words. The operator-facing words are "Whole shed" and
-		// "Per animal".
+		// COPY FIREWALL: farm language throughout. No "bucket", "observation",
+		// "campaign shed" or "per_shed_partition" reaches a screen — those are storage words.
+		// The operator-facing words are "Lump sum" and "Per animal".
+		//
+		// "Lump sum" was previously banned here as a storage word and rendered "Whole shed".
+		// The maintainer reversed that on 2026-08-17: lump-sum is what the farm calls this
+		// capture mode, and it is the term the top-level workspace context uses for it
+		// ("lump-sum -> total weight, animal count, video(s) -- per shed"). Do not revert it
+		// to "Whole shed" on the strength of the older comment.
 		return map[string]string{
 			"crumb":                      "Weighing",
 			"filter.park.label":          "Park",
@@ -2566,7 +2575,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.weighing.label":      "Weighing",
 			"filter.weighing.all":        "All",
 			"filter.weighing.individual": "Per animal",
-			"filter.weighing.lump":       "Whole shed",
+			"filter.weighing.lump":       "Lump sum",
 			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 30 days
 			// before today. `filter.period.4w` / `.12w` and the `weighing_period` option group went
 			// with the fixed-window select they labelled: two preset spans could only answer the two
@@ -2606,7 +2615,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.clear_all":          "Clear filters",
 			"pager.noun":                "shed",
 			"value.weighing.individual": "Per animal",
-			"value.weighing.lump":       "Whole shed",
+			"value.weighing.lump":       "Lump sum",
 			"value.never_weighed":       "Not weighed yet",
 			"empty.no_data.title":       "No data available",
 			"empty.no_data.body":        "No shed was weighed in this period. Try a longer period or another park.",
@@ -6323,7 +6332,7 @@ func weighingWeightsOptionGroups() []domain.OptionGroup {
 			ID: "weighing_mode", Options: []domain.Option{
 				option("all", "All", "Both ways of weighing", ""),
 				option("individual_animal", "Per animal", "Each kid scanned and weighed on its own", "info"),
-				option("per_shed_partition", "Whole shed", "One total for the shed, with a head count", ""),
+				option("per_shed_partition", "Lump sum", "One total for the shed, with a head count", ""),
 			},
 		},
 		// `weighing_period` (28 / 84 days) is deliberately GONE, not left as an unused vocabulary: the
