@@ -65,6 +65,9 @@ interface FeedTransportScopedItemDao {
     @Query("SELECT * FROM feed_transport_scoped_items WHERE taskId=:taskId ORDER BY updatedAt DESC LIMIT 1")
     fun observeByTaskId(taskId: String): Flow<FeedTransportScopedItemEntity?>
 
+    @Query("SELECT * FROM feed_transport_scoped_items WHERE taskId=:taskId")
+    suspend fun rowsByTaskId(taskId: String): List<FeedTransportScopedItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedTransportScopedItemEntity>)
 

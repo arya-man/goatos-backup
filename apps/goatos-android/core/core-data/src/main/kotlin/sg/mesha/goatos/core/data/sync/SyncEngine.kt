@@ -127,6 +127,7 @@ class SyncEngine(
     // gate itself is unconditional and out of scope for this change).
     private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
     private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
+    private val feedTransportRepository: sg.mesha.goatos.core.data.FeedTransportRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -259,7 +260,9 @@ class SyncEngine(
         return try {
             val resultJson = dispatch(item)
             if (store.markSucceeded(item.id, resultJson, clock())) {
-                reconcileFeatureSuccess(item)
+                // Reconcile with the response from this successful dispatch. The original
+                // in-memory item predates markSucceeded and therefore has resultJson=null.
+                reconcileFeatureSuccess(item.copy(resultJson = resultJson))
             }
             true
         } catch (cancellation: CancellationException) {
@@ -489,6 +492,15 @@ class SyncEngine(
                             )
                         }.onFailure { reportCacheReconcileFailure(item, it) }
                     }
+                }
+            }
+            OutboxOpType.FEED_TRANSPORT_SUBMIT -> {
+                val payload = syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto>(resultJson)
+                    runCatching {
+                        feedTransportRepository?.persistTaskStatus(payload.taskId, response.status)
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
             else -> Unit

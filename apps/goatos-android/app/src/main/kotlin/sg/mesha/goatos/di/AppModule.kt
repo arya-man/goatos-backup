@@ -734,6 +734,7 @@ object AppModule {
         database: GoatDatabase,
         outboxTelemetry: OutboxTelemetryReporter,
         feedRepository: FeedRepository,
+        feedTransportRepository: FeedTransportRepository,
         milkFeedingRepository: MilkFeedingRepository,
         milkPreparationRepository: MilkPreparationRepository,
         countsRepository: CountsRepository,
@@ -752,6 +753,7 @@ object AppModule {
         // FEED_DISTRIBUTION_COMPLETE/FEED_PACKING_COMPLETE reconciliation silently no-ops in
         // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
         feedRepository = feedRepository,
+        feedTransportRepository = feedTransportRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",

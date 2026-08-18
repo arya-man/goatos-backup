@@ -142,6 +142,8 @@ class FeedPackingViewModel @Inject constructor(
     }
 
     fun onRowsLoadFailed(error: Throwable) {
+        _isRefreshing.value = false
+        _isOffline.value = true
         crashReporter.recordException(error, "feed packing page load failed")
         analytics.track(
             AnalyticsEvents.FEED_READ_FAILURE,
@@ -150,6 +152,15 @@ class FeedPackingViewModel @Inject constructor(
                 AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
             ),
         )
+    }
+
+    fun onRowsLoading() {
+        _isRefreshing.value = true
+    }
+
+    fun onRowsLoaded() {
+        _isRefreshing.value = false
+        _isOffline.value = false
     }
 
     fun onEvent(event: FeedPackingEvent) {
@@ -173,7 +184,7 @@ class FeedPackingViewModel @Inject constructor(
     }
 
     private fun refresh() {
-        _isRefreshing.value = false
+        _isRefreshing.value = true
         _isOffline.value = false
         // A NEW value, not an equal one: MutableStateFlow conflates on equality and these
         // selections are data classes, so a bare copy() emitted nothing and flatMapLatest
@@ -347,6 +358,7 @@ class FeedPackingViewModel @Inject constructor(
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
             status = status.takeIf { it.isNotBlank() },
+            refreshNonce = refreshNonce,
         )
     }
 
@@ -374,4 +386,3 @@ class FeedPackingViewModel @Inject constructor(
         const val ACTION_CLEARED = "cleared"
     }
 }
-

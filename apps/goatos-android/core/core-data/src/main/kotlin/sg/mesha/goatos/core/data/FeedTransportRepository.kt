@@ -119,6 +119,20 @@ class FeedTransportRepository(
         }
     }
 
+    /** Persist server truth into every cached filter scope before the active outbox overlay leaves. */
+    suspend fun persistTaskStatus(taskId: String, status: String) {
+        if (taskId.isBlank() || status.isBlank()) return
+        val rows = db.feedTransportScopedItemDao().rowsByTaskId(taskId)
+        if (rows.isEmpty()) return
+        val now = clock()
+        db.feedTransportScopedItemDao().upsertAll(
+            rows.map { row ->
+                val dto = json.decodeFromString<FeedTransportTaskDto>(row.dtoJson).copy(status = status)
+                row.copy(dtoJson = json.encodeToString(dto), updatedAt = now)
+            },
+        )
+    }
+
     suspend fun loadMore(query: FeedTransportQuery): Result<Unit> = runCatching {
         val key = db.feedTransportScopedRemoteKeyDao().get(query.scopeKey) ?: return@runCatching
         val cursor = key.nextCursor ?: return@runCatching

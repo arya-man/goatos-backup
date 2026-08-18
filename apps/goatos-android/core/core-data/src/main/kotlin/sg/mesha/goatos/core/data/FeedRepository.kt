@@ -85,6 +85,8 @@ data class FeedPackingQuery(
     val session: Int? = null,
     val workflow: String? = null,
     val status: String? = null,
+    /** Forces a network refresh without partitioning the stable Room cache scope. */
+    val refreshNonce: Int = 0,
 ) {
     /**
      * The cache namespace for this scope.
@@ -701,6 +703,7 @@ private class FeedPackingRemoteMediator(
     private val queryKey = query.roomKey()
 
     override suspend fun initialize(): InitializeAction {
+        if (query.refreshNonce > 0) return InitializeAction.LAUNCH_INITIAL_REFRESH
         val cachedAt = database.feedPackingRemoteKeyDao().get(queryKey)?.updatedAt
         return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
             InitializeAction.SKIP_INITIAL_REFRESH
