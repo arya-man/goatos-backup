@@ -65,12 +65,22 @@ export const SEEK_TOLERANCE_MS = 1500;
  * (see overshootBeyondWatched), so that invariant no longer depends on the two constants' order. */
 export const PLAYBACK_TOLERANCE_MS = 1000;
 
-/** Effective playback tolerance for this element: 2x playback covers 2x media time per tick. Never
- * scales DOWN below normal (a 0.5x rate still gets the full tick allowance — a slow rate does not
- * make real ticks arrive closer together in media time than the jitter the tolerance absorbs). */
+/** The fastest rate the UI ever offers is the 2x button, so the tolerance never scales past 2.
+ * Without this cap, a console-set `video.playbackRate = 16` made every 16x tick look like natural
+ * playback — the mark raced to the end and a whole proof was "watched" in a sixteenth of its
+ * runtime, measured in-browser 2026-08-18. A rate the product never offers is not playback. */
+export const MAX_PLAYBACK_TOLERANCE_SCALE = 2;
+
+/** Effective playback tolerance for this element: 2x playback covers 2x media time per tick, so the
+ * scale follows the rate, capped at [MAX_PLAYBACK_TOLERANCE_SCALE]. Never scales DOWN below normal
+ * (a 0.5x rate still gets the full tick allowance — a slow rate does not make real ticks arrive
+ * closer together in media time than the jitter the tolerance absorbs). */
 function playbackToleranceMs(video: MediaLike): number {
   const rate = video.playbackRate;
-  const scale = typeof rate === "number" && Number.isFinite(rate) && rate > 1 ? rate : 1;
+  const scale =
+    typeof rate === "number" && Number.isFinite(rate) && rate > 1
+      ? Math.min(rate, MAX_PLAYBACK_TOLERANCE_SCALE)
+      : 1;
   return PLAYBACK_TOLERANCE_MS * scale;
 }
 
