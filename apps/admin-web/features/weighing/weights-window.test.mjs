@@ -83,6 +83,7 @@ test("weighed shed rows render breed and sex composition chips from the backend 
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.match(source, /demo\?\.shed_composition \?\? \[\]/);
   assert.match(source, /shedLabelWithComposition/);
+  assert.equal(source.match(/label: shedLabelWithComposition\(/g)?.length, 3);
   assert.match(source, /replace\(" · ", " - "\)/);
   assert.doesNotMatch(source, /shed avg/);
   assert.match(source, /className="wcomp-chips"/);

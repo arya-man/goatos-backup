@@ -449,7 +449,11 @@ export async function WeighingWeightsPage({
         // held "M1P5" and "C1" for sheds whose real names are "Mandela 1 - Part 5"
         // and "Castro 1".
         park_name: shed.park_name,
-        label: shed.operational_location_display || shed.display_name,
+        label: shedLabelWithComposition(
+          shed.operational_location_display || shed.display_name,
+          compositionByShed.get(shedKey(shed.location_id, shed.partition_label)),
+          pageContract,
+        ),
         value: Math.round(shed.median_adg_g_per_day),
       })),
     ...visibleRows
@@ -457,19 +461,11 @@ export async function WeighingWeightsPage({
       .map((row) => ({
         key: `${shedKey(row.location_id, row.partition_label)}-shed`,
         park_name: row.park_name,
-        // The label on the DAILY-GAIN view is the SHED NAME AND NOTHING ELSE (maintainer
-        // instruction, 2026-08-18). It has carried two different suffixes: first the
-        // measurement span, naming which of this chart's two measurements the row is and over
-        // how many days, and then the breed/sex composition that replaced it. Both are real
-        // context -- Channapatna's Castro 2 reads +1,532 g/day across a 2-day gap, which is
-        // 1.5 kg per kid per day and impossible -- but this is the one chart whose rows are
-        // already thirty-character park+shed+pen strings, and a suffix present on some rows
-        // and absent on others reads as a difference between the SHEDS rather than between
-        // the measurements. The caption still states that the chart mixes the two.
-        //
-        // The WEIGHT view of this same card KEEPS its composition suffix, so nothing landed on
-        // main is deleted -- flip this one line to put it back on gain too.
-        label: row.operational_location_display || row.shed_display_name,
+        label: shedLabelWithComposition(
+          row.operational_location_display || row.shed_display_name,
+          compositionByShed.get(shedKey(row.location_id, row.partition_label)),
+          pageContract,
+        ),
         value: Math.round(row.shed_average_gain_g_per_day as number),
       })),
   ].sort((a, b) => b.value - a.value);
