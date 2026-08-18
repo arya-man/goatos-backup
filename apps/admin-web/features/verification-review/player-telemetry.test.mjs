@@ -180,6 +180,55 @@ test("a forward seek before anything is watched gets no tolerance and is refused
   );
 });
 
+// THE 2026-08-18 REGRESSION: no proof video could play at all on admin-web.
+//
+// When the cold seek allowance became zero (2ec889ce2), the level-triggered clamp — which runs on
+// every `timeupdate` AND on a 250ms poll — started refusing the very first natural playback tick of
+// every fresh clip: position ~250ms > mark 0 + allowance 0, so the element was yanked back to 0, the
+// mark never advanced, and the clip looped "play a fraction of a second, snap back to the start"
+// forever. The verifier reported it as "videos are not playing — pausing, going back".
+test("cold natural playback is NEVER clamped — the regression that pinned every clip at 0", () => {
+  const t = new WatchTracker(sink());
+  const playing = (seconds) => ({ currentTime: seconds, duration: 30, paused: false });
+  // The 250ms poll can fire BEFORE the first timeupdate has advanced the mark.
+  assert.equal(t.overshootBeyondWatched(playing(0.25)), null, "the poll must not fight cold playback");
+  for (const seconds of [0.25, 0.5, 0.75, 1.0]) {
+    assert.equal(
+      t.overshootBeyondWatched(playing(seconds)),
+      null,
+      `natural playback at ${seconds}s must not be clamped`,
+    );
+    t.onTimeUpdate(playing(seconds));
+  }
+  assert.equal(t.watchedMs, 1000, "and the mark advances normally through the watch");
+});
+
+test("a cold forward SEEK is still refused even while playing", () => {
+  const t = new WatchTracker(sink());
+  const playing = (seconds) => ({ currentTime: seconds, duration: 30, paused: false });
+  // Any seek fires `seeking` first, so seekPending guards the clamp until a natural tick lands.
+  assert.equal(t.onSeeking(playing(9)), 0, "a cold skip is rolled back to the start");
+  assert.equal(
+    t.overshootBeyondWatched(playing(9)),
+    0,
+    "and the clamp stays strict while the seek is in flight — playing is no loophole",
+  );
+});
+
+test("2x playback ticks advance the mark and are never clamped", () => {
+  const t = new WatchTracker(sink());
+  const at2x = (seconds) => ({ currentTime: seconds, duration: 60, paused: false, playbackRate: 2 });
+  // At 2x a slightly slow tick covers >1s of media — over the NORMAL tolerance, within the scaled one.
+  for (const seconds of [0.9, 2.4, 4.2]) {
+    assert.equal(t.overshootBeyondWatched(at2x(seconds)), null, "2x playback must not be dragged back");
+    t.onTimeUpdate(at2x(seconds));
+  }
+  assert.equal(t.watchedMs, 4200, "the mark keeps up with double-speed playback");
+  // A genuine leap is still refused even at 2x: 2000ms of tolerance, not unlimited.
+  t.onTimeUpdate(at2x(9.9));
+  assert.equal(t.watchedMs, 4200, "a leap past the scaled tolerance is still not watching");
+});
+
 test("the tolerance returns once real playback progress exists", () => {
   const tracker = new WatchTracker({ record: () => {} });
   const video = { currentTime: 0.5, duration: 11.79, paused: false };
