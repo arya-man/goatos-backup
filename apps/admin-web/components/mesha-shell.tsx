@@ -440,6 +440,13 @@ export function MeshaShell({
     };
   }, [scopeMenuOpen, roleMenuOpen]);
 
+  useEffect(() => {
+    if (lockTopBarParkSelector && scopeMenuOpen) {
+      const id = window.setTimeout(() => setScopeMenuOpen(false), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [lockTopBarParkSelector, scopeMenuOpen]);
+
   function toggleTheme() {
     const next = !document.documentElement.classList.contains("light");
     document.documentElement.classList.toggle("light", next);

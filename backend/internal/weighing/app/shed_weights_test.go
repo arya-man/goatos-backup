@@ -17,22 +17,24 @@ import (
 // the fake made up. A scope regression is invisible if the fake ignores its input.
 type shedWeightsRepo struct {
 	fakeRepo
-	gotParkIDs  []string
-	gotStart    time.Time
-	gotEnd      time.Time
-	parks       []domain.WeighingPark
-	shedWeights domain.ShedWeights
+	gotScopeParkIDs []string
+	gotSelectedPark string
+	gotStart        time.Time
+	gotEnd          time.Time
+	parks           []domain.WeighingPark
+	shedWeights     domain.ShedWeights
 }
 
-func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, parkIDs []string, _ string, start, end time.Time) (domain.ShedWeights, error) {
-	r.gotParkIDs = append([]string(nil), parkIDs...)
+func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, scopeParkIDs []string, selectedParkID string, start, end time.Time) (domain.ShedWeights, error) {
+	r.gotScopeParkIDs = append([]string(nil), scopeParkIDs...)
+	r.gotSelectedPark = selectedParkID
 	r.gotStart, r.gotEnd = start, end
 	out := r.shedWeights
 	// The real repository builds the park vocabulary from the scope it was handed.
 	// Mirroring that here keeps this test honest: it still proves the caller's scope
 	// is what reaches the read, rather than asserting on a list the fake invented.
 	for _, park := range r.parks {
-		for _, id := range parkIDs {
+		for _, id := range scopeParkIDs {
 			if park.ParkID == id {
 				out.Parks = append(out.Parks, domain.GrowthPark{ParkID: park.ParkID, Name: park.Name})
 			}
@@ -74,8 +76,8 @@ func TestGetShedWeightsRejectsUnauthorizedParkID(t *testing.T) {
 	if _, err := svc.GetShedWeights(ctx, swActor(), swParkB, "", ""); err == nil {
 		t.Fatal("expected park B to be denied for a park-A scoped monitor, got nil error")
 	}
-	if repo.gotParkIDs != nil {
-		t.Fatalf("repository must not be reached when scope is denied, got parkIDs=%v", repo.gotParkIDs)
+	if repo.gotScopeParkIDs != nil {
+		t.Fatalf("repository must not be reached when scope is denied, got parkIDs=%v", repo.gotScopeParkIDs)
 	}
 }
 
@@ -95,8 +97,11 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
-	if len(repo.gotParkIDs) != 1 || repo.gotParkIDs[0] != swParkA {
-		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotParkIDs)
+	if len(repo.gotScopeParkIDs) != 1 || repo.gotScopeParkIDs[0] != swParkA {
+		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotScopeParkIDs)
+	}
+	if repo.gotSelectedPark != "" {
+		t.Fatalf("expected no selected park for omitted park filter, got %q", repo.gotSelectedPark)
 	}
 	// The park filter vocabulary is backend-owned AND scoped: offering park B here
 	// would advertise a park this caller cannot read. The repository builds it from
@@ -113,7 +118,10 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 // caller's inclusive last day must become an exclusive midnight boundary the day
 // after, or the final day's weighs are silently dropped.
 func TestGetShedWeightsPassesHalfOpenBusinessDayWindow(t *testing.T) {
-	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
+	repo := &shedWeightsRepo{parks: []domain.WeighingPark{
+		{ParkID: swParkA, Name: "Coimbatore"},
+		{ParkID: swParkB, Name: "Channapatna"},
+	}}
 	svc := NewService(repo)
 	ctx := swContext(permissions.ActiveGrant{
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
@@ -121,6 +129,12 @@ func TestGetShedWeightsPassesHalfOpenBusinessDayWindow(t *testing.T) {
 
 	if _, err := svc.GetShedWeights(ctx, swActor(), swParkA, "2026-07-01", "2026-07-28"); err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if len(repo.gotScopeParkIDs) != 2 || repo.gotScopeParkIDs[0] != swParkA || repo.gotScopeParkIDs[1] != swParkB {
+		t.Fatalf("expected full tenant scope for vocabulary, got %v", repo.gotScopeParkIDs)
+	}
+	if repo.gotSelectedPark != swParkA {
+		t.Fatalf("expected selected park %s for rows, got %q", swParkA, repo.gotSelectedPark)
 	}
 	if got := repo.gotStart.Format("2006-01-02"); got != "2026-07-01" {
 		t.Fatalf("period start: want 2026-07-01, got %s", got)
