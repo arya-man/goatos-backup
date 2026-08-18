@@ -58,7 +58,7 @@ func analyticsParkFilter(selected string, authorized []string) ([]uuid.UUID, err
 	if selected != "" {
 		id, err := uuid.Parse(selected)
 		if err != nil {
-			return nil, ports.ErrParkNotFound
+			return nil, fmt.Errorf("%w: %v", ports.ErrParkNotFound, err)
 		}
 		return []uuid.UUID{id}, nil
 	}
@@ -66,7 +66,7 @@ func analyticsParkFilter(selected string, authorized []string) ([]uuid.UUID, err
 	for _, raw := range authorized {
 		id, err := uuid.Parse(raw)
 		if err != nil {
-			return nil, ports.ErrParkNotFound
+			return nil, fmt.Errorf("%w: %v", ports.ErrParkNotFound, err)
 		}
 		out = append(out, id)
 	}

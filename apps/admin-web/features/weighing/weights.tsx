@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { Scale, TrendingDown, Warehouse } from "lucide-react";
 
 import { WeightBars } from "./weight-bars";
-import { SegmentedLinks } from "./segmented-links";
+import { SegmentedLinks } from "@/components/segmented-links";
 import { GrowthDirectorSection } from "./growth-director";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";

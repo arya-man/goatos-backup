@@ -508,8 +508,8 @@ export async function SalesPage({
   const dealColumns = tableLabels(pageContract, "sales-deals");
   const listHref = hrefWithQuery(sp, { deal_id: null, panel: null });
   const panelHrefFor = (panel: SalesPanel) => hrefWithQuery(sp, { deal_id: null, panel });
-  // The header button that opens one entry drawer. Rendered only for principals the contract
-  // grants the write capability; the routes behind it enforce the same permission.
+  // One header control opens the entry drawer only when the page contract grants write access.
+  // The server routes enforce the same permission.
   const panelLink = (panel: SalesPanel, labelKey: string): ReactNode =>
     canRecordPipeline ? (
       <LocalOverlayLink href={panelHrefFor(panel)} className="btn sm" scroll={false}>
