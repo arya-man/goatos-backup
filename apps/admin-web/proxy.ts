@@ -82,11 +82,27 @@ function canonicalHostRedirect(request: NextRequest): NextResponse | null {
   if (!requestHost || requestHost === canonicalHost) {
     return null;
   }
+  // A loopback host is the Next server talking to ITSELF: when a Server Action calls redirect(),
+  // Next fetches the redirect target from `__NEXT_PRIVATE_ORIGIN` (http://127.0.0.1:<port> on Cloud
+  // Run) to stream the destination page back in the action response. Node's fetch overrides the
+  // Host header from that URL, so the internal request arrives as `127.0.0.1:8080`. Deflecting it
+  // to the public host would send it back out through the load balancer, and Node's fetch DROPS the
+  // Cookie header when following a cross-origin redirect — the request then arrives sessionless,
+  // bounces to /login, and the user sees a logout/login flash after every approve (STG incident
+  // 2026-08-18). The self-fetch must be served in place, never re-canonicalized.
+  if (isLoopbackHost(requestHost)) {
+    return null;
+  }
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.protocol = "https:";
   redirectUrl.hostname = canonicalHost;
   redirectUrl.port = "";
   return NextResponse.redirect(redirectUrl, 308);
+}
+
+function isLoopbackHost(host: string): boolean {
+  const bare = host.replace(/:\d+$/, "");
+  return bare === "127.0.0.1" || bare === "localhost" || bare === "[::1]";
 }
 
 function normalizeHost(value: string | null | undefined): string {
