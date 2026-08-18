@@ -5,8 +5,8 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { Banknote } from "lucide-react";
 
-import { SvgBars } from "@/components/svg-bars";
-import { SvgColumnBars } from "@/components/svg-column-bars";
+import { HBarList } from "@/components/hbar-list";
+import { MonthColumns } from "@/components/month-columns";
 import { Tag } from "@/components/ui-primitives";
 import {
   actionFeedbackCopy,
@@ -24,11 +24,15 @@ import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   dealStatusTone,
+  humanDate,
   inr,
+  inrCompact,
   marketLossPerKg,
+  monthLabel,
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
+  numCompact,
   resolveFarm,
   salesHref,
 } from "./sales-format";
@@ -106,57 +110,58 @@ function OverviewSections({
 
           <p className="muted small" style={{ margin: "6px 0 14px" }}>
             {copy(pageContract, "kpi.period")}:{" "}
-            {summary.period_from ? `${summary.period_from} – ${summary.period_to}` : none}
+            {summary.period_from ? `${humanDate(summary.period_from)} – ${humanDate(summary.period_to)}` : none}
             {" · "}
             {copy(pageContract, "kpi.live_weight")}: {num(summary.live_weight_kg)} {kgSuffix}
           </p>
 
-          {/* 2 — month by month. Three separate charts: rupees, heads and kg never share an axis. */}
+          {/* 2 — month by month. Three separate charts: rupees, heads and kg never share an axis.
+              Stacked full-width so every column carries its month label and value. */}
           <section className="card" aria-label={copy(pageContract, "section.monthly.aria")}>
             <div className="hd">
               <h3>{copy(pageContract, "section.monthly.title")}</h3>
             </div>
-            <div className="grid g3">
-              <div>
-                <div className="mt">{copy(pageContract, "chart.monthly_revenue.title")}</div>
-                <SvgColumnBars
-                  data={overview.monthly.map((month) => ({
-                    key: month.month,
-                    label: month.month,
-                    value: monthlyRevenueTotal(month),
-                  }))}
-                  chartLabel={copy(pageContract, "chart.monthly_revenue.title")}
-                  valueNoun={copy(pageContract, "chart.monthly_revenue.value")}
-                  emptyLabel={copy(pageContract, "chart.monthly_revenue.empty")}
-                />
-              </div>
-              <div>
-                <div className="mt">{copy(pageContract, "chart.monthly_animals.title")}</div>
-                <SvgColumnBars
-                  data={overview.monthly.map((month) => ({
-                    key: month.month,
-                    label: month.month,
-                    value: monthlyAnimalsTotal(month),
-                  }))}
-                  chartLabel={copy(pageContract, "chart.monthly_animals.title")}
-                  valueNoun={copy(pageContract, "chart.monthly_animals.value")}
-                  emptyLabel={copy(pageContract, "chart.monthly_animals.empty")}
-                />
-              </div>
-              <div>
-                <div className="mt">{copy(pageContract, "chart.monthly_manure.title")}</div>
-                <SvgColumnBars
-                  data={overview.monthly.map((month) => ({
-                    key: month.month,
-                    label: month.month,
-                    value: month.manure_kg,
-                  }))}
-                  chartLabel={copy(pageContract, "chart.monthly_manure.title")}
-                  valueNoun={copy(pageContract, "chart.monthly_manure.value")}
-                  emptyLabel={copy(pageContract, "chart.monthly_manure.empty")}
-                />
-              </div>
+            <div className="mt" style={{ marginTop: 4 }}>
+              {copy(pageContract, "chart.monthly_revenue.title")}
             </div>
+            <MonthColumns
+              data={overview.monthly.map((month) => ({
+                key: month.month,
+                axisLabel: monthLabel(month.month),
+                label: monthLabel(month.month),
+                value: monthlyRevenueTotal(month),
+                display: inrCompact(monthlyRevenueTotal(month)),
+              }))}
+              chartLabel={copy(pageContract, "chart.monthly_revenue.title")}
+              valueNoun={copy(pageContract, "chart.monthly_revenue.value")}
+              emptyLabel={copy(pageContract, "chart.monthly_revenue.empty")}
+            />
+            <div className="mt">{copy(pageContract, "chart.monthly_animals.title")}</div>
+            <MonthColumns
+              data={overview.monthly.map((month) => ({
+                key: month.month,
+                axisLabel: monthLabel(month.month),
+                label: monthLabel(month.month),
+                value: monthlyAnimalsTotal(month),
+                display: num(monthlyAnimalsTotal(month)),
+              }))}
+              chartLabel={copy(pageContract, "chart.monthly_animals.title")}
+              valueNoun={copy(pageContract, "chart.monthly_animals.value")}
+              emptyLabel={copy(pageContract, "chart.monthly_animals.empty")}
+            />
+            <div className="mt">{copy(pageContract, "chart.monthly_manure.title")}</div>
+            <MonthColumns
+              data={overview.monthly.map((month) => ({
+                key: month.month,
+                axisLabel: monthLabel(month.month),
+                label: monthLabel(month.month),
+                value: month.manure_kg,
+                display: numCompact(month.manure_kg),
+              }))}
+              chartLabel={copy(pageContract, "chart.monthly_manure.title")}
+              valueNoun={copy(pageContract, "chart.monthly_manure.value")}
+              emptyLabel={copy(pageContract, "chart.monthly_manure.empty")}
+            />
           </section>
 
           {/* 3 — realized price per kg by breed, ordered as served (highest first). */}
@@ -164,11 +169,12 @@ function OverviewSections({
             <div className="hd">
               <h3>{copy(pageContract, "section.price_bands.title")}</h3>
             </div>
-            <SvgBars
+            <HBarList
               data={overview.price_bands.map((band) => ({
                 key: `${band.product_type}|${band.breed}`,
                 label: `${band.breed} · ${seriesLabel(band.product_type)}`,
                 value: Math.round(band.avg_price_per_kg),
+                display: `${inr(Math.round(band.avg_price_per_kg))} ${perKgSuffix}`,
               }))}
               emptyLabel={copy(pageContract, "chart.price_bands.empty")}
               valueNoun={copy(pageContract, "chart.price_bands.value")}
@@ -300,7 +306,7 @@ function OverviewSections({
               ) : (
                 <>
                   <div className="mt">{copy(pageContract, "pipeline.status_heading")}</div>
-                  <SvgBars
+                  <HBarList
                     data={overview.buyer_pipeline.statuses.map((status) => ({
                       key: status.status,
                       label: statusLabel(status.status),
@@ -336,7 +342,7 @@ function OverviewSections({
               ) : (
                 <>
                   <div className="mt">{copy(pageContract, "pipeline.status_heading")}</div>
-                  <SvgBars
+                  <HBarList
                     data={overview.fpo_pipeline.statuses.map((status) => ({
                       key: status.status,
                       label: statusLabel(status.status),
@@ -366,10 +372,11 @@ function OverviewSections({
           <section className="grid g2" aria-label={copy(pageContract, "section.evidence.title")}>
             <div className="card">
               <div className="hd">
-                <h3>{copy(pageContract, "evidence.tags.title")}</h3>
-                <div className="sp" style={{ flex: 1 }} />
-                <span className="muted small">{copy(pageContract, "section.evidence.subtitle")}</span>
+                <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.tags.title")}</h3>
               </div>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                {copy(pageContract, "section.evidence.subtitle")}
+              </p>
               {overview.tag_roster.total === 0 ? (
                 <div className="empty">{copy(pageContract, "empty.tags")}</div>
               ) : (
@@ -380,7 +387,7 @@ function OverviewSections({
                     {num(overview.tag_roster.sales_count)} {copy(pageContract, "evidence.tags.sales")}
                   </p>
                   <div className="mt">{copy(pageContract, "evidence.tags.by_type")}</div>
-                  <SvgBars
+                  <HBarList
                     data={overview.tag_roster.by_type.map((entry) => ({
                       key: entry.label,
                       label: entry.label,
@@ -396,15 +403,16 @@ function OverviewSections({
             </div>
             <div className="card">
               <div className="hd">
-                <h3>{copy(pageContract, "evidence.audit.title")}</h3>
-                <div className="sp" style={{ flex: 1 }} />
-                <span className="muted small">{copy(pageContract, "evidence.audit.subtitle")}</span>
+                <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.audit.title")}</h3>
               </div>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                {copy(pageContract, "evidence.audit.subtitle")}
+              </p>
               {overview.weight_audit.total === 0 ? (
                 <div className="empty">{copy(pageContract, "empty.audit")}</div>
               ) : (
                 <>
-                  <SvgBars
+                  <HBarList
                     data={[
                       {
                         key: "within_0_3",

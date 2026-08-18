@@ -2,14 +2,42 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  humanDate,
   inr,
+  inrCompact,
   marketLossPerKg,
+  monthLabel,
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
+  numCompact,
   resolveFarm,
   salesHref,
 } from "./sales-format.ts";
+
+test("inrCompact speaks lakh and crore for chart labels", () => {
+  assert.equal(inrCompact(7160979), "₹71.6L");
+  assert.equal(inrCompact(19_40_000), "₹19.4L");
+  assert.equal(inrCompact(2_00_00_000), "₹2Cr");
+  assert.equal(inrCompact(42500), "₹42.5k");
+  assert.equal(inrCompact(900), "₹900");
+  assert.equal(inrCompact(0), "₹0");
+});
+
+test("numCompact shortens counts and kg the same way", () => {
+  assert.equal(numCompact(219305), "2.2L");
+  assert.equal(numCompact(12410), "12.4k");
+  assert.equal(numCompact(528), "528");
+});
+
+test("monthLabel and humanDate turn ISO values into farm-readable dates", () => {
+  assert.equal(monthLabel("2025-04"), "Apr 25");
+  assert.equal(monthLabel("2026-12"), "Dec 26");
+  assert.equal(monthLabel("garbage"), "garbage");
+  assert.equal(humanDate("2025-04-15"), "15 Apr 2025");
+  assert.equal(humanDate("2026-08-11"), "11 Aug 2026");
+  assert.equal(humanDate("not-a-date"), "not-a-date");
+});
 
 test("inr uses Indian digit grouping with a rupee sign", () => {
   assert.equal(inr(1234567), "₹12,34,567");
