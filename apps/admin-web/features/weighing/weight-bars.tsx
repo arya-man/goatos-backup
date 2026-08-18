@@ -13,7 +13,7 @@
 // correct in both themes and passes the banned-hex scan by construction. It renders
 // no copy of its own: every string is passed in already resolved from the page
 // contract by the caller.
-export type WeightBar = { key: string; label: string; value: number };
+export type WeightBar = { key: string; label: string; value: number; valueLabel?: string };
 
 export function WeightBars({
   data,
@@ -103,7 +103,7 @@ export function WeightBars({
             />
           </span>
           <span className={`wbv${bar.value < 0 ? " neg" : ""}`}>
-            {bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} {unit}
+            {bar.valueLabel ?? `${bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${unit}`}
           </span>
         </li>
       ))}

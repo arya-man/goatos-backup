@@ -2446,9 +2446,9 @@ select:disabled { opacity: .45; }
 .wcol-h{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 /* Half the page is wider than the old half-width card, so the label column can carry
    the shed's breed and sex context instead of clipping it at the generic 132px. */
-.wcols .wbar{grid-template-columns:minmax(0,clamp(220px,42%,320px)) minmax(180px,1fr) 72px}
-.wcols .wbar .wbl{display:block;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;overflow-wrap:anywhere}
-@media(max-width:1200px){.wcols .wbar{grid-template-columns:minmax(0,150px) minmax(120px,1fr) 62px}}
+.wcols .wbar{grid-template-columns:minmax(0,clamp(220px,42%,320px)) minmax(180px,1fr) 72px;min-height:72px}
+.wcols .wbar .wbl{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:normal;overflow:hidden;text-overflow:ellipsis;line-height:1.18;overflow-wrap:anywhere}
+@media(max-width:1200px){.wcols .wbar{grid-template-columns:minmax(0,150px) minmax(120px,1fr) 62px;min-height:80px}}
 @media(max-width:900px){.wcols{grid-template-columns:1fr;gap:14px}}
 /* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
    their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the

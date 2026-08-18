@@ -77,13 +77,16 @@ test("shed lists and gain chart only show sheds weighed in the selected window",
   assert.match(source, /const weighedRowKeys = new Set\(weighedRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
   assert.match(source, /const visibleRowKeys = new Set\(visibleRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
   assert.match(source, /shed\.adg_pair_count > 0 && visibleRowKeys\.has\(shedKey\(shed\.location_id, shed\.partition_label\)\)/);
+  assert.match(source, /const singleWeighRows = visibleRows/);
+  assert.match(source, /row\.animals_weighed > 0 && !gainRowKeys\.has\(shedKey\(row\.location_id, row\.partition_label\)\)/);
+  assert.match(source, /valueLabel: `\$\{kg\(row\.average_weight_kg\)\} kg`/);
 });
 
 test("weighed shed rows render breed and sex composition chips from the backend contract", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.match(source, /demo\?\.shed_composition \?\? \[\]/);
   assert.match(source, /shedLabelWithComposition/);
-  assert.equal(source.match(/label: shedLabelWithComposition\(/g)?.length, 3);
+  assert.equal(source.match(/label: shedLabelWithComposition\(/g)?.length, 4);
   assert.match(source, /replace\(" · ", " - "\)/);
   assert.doesNotMatch(source, /shed avg/);
   assert.match(source, /className="wcomp-chips"/);
@@ -103,12 +106,17 @@ test("small shed charts do not reserve the tall empty panel height", () => {
   assert.match(source, /size=\{shedChartSize\}/);
 });
 
-test("full-width shed chart labels wrap instead of truncating composition", () => {
+test("full-width shed chart labels fit without overlapping rows", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  assert.match(css, /\.wcols \.wbar\{[^}]*min-height:72px/);
+  assert.match(css, /@media\(max-width:1200px\)\{\.wcols \.wbar\{[^}]*min-height:80px/);
+  assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*display:-webkit-box/);
+  assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*-webkit-line-clamp:3/);
   assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*white-space:normal/);
-  assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*text-overflow:clip/);
+  assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*overflow:hidden/);
+  assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*text-overflow:ellipsis/);
   assert.match(css, /\.wcols \.wbar \.wbl\{[^}]*overflow-wrap:anywhere/);
-  assert.doesNotMatch(css, /\.wcols \.wbar \.wbl\{[^}]*text-overflow:ellipsis/);
+  assert.doesNotMatch(css, /\.wcols \.wbar \.wbl\{[^}]*overflow:visible/);
   assert.match(css, /\.wbar\{[^}]*grid-template-columns:minmax\(0,clamp\(160px,36%,260px\)\) minmax\(180px,1fr\) 72px/);
   assert.match(css, /\.wbar\{[^}]*min-height:34px/);
   assert.match(css, /\.wbar \.wbl\{[^}]*min-width:0/);
