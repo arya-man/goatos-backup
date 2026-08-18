@@ -266,6 +266,15 @@ interface FeedRepository {
         lifecycleStatus: String,
     ): Unit
 
+    suspend fun persistDirectionSessionStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit = persistDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo, lifecycleStatus)
+
     /**
      * Persist a fetched lifecycle status into the Room row for a packing pen-session so the
      * live [observePackingRowStatus] flow emits and screens survive process death offline.
@@ -278,6 +287,15 @@ interface FeedRepository {
         sessionNo: Int,
         lifecycleStatus: String,
     ): Unit
+
+    suspend fun persistPackingRowStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit = persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, lifecycleStatus)
 }
 
 /** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
@@ -555,6 +573,28 @@ class DefaultFeedRepository(
         }
     }
 
+    override suspend fun persistDirectionSessionStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        val prefix = "$shedId|$partitionLabel|$workflow|"
+        val rows = database.feedDirectionItemDao().rowsForShedSessionInRange(
+            queryPattern = "$DIRECTION_CACHE_SHAPE|%|$targetDate|%",
+            prefix = prefix,
+            prefixEnd = prefix + "￿",
+            sessionNo = sessionNo.toString(),
+        )
+        database.feedDirectionItemDao().upsertAll(rows.map { row ->
+            val dto = json.decodeFromString<FeedDirectionRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            row.copy(dtoJson = json.encodeToString(dto))
+        })
+    }
+
     override suspend fun persistPackingRowStatus(
         shedId: String,
         partitionLabel: String,
@@ -573,6 +613,29 @@ class DefaultFeedRepository(
             val updatedRow = row.copy(dtoJson = json.encodeToString(dto))
             database.feedPackingItemDao().upsertAll(listOf(updatedRow))
         }
+    }
+
+
+    override suspend fun persistPackingRowStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        val rows = database.feedPackingItemDao().rowsForPenSession(
+            queryPattern = "$PACKING_CACHE_SHAPE|%|$targetDate|%",
+            shedId = shedId,
+            partitionLabel = partitionLabel,
+            workflow = workflow,
+            sessionNo = sessionNo.coerceAtLeast(1).toString(),
+        )
+        database.feedPackingItemDao().upsertAll(rows.map { row ->
+            val dto = json.decodeFromString<FeedPackingRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            row.copy(dtoJson = json.encodeToString(dto))
+        })
     }
 }
 
