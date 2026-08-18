@@ -229,6 +229,19 @@ test("2x playback ticks advance the mark and are never clamped", () => {
   assert.equal(t.watchedMs, 4200, "a leap past the scaled tolerance is still not watching");
 });
 
+test("a console-set 16x rate cannot race the watched mark to the end", () => {
+  const t = new WatchTracker(sink());
+  const at16x = (seconds) => ({ currentTime: seconds, duration: 30, paused: false, playbackRate: 16 });
+  t.onTimeUpdate(at16x(0.5)); // one legitimate step advances the mark
+  assert.equal(t.watchedMs, 500);
+  // 16x ticks cover ~4s of media each — far past the capped (2x) tolerance, so they are not
+  // playback and must not advance the mark. Measured in-browser: without the cap the whole 31s
+  // proof was "watched" in 2.5s.
+  t.onTimeUpdate(at16x(4.5));
+  assert.equal(t.watchedMs, 500, "a 4s step is not a tick at any offered speed");
+  assert.equal(t.overshootBeyondWatched(at16x(4.5)), 500, "and the position is pulled back");
+});
+
 test("the tolerance returns once real playback progress exists", () => {
   const tracker = new WatchTracker({ record: () => {} });
   const video = { currentTime: 0.5, duration: 11.79, paused: false };
