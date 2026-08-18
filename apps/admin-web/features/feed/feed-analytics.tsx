@@ -18,8 +18,8 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ChartHover } from "@/components/chart-hover";
+import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars } from "@/components/svg-bars";
-import { SegmentedLinks } from "@/features/weighing/segmented-links";
 import {
   FEED_SERIES_VARS,
   FeedChartLegend,

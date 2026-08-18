@@ -239,7 +239,7 @@ func firstNumber(raw string) *float64 {
 	}
 	n, err := strconv.ParseFloat(match, 64)
 	if err != nil {
-		return nil
+		return nil // exception:exempt regex-selected market prose may still overflow; store NULL rather than failing the bootstrap.
 	}
 	return &n
 }

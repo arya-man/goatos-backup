@@ -151,13 +151,35 @@ func main() {
 		}
 		v, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
-			return nil
+			return nil // exception:exempt optional sheet money field: invalid values are treated as NULL and counted by required-field checks.
 		}
 		return &v
 	}
 
 	imported, updated, skippedCatalog, skippedBad := 0, 0, 0, 0
 	skippedFeeds := map[string]int{}
+	upsertSQL := `
+INSERT INTO feed_purchases
+  (tenant_id, park_id, farm_label, feed_item_label, batch_no, purchase_date, quantity_kg,
+   consumed_at_import_kg, depletes_from,
+   feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost,
+   vendor, payment_released, payment_status, source_ref)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+ON CONFLICT (tenant_id, farm_label, feed_item_key, batch_no) DO UPDATE SET
+  quantity_kg=EXCLUDED.quantity_kg, feed_cost=EXCLUDED.feed_cost,
+  transport_cost=EXCLUDED.transport_cost, loading_cost=EXCLUDED.loading_cost,
+  unloading_cost=EXCLUDED.unloading_cost, total_cost=EXCLUDED.total_cost,
+  per_kg_cost=EXCLUDED.per_kg_cost, vendor=EXCLUDED.vendor,
+  consumed_at_import_kg=EXCLUDED.consumed_at_import_kg, depletes_from=EXCLUDED.depletes_from,
+  payment_released=EXCLUDED.payment_released, payment_status=EXCLUDED.payment_status,
+  source_ref=EXCLUDED.source_ref, imported_at=now()`
+	type queuedPurchase struct {
+		batchNo int
+		farm    string
+		feed    string
+	}
+	writeBatch := &pgx.Batch{}
+	queued := []queuedPurchase{}
 	for {
 		rec, err := reader.Read()
 		if err == io.EOF {
@@ -175,7 +197,7 @@ func main() {
 			skippedBad++
 			continue
 		}
-		batch, err := strconv.Atoi(batchRaw)
+		batchNo, err := strconv.Atoi(batchRaw)
 		if err != nil {
 			skippedBad++
 			continue
@@ -206,34 +228,28 @@ func main() {
 			imported++
 			continue
 		}
-		tag, err := conn.Exec(ctx, `
-INSERT INTO feed_purchases
-  (tenant_id, park_id, farm_label, feed_item_label, batch_no, purchase_date, quantity_kg,
-   consumed_at_import_kg, depletes_from,
-   feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost,
-   vendor, payment_released, payment_status, source_ref)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-ON CONFLICT (tenant_id, farm_label, feed_item_key, batch_no) DO UPDATE SET
-  quantity_kg=EXCLUDED.quantity_kg, feed_cost=EXCLUDED.feed_cost,
-  transport_cost=EXCLUDED.transport_cost, loading_cost=EXCLUDED.loading_cost,
-  unloading_cost=EXCLUDED.unloading_cost, total_cost=EXCLUDED.total_cost,
-  per_kg_cost=EXCLUDED.per_kg_cost, vendor=EXCLUDED.vendor,
-  consumed_at_import_kg=EXCLUDED.consumed_at_import_kg, depletes_from=EXCLUDED.depletes_from,
-  payment_released=EXCLUDED.payment_released, payment_status=EXCLUDED.payment_status,
-  source_ref=EXCLUDED.source_ref, imported_at=now()`,
-			*tenantID, parkID, farm, feed, batch, purchaseDate.Format("2006-01-02"), *qty,
+		writeBatch.Queue(upsertSQL,
+			*tenantID, parkID, farm, feed, batchNo, purchaseDate.Format("2006-01-02"), *qty,
 			consumedOrZero(money(get(rec, "consumed_at_import_kg"))), *depletesFrom,
 			money(get(rec, "feed_cost")), money(get(rec, "transport_cost")), money(get(rec, "loading_cost")),
 			money(get(rec, "unloading_cost")), money(get(rec, "total_cost")), money(get(rec, "per_kg_cost")),
 			get(rec, "vendor"), money(get(rec, "payment_released")), get(rec, "payment_status"),
-			fmt.Sprintf("feed-db-sheet:batch=%d", batch))
-		if err != nil {
-			log.Fatalf("upsert batch %d %s/%s: %v", batch, farm, feed, err)
-		}
-		if tag.RowsAffected() == 1 {
-			imported++
-		} else {
-			updated++
+			fmt.Sprintf("feed-db-sheet:batch=%d", batchNo))
+		queued = append(queued, queuedPurchase{batchNo: batchNo, farm: farm, feed: feed})
+	}
+	if writeBatch.Len() > 0 {
+		results := conn.SendBatch(ctx, writeBatch)
+		defer results.Close()
+		for _, item := range queued {
+			tag, err := results.Exec() // scale-guard:ignore: drains queued pgx.Batch results; statements were sent in one batch.
+			if err != nil {
+				log.Fatalf("upsert batch %d %s/%s: %v", item.batchNo, item.farm, item.feed, err)
+			}
+			if tag.RowsAffected() == 1 {
+				imported++
+			} else {
+				updated++
+			}
 		}
 	}
 	log.Printf("feed purchases import: imported=%d updated=%d skipped_not_in_catalog=%d skipped_bad_rows=%d dry_run=%v", imported, updated, skippedCatalog, skippedBad, *dryRun)

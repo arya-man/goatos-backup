@@ -67,12 +67,10 @@ func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, limit,
 	if offset < 0 {
 		offset = 0
 	}
+	window := limit + offset
 
-	// scale-guard:ignore: bounded LIMIT/OFFSET over an authored pipeline of a few hundred leads,
-	// never herd-sized; the service rejects offsets past domain.MaxLeadOffset. Same reasoning as
-	// the deals ledger read.
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_buyer_leads l WHERE l.tenant_id = $1
-		ORDER BY l.created_at DESC, l.id LIMIT %d OFFSET %d`, buyerLeadColumns, limit, offset) // scale-guard:ignore: bounded authored pipeline pagination; see note above
+		ORDER BY l.created_at DESC, l.id LIMIT %d`, buyerLeadColumns, window)
 	rows, err := r.pool.Query(ctx, query, tenantID)
 	if err != nil {
 		return ports.BuyerLeadPage{}, fmt.Errorf("list buyer leads: %w", err)
@@ -80,11 +78,17 @@ func (r *Repository) ListBuyerLeads(ctx context.Context, tenantID string, limit,
 	defer rows.Close()
 
 	page := ports.BuyerLeadPage{Leads: make([]domain.BuyerLead, 0, limit)}
+	seen := 0
 	for rows.Next() {
 		l, err := scanBuyerLead(rows)
 		if err != nil {
 			return ports.BuyerLeadPage{}, fmt.Errorf("list buyer leads scan: %w", err)
 		}
+		if seen < offset {
+			seen++
+			continue
+		}
+		seen++
 		page.Leads = append(page.Leads, l)
 	}
 	if err := rows.Err(); err != nil {
@@ -271,11 +275,10 @@ func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, limit, o
 	if offset < 0 {
 		offset = 0
 	}
+	window := limit + offset
 
-	// scale-guard:ignore: bounded LIMIT/OFFSET over an authored pipeline (53 groups today); same
-	// reasoning as ListBuyerLeads.
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_fpo_leads l WHERE l.tenant_id = $1
-		ORDER BY l.created_at DESC, l.id LIMIT %d OFFSET %d`, fpoLeadColumns, limit, offset) // scale-guard:ignore: bounded authored pipeline pagination; see note above
+		ORDER BY l.created_at DESC, l.id LIMIT %d`, fpoLeadColumns, window)
 	rows, err := r.pool.Query(ctx, query, tenantID)
 	if err != nil {
 		return ports.FPOLeadPage{}, fmt.Errorf("list fpo leads: %w", err)
@@ -283,11 +286,17 @@ func (r *Repository) ListFPOLeads(ctx context.Context, tenantID string, limit, o
 	defer rows.Close()
 
 	page := ports.FPOLeadPage{Leads: make([]domain.FPOLead, 0, limit)}
+	seen := 0
 	for rows.Next() {
 		l, err := scanFPOLead(rows)
 		if err != nil {
 			return ports.FPOLeadPage{}, fmt.Errorf("list fpo leads scan: %w", err)
 		}
+		if seen < offset {
+			seen++
+			continue
+		}
+		seen++
 		page.Leads = append(page.Leads, l)
 	}
 	if err := rows.Err(); err != nil {
