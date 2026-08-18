@@ -15,18 +15,18 @@ import (
 // so this read needs no procurement table and no exception to the isolation lock.
 // See 000131_weighing_shed_load_tags.sql for why the mapping lives here.
 //
-// projection-review: membership=one row per load_ref having at least one weighed shed tagged to EXACTLY that load; group_key=(t.load_ref, t.owner_name), where `tag` has already collapsed to one row per location_id via HAVING count(*) = 1; join_cardinality=daily is 1 row per (location_id, d) because it GROUPs on that pair, so ranked/shed_latest are 1 per location_id at rn = 1 and shed_gain is 0..1 per location_id (GROUP BY location_id), and `tag` is 0..1 per location_id — no side can multiply a shed into a load twice; pagination=NONE, bounded by the authored tag estate; scope=tenant_id + park_id = ANY($2) through weighing_campaigns, plus the half-open accepted_at window
+// projection-review: membership=one row per load_ref having at least one weighed operational shed row tagged to EXACTLY that load's physical location; group_key=(t.load_ref, t.owner_name), where `tag` has already collapsed to one row per location_id via HAVING count(*) = 1; join_cardinality=daily is 1 row per (location_id, partition_label, d) because it GROUPs on that tuple, so ranked/shed_latest are 1 per operational row at rn = 1 and shed_gain is 0..1 per operational row, while `tag` is 0..1 per physical location_id — the final GROUP deliberately blends the tagged location's measured partitions; pagination=NONE, bounded by the authored tag estate; scope=tenant_id + park_id = ANY($2) through weighing_campaigns, plus the half-open accepted_at window
 //
 //	PRODUCER UNIQUENESS vs CONSUMER MATCH KEYS, side by side:
-//	  daily          unique on (location_id, d)            [its own GROUP BY]
-//	  shed_latest    unique on (location_id)               [ranked rn = 1]
-//	  shed_gain      unique on (location_id)               [its own GROUP BY]
+//	  daily          unique on (location_id, partition_label, d) [its own GROUP BY]
+//	  shed_latest    unique on (location_id, partition_label)    [ranked rn = 1]
+//	  shed_gain      unique on (location_id, partition_label)    [its own GROUP BY]
 //	  tag            unique on (location_id)               [GROUP BY + HAVING count(*) = 1]
 //	  final SELECT   groups on (load_ref, owner_name)      [matches tag's carried columns]
 //
 //	ROW MULTIPLICITY OF EVERY JOINED SIDE (all 0..1 against a tagged shed):
-//	  shed_latest    1   per location_id — the JOIN is what restricts loads to weighed sheds
-//	  shed_gain      0..1 per location_id — absent when the shed was weighed only once
+//	  shed_latest    1   per measured partition — the JOIN is what restricts loads to weighed rows
+//	  shed_gain      0..1 per measured partition — absent when that row was weighed only once
 //
 //	RATIO KEY SETS, shown identical:
 //	  average_weight_kg = sum(avg_kg * animals) / sum(animals). Both range over the
@@ -50,7 +50,9 @@ func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs [
 
 	const q = `
 WITH scoped AS (
-  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.weighing_category
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id,
+         COALESCE(cs.partition_label, '') AS partition_label,
+         cs.weighing_category
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c
     ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
@@ -62,7 +64,7 @@ lump_daily AS (
   -- withdrawn_at IS REQUIRED: 000067 made this table's uniqueness PARTIAL over live
   -- rows, so a reopened+resubmitted bucket legitimately keeps superseded rows and
   -- joining them all fans the shed-day out.
-  SELECT s.location_id,
+  SELECT s.location_id, s.partition_label,
          (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
          o.average_weight_kg                               AS avg_kg,
          o.animal_count                                    AS animals
@@ -72,7 +74,7 @@ lump_daily AS (
    AND o.tenant_id        = s.tenant_id
    AND o.withdrawn_at IS NULL
    AND o.verification_status <> 'rejected'
-   AND o.accepted_at >= $3::timestamptz - interval '35 days'
+   AND o.accepted_at >= $3::timestamptz
    AND o.accepted_at <  $4::timestamptz
   WHERE s.weighing_category = 'per_shed_partition'
 ),
@@ -84,7 +86,7 @@ ind_daily AS (
   -- same grain as 000073's uidx — because 000078 dropped animal_id and weighing is
   -- free-flow. A blank tag cannot be collapsed with other blank tags, so it keys on
   -- its own row.
-  SELECT s.location_id, x.d,
+  SELECT s.location_id, s.partition_label, x.d,
          avg(x.weight_kg) AS avg_kg,
          count(*)::int    AS animals
   FROM scoped s
@@ -97,7 +99,7 @@ ind_daily AS (
            o.weight_kg
     FROM weighing_observations o
     WHERE o.tenant_id = $1::uuid
-      AND o.accepted_at >= $3::timestamptz - interval '35 days'
+      AND o.accepted_at >= $3::timestamptz
       AND o.accepted_at <  $4::timestamptz
       -- A rejected proof is not a real weight. Pending IS included: an unverified
       -- weight is still a measurement, matching shed_weights.go and growth.go.
@@ -108,7 +110,7 @@ ind_daily AS (
              o.accepted_at DESC, o.observation_id DESC
   ) x ON x.campaign_shed_id = s.campaign_shed_id
   WHERE s.weighing_category = 'individual_animal'
-  GROUP BY s.location_id, x.d
+  GROUP BY s.location_id, s.partition_label, x.d
 ),
 daily AS (
   -- BOTH capture modes on one timeline. The two sources are disjoint per bucket
@@ -116,50 +118,47 @@ daily AS (
   -- but a SHED can change mode between campaigns, so its history legitimately spans
   -- both tables and a mode-specific view would see one point and no trend.
   --
-  -- The GROUP BY also guarantees ONE row per (location_id, d), which is what makes
-  -- the row_number() below a clean last-two-weighs pick: a shed weighed twice in a
-  -- day across two buckets would otherwise occupy both ranks and yield a zero-day
-  -- span.
-  SELECT location_id, d,
+  -- The GROUP BY also guarantees ONE row per (location_id, partition_label, d),
+  -- which is what makes the row_number() below a clean first/latest pick: a shed
+  -- weighed twice in a day across two buckets would otherwise occupy both ranks
+  -- and yield a zero-day span.
+  SELECT location_id, partition_label, d,
          sum(avg_kg * animals) / NULLIF(sum(animals), 0) AS avg_kg,
          sum(animals)::int                               AS animals
   FROM (
-    SELECT location_id, d, avg_kg, animals FROM lump_daily
+    SELECT location_id, partition_label, d, avg_kg, animals FROM lump_daily
     UNION ALL
-    SELECT location_id, d, avg_kg, animals FROM ind_daily
+    SELECT location_id, partition_label, d, avg_kg, animals FROM ind_daily
   ) u
-  GROUP BY location_id, d
+  GROUP BY location_id, partition_label, d
 ),
 ranked AS (
-  SELECT location_id, d, avg_kg, animals,
-         row_number() OVER (PARTITION BY location_id ORDER BY d DESC) AS rn
+  SELECT location_id, partition_label, d, avg_kg, animals,
+         row_number() OVER (PARTITION BY location_id, partition_label ORDER BY d DESC) AS rn
   FROM daily
 ),
 shed_latest AS (
-  SELECT location_id, avg_kg, animals
+  SELECT location_id, partition_label, avg_kg, animals
   FROM ranked
   WHERE rn = 1
     AND d >= ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
 ),
 shed_gain AS (
-  -- Four-week movement matching the shed chart: latest weigh against the weigh
-  -- closest to 28 days earlier, with weekly tolerance and no too-recent last-row
-  -- fallback.
-  SELECT latest.location_id,
-         (latest.avg_kg - baseline.avg_kg) * 1000.0
-           / NULLIF(latest.d - baseline.d, 0) AS g_per_day,
-         latest.d - baseline.d                AS span_days
+  -- Selected-range movement matching the shed chart: first weighed date in the
+  -- selected window to latest weighed date in the same selected window.
+  SELECT latest.location_id, latest.partition_label,
+         (latest.avg_kg - first.avg_kg) * 1000.0
+           / NULLIF(latest.d - first.d, 0) AS g_per_day,
+         latest.d - first.d                AS span_days
   FROM ranked latest
-  JOIN LATERAL (
-    SELECT avg_kg, d
-    FROM daily baseline
-    WHERE baseline.location_id = latest.location_id
-      AND baseline.d < latest.d
-      AND abs(baseline.d - (latest.d - 28)) <= 7
-    ORDER BY abs(baseline.d - (latest.d - 28)), baseline.d DESC
-    LIMIT 1
-  ) baseline ON true
-  WHERE latest.rn = 1
+  JOIN (
+    SELECT location_id, partition_label, d, avg_kg,
+           row_number() OVER (PARTITION BY location_id, partition_label ORDER BY d ASC) AS rn
+    FROM daily
+  ) first ON first.location_id = latest.location_id
+    AND first.partition_label = latest.partition_label
+    AND first.rn = 1
+  WHERE latest.rn = 1 AND latest.d > first.d
 ),
 tag AS (
   -- EXACTLY ONE load per shed, or the shed is not attributed at all. See the
@@ -182,7 +181,9 @@ SELECT t.load_ref,
          WHERE NOT EXISTS (SELECT 1 FROM tag t2 WHERE t2.location_id = sl2.location_id))::int
 FROM tag t
 JOIN shed_latest sl ON sl.location_id = t.location_id
-LEFT JOIN shed_gain sg ON sg.location_id = t.location_id
+LEFT JOIN shed_gain sg
+  ON sg.location_id = sl.location_id
+ AND sg.partition_label = sl.partition_label
 GROUP BY t.load_ref, t.owner_name
 ORDER BY 6 DESC NULLS LAST, t.load_ref`
 

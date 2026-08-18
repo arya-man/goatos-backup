@@ -54,7 +54,7 @@ payload = {
         "text": text,
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
-            {"title": "Channels", "value": "Firebase App Distribution, Play Internal, mesha.sg/app.apk", "short": False},
+            {"title": "Channels", "value": "Firebase App Distribution, mesha.sg/app.apk; Play Internal best-effort", "short": False},
             {"title": "Triggered by", "value": triggered_by, "short": False},
         ],
         "actions": [
@@ -84,7 +84,7 @@ if include_panel == "1":
                     "text": {"type": "plain_text", "text": "Also distribute Android mobile"},
                     "description": {
                         "type": "plain_text",
-                        "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk",
+                        "text": "Firebase App Distribution and mesha.sg/app.apk; Play Internal best-effort",
                     },
                     "value": "mobile_distribution",
                 }],
@@ -131,10 +131,8 @@ on_exit() {
     local prefix="Android mobile distribution failed."
     [[ "${DEPLOY_STG:-false}" == "true" ]] && prefix="STG rollout succeeded. Android mobile distribution failed."
 
-    if [[ "$firebase_uploaded" == "true" && "$play_uploaded" != "true" ]]; then
-      notify_slack "FAILED" "${prefix} Firebase App Distribution uploaded, but Play Internal Testing did not complete."
-    elif [[ "$firebase_uploaded" == "true" && "$play_uploaded" == "true" && "$apk_mirrored" != "true" ]]; then
-      notify_slack "FAILED" "${prefix} Firebase App Distribution and Play Internal Testing completed, but mesha.sg/app.apk did not update."
+    if [[ "$firebase_uploaded" == "true" && "$apk_mirrored" != "true" ]]; then
+      notify_slack "FAILED" "${prefix} Firebase App Distribution uploaded, but mesha.sg/app.apk did not update."
     else
       notify_slack "FAILED" "${prefix} Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk did NOT all complete."
     fi
@@ -198,43 +196,6 @@ ANDROID_VERSION_NAME="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" man
 ANDROID_VERSION_CODE="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest version-code "$APK")"
 DOWNLOAD_NAME="Mesha-${ANDROID_VERSION_NAME}.apk"
 
-play_access_token="$(gcloud auth print-access-token --scopes=https://www.googleapis.com/auth/androidpublisher)"
-play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
-edit_id="$(curl -fsS -X POST -H "Authorization: Bearer ${play_access_token}" "${play_base}/edits" | jq -r '.id')"
-[[ -n "$edit_id" && "$edit_id" != "null" ]] || { echo "Could not create Google Play edit." >&2; exit 1; }
-
-play_version_code="$(
-  curl -fsS -X POST \
-    -H "Authorization: Bearer ${play_access_token}" \
-    -H "Content-Type: application/octet-stream" \
-    --data-binary @"$AAB" \
-    "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}/edits/${edit_id}/bundles?uploadType=media" \
-    | jq -r '.versionCode'
-)"
-[[ "$play_version_code" == "$ANDROID_VERSION_CODE" ]] || {
-  echo "Play uploaded versionCode $play_version_code, APK has $ANDROID_VERSION_CODE" >&2
-  exit 1
-}
-
-jq -n --arg vc "$ANDROID_VERSION_CODE" '{
-  releases: [{
-    name: ("Goat OS STG " + $vc),
-    status: "completed",
-    versionCodes: [$vc]
-  }]
-}' > .local/android-signing/play-internal-track.json
-
-curl -fsS -X PUT \
-  -H "Authorization: Bearer ${play_access_token}" \
-  -H "Content-Type: application/json" \
-  --data-binary @.local/android-signing/play-internal-track.json \
-  "${play_base}/edits/${edit_id}/tracks/internal" >/dev/null
-
-curl -fsS -X POST \
-  -H "Authorization: Bearer ${play_access_token}" \
-  "${play_base}/edits/${edit_id}:commit" >/dev/null
-play_uploaded=true
-
 gcloud storage cp "$APK" \
   "gs://goatos-stg-public-downloads/operator/releases/${DOWNLOAD_NAME}" \
   --project="$PROJECT_ID" \
@@ -263,7 +224,60 @@ curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/l
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 apk_mirrored=true
 
-notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
+if play_access_token="$(gcloud auth print-access-token --scopes=https://www.googleapis.com/auth/androidpublisher)" &&
+  edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" "${play_base}/edits")"; then
+  edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
+  if [[ -n "$edit_id" ]]; then
+    upload_response_file=".local/android-signing/play-upload-response.json"
+    upload_status="$(
+      curl -sS -o "$upload_response_file" -w '%{http_code}' -X POST \
+        -H "Authorization: Bearer ${play_access_token}" \
+        -H "Content-Type: application/octet-stream" \
+        --data-binary @"$AAB" \
+        "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}/edits/${edit_id}/bundles?uploadType=media"
+    )"
+    if [[ "$upload_status" =~ ^2 ]]; then
+      play_version_code="$(jq -r '.versionCode // empty' "$upload_response_file")"
+      if [[ "$play_version_code" == "$ANDROID_VERSION_CODE" ]]; then
+        jq -n --arg vc "$ANDROID_VERSION_CODE" '{
+          releases: [{
+            name: ("Goat OS STG " + $vc),
+            status: "completed",
+            versionCodes: [$vc]
+          }]
+        }' > .local/android-signing/play-internal-track.json
+
+        if curl -fsS -X PUT \
+          -H "Authorization: Bearer ${play_access_token}" \
+          -H "Content-Type: application/json" \
+          --data-binary @.local/android-signing/play-internal-track.json \
+          "${play_base}/edits/${edit_id}/tracks/internal" >/dev/null &&
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${play_access_token}" \
+            "${play_base}/edits/${edit_id}:commit" >/dev/null; then
+          play_uploaded=true
+        fi
+      else
+        echo "Play uploaded versionCode ${play_version_code:-empty}, APK has $ANDROID_VERSION_CODE; leaving Play Internal unchanged." >&2
+      fi
+    else
+      echo "Play Internal upload skipped after HTTP $upload_status; Firebase and direct APK are published." >&2
+      sed 's/^/play-upload-response: /' "$upload_response_file" >&2 || true
+    fi
+  else
+    echo "Play edit was not created; Firebase and direct APK are published." >&2
+    printf '%s\n' "$edit_response" | sed 's/^/play-edit-response: /' >&2
+  fi
+else
+  echo "Could not start Play Internal upload; Firebase and direct APK are published." >&2
+fi
+
+if [[ "$play_uploaded" == "true" ]]; then
+  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded, Play Internal updated to versionCode ${ANDROID_VERSION_CODE}, and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}."
+else
+  notify_slack "SUCCEEDED" "Mobile distribution succeeded: Firebase App Distribution uploaded and mesha.sg/app.apk now serves ${DOWNLOAD_NAME}. Play Internal did not update because Google Play returned a non-success response."
+fi
 post_deploy_panel
 trap - EXIT
 

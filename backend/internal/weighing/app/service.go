@@ -1576,12 +1576,18 @@ func (s *Service) resolveWeighingWindow(fromBusinessDate, toBusinessDate string)
 }
 
 func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time) (domain.ShedWeights, error) {
-	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+	// The SELECTION is authorization-checked through the same helper (it rejects a park the actor
+	// may not see), and the SCOPE is resolved separately with no filter. The park dropdown is built
+	// from the scope, so choosing CPT no longer removes CBE from the list.
+	if _, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID); scopeErr != nil {
+		return domain.ShedWeights{}, scopeErr
+	}
+	scopeParkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, "")
 	if scopeErr != nil {
 		return domain.ShedWeights{}, scopeErr
 	}
 
-	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
