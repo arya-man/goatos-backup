@@ -62,6 +62,49 @@ export function dealStatusTone(status: string): "ok" | "info" | "warn" | "dng" |
   }
 }
 
+/**
+ * Compact rupee figure for tight chart labels, in the farm's own units: lakh and crore.
+ * 7160979 -> "₹71.6L", 42500 -> "₹42.5k", 900 -> "₹900". Full figures stay in tooltips.
+ */
+export function inrCompact(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_00_00_000) return `₹${trimZero(value / 1_00_00_000)}Cr`;
+  if (abs >= 1_00_000) return `₹${trimZero(value / 1_00_000)}L`;
+  if (abs >= 1_000) return `₹${trimZero(value / 1_000)}k`;
+  return `₹${Math.round(value)}`;
+}
+
+/** Compact plain number for chart labels: 219305 -> "2.2L", 12410 -> "12.4k", 528 -> "528". */
+export function numCompact(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_00_000) return `${trimZero(value / 1_00_000)}L`;
+  if (abs >= 1_000) return `${trimZero(value / 1_000)}k`;
+  return String(Math.round(value));
+}
+
+function trimZero(value: number): string {
+  const fixed = value.toFixed(1);
+  return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Axis label for a backend "YYYY-MM" month key: "2025-04" -> "Apr 25". */
+export function monthLabel(month: string): string {
+  const [y, m] = month.split("-");
+  const index = Number(m) - 1;
+  if (!y || index < 0 || index > 11 || Number.isNaN(index)) return month;
+  return `${MONTH_SHORT[index]} ${y.slice(2)}`;
+}
+
+/** Readable date for a backend "YYYY-MM-DD" value: "2025-04-15" -> "15 Apr 2025". */
+export function humanDate(date: string): string {
+  const [y, m, d] = date.split("-");
+  const index = Number(m) - 1;
+  if (!y || !d || index < 0 || index > 11 || Number.isNaN(index)) return date;
+  return `${Number(d)} ${MONTH_SHORT[index]} ${y}`;
+}
+
 type MonthlyLike = {
   sheep_revenue: number;
   goat_revenue: number;
