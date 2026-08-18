@@ -126,6 +126,7 @@ export function InlineCellEditor({
     setPhase({ kind: "closed" });
     setFilter("");
     setCommitKey("");
+    setPopStyle(null);
   }
 
   // Substring match on the stored value AND its description, because an operator who knows the
