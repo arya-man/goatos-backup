@@ -17,7 +17,8 @@
 //
 // Every visible string comes from the page contract, including the default reason that lands in the
 // audit row. This component composes no copy and decides no authority.
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -80,7 +81,15 @@ export function InlineCellEditor({
   const [reason, setReason] = useState("");
   const [pending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // The popup renders through a portal with FIXED coordinates, because the cell sits inside the
+  // table's horizontal-scroll container: an absolutely positioned child is clipped at that
+  // container's edge, so a short table cut the list off entirely. Measured in a layout effect
+  // (before paint, so it never flashes at 0,0) and re-placed on scroll/resize; it flips above the
+  // cell when the space below the anchor cannot hold it.
+  const [popStyle, setPopStyle] = useState<React.CSSProperties | null>(null);
 
   // One key per INTENT, minted when a preview is accepted and held across retries, so a double
   // click or a retried network failure replays the first write instead of writing twice.
@@ -94,7 +103,10 @@ export function InlineCellEditor({
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (popRef.current?.contains(target)) return;
+      close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
@@ -110,7 +122,6 @@ export function InlineCellEditor({
   useEffect(() => {
     if (phase.kind === "picking") inputRef.current?.focus();
   }, [phase.kind]);
-
   function close() {
     setPhase({ kind: "closed" });
     setFilter("");
@@ -129,6 +140,38 @@ export function InlineCellEditor({
         (choice.description ?? "").toLowerCase().includes(needle),
     );
   }, [filter, choices]);
+
+  // matches.length is a dependency because narrowing the list changes the popup's height, which
+  // can change whether it still fits below the anchor.
+  // A stale popStyle from a previous open never paints: this layout effect re-runs before the
+  // browser paints the reopened popup and re-places it from the fresh anchor rect.
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const place = () => {
+      const anchor = rootRef.current?.getBoundingClientRect();
+      const pop = popRef.current;
+      if (!anchor || !pop) return;
+      const gap = 6;
+      const margin = 8;
+      const width = pop.offsetWidth || 250;
+      const height = pop.offsetHeight;
+      const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+      let top = anchor.bottom + gap;
+      if (top + height > window.innerHeight - margin && anchor.top - gap - height >= margin) {
+        top = anchor.top - gap - height;
+      }
+      setPopStyle({ position: "fixed", top, left });
+    };
+    place();
+    // Capture-phase scroll so the table's own horizontal-scroll container repositions the popup
+    // too, not just the document scroll.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, phase.kind, matches.length]);
 
   function pick(value: string) {
     setPhase({ kind: "checking", value });
@@ -184,8 +227,17 @@ export function InlineCellEditor({
         {current ? (renderCurrent?.(current) ?? current) : <span className="muted small">{emptyLabel}</span>}
       </button>
 
-      {open ? (
-        <div className="tagedit-pop" role="dialog" aria-label={copy(pageContract, "action.retag.hint")}>
+      {open
+        ? createPortal(
+            <div
+              ref={popRef}
+              className="tagedit-pop"
+              // Hidden until the layout effect has measured and placed it, so the first paint never
+              // shows the popup at the viewport origin.
+              style={popStyle ?? { position: "fixed", top: 0, left: 0, visibility: "hidden" }}
+              role="dialog"
+              aria-label={copy(pageContract, "action.retag.hint")}
+            >
           {phase.kind === "picking" || phase.kind === "checking" ? (
             <>
               <input
@@ -280,8 +332,10 @@ export function InlineCellEditor({
               </div>
             </div>
           ) : null}
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
