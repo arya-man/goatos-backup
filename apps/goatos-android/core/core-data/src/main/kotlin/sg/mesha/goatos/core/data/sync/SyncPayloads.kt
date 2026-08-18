@@ -16,6 +16,7 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
@@ -126,6 +127,12 @@ data class VerificationCloseSubmissionPayload(
 @Serializable
 data class VerificationCloseBatchPayload(
     @SerialName("batch_id") val batchId: String,
+)
+
+/** Durable verifier journey audit batch. Each nested event carries its persisted client_event_id. */
+@Serializable
+data class VerificationReviewEventsPayload(
+    @SerialName("request") val request: VerificationReviewEventBatchRequestDto,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_SHIFTING].

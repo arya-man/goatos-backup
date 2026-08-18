@@ -83,6 +83,8 @@ import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
@@ -829,6 +831,12 @@ interface AppApi {
         batchId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
+
+    /** POST /verification/review-events -- raw verifier journey audit rows. */
+    suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto
+
     /** GET /herd-register/summary — exact scoped census counts from canonical goats. The
      *  response is a small fixed-size rollup (one row per scope grain), not a growable list,
      *  so it is fetched whole rather than paged. */
@@ -1646,6 +1654,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         batchId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto = VerificationCloseSubmissionResponseDto()
+
+    override suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto = VerificationReviewEventBatchResponseDto()
+
     override suspend fun getHerdRegisterSummary(
         lifecycleStatus: String?,
         parkId: String?,

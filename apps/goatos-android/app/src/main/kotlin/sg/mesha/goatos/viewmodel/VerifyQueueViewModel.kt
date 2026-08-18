@@ -27,6 +27,9 @@ import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerificationQueueRow
 import sg.mesha.goatos.feature.verify.VerifyDriveClosure
@@ -38,8 +41,10 @@ import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyScopeType
 import sg.mesha.goatos.feature.verify.VerifyStatusOption
 import sg.mesha.goatos.feature.verify.VerifyTone
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 import javax.inject.Inject
 
 private const val VERIFY_QUEUE_PAGE_SIZE = 20
@@ -130,6 +135,7 @@ class VerifyQueueViewModel @Inject constructor(
     private val _closingBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorMessage = MutableStateFlow<String?>(null)
+    private val reviewQueueSessionId = "verify-queue-${UUID.randomUUID()}"
 
     private val selectedScope: StateFlow<VerifyQueueScope> = combine(
         combine(_selectedCategory, _selectedStatus, _selectedBusinessDate, _missedOnly) { category, status, date, missed ->
@@ -417,6 +423,7 @@ class VerifyQueueViewModel @Inject constructor(
             val scope = currentScope()
             val category = scope.category ?: return@launch
             AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
+            recordBackendQueueOpened(scope)
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
                     category = category,
@@ -476,6 +483,36 @@ class VerifyQueueViewModel @Inject constructor(
         _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         _isLoadingMore.value = false
         AnalyticsFunnels.trackVerifyQueueLoadMore(analytics, category, observedResource.value.data?.items?.size ?: 0)
+    }
+
+    private fun recordBackendQueueOpened(scope: VerifyQueueScope) {
+        val category = scope.category ?: return
+        val clientEventId = UUID.randomUUID().toString()
+        val event = VerificationReviewEventRequestDto(
+            itemId = null,
+            sessionId = reviewQueueSessionId,
+            eventType = "queue_opened",
+            occurredAt = Instant.now().toString(),
+            payload = VerificationReviewEventPayloadDto(
+                category = category,
+                parkId = scope.parkId,
+                shedId = scope.shedId,
+                status = scope.status,
+            ),
+            clientEventId = clientEventId,
+        )
+        viewModelScope.launch {
+            val result = syncRepo.enqueueVerificationReviewEvents(
+                groupKey = "verification-review-queue:$category",
+                idempotencyKey = "verification-review:$clientEventId",
+                request = VerificationReviewEventBatchRequestDto(events = listOf(event)),
+            )
+            if (result is AppResult.Err) {
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification queue review event enqueue failed") }
+                }
+            }
+        }
     }
 
     private fun currentScope() = VerifyQueueScope(

@@ -1023,26 +1023,24 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
         border = BorderStroke(1.dp, Hair),
     ) {
         Column(modifier = Modifier.padding(15.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Protocol adherence",
-                        color = Ink,
-                        style = MeshaType.cardTitle,
-                    )
-                    Text(
-                        text = parkScope,
-                        color = Muted,
-                        style = MeshaType.caption,
-                    )
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    statusChips.forEach { chip ->
-                        StatusPill(label = chip.label(), tone = toneFor(chip.tone))
-                    }
+            Text(
+                text = "Protocol adherence",
+                color = Ink,
+                style = MeshaType.cardTitle,
+            )
+            Text(
+                text = parkScope,
+                color = Muted,
+                style = MeshaType.caption,
+            )
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                statusChips.forEach { chip ->
+                    StatusPill(label = chip.label(), tone = toneFor(chip.tone))
                 }
             }
             Spacer(Modifier.height(12.dp))
