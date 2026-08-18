@@ -890,7 +890,10 @@
   .tagedit-value{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-radius:6px}
   .tagedit-value:hover .tag{border-color:var(--brand)}
   .tagedit-value:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  .tagedit-pop{position:absolute;z-index:70;top:calc(100% + 6px);left:0;width:250px;display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);white-space:normal}
+  /* Portaled to <body> with fixed coordinates from the anchor cell, so the table's scroll
+     container can never clip it. Above the sticky topbar (100) and routebar (101), below
+     modals/drawers (219+). */
+  .tagedit-pop{position:fixed;z-index:150;width:250px;display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);white-space:normal}
   .tagedit-pop input{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:13px}
   .tagedit-list{display:grid;gap:2px;max-height:210px;overflow-y:auto}
   .tagedit-option{display:block;width:100%;text-align:left;padding:7px 9px;border:0;border-radius:7px;background:none;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
