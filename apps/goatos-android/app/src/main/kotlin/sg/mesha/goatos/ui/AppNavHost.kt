@@ -2390,7 +2390,12 @@ fun AppNavHost(
             val rows = vm.rows.collectAsLazyPagingItems()
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
+            LaunchedEffect(rows.loadState.refresh, refreshError, appendError) {
+                when (rows.loadState.refresh) {
+                    is LoadState.Loading -> vm.onRowsLoading()
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    is LoadState.Error -> Unit
+                }
                 (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
             }
             FeedPackingScreen(
