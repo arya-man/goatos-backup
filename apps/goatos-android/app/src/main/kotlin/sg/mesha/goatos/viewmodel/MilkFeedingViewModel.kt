@@ -119,25 +119,27 @@ class MilkFeedingListViewModel @Inject constructor(
     // which was the device-reported bug (the earlier fix only reached Preparation, not Feeding).
     private val feedingDate = MutableStateFlow(LocalDate.now(MILK_FEEDING_IST).toString())
     private val refreshing = MutableStateFlow(false)
+    private val manualRefreshOffline = MutableStateFlow(false)
     private val selectedFilter = MutableStateFlow("all")
+    private val refreshState = combine(refreshing, manualRefreshOffline) { busy, offline -> busy to offline }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<MilkFeedingListUiState> = feedingDate
         .flatMapLatest { dateStr ->
             combine(
                 repo.observe(dateStr),
-                refreshing,
+                refreshState,
                 selectedFilter,
                 // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
                 // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
                 drafts.observeProgress(CaptureFlow.MILK_FEEDING),
                 submittedGrains.observe(),
-            ) { resource, busy, selected, capturedByTask, locallySubmitted ->
+            ) { resource, refresh, selected, capturedByTask, locallySubmitted ->
                 buildMilkFeedingListUi(resource.data, selected, capturedByTask, selectedDate = dateStr, locallySubmitted = locallySubmitted).copy(
                     selectedDate = dateStr,
-                    isRefreshing = busy,
+                    isRefreshing = refresh.first,
                     lastSyncedAt = resource.lastSyncedAt,
-                    isOffline = resource.error?.isConnectivityFailure() == true,
+                    isOffline = refresh.second || resource.error?.isConnectivityFailure() == true,
                 )
             }
         }
@@ -168,7 +170,12 @@ class MilkFeedingListViewModel @Inject constructor(
         refresh()
     }
 
-    private fun refresh() = viewModelScope.launch { refreshing.value = true; repo.refresh(feedingDate.value); refreshing.value = false }
+    private fun refresh() = viewModelScope.launch {
+        refreshing.value = true
+        val result = runCatching { repo.refresh(feedingDate.value).getOrThrow() }
+        manualRefreshOffline.value = result.exceptionOrNull().isConnectivityFailure()
+        refreshing.value = false
+    }
 }
 
 /** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
@@ -620,4 +627,3 @@ class MilkFeedingViewModel @Inject constructor(
         private val EDITABLE_STATUSES = setOf("not_submitted", "rework")
     }
 }
-
