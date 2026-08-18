@@ -111,6 +111,22 @@ not-due, and unknown physical reads. Seed verification for these tables is only
 that the migration applied and Submit can validate/finalize runtime captures
 when they exist.
 
+SOP Library documents (`sop_definitions` + `sop_versions`) are static
+catalog/config: they are seeded by migration data, not by a seed command. The
+baseline (`000001`) seeds `vaccination.drive`, `shifting`, and the
+`feed.direction` draft; migration `000173_sop_library_counts_and_feed.sql`
+completes the library for every shipped proof/verification workflow —
+`counts.birth` and `counts.death` (approval-gated captures), `shifting` v2
+(approve-first + tag toggle, retiring the stale v1), the published
+`feed.direction` distribution document (replacing the draft skeleton), and
+`feed.packing` / `feed.transport` (verifier-gated). These rows are library
+documentation of the shipped flows and are execution-inert: only
+`vaccination.drive` ever creates `sop_tasks` (obligation sweeper → sopbridge);
+Counts and Feed run on their own canonical tables. The migration is idempotent
+per tenant (`ON CONFLICT DO NOTHING` on `(tenant_id, code)` and
+`(tenant_id, sop_id, version)`), so re-running a clean-slate seed after it is
+applied needs no extra closeout step.
+
 `sop_submissions.partition_label` is runtime submit identity, not source seed
 truth. Clean-slate seed starts with no SOP submissions, so migration
 `000147_sop_submissions_partition_label.sql` has no seed row to backfill. For an

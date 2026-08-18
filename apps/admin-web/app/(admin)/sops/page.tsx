@@ -1,4 +1,4 @@
-import { SopBuilder, SopLibrary, builderInitialFromVersion, isVaccinationSop, isVersionFaithfullyEditable, toSopView, type SopCardView } from "@/features/sops";
+import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, toSopView, type SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
@@ -39,10 +39,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} />;
   }
 
-  // SCOPE LOCK: the visible /sops slice is vaccination only. Filter the real API result to vaccination
-  // SOPs BEFORE fetching detail — shifting and every non-vaccination SOP are hidden from this surface,
-  // and we do not waste detail fetches on hidden rows. No backend/data change; pure frontend scoping.
-  const defs = listed.data.items.filter((def) => isVaccinationSop(def.code, def.name));
+  // SLICE WIDENED (maintainer request 2026-08-18): the library lists every real SOP definition —
+  // vaccination plus the migration-seeded Counts (birth / death / shifting) and Feed
+  // (distribution / packing / transport) documents. The backend-owned `domain_chips` option group
+  // drives the filter bar; hiding a module again is a backend contract change, not a page filter.
+  const defs = listed.data.items;
   // Latest versions arrive EMBEDDED in the list response, populated by one batched backend query
   // (SOPListResponse.latest_versions, keyed by sop_id). We no longer fan out one getSop detail call
   // per SOP — that list-then-N-details N+1 was O(SOP count) service calls per render (C35-015).
