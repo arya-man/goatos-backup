@@ -12,10 +12,16 @@ ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/workspace/android-sdk}"
 ANDROID_HOME="$ANDROID_SDK_ROOT"
 export ANDROID_SDK_ROOT ANDROID_HOME
 
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
-
-commit_sha="$(git rev-parse --short=12 HEAD)"
+if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  cd "$repo_root"
+  commit_sha="$(git rev-parse --short=12 HEAD)"
+  git_dirty_check=true
+else
+  repo_root="${BUILD_WORKSPACE_DIRECTORY:-/workspace}"
+  cd "$repo_root"
+  commit_sha="$(printf '%s' "${COMMIT_SHA:?COMMIT_SHA is required when Git metadata is unavailable}" | cut -c1-12)"
+  git_dirty_check=false
+fi
 build_id="${BUILD_ID:-local}"
 triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 firebase_uploaded=false
@@ -142,7 +148,9 @@ on_exit() {
 trap on_exit EXIT
 
 [[ "$PROJECT_ID" == "goatos-stg" ]] || { echo "PROJECT_ID must be goatos-stg" >&2; exit 1; }
-[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "Refusing Android distribution because tracked source files changed." >&2; exit 1; }
+if [[ "$git_dirty_check" == "true" ]]; then
+  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "Refusing Android distribution because tracked source files changed." >&2; exit 1; }
+fi
 
 install_android_sdk() {
   if [[ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]]; then
