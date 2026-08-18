@@ -45,6 +45,8 @@ data class CalendarScheduleQuery(
     val ownerKey: String? = null,
     val dateFrom: String,
     val dateTo: String,
+    /** Forces Paging to revalidate this scope without creating a second Room cache partition. */
+    val refreshNonce: Int = 0,
 ) {
     internal fun roomKey(): String = cacheKey(
         "calendar-schedule-v1",
@@ -431,6 +433,7 @@ private class CalendarScheduleRemoteMediator(
     private val queryKey = query.roomKey()
 
     override suspend fun initialize(): InitializeAction {
+        if (query.refreshNonce > 0) return InitializeAction.LAUNCH_INITIAL_REFRESH
         val cachedAt = database.calendarScheduleRemoteKeyDao().get(queryKey)?.updatedAt
         return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
             InitializeAction.SKIP_INITIAL_REFRESH

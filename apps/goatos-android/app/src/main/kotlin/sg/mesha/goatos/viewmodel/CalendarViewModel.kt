@@ -203,6 +203,7 @@ class CalendarViewModel @Inject constructor(
         _refreshError.value = null
         analytics.track(AnalyticsEvents.CALENDAR_REFRESH_ATTEMPTED)
         val filters = _monthFilters.value
+        refreshMonthSchedule(filters)
 
         val requests = listOf(
             async {
@@ -287,7 +288,10 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun activateMonth() {
-        val filters = _monthFilters.value
+        refreshMonthSchedule(_monthFilters.value)
+    }
+
+    private fun refreshMonthSchedule(filters: CalendarMonthFilters) {
         val range = monthRange(filters)
         _monthQuery.value = CalendarScheduleQuery(
             parkId = filters.parkId,
@@ -296,6 +300,7 @@ class CalendarViewModel @Inject constructor(
             status = filters.status,
             dateFrom = range.dateFrom,
             dateTo = range.dateTo,
+            refreshNonce = _monthQuery.value.refreshNonce + 1,
         )
     }
 
@@ -312,7 +317,6 @@ class CalendarViewModel @Inject constructor(
         trackFilterChange("shed", previous.shedId, filters.shedId)
         trackFilterChange("vaccine", previous.vaccine, filters.vaccine)
         trackFilterChange("status", previous.status, filters.status)
-        activateMonth()
         refresh()
     }
 

@@ -1023,19 +1023,9 @@ fun AppNavHost(
                         // list to that day) and must NOT navigate. Handled by CalendarViewModel.
                         is CalendarEvent.TapDay -> vm.onEvent(event)
                         CalendarEvent.Refresh -> {
-                            if (state.selectedSegmentId == "month") {
-                                // Month has two independent data layers:
-                                // - ViewModel-managed overview/metadata/error state.
-                                // - Paging-managed schedule rows.
-                                //
-                                // A transient schedule failure must not leave the user stuck on a
-                                // stale top-level error after they tap Retry. Refresh both layers so
-                                // the banner/offline state and the paged month rows recover together.
-                                vm.onEvent(event)
-                                monthItems.refresh()
-                            } else {
-                                vm.onEvent(event)
-                            }
+                            // CalendarViewModel advances the Month pager's cache-only refresh
+                            // generation as part of the same refresh, including while Week is active.
+                            vm.onEvent(event)
                         }
                         else -> vm.onEvent(event)
                     }
@@ -2342,11 +2332,16 @@ fun AppNavHost(
             val vm: FeedDirectionViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val refreshState = rows.loadState.refresh
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Loading -> vm.onRowsLoading()
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                }
             }
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
             FeedDirectionScreen(
                 state = state,
                 rows = rows,

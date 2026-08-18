@@ -87,7 +87,11 @@ class FeedDirectionViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedDirectionEnvelope())
 
     private val _isRefreshing = MutableStateFlow(false)
-    private val _isOffline = MutableStateFlow(false)
+    private val _probeOffline = MutableStateFlow(false)
+    private val _rowsLoadFailed = MutableStateFlow(false)
+    private val _isOffline: StateFlow<Boolean> = combine(_probeOffline, _rowsLoadFailed) { probeOffline, rowsLoadFailed ->
+        probeOffline || rowsLoadFailed
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     /** The single in-flight refresh monitor; a new tap cancels the previous one so stale
      *  collectors can never clear the spinner or flash isOffline out of order. */
     private var refreshMonitorJob: Job? = null
@@ -165,6 +169,8 @@ class FeedDirectionViewModel @Inject constructor(
     }
 
     fun onRowsLoadFailed(error: Throwable) {
+        _isRefreshing.value = false
+        _rowsLoadFailed.value = true
         crashReporter.recordException(error, "feed direction page load failed")
         analytics.track(
             AnalyticsEvents.FEED_READ_FAILURE,
@@ -173,6 +179,15 @@ class FeedDirectionViewModel @Inject constructor(
                 AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
             ),
         )
+    }
+
+    fun onRowsLoading() {
+        _isRefreshing.value = true
+    }
+
+    fun onRowsLoaded() {
+        _isRefreshing.value = false
+        _rowsLoadFailed.value = false
     }
 
     fun onEvent(event: FeedDirectionEvent) {
@@ -207,7 +222,8 @@ class FeedDirectionViewModel @Inject constructor(
     // offline flag and lets the observed summary re-request via a fresh subscription.
     private fun refresh() {
         _isRefreshing.value = true
-        _isOffline.value = false
+        _probeOffline.value = false
+        _rowsLoadFailed.value = false
         val priorSyncedAt = observed.value.resource.lastSyncedAt ?: 0L
         // Re-emit the current selection so both the summary observe and the pager re-subscribe.
         // A NEW value, not an equal one: MutableStateFlow conflates on equality and these
@@ -236,7 +252,7 @@ class FeedDirectionViewModel @Inject constructor(
                 }
             }
             _isRefreshing.value = false
-            _isOffline.value = !reachable
+            _probeOffline.value = !reachable
         }
     }
 

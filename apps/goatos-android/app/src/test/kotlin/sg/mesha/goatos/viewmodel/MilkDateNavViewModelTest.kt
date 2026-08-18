@@ -3,6 +3,7 @@ package sg.mesha.goatos.viewmodel
 import kotlinx.coroutines.flow.flowOf
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
+import java.io.IOException
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
@@ -185,6 +186,31 @@ class MilkDateNavViewModelTest {
             repo.observedDates,
         )
     }
+
+    @Test
+    fun `milk feeding failed manual refresh keeps cached rows and marks screen offline`() = runTest(dispatcher) {
+        val repo = TrackingMilkFeedingRepository()
+        val viewModel = MilkFeedingListViewModel(
+            repo = repo,
+            submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
+            drafts = TrackingDraftRepository(),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        repo.refreshResult = Result.failure(IOException("offline"))
+        viewModel.onEvent(MilkFeedingListEvent.Refresh)
+        advanceUntilIdle()
+
+        assertEquals("cached task remains visible after refresh failure", 1, viewModel.state.value.cards.size)
+        assertTrue("failed network refresh must be visible as offline", viewModel.state.value.isOffline)
+
+        repo.refreshResult = Result.success(Unit)
+        viewModel.onEvent(MilkFeedingListEvent.Refresh)
+        advanceUntilIdle()
+
+        assertTrue("a successful retry clears the offline state", !viewModel.state.value.isOffline)
+    }
 }
 
 /** Counts subscriptions so the test can prove flatMapLatest actually CANCELS the prior
@@ -208,6 +234,7 @@ private class TrackingMilkPreparationRepository : MilkPreparationRepository {
 
 private class TrackingMilkFeedingRepository : MilkFeedingRepository {
     val observedDates = mutableListOf<String>()
+    var refreshResult: Result<Unit> = Result.success(Unit)
     var activeSubscriptions = 0
         private set
 
@@ -215,12 +242,28 @@ private class TrackingMilkFeedingRepository : MilkFeedingRepository {
         observedDates += feedingDate
         activeSubscriptions++
         return callbackFlow {
-            trySend(Resource(data = MilkFeedingPageDto(items = emptyList())))
+            trySend(
+                Resource(
+                    data = MilkFeedingPageDto(
+                        items = listOf(
+                            sg.mesha.goatos.core.network.dto.MilkFeedingTaskDto(
+                                taskId = "task-1",
+                                parkId = "park-1",
+                                feedingDate = feedingDate,
+                                sessionNo = 1,
+                                dueTime = "08:00",
+                                available = true,
+                                verificationStatus = "not_submitted",
+                            ),
+                        ),
+                    ),
+                ),
+            )
             awaitClose { activeSubscriptions-- }
         }
     }
 
-    override suspend fun refresh(feedingDate: String, parkId: String, sessionNo: Int?): Result<Unit> = Result.success(Unit)
+    override suspend fun refresh(feedingDate: String, parkId: String, sessionNo: Int?): Result<Unit> = refreshResult
 }
 
 private class TrackingDraftRepository : CaptureDraftRepository {
