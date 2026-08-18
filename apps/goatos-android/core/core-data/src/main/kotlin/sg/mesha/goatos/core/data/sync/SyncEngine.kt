@@ -172,7 +172,17 @@ class SyncEngine(
      * constraint. Backed-off rows are owned by the explicit retry work, never by a worker retry.
      */
     suspend fun drainOnce(): Boolean {
-        if (!connectivityGate.isOnline()) return false // capture continues offline; sync just waits.
+        // Repair already-accepted feature state even while offline. A process can die after
+        // markSucceeded and before Room reconciliation; replaying that durable response is local.
+        withContext(dispatchers.io) {
+            store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
+                .filter { it.status == "SUCCEEDED" }
+                .forEach { terminal ->
+                    runCatching { reconcileFeatureSuccess(terminal) }
+                        .onFailure { reportCacheReconcileFailure(terminal, it) }
+                }
+        }
+        if (!connectivityGate.isOnline()) return false
         val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
         fun rememberRetryDue(epochMillis: Long) {
             while (true) {
@@ -190,9 +200,6 @@ class SyncEngine(
                 store.reclaimInFlight(clock())
                 // Rebuild feature acceptance after a process dies between marking the outbox
                 // success and updating the feature database. This projection is idempotent.
-                store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
-                    .filter { it.status == "SUCCEEDED" }
-                    .forEach { reconcileFeatureSuccess(it) }
                 // Groups whose FIFO head failed this pass. Once a group's oldest in-flight write
                 // fails it backs off, so eligibleForDrain would still return that group's NEWER
                 // queued rows on the next batch fetch — dispatching them would post newer writes
@@ -465,7 +472,8 @@ class SyncEngine(
                         // locally and reported so it is never silently lost; the next successful
                         // preview/worklist fetch repairs the cache regardless.
                         runCatching {
-                            feedRepository?.persistDirectionSessionStatus(
+                            feedRepository?.persistDirectionSessionStatuses(
+                                targetDate = payload.targetDate,
                                 shedId = payload.shedId,
                                 partitionLabel = payload.partitionLabel ?: "",
                                 workflow = payload.workflow,
@@ -484,7 +492,8 @@ class SyncEngine(
                         // Same rationale as FEED_DISTRIBUTION_COMPLETE above: never let a local
                         // cache-write failure look like (or behave like) a dispatch failure.
                         runCatching {
-                            feedRepository?.persistPackingRowStatus(
+                            feedRepository?.persistPackingRowStatuses(
+                                targetDate = payload.targetDate,
                                 shedId = payload.shedId,
                                 partitionLabel = payload.partitionLabel ?: "",
                                 workflow = payload.workflow,

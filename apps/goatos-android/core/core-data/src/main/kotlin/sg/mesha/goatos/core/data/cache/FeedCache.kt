@@ -130,6 +130,18 @@ interface FeedDirectionItemDao {
         sessionNo: String,
     ): Flow<FeedDirectionItemEntity?>
 
+    @Query(
+        "SELECT * FROM feed_direction_items WHERE queryKey LIKE :queryPattern " +
+            "AND grainKey >= :prefix AND grainKey < :prefixEnd " +
+            "AND SUBSTR(grainKey, LENGTH(grainKey) - LENGTH(:sessionNo)) = '|' || :sessionNo",
+    )
+    suspend fun rowsForShedSessionInRange(
+        queryPattern: String,
+        prefix: String,
+        prefixEnd: String,
+        sessionNo: String,
+    ): List<FeedDirectionItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedDirectionItemEntity>)
 
@@ -257,6 +269,18 @@ interface FeedPackingItemDao {
         workflow: String,
         sessionNo: String,
     ): Flow<FeedPackingItemEntity?>
+
+    @Query(
+        "SELECT * FROM feed_packing_items WHERE queryKey LIKE :queryPattern AND grainKey = " +
+            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|' || :sessionNo",
+    )
+    suspend fun rowsForPenSession(
+        queryPattern: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: String,
+    ): List<FeedPackingItemEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedPackingItemEntity>)
