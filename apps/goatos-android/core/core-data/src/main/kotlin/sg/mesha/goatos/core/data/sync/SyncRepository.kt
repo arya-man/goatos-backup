@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -408,6 +409,37 @@ interface SyncRepository {
         workflow: String,
         packingProofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("feed packing completion sync is not configured")
+
+    /**
+     * Enqueue a verifier-GATED feed-WASTAGE completion (`POST /feed-direction/wastage/complete`,
+     * maintainer decision 2026-08-18). Grain is the PEN-DAY on an EXPERIMENT pen — no session, no
+     * workflow. ONE MANDATORY proof passed by REFERENCE to its PROOF_UPLOAD outbox row
+     * ([wastageProofOutboxItemId]); both writes MUST share the same [groupKey] (the pen-day) so
+     * the proof drains strictly before this completion. [idempotencyKey] must be a STABLE
+     * caller-persisted key so a resend replays instead of completing twice; a DIFFERENT video for
+     * a pen-day that already holds one is a 409 the drain surfaces as terminal, never retries.
+     */
+    suspend fun enqueueFeedWastageComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        targetDate: String,
+        wastageProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("feed wastage completion sync is not configured")
+
+    /**
+     * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18): she records the
+     * leftover weight she reads off a pen's wastage video, in kg. ZERO IS VALID — an empty trough
+     * is a real measurement. [completionId] comes from the verification item's own
+     * `measurement_correction.observation_id` and is the outbox group key so two measurements of
+     * the same pen-day never drain out of order — the last one she made must win.
+     */
+    suspend fun enqueueFeedWastageMeasurement(
+        completionId: String,
+        wastageKg: Double,
+    ): AppResult<String> = AppResult.Err("Recording a wastage weight is not available.")
 
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
@@ -1124,6 +1156,55 @@ class DefaultSyncRepository(
             ),
         ),
     )
+
+    override suspend fun enqueueFeedWastageComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        targetDate: String,
+        wastageProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_WASTAGE_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedWastageCompletePayload(
+                parkId = parkId?.trim()?.ifBlank { null },
+                shedId = shedId.trim(),
+                partitionLabel = partitionLabel?.trim()?.ifBlank { null },
+                targetDate = targetDate.trim(),
+                wastageProofOutboxItemId = wastageProofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueFeedWastageMeasurement(
+        completionId: String,
+        wastageKg: Double,
+    ): AppResult<String> {
+        // STABLE, never timestamp-suffixed, and the VALUE is in the key: a retry of the SAME
+        // measurement replays for free on the server, while recording 3 kg and then 3.5 kg are two
+        // different acts that must not collide on one key (same rule as the weighing correction).
+        val idempotencyKey = "feed-wastage-measurement-$completionId-$wastageKg"
+        return enqueue(
+            opType = OutboxOpType.FEED_WASTAGE_MEASUREMENT,
+            // The completion is the group key, so two measurements of the same pen-day can never
+            // drain concurrently or out of order — the last one she made must be the one that wins.
+            groupKey = completionId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                FeedWastageMeasurementPayload(
+                    completionId = completionId,
+                    request = FeedWastageMeasurementRequestDto(
+                        wastageKg = wastageKg,
+                        idempotencyKey = idempotencyKey,
+                    ),
+                ),
+            ),
+        )
+    }
 
     override suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,

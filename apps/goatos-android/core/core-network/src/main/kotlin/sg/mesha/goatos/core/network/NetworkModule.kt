@@ -45,6 +45,11 @@ import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -669,6 +674,35 @@ interface AppApiService {
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
     ): FeedPackingWorklistPageDto
+
+    @GET("feed-wastage/worklist")
+    suspend fun getFeedWastageWorklist(
+        @Query("park_id") parkId: String,
+        @Query("target_date") targetDate: String,
+        @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedWastageWorklistPageDto
+
+    @POST("feed-direction/wastage/complete")
+    suspend fun completeFeedWastage(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto
+
+    /**
+     * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18). Feed owns the route —
+     * the measurement writes a feed-wastage record — while the verification item tells the app
+     * WHICH record to address, via measurement_correction. Same endpoint admin-web calls.
+     */
+    @POST("feed-direction/wastage/{completion_id}/measurement")
+    suspend fun recordFeedWastageMeasurement(
+        @Path("completion_id") completionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto
 
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
@@ -1417,6 +1451,29 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: FeedPackingCompleteRequestDto,
     ): FeedPackingCompleteResponseDto = service.completeFeedPacking(idempotencyKey, request)
+
+    override suspend fun getFeedWastageWorklist(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedWastageWorklistPageDto =
+        service.getFeedWastageWorklist(parkId, targetDate, shedId, partitionLabel, status, limit, offset)
+
+    override suspend fun completeFeedWastage(
+        idempotencyKey: String,
+        request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto = service.completeFeedWastage(idempotencyKey, request)
+
+    override suspend fun recordFeedWastageMeasurement(
+        completionId: String,
+        idempotencyKey: String,
+        request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto =
+        service.recordFeedWastageMeasurement(completionId, idempotencyKey, request)
 
     override suspend fun submitMilkPreparation(
         idempotencyKey: String,

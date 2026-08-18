@@ -27,6 +27,11 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -1068,6 +1073,49 @@ interface AppApi {
     ): FeedPackingWorklistPageDto
 
     /**
+     * GET /feed-wastage/worklist — one park's per-PEN wastage worklist for one feed day
+     * (maintainer decision 2026-08-18). EXPERIMENT pens only; the grain is the PEN-DAY (no
+     * session). Same paging + whole-scope-summary contract as [getFeedPackingWorklist].
+     */
+    suspend fun getFeedWastageWorklist(
+        parkId: String,
+        targetDate: String,
+        shedId: String? = null,
+        partitionLabel: String? = null,
+        // Optional verification-lifecycle filter: pending | pending_verification | completed.
+        status: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedWastageWorklistPageDto
+
+    /**
+     * POST /feed-direction/wastage/complete — the verifier-GATED feed-WASTAGE completion
+     * (maintainer decision 2026-08-18). Carries ONE MANDATORY leftover-feed video ref; flips the
+     * PEN-DAY to `pending_verification` and enqueues a verification item — NOTHING is completed
+     * until a verifier approves. A blank proof is `422 proof_required`; a pen off that day's
+     * experiment sheet is `422 not_experiment_pen`; a DIFFERENT video for a pen-day that already
+     * holds one is a `409` the caller must surface as terminal. Idempotent on [idempotencyKey].
+     */
+    suspend fun completeFeedWastage(
+        idempotencyKey: String,
+        request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto
+
+    /**
+     * POST /feed-direction/wastage/{completion_id}/measurement — THE VERIFIER'S WASTAGE
+     * MEASUREMENT (maintainer decision 2026-08-18). She records the leftover weight she reads off
+     * the wastage video, in kg; ZERO IS VALID (an empty trough). The [completionId] comes from the
+     * verification item's own `measurement_correction.observation_id`; the client never composes
+     * that address itself. Drained through the offline-sync outbox with a stable value-bearing
+     * [idempotencyKey], like the weighing weight correction.
+     */
+    suspend fun recordFeedWastageMeasurement(
+        completionId: String,
+        idempotencyKey: String,
+        request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto
+
+    /**
      * GET /feed-direction/distribution/captures — which of ONE pen-session's proof slots are ALREADY
      * recorded, by ANY operator, each with its SERVER proof id.
      *
@@ -1798,6 +1846,32 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto = FeedPackingWorklistPageDto(targetDate = targetDate)
+
+    override suspend fun getFeedWastageWorklist(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedWastageWorklistPageDto = FeedWastageWorklistPageDto(targetDate = targetDate)
+
+    override suspend fun completeFeedWastage(
+        idempotencyKey: String,
+        request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto =
+        FeedWastageCompleteResponseDto(
+            completionId = "fake-wastage-completion",
+            status = "pending_verification",
+            newlyPending = true,
+        )
+
+    override suspend fun recordFeedWastageMeasurement(
+        completionId: String,
+        idempotencyKey: String,
+        request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto = FeedWastageMeasurementResponseDto()
 
     // Nothing recorded by anyone else: the fake keeps the single-phone behaviour tests assert.
     override suspend fun getFeedDistributionCaptures(

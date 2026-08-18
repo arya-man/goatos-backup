@@ -28,6 +28,10 @@ import sg.mesha.goatos.core.data.cache.FeedPackingItemEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageItemEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
@@ -37,6 +41,8 @@ import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedWastageRowDto
+import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 
 /**
  * One screen-page of feed rows. A phone viewport holds ~7-10 rows; anything larger is the mobile
@@ -112,6 +118,27 @@ data class FeedPackingQuery(
  * every other field.
  */
 private const val PACKING_CACHE_SHAPE = "session-v3"
+
+/**
+ * Filter scope for the Feed Wastage worklist (maintainer decision 2026-08-18). The grain is the
+ * PEN-DAY on EXPERIMENT pens: no session filter and no workflow filter — the server serves only
+ * `experiment` rows.
+ */
+data class FeedWastageQuery(
+    val parkId: String,
+    val targetDate: String,
+    val status: String? = null,
+) {
+    fun roomKey(): String =
+        cacheKey(WASTAGE_CACHE_SHAPE, parkId, targetDate, status, FEED_PAGE_SIZE.toString())
+}
+
+/** Bump whenever the cached wastage row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's
+ *  kdoc for why a stale-shape row must be orphaned rather than leniently decoded). */
+private const val WASTAGE_CACHE_SHAPE = "pen-day-v1"
+
+/** Page size for [DefaultFeedRepository.fetchWastageRowStatus]'s narrow poll. */
+private const val STATUS_POLL_WASTAGE_LIMIT = 20
 
 /** Page size for [DefaultFeedRepository.fetchDirectionSessionStatus]'s narrow poll — one shed/session
  *  filtered server-side, so a small page is always enough. */
@@ -296,6 +323,34 @@ interface FeedRepository {
         sessionNo: Int,
         lifecycleStatus: String,
     ): Unit = persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, lifecycleStatus)
+    /** Cache-first stream of the Feed Wastage whole-scope summary (pen counts). Independent of the
+     *  page — the same offline-first contract as [observePackingTotals]. */
+    fun observeWastageTotals(query: FeedWastageQuery): Flow<Resource<FeedWastageWorklistPageDto>>
+
+    /** The paged Feed Wastage pen rows, a Room PagingSource filled by a RemoteMediator. */
+    fun wastageRows(query: FeedWastageQuery): Flow<PagingData<FeedWastageRowDto>>
+
+    /** LIVE per-row lifecycle status for one wastage PEN — same contract as
+     *  [observePackingRowStatus] (`null` = no cached row yet; fall back to the nav-arg hint). */
+    fun observeWastageRowStatus(shedId: String, partitionLabel: String, workflow: String): Flow<String?>
+
+    /** Same contract as [fetchPackingRowStatus], for the wastage worklist — the periodic server
+     *  poll that sees a teammate's submit this phone's Room cache has not caught up with. */
+    suspend fun fetchWastageRowStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        targetDate: String,
+    ): String?
+
+    /** Persist a fetched lifecycle status into the Room row for a wastage pen; no-op when no
+     *  cached row exists yet — same contract as [persistPackingRowStatus]. */
+    suspend fun persistWastageRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        lifecycleStatus: String,
+    ): Unit
 }
 
 /** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
@@ -313,6 +368,7 @@ class DefaultFeedRepository(
     private val database: GoatDatabase,
     private val directionMetaDao: FeedDirectionMetaCacheDao,
     private val packingMetaDao: FeedPackingMetaCacheDao,
+    private val wastageMetaDao: FeedWastageMetaCacheDao,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : FeedRepository {
@@ -637,6 +693,90 @@ class DefaultFeedRepository(
             row.copy(dtoJson = json.encodeToString(dto))
         })
     }
+
+    override fun observeWastageTotals(
+        query: FeedWastageQuery,
+    ): Flow<Resource<FeedWastageWorklistPageDto>> {
+        val key = query.roomKey()
+        return wastageMetaDao.observe(key)
+            .map { entity ->
+                val cached = readCachedJson<FeedWastageWorklistPageDto>(
+                    json = json,
+                    cacheKey = key,
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { wastageMetaDao.delete(it) },
+                )
+                Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+            }
+            .flowOn(Dispatchers.Default)
+    }
+
+    @OptIn(ExperimentalPagingApi::class)
+    override fun wastageRows(query: FeedWastageQuery): Flow<PagingData<FeedWastageRowDto>> {
+        val key = query.roomKey()
+        return Pager(
+            config = PagingConfig(
+                pageSize = FEED_PAGE_SIZE,
+                initialLoadSize = FEED_PAGE_SIZE,
+                prefetchDistance = 3,
+                enablePlaceholders = false,
+                maxSize = FEED_PAGE_SIZE * 3,
+            ),
+            remoteMediator = FeedWastageRemoteMediator(query, api, database, wastageMetaDao, json, clock),
+            pagingSourceFactory = { database.feedWastageItemDao().pagingSource(key) },
+        ).flow
+            .map { page -> page.map { entity -> json.decodeFromString<FeedWastageRowDto>(entity.dtoJson) } }
+            .flowOn(Dispatchers.Default)
+    }
+
+    override fun observeWastageRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+    ): Flow<String?> =
+        database.feedWastageItemDao()
+            .observeRowForPen(shedId, partitionLabel, workflow)
+            .map { entity -> entity?.let { json.decodeFromString<FeedWastageRowDto>(it.dtoJson).lifecycleStatus } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun fetchWastageRowStatus( // offline-first-guard:ignore: same rationale as fetchPackingRowStatus — periodic server poll for a teammate's write Room has not cached yet.
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        targetDate: String,
+    ): String? = runCatching {
+        // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
+        val response = api.getFeedWastageWorklist(
+            parkId = parkId,
+            targetDate = targetDate,
+            shedId = shedId,
+            partitionLabel = partitionLabel.takeIf { it.isNotBlank() },
+            limit = STATUS_POLL_WASTAGE_LIMIT,
+            offset = 0,
+        )
+        response.items
+            .firstOrNull { it.shedId == shedId && it.partitionLabel.orEmpty() == partitionLabel }
+            ?.lifecycleStatus
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    override suspend fun persistWastageRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        val row = database.feedWastageItemDao()
+            .observeRowForPen(shedId, partitionLabel, workflow)
+            .first()
+        if (row != null) {
+            val dto = json.decodeFromString<FeedWastageRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            database.feedWastageItemDao().upsertAll(listOf(row.copy(dtoJson = json.encodeToString(dto))))
+        }
+    }
 }
 
 /**
@@ -735,6 +875,106 @@ private class FeedDirectionRemoteMediator(
                             // Summary envelope only: the whole-scope totals/blocked counts are the
                             // authoritative KPIs. Rows are dropped here — they live as normalized
                             // Room rows so this blob can never grow with the sheet.
+                            dtoJson = json.encodeToString(response.copy(items = emptyList())),
+                            updatedAt = updatedAt,
+                        ),
+                    )
+                    itemDao.deleteRowsOutsideNewestQueries(FEED_CACHED_QUERIES)
+                    remoteKeyDao.deleteOutsideNewestQueries(FEED_CACHED_QUERIES)
+                }
+            }
+            if (loadType == LoadType.REFRESH) metaDao.enforceCacheBounds()
+            MediatorResult.Success(endOfPaginationReached = endReached)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            MediatorResult.Error(error)
+        }
+    }
+}
+
+/** Fills Room from `/feed-wastage/worklist` page-by-page. Mirror of [FeedPackingRemoteMediator]:
+ *  the backend pages the SHED set (a shed can hold several pens), so the offset advances by
+ *  DISTINCT sheds and end-of-pagination comes from `has_more`. */
+@OptIn(ExperimentalPagingApi::class)
+private class FeedWastageRemoteMediator(
+    private val query: FeedWastageQuery,
+    private val api: AppApi,
+    private val database: GoatDatabase,
+    private val metaDao: FeedWastageMetaCacheDao,
+    private val json: Json,
+    private val clock: () -> Long,
+) : RemoteMediator<Int, FeedWastageItemEntity>() {
+    private val queryKey = query.roomKey()
+
+    override suspend fun initialize(): InitializeAction {
+        val cachedAt = database.feedWastageRemoteKeyDao().get(queryKey)?.updatedAt
+        return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
+            InitializeAction.SKIP_INITIAL_REFRESH
+        } else {
+            InitializeAction.LAUNCH_INITIAL_REFRESH
+        }
+    }
+
+    override suspend fun load(
+        loadType: LoadType,
+        state: PagingState<Int, FeedWastageItemEntity>,
+    ): MediatorResult {
+        val offset = when (loadType) {
+            LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
+            LoadType.REFRESH -> 0
+            LoadType.APPEND -> {
+                val remoteKey = database.feedWastageRemoteKeyDao().get(queryKey)
+                    ?: return MediatorResult.Success(endOfPaginationReached = true)
+                if (remoteKey.endReached) return MediatorResult.Success(endOfPaginationReached = true)
+                remoteKey.nextOffset
+            }
+        }
+        return try {
+            val response = api.getFeedWastageWorklist(
+                parkId = query.parkId,
+                targetDate = query.targetDate,
+                status = query.status,
+                limit = FEED_PAGE_SIZE,
+                offset = offset,
+            )
+            val shedsReturned = response.items.map { it.shedId }.distinct().size
+            val endReached = !response.hasMore
+            val updatedAt = clock()
+            database.withTransaction {
+                val itemDao = database.feedWastageItemDao()
+                val remoteKeyDao = database.feedWastageRemoteKeyDao()
+                if (loadType == LoadType.REFRESH) {
+                    itemDao.deleteQuery(queryKey)
+                    remoteKeyDao.delete(queryKey)
+                }
+                val rowBase = itemDao.countForQuery(queryKey)
+                itemDao.upsertAll(
+                    response.items.mapIndexed { index, row ->
+                        FeedWastageItemEntity(
+                            queryKey = queryKey,
+                            grainKey = row.grainKey,
+                            sortIndex = rowBase + index,
+                            dtoJson = json.encodeToString(row),
+                            updatedAt = updatedAt,
+                        )
+                    },
+                )
+                remoteKeyDao.upsert(
+                    FeedWastageRemoteKeyEntity(
+                        queryKey = queryKey,
+                        nextOffset = offset + shedsReturned,
+                        endReached = endReached,
+                        updatedAt = updatedAt,
+                    ),
+                )
+                if (loadType == LoadType.REFRESH) {
+                    metaDao.upsert(
+                        FeedWastageMetaCacheEntity(
+                            cacheKey = queryKey,
+                            // Summary envelope only: pen counts roll up the whole filtered scope.
+                            // Rows are dropped here — they live as normalized Room rows so this
+                            // blob can never grow with the sheet.
                             dtoJson = json.encodeToString(response.copy(items = emptyList())),
                             updatedAt = updatedAt,
                         ),

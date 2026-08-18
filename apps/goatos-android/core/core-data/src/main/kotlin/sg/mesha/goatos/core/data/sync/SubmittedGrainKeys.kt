@@ -6,6 +6,7 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingTaskDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
+import sg.mesha.goatos.core.network.dto.FeedWastageRowDto
 
 /**
  * The ONE definition of "which list row does this queued submit belong to".
@@ -55,6 +56,12 @@ private fun decodeGrainKey(type: OutboxOpTypeName, payloadJson: String, json: Js
             val p = json.decodeFromString<FeedDistributionCompletePayload>(payloadJson)
             shedSessionKey(p.targetDate, p.shedId, p.partitionLabel, normalizeSession(p.sessionNo), p.workflow)
         }
+        OutboxOpTypeName.FEED_WASTAGE_COMPLETE -> {
+            val p = json.decodeFromString<FeedWastageCompletePayload>(payloadJson)
+            // Pen-day grain: no session. The payload carries no workflow (the server stamps
+            // `experiment`), so the key pins the same constant the row side supplies.
+            wastagePenDayKey(p.targetDate, p.shedId, p.partitionLabel)
+        }
         OutboxOpTypeName.FEED_TRANSPORT_SUBMIT -> {
             val p = json.decodeFromString<FeedTransportSubmitPayload>(payloadJson)
             // Transport is task-grain and its payload carries no date; the task id is already unique.
@@ -76,6 +83,7 @@ private fun decodeGrainKey(type: OutboxOpTypeName, payloadJson: String, json: Js
  *  opType cannot silently change this projection. */
 internal enum class OutboxOpTypeName {
     FEED_PACKING_COMPLETE,
+    FEED_WASTAGE_COMPLETE,
     FEED_DIRECTION_COMPLETE,
     FEED_DISTRIBUTION_COMPLETE,
     FEED_TRANSPORT_SUBMIT,
@@ -100,6 +108,19 @@ fun shedSessionKey(
     partitionLabel?.trim().orEmpty().lowercase().ifBlank { "whole" },
     sessionNo.toString(),
     workflow,
+).joinToString("|")
+
+/** Wastage PEN-DAY grain: one leftover-feed video per experiment pen per feed day — no session
+ *  segment on purpose, and the date is the one the submit itself carries, never "today". */
+fun wastagePenDayKey(
+    date: String,
+    shedId: String,
+    partitionLabel: String?,
+): String = listOf(
+    date,
+    "wastage-pen-day",
+    shedId,
+    partitionLabel?.trim().orEmpty().lowercase().ifBlank { "whole" },
 ).joinToString("|")
 
 /** Task grain (transport, milk): the id is already unique, so no date segment is needed. */
@@ -133,6 +154,11 @@ fun FeedPackingRowDto.submittedGrainKey(date: String): String =
  */
 fun FeedDirectionRowDto.submittedGrainKey(date: String): String =
     shedSessionKey(date, shedId, partitionLabel, sessionNo, workflow)
+
+/** [date] is the FEED day this wastage row is for — the worklist query's own `targetDate`, which
+ *  is also the date the submit's payload carries. */
+fun FeedWastageRowDto.submittedGrainKey(date: String): String =
+    wastagePenDayKey(date, shedId, partitionLabel)
 
 /** Task-grain rows carry their whole identity; nothing is left for a caller to supply. */
 fun FeedTransportTaskDto.submittedGrainKey(): String = taskGrainKey("feed-transport", taskId)

@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationAnswersDto
@@ -434,6 +435,8 @@ class SyncEngine(
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
         OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
+        OutboxOpType.FEED_WASTAGE_COMPLETE -> dispatchFeedWastageComplete(item)
+        OutboxOpType.FEED_WASTAGE_MEASUREMENT -> dispatchFeedWastageMeasurement(item)
         OutboxOpType.MILK_PREPARATION_SUBMIT -> dispatchMilkPreparationSubmit(item)
         OutboxOpType.MILK_FEEDING_SUBMIT -> dispatchMilkFeedingSubmit(item)
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
@@ -548,6 +551,24 @@ class SyncEngine(
                     runCatching {
                         feedTransportRepository?.persistTaskStatus(payload.taskId, response.status)
                     }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.FEED_WASTAGE_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedWastageCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // Same rationale as FEED_PACKING_COMPLETE above: never let a local
+                        // cache-write failure look like (or behave like) a dispatch failure.
+                        runCatching {
+                            feedRepository?.persistWastageRowStatus(
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = FEED_WASTAGE_WORKFLOW,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
                 }
             }
             else -> Unit
@@ -940,6 +961,42 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * The verifier-GATED feed-WASTAGE completion (maintainer decision 2026-08-18). Shaped exactly
+     * like [dispatchFeedPackingComplete]: a SINGLE mandatory video resolved from its coupled
+     * PROOF_UPLOAD outbox row (same group, drained first). The grain is the PEN-DAY, so there is
+     * no session and no workflow field. A `409` — this pen-day already holds a DIFFERENT video —
+     * is terminal by [recordFailure]'s `isTerminalAppApiError` check, so it is surfaced to the
+     * operator with the server's own sentence rather than retried against a state that will never
+     * change.
+     */
+    private suspend fun dispatchFeedWastageComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedWastageCompletePayload>(item.payloadJson)
+        val response = api.completeFeedWastage(
+            item.idempotencyKey,
+            FeedWastageCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                partitionLabel = payload.partitionLabel,
+                targetDate = payload.targetDate,
+                wastageProofRef = resolveUploadedProofRef(payload.wastageProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18). Feed owns the route —
+     * the measurement writes a feed-wastage record — while the verification item told the screen
+     * WHICH record to address. The idempotency key is the outbox row's own stable, value-bearing
+     * key, so a redelivery replays the original measurement instead of writing a second one.
+     */
+    private suspend fun dispatchFeedWastageMeasurement(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedWastageMeasurementPayload>(item.payloadJson)
+        val response = api.recordFeedWastageMeasurement(payload.completionId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchMilkPreparationSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<MilkPreparationSubmitPayload>(item.payloadJson)
         suspend fun proof(step: String): String? = payload.proofOutboxItemIds[step]?.let { resolveUploadedProofRef(it) }
@@ -1157,5 +1214,9 @@ class SyncEngine(
         // Mirrors WeighingRepository's private WEIGHING_CACHED_TRANSITION_SCOPES bound for the
         // SAME weighing_transition_epoch table -- every writer of that table prunes to this bound.
         const val WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES = 50
+
+        // Wastage exists only on experiment pens; the server stamps the workflow, and the Room
+        // grain key mirrors it so the reconcile addresses the exact cached row the worklist wrote.
+        const val FEED_WASTAGE_WORKFLOW = "experiment"
     }
 }

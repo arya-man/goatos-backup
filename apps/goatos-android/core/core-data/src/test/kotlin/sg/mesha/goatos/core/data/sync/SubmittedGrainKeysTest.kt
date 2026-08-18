@@ -111,6 +111,47 @@ class SubmittedGrainKeysTest {
     }
 
     @Test
+    fun `a Feed Wastage row and the pen-day submit it opens share one grain`() {
+        // The wastage grain is the PEN-DAY (no session, no workflow segment — maintainer decision
+        // 2026-08-18). The projection over the queued FEED_WASTAGE_COMPLETE payload and the
+        // worklist row's own submittedGrainKey must resolve to one string, or the "In review"
+        // badge silently never appears for a just-submitted pen.
+        val submitted = submittedGrainKeyOf(
+            OutboxOpTypeName.FEED_WASTAGE_COMPLETE.name,
+            syncJson.encodeToString(
+                FeedWastageCompletePayload(
+                    parkId = "park-1",
+                    shedId = "shed-castro",
+                    partitionLabel = "2",
+                    targetDate = "2026-08-18",
+                    wastageProofOutboxItemId = "proof-1",
+                ),
+            ),
+            syncJson,
+        )
+        val row = sg.mesha.goatos.core.network.dto.FeedWastageRowDto(
+            shedId = "shed-castro",
+            partitionLabel = "2",
+            workflow = "experiment",
+        )
+        assertEquals(
+            "the Wastage list must look the row up with the same pen-day key the submit projects",
+            submitted,
+            row.submittedGrainKey("2026-08-18"),
+        )
+        assertNotEquals(
+            "another pen of the same shed is a different grain",
+            submitted,
+            row.copy(partitionLabel = "3").submittedGrainKey("2026-08-18"),
+        )
+        assertNotEquals(
+            "another feed day is a different grain",
+            submitted,
+            row.submittedGrainKey("2026-08-19"),
+        )
+    }
+
+    @Test
     fun `REGRESSION 4 - a Feed Direction row and the DISTRIBUTION submit it opens share one grain`() {
         // Tapping a Feed Direction row opens the DISTRIBUTION capture, which enqueues
         // FEED_DISTRIBUTION_COMPLETE carrying that row's partitionLabel. An earlier revision of the

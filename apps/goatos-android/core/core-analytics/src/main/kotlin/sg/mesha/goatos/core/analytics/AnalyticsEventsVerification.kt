@@ -35,6 +35,13 @@ object AnalyticsEventsVerification {
     const val WEIGHT_CORRECTION_SUBMITTED = "verify_weight_correction_submitted"
 
     /**
+     * The VERIFIER recorded the leftover weight she read off a feed-wastage video (maintainer
+     * decision 2026-08-18) — the measurement half of the wastage review, distinct from her
+     * verdict. Zero is a real value here (an empty trough), so the event fires for it too.
+     */
+    const val WASTAGE_MEASUREMENT_SUBMITTED = "verify_wastage_measurement_submitted"
+
+    /**
      * The Alerts screen (vaccination control-tower summary, `AlertsViewModel`) rendered its
      * first non-loading state. Previously nothing was emitted for this screen at all —
      * indistinguishable from "the operator never opened Alerts".

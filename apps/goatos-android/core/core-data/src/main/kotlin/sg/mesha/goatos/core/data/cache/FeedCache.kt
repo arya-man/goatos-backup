@@ -317,3 +317,130 @@ interface FeedPackingRemoteKeyDao {
     )
     suspend fun deleteOutsideNewestQueries(keepQueries: Int)
 }
+
+// ---------------------------------------------------------------------------
+// Feed Wastage — fixed-size summary envelope, JSON blob by scope
+// (maintainer decision 2026-08-18: one leftover-feed video per EXPERIMENT pen per feed day)
+// ---------------------------------------------------------------------------
+
+@Entity(tableName = "feed_wastage_meta_cache")
+data class FeedWastageMetaCacheEntity(
+    @PrimaryKey val cacheKey: String,
+    val dtoJson: String,
+    val updatedAt: Long,
+)
+
+@Dao
+interface FeedWastageMetaCacheDao : JsonBlobCacheDao<FeedWastageMetaCacheEntity> {
+    @Query("SELECT * FROM feed_wastage_meta_cache WHERE cacheKey = :cacheKey")
+    override fun observe(cacheKey: String): Flow<FeedWastageMetaCacheEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    override suspend fun upsert(entity: FeedWastageMetaCacheEntity)
+
+    @Query("DELETE FROM feed_wastage_meta_cache WHERE cacheKey = :cacheKey")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM feed_wastage_meta_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM feed_wastage_meta_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM feed_wastage_meta_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM feed_wastage_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
+}
+
+// ---------------------------------------------------------------------------
+// Feed Wastage — per-pen rows, read as a bounded PagingSource window
+// ---------------------------------------------------------------------------
+
+@Entity(
+    tableName = "feed_wastage_items",
+    primaryKeys = ["queryKey", "grainKey"],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
+)
+data class FeedWastageItemEntity(
+    val queryKey: String,
+    val grainKey: String,
+    val sortIndex: Int,
+    val dtoJson: String,
+    val updatedAt: Long,
+)
+
+@Entity(tableName = "feed_wastage_remote_keys")
+data class FeedWastageRemoteKeyEntity(
+    @PrimaryKey val queryKey: String,
+    val nextOffset: Int,
+    val endReached: Boolean,
+    val updatedAt: Long,
+)
+
+@Dao
+interface FeedWastageItemDao {
+    @Query(
+        "SELECT * FROM feed_wastage_items WHERE queryKey = :queryKey " +
+            "ORDER BY sortIndex ASC, grainKey ASC",
+    )
+    fun pagingSource(queryKey: String): PagingSource<Int, FeedWastageItemEntity>
+
+    /**
+     * The MOST RECENTLY cached row for one PEN, across ANY filter scope this app instance has
+     * paged. `grainKey` is `shedId|partitionLabel|workflow` — see
+     * [sg.mesha.goatos.core.network.dto.FeedWastageRowDto.grainKey]. Used to observe a pen-day's
+     * live `lifecycleStatus` from the same Room table the worklist renders from, so a completion
+     * screen left open across a status change (verified/rejected elsewhere) sees it without a
+     * screen re-entry — the same shape as [FeedPackingItemDao.observeRowForPenSession].
+     */
+    @Query(
+        "SELECT * FROM feed_wastage_items WHERE grainKey = " +
+            ":shedId || '|' || :partitionLabel || '|' || :workflow " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeRowForPen(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+    ): Flow<FeedWastageItemEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<FeedWastageItemEntity>)
+
+    @Query("DELETE FROM feed_wastage_items WHERE queryKey = :queryKey")
+    suspend fun deleteQuery(queryKey: String)
+
+    /** Rows already cached for this scope — the monotonic base for the next append page's sortIndex.
+     *  The backend pages by SHED (a shed can hold several pens), so sortIndex counts ROWS. */
+    @Query("SELECT COUNT(*) FROM feed_wastage_items WHERE queryKey = :queryKey")
+    suspend fun countForQuery(queryKey: String): Int
+
+    @Query(
+        "DELETE FROM feed_wastage_items WHERE queryKey IN " +
+            "(SELECT queryKey FROM feed_wastage_remote_keys ORDER BY updatedAt DESC LIMIT -1 OFFSET :keepQueries)",
+    )
+    suspend fun deleteRowsOutsideNewestQueries(keepQueries: Int)
+}
+
+@Dao
+interface FeedWastageRemoteKeyDao {
+    @Query("SELECT * FROM feed_wastage_remote_keys WHERE queryKey = :queryKey")
+    suspend fun get(queryKey: String): FeedWastageRemoteKeyEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(key: FeedWastageRemoteKeyEntity)
+
+    @Query("DELETE FROM feed_wastage_remote_keys WHERE queryKey = :queryKey")
+    suspend fun delete(queryKey: String)
+
+    @Query(
+        "DELETE FROM feed_wastage_remote_keys WHERE queryKey IN " +
+            "(SELECT queryKey FROM feed_wastage_remote_keys ORDER BY updatedAt DESC LIMIT -1 OFFSET :keepQueries)",
+    )
+    suspend fun deleteOutsideNewestQueries(keepQueries: Int)
+}

@@ -152,6 +152,42 @@ internal class FakeFeedRepository : FeedRepository {
     override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
     override fun observePackingTotals(query: FeedPackingQuery): Flow<Resource<FeedPackingWorklistPageDto>> = error("unused")
     override fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>> = error("unused")
+
+    // --- feed wastage (maintainer decision 2026-08-18) --- same Room-status + scripted-poll idiom.
+    private val wastageStatus = MutableStateFlow<String?>(null)
+    private val wastageServerStatusQueue = ArrayDeque<Result<String?>>()
+    var defaultServerWastageStatus: String? = null
+    var wastageServerFetchCalls: Int = 0
+        private set
+
+    fun emitWastageStatus(status: String?) {
+        wastageStatus.value = status
+    }
+
+    fun queueServerWastageStatus(status: String?) {
+        wastageServerStatusQueue.addLast(Result.success(status))
+    }
+
+    fun queueServerWastageFailure() {
+        wastageServerStatusQueue.addLast(Result.failure(IllegalStateException("simulated poll failure")))
+    }
+
+    override fun observeWastageRowStatus(shedId: String, partitionLabel: String, workflow: String): Flow<String?> = wastageStatus
+
+    override suspend fun fetchWastageRowStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        targetDate: String,
+    ): String? {
+        wastageServerFetchCalls += 1
+        if (wastageServerStatusQueue.isNotEmpty()) return wastageServerStatusQueue.removeFirst().getOrThrow()
+        return defaultServerWastageStatus
+    }
+
+    override suspend fun persistWastageRowStatus(shedId: String, partitionLabel: String, workflow: String, lifecycleStatus: String) = Unit
+    override fun observeWastageTotals(query: sg.mesha.goatos.core.data.FeedWastageQuery): Flow<Resource<sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto>> = error("unused")
+    override fun wastageRows(query: sg.mesha.goatos.core.data.FeedWastageQuery): Flow<PagingData<sg.mesha.goatos.core.network.dto.FeedWastageRowDto>> = error("unused")
 }
 
 /**

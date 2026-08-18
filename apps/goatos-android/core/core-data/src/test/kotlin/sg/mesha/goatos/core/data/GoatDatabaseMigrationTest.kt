@@ -156,6 +156,38 @@ class GoatDatabaseMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `migration 47 to 48 creates the three feed wastage tables and preserves existing feed rows`() {
+        helper.createDatabase(DB_NAME, 47).apply {
+            // A pre-upgrade packing row proves the additive migration touches nothing existing.
+            execSQL(
+                "INSERT INTO `feed_packing_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'shed-1|2|experiment|1', 0, '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 48, true, MIGRATION_47_48)
+        db.query("SELECT COUNT(*) FROM `feed_wastage_meta_cache`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM `feed_wastage_items`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM `feed_wastage_remote_keys`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT `dtoJson` FROM `feed_packing_items` WHERE `queryKey`='scope-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -220,6 +252,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_44_45.migrate(db)
         MIGRATION_45_46.migrate(db)
         MIGRATION_46_47.migrate(db)
+        MIGRATION_47_48.migrate(db)
         return db
     }
 
@@ -238,7 +271,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 47
+        const val CURRENT_VERSION = 48
     }
 }
 

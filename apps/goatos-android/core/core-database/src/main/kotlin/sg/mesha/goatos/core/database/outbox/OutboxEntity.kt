@@ -133,6 +133,34 @@ enum class OutboxOpType {
      * two completions of the same shed-session drain strictly oldest-first.
      */
     FEED_PACKING_COMPLETE,
+
+    /**
+     * Feed WASTAGE completion (`POST /feed-direction/wastage/complete`), the verifier-GATED
+     * leftover-feed flow on EXPERIMENT pens (maintainer decision 2026-08-18). Grain is the PEN-DAY
+     * — no session, no workflow (the server stamps `experiment`). Like [FEED_PACKING_COMPLETE] it
+     * carries a SINGLE MANDATORY video ref, resolved from a PROOF_UPLOAD row enqueued on the SAME
+     * group that drains first. It flips the pen-day to `pending_verification` — nothing is
+     * completed until a verifier approves. A pen-day accepts exactly ONE video, so a DIFFERENT
+     * video is a 409 that terminalizes the row (surfaced to the operator, never retried); a
+     * genuine re-send of the SAME video replays for free under the stable idempotency key. The
+     * pen-day key is the outbox group key.
+     */
+    FEED_WASTAGE_COMPLETE,
+
+    /**
+     * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18):
+     * `POST /feed-direction/wastage/{completion_id}/measurement`. She watches the pen's wastage
+     * video and records the leftover weight she reads off it — the second producer-owned
+     * measurement route after [WEIGHING_WEIGHT_CORRECTION], and it rides the outbox the same way
+     * so a measurement made in a shed with no signal is durable rather than lost.
+     *
+     * Its idempotency key is derived from the completion AND the value, never a timestamp: a
+     * retry of the SAME measurement must replay for free, while recording 3 kg and then 3.5 kg
+     * are two different acts that must not collide on one key. ZERO IS A VALID VALUE (an empty
+     * trough). Adding an op type needs NO Room migration: [OutboxEntity.opType] is a plain TEXT
+     * column holding this enum's `name`.
+     */
+    FEED_WASTAGE_MEASUREMENT,
     /** Shed-day milk preparation; carries 2 or 5 proof-upload row references as one submission. */
     MILK_PREPARATION_SUBMIT,
     /** One shed-session Milk Feeding answer cascade plus two proof-upload references. */

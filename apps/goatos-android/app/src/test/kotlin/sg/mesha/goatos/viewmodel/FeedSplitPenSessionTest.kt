@@ -66,4 +66,11 @@ class FakeSplitFeedRepository(
     override fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?> = flowOf(null)
     override suspend fun fetchDirectionSessionStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null
     override suspend fun fetchPackingRowStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null
+    override fun observeWastageTotals(query: sg.mesha.goatos.core.data.FeedWastageQuery): Flow<Resource<sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto>> =
+        flowOf(Resource(sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto(targetDate = "2026-08-18")))
+    override fun wastageRows(query: sg.mesha.goatos.core.data.FeedWastageQuery): Flow<PagingData<sg.mesha.goatos.core.network.dto.FeedWastageRowDto>> =
+        flowOf(PagingData.empty())
+    override fun observeWastageRowStatus(shedId: String, partitionLabel: String, workflow: String): Flow<String?> = flowOf(null)
+    override suspend fun fetchWastageRowStatus(parkId: String, shedId: String, partitionLabel: String, targetDate: String): String? = null
+    override suspend fun persistWastageRowStatus(shedId: String, partitionLabel: String, workflow: String, lifecycleStatus: String) = Unit
 }

@@ -292,6 +292,11 @@ object MeshaIcons {
         "feed_direction", "direction" -> Feed
         "feed_packing", "packing" -> Package
         "feed_transport", "transport" -> Truck
+        // Feed Wastage (maintainer decision 2026-08-18): the 4th feed tab. Its own glyph, not the
+        // generic Module grid, and not a repeat of a sibling tab's mark (Feed / Package / Truck
+        // all share this bar): the wastage task is a recorded check of what was left over, so it
+        // takes the clipboard-check.
+        "feed_wastage", "wastage" -> ClipboardCheck
         // Milk vertical: the drawer row reuses the preparation can, its two destinations keep
         // their own glyphs.
         "milk", "milk_preparation" -> MilkPreparation

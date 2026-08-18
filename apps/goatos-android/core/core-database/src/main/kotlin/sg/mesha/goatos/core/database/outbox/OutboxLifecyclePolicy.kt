@@ -99,6 +99,11 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.FEED_DIRECTION_COMPLETE -> overlayRefreshLifecycle()
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> overlayDirectReconcileLifecycle()
         OutboxOpType.FEED_PACKING_COMPLETE -> overlayDirectReconcileLifecycle()
+        // Wastage submit mirrors packing/distribution: outbox overlay shows "in review" at once,
+        // the sync pass reconciles the Room row directly from the server's returned status.
+        OutboxOpType.FEED_WASTAGE_COMPLETE -> overlayDirectReconcileLifecycle()
+        // The verifier's recorded leftover value — an exact-item decision write, like a verdict.
+        OutboxOpType.FEED_WASTAGE_MEASUREMENT -> exactItemLifecycle()
         OutboxOpType.MILK_PREPARATION_SUBMIT -> overlayRefreshLifecycle()
         OutboxOpType.MILK_FEEDING_SUBMIT -> overlayRefreshLifecycle()
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> overlayDirectReconcileLifecycle()

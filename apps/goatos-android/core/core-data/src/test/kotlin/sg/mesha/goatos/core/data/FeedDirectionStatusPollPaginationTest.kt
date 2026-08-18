@@ -37,7 +37,7 @@ class FeedDirectionStatusPollPaginationTest {
         val db = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        return DefaultFeedRepository(api, db, db.feedDirectionMetaCacheDao(), db.feedPackingMetaCacheDao(), json)
+        return DefaultFeedRepository(api, db, db.feedDirectionMetaCacheDao(), db.feedPackingMetaCacheDao(), db.feedWastageMetaCacheDao(), json)
     }
 
     private data class FakePage(

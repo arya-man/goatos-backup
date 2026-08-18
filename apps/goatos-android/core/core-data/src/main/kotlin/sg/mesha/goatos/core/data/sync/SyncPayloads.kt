@@ -9,6 +9,7 @@ import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
@@ -396,6 +397,38 @@ data class FeedPackingCompletePayload(
     @SerialName("workflow") val workflow: String,
     /** Outbox id of the MANDATORY packing VIDEO's PROOF_UPLOAD item. */
     @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_WASTAGE_COMPLETE] —
+ * the verifier-GATED leftover-feed flow on EXPERIMENT pens (maintainer decision 2026-08-18). Grain
+ * is the PEN-DAY: no session (wastage is measured once per day) and no workflow (the server stamps
+ * `experiment`). ONE MANDATORY video, carried by reference to its PROOF_UPLOAD outbox row exactly
+ * like [FeedPackingCompletePayload]; the dispatcher resolves the uploaded `proof_id` and sends it
+ * as `wastage_proof_ref`. The pen-day key is the outbox group key so the proof drains first.
+ */
+@Serializable
+data class FeedWastageCompletePayload(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    /** The PEN whose leftover was filmed; null for an undivided shed. Part of the completion's
+     *  IDENTITY — a partitioned shed has one wastage task PER PEN. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("target_date") val targetDate: String,
+    /** Outbox id of the MANDATORY wastage VIDEO's PROOF_UPLOAD item. */
+    @SerialName("wastage_proof_outbox_item_id") val wastageProofOutboxItemId: String,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_WASTAGE_MEASUREMENT]:
+ * the VERIFIER recording the leftover weight she reads off a wastage video (maintainer decision
+ * 2026-08-18). The completion id comes from the item's backend-owned measurement_correction block
+ * (`observation_id`, echoing source.ref_id) — this app never composes that address itself.
+ */
+@Serializable
+data class FeedWastageMeasurementPayload(
+    @SerialName("completion_id") val completionId: String,
+    @SerialName("request") val request: FeedWastageMeasurementRequestDto,
 )
 
 @Serializable
