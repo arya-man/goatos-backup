@@ -123,7 +123,7 @@ function MetricToggle({
 }
 
 // One row of the full-width shed chart: a WeightBars bar plus the park it belongs to.
-type ShedChartBar = { key: string; park_name: string; label: string; value: number };
+type ShedChartBar = { key: string; park_name: string; label: string; value: number; valueLabel?: string };
 
 function shedKey(locationID: string, partitionLabel?: string | null): string {
   return `${locationID}|${partitionLabel ?? ""}`;
@@ -428,8 +428,7 @@ export async function WeighingWeightsPage({
   // which population change also moves. Merging them silently would be the defect;
   // showing only the first would drop every whole-shed shed from a gain view they
   // now have real history for.
-  const gainChartData = [
-    ...(growth.ok ? growth.data.shed_leaderboard : [])
+  const perAnimalGainRows = (growth.ok ? growth.data.shed_leaderboard : [])
       .filter((shed) => shed.adg_pair_count > 0 && visibleRowKeys.has(shedKey(shed.location_id, shed.partition_label)))
       .map((shed) => ({
         // Keyed by location AND partition, because that is the grain the leaderboard is
@@ -455,8 +454,8 @@ export async function WeighingWeightsPage({
           pageContract,
         ),
         value: Math.round(shed.median_adg_g_per_day),
-      })),
-    ...visibleRows
+      }));
+  const shedAverageGainRows = visibleRows
       .filter((row) => row.shed_average_gain_g_per_day != null)
       .map((row) => ({
         key: `${shedKey(row.location_id, row.partition_label)}-shed`,
@@ -467,8 +466,27 @@ export async function WeighingWeightsPage({
           pageContract,
         ),
         value: Math.round(row.shed_average_gain_g_per_day as number),
-      })),
-  ].sort((a, b) => b.value - a.value);
+      }));
+  const gainRowKeys = new Set([...perAnimalGainRows, ...shedAverageGainRows].map((row) => row.key.replace(/-shed$/, "")));
+  const singleWeighRows = visibleRows
+    .filter((row) => row.animals_weighed > 0 && !gainRowKeys.has(shedKey(row.location_id, row.partition_label)))
+    .map((row) => {
+      const key = shedKey(row.location_id, row.partition_label);
+      return {
+        key: `${key}-single`,
+        park_name: row.park_name,
+        label: shedLabelWithComposition(
+          row.operational_location_display || row.shed_display_name,
+          compositionByShed.get(key),
+          pageContract,
+        ),
+        value: 0,
+        valueLabel: `${kg(row.average_weight_kg)} kg`,
+      };
+    });
+  const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows, ...singleWeighRows].sort(
+    (a, b) => b.value - a.value,
+  );
 
   const hasAnyData = summary.animals_weighed > 0;
 
