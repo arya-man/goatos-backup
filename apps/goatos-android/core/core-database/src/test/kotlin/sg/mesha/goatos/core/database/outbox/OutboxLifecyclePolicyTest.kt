@@ -24,7 +24,10 @@ class OutboxLifecyclePolicyTest {
             .associateWith { it.lifecyclePolicy }
             .filterValues { it.userImpact == OutboxUserImpact.BACKGROUND_SUPPORT_WRITE }
 
-        assertEquals(setOf(OutboxOpType.SCAN_ATTEMPT, OutboxOpType.PROOF_UPLOAD), backgroundPolicies.keys)
+        assertEquals(
+            setOf(OutboxOpType.SCAN_ATTEMPT, OutboxOpType.PROOF_UPLOAD, OutboxOpType.VERIFICATION_REVIEW_EVENTS),
+            backgroundPolicies.keys,
+        )
         assertEquals(
             OutboxImmediateUiPolicy.NO_USER_VISIBLE_STATE,
             backgroundPolicies.getValue(OutboxOpType.SCAN_ATTEMPT).immediate,
@@ -32,6 +35,10 @@ class OutboxLifecyclePolicyTest {
         assertEquals(
             OutboxImmediateUiPolicy.PARENT_OPERATION_STATUS,
             backgroundPolicies.getValue(OutboxOpType.PROOF_UPLOAD).immediate,
+        )
+        assertEquals(
+            OutboxImmediateUiPolicy.NO_USER_VISIBLE_STATE,
+            backgroundPolicies.getValue(OutboxOpType.VERIFICATION_REVIEW_EVENTS).immediate,
         )
     }
 }
