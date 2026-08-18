@@ -326,6 +326,18 @@ resource "google_cloud_run_v2_service" "admin_web" {
         value = var.canonical_dashboard_host
       }
 
+      # Server-Action redirect() makes Next self-fetch the redirect target to stream it back in the
+      # action response. Without this, the self-fetch goes to http://<public host>, the load
+      # balancer 301s http->https, and Node's fetch drops the Cookie header on that cross-origin
+      # redirect — the request arrives sessionless, the auth middleware bounces it to /login, and
+      # every verifier approve / approvals decision flashed a logout/login (incident 2026-08-18).
+      # Pointing the self-fetch at the container itself keeps the session cookie intact; the
+      # matching loopback-host exemption lives in apps/admin-web/proxy.ts.
+      env {
+        name  = "__NEXT_PRIVATE_ORIGIN"
+        value = "http://127.0.0.1:8080"
+      }
+
       env {
         name  = "GOATOS_GOOGLE_SIGN_IN_CLIENT_ID"
         value = var.google_sign_in_client_id
