@@ -1821,6 +1821,200 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The whole sales page in one read.
+         * @description Whole-filter aggregates for the sales board: headline summary, monthly series, price bands, buyer board, demand pipelines, sale evidence and market benchmarks. Only deals with status `Deal Closed` count toward the summary, monthly, price-band and buyer blocks; the pipelines and evidence panels summarise their own tables.
+         *
+         *     The farm filter applies to the blocks whose source carries a farm (deals, buyer leads, sold tags); the FPO pipeline, weight audit and market benchmarks are company-wide because their source records no farm.
+         */
+        get: operations["listSalesOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/deals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the sales ledger.
+         * @description Every recorded deal in every status, newest sale first. `total` is the WHOLE-FILTER count, not the page length; the client derives the page count from it.
+         */
+        get: operations["listSalesDeals"];
+        put?: never;
+        /**
+         * Record a sale.
+         * @description Records one deal into the ledger with status `Deal Closed`. The `Idempotency-Key` header is REQUIRED: an exact replay returns the originally recorded deal with no new side effects, and the same key replayed with different fields is rejected with 409 `idempotency_conflict`, so a retried submit can never record a sale twice. Farm and product type are validated against their closed vocabularies and rejected -- never silently rewritten -- when unrecognised.
+         */
+        post: operations["createSalesDeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/buyer-leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the buyer demand pipeline.
+         * @description Buyer leads newest first, plus the whole-filter total and the tenant's existing call-status vocabulary (`status_options`) for the status picker. Statuses are free text bucketed by exact string on the overview, so the picker offers the stored spellings rather than inventing a new vocabulary that would fragment the pipeline chart.
+         */
+        get: operations["listSalesBuyerLeads"];
+        put?: never;
+        /**
+         * Record a buyer lead.
+         * @description Records one buyer lead into the demand pipeline. Same idempotency contract as recording a sale: the `Idempotency-Key` header is required, an exact replay returns the original lead, and a same-key/different-payload replay is rejected 409.
+         */
+        post: operations["createSalesBuyerLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/buyer-leads/{lead_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update a buyer lead's call status.
+         * @description Sets one lead's call status. An empty `call_status` clears it back to "not yet called". Same idempotency contract as the other sales writes.
+         */
+        post: operations["setSalesBuyerLeadStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/fpo-leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the farmer-group pipeline.
+         * @description Farmer-group (FPO) leads newest first, plus the whole-filter total and the stored call-status vocabulary. Company-wide -- the source carries no farm.
+         */
+        get: operations["listSalesFpoLeads"];
+        put?: never;
+        /**
+         * Record a farmer-group lead.
+         * @description Records one farmer-group lead. Same idempotency contract as the other sales writes.
+         */
+        post: operations["createSalesFpoLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/fpo-leads/{lead_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update a farmer-group lead's call status.
+         * @description Sets one farmer group's call status. An empty `call_status` clears it back to "not yet called". Same idempotency contract as the other sales writes.
+         */
+        post: operations["setSalesFpoLeadStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/market-benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a market quote.
+         * @description Records one comparable market quote for the Market check panel. Same idempotency contract as the other sales writes.
+         */
+        post: operations["createSalesMarketBenchmark"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/sold-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a sold-animal tag list.
+         * @description Records the tag list handed over at one sale -- up to 200 animals in ONE atomic batch: the whole list commits or none of it does. Same idempotency contract as the other sales writes; an exact replay reports the original batch size without inserting anything.
+         */
+        post: operations["createSalesSoldTags"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/weight-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a weight check.
+         * @description Records one video-vs-book weight audit row for the Weight check panel. Same idempotency contract as the other sales writes.
+         */
+        post: operations["createSalesWeightCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-groups": {
         parameters: {
             query?: never;
@@ -3766,6 +3960,294 @@ export interface components {
             cities: components["schemas"]["ProcurementVendorCatalogEntry"][];
             statuses: components["schemas"]["ProcurementVendorCatalogEntry"][];
             feeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
+        };
+        /** @description One buyer lead in the demand pipeline. */
+        SalesBuyerLead: {
+            /** Format: uuid */
+            lead_id: string;
+            /** @description YYYY-MM-DD when known. */
+            recorded_date?: string | null;
+            farm?: string | null;
+            buyer_name: string;
+            buyer_place?: string | null;
+            animal_type?: string | null;
+            breed?: string | null;
+            /** @description Null means not yet called; the overview reports that bucket as "uncontacted". */
+            call_status?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One page of the buyer pipeline plus whole-filter total and status vocabulary. */
+        SalesBuyerLeadPage: {
+            leads: components["schemas"]["SalesBuyerLead"][];
+            /** @description Whole-filter count */
+            total: number;
+            /** @description The tenant's stored call-status vocabulary, for the status picker. */
+            status_options: string[];
+        };
+        /** @description Records one buyer lead. Optional text sent as "" is stored as not set. */
+        SalesBuyerLeadWrite: {
+            /** @description Optional YYYY-MM-DD. */
+            recorded_date?: string;
+            /**
+             * @description Optional farm.
+             * @enum {string}
+             */
+            farm?: "" | "CBE" | "CPT";
+            buyer_name: string;
+            buyer_place?: string;
+            animal_type?: string;
+            breed?: string;
+            /** @description Optional; empty means not yet called. */
+            call_status?: string;
+        };
+        /** @description One farmer-group (FPO) lead. */
+        SalesFpoLead: {
+            /** Format: uuid */
+            lead_id: string;
+            fpo_name: string;
+            crops?: string | null;
+            district?: string | null;
+            taluk?: string | null;
+            state?: string | null;
+            call_status?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One page of the farmer-group pipeline plus whole-filter total and status vocabulary. */
+        SalesFpoLeadPage: {
+            leads: components["schemas"]["SalesFpoLead"][];
+            total: number;
+            status_options: string[];
+        };
+        /** @description Records one farmer-group lead. */
+        SalesFpoLeadWrite: {
+            fpo_name: string;
+            crops?: string;
+            district?: string;
+            taluk?: string;
+            state?: string;
+            call_status?: string;
+        };
+        /** @description Sets one lead's call status; empty clears it back to "not yet called". */
+        SalesLeadStatusWrite: {
+            call_status: string;
+        };
+        /** @description Records one comparable market quote. */
+        SalesBenchmarkWrite: {
+            market?: string;
+            category?: string;
+            breed: string;
+            source?: string;
+            ex_farm_rate?: string;
+            transport_rate?: string;
+            landing_cost_per_kg?: number | null;
+            market_price_per_kg?: number | null;
+        };
+        /** @description One animal in a handed-over tag list. */
+        SalesSoldTagRow: {
+            animal_label: string;
+            tag_number?: string;
+            weight_kg?: number | null;
+        };
+        /** @description Records the tag list handed over at one sale, as one atomic batch. */
+        SalesSoldTagsWrite: {
+            /** @enum {string} */
+            farm?: "" | "CBE" | "CPT";
+            rows: components["schemas"]["SalesSoldTagRow"][];
+        };
+        SalesSoldTagsResult: {
+            /** @description How many animals landed in the roster. */
+            recorded: number;
+        };
+        /** @description Records one video-vs-book weight audit row. */
+        SalesWeightCheckWrite: {
+            tag_number?: string;
+            book_weight_kg: number;
+            video_weight_kg: number;
+            /** @default false */
+            farm_born: boolean;
+        };
+        SalesRecorded: {
+            recorded: boolean;
+        };
+        /** @description One row of the sales ledger -- one sheet row, or one deal recorded in the app. */
+        SalesDeal: {
+            /** Format: uuid */
+            deal_id: string;
+            /**
+             * Format: date
+             * @description The business date the sale happened, never a timestamp.
+             */
+            sale_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @description The source sheet's own sale reference. It repeats and is never a key. */
+            source_sales_id?: number | null;
+            source_purchase_id?: number | null;
+            buyer_name: string;
+            buyer_place?: string | null;
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat" | "Manure";
+            breed: string;
+            /** @description Authoritative animal count when recorded; otherwise male_count + female_count applies. */
+            animal_count?: number | null;
+            male_count?: number | null;
+            female_count?: number | null;
+            total_weight_kg?: number | null;
+            advance_amount?: number | null;
+            sales_value: number;
+            /** @enum {string} */
+            status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
+            feedback?: string | null;
+            comments?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SalesDealPage: {
+            deals: components["schemas"]["SalesDeal"][];
+            /** @description The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this number. */
+            total: number;
+            /** @description The page size actually applied, after clamping. */
+            limit: number;
+            /** @description The offset actually applied. Echoed so the client can render the page number. */
+            offset: number;
+        };
+        /** @description Record-sale body. Farm and product type are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised. The recorded deal always lands with status `Deal Closed`. */
+        SalesDealWrite: {
+            /** Format: date */
+            sale_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat" | "Manure";
+            breed: string;
+            buyer_name: string;
+            buyer_place?: string;
+            animal_count?: number | null;
+            male_count?: number | null;
+            female_count?: number | null;
+            total_weight_kg?: number | null;
+            /** @description Required and must be more than zero. */
+            sales_value: number;
+            advance_amount?: number | null;
+            comments?: string;
+        };
+        /** @description Headline figures over CLOSED deals in the farm scope. */
+        SalesOverviewSummary: {
+            revenue: number;
+            /** @description Closed Sheep + Goat revenue. Manure is excluded here and carried separately. */
+            live_revenue: number;
+            deals: number;
+            animals: number;
+            sheep: number;
+            goats: number;
+            live_weight_kg: number;
+            /** @description Closed live revenue over closed live weight, both ranging over the same deals; 0 when no weighed live sales exist. */
+            realized_price_per_kg: number;
+            manure_kg: number;
+            manure_revenue: number;
+            /** @description Earliest closed sale date in scope (YYYY-MM-DD); empty when none. */
+            period_from: string;
+            /** @description Latest closed sale date in scope (YYYY-MM-DD); empty when none. */
+            period_to: string;
+        };
+        /** @description One month with at least one closed deal. Months derive from sale_date. */
+        SalesOverviewMonthly: {
+            /** @description YYYY-MM */
+            month: string;
+            sheep_revenue: number;
+            goat_revenue: number;
+            manure_revenue: number;
+            sheep_count: number;
+            goat_count: number;
+            manure_kg: number;
+        };
+        /** @description Realized price per kg for one (live product type, breed), over closed deals with weight and value recorded. Ordered by average price, highest first. */
+        SalesPriceBand: {
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat";
+            breed: string;
+            deals: number;
+            animals: number;
+            weight_kg: number;
+            revenue: number;
+            avg_price_per_kg: number;
+            min_price_per_kg: number;
+            max_price_per_kg: number;
+        };
+        /** @description One buyer's closed-deal history, ordered by revenue. Top 25 buyers only; share_pct is against whole-filter revenue. */
+        SalesBuyer: {
+            buyer_name: string;
+            buyer_place: string;
+            /** @description Sorted set of product types this buyer has bought. */
+            product_types: string[];
+            deals: number;
+            animals: number;
+            revenue: number;
+            share_pct: number;
+        };
+        SalesStatusCount: {
+            /** @description The recorded call status; a lead never contacted reports as "uncontacted". */
+            status: string;
+            count: number;
+        };
+        SalesPlaceCount: {
+            place: string;
+            count: number;
+        };
+        SalesBuyerPipeline: {
+            total: number;
+            statuses: components["schemas"]["SalesStatusCount"][];
+            top_places: components["schemas"]["SalesPlaceCount"][];
+        };
+        SalesFPOPipeline: {
+            total: number;
+            statuses: components["schemas"]["SalesStatusCount"][];
+            districts: components["schemas"]["SalesPlaceCount"][];
+        };
+        SalesTagTypeCount: {
+            label: string;
+            count: number;
+        };
+        SalesTagRoster: {
+            total: number;
+            /** @description Distinct sale references the tag rows point back at, never the row count. */
+            sales_count: number;
+            by_type: components["schemas"]["SalesTagTypeCount"][];
+        };
+        /** @description Video weight vs book weight, bucketed by absolute gap into three disjoint ranges. */
+        SalesWeightAudit: {
+            total: number;
+            within_0_3_kg: number;
+            within_1_kg: number;
+            over_1_kg: number;
+            max_gap_kg: number;
+        };
+        SalesMarketBenchmark: {
+            market?: string | null;
+            category?: string | null;
+            breed: string;
+            source?: string | null;
+            ex_farm_rate?: string | null;
+            transport_rate?: string | null;
+            landing_cost_per_kg?: number | null;
+            /** @description Parsed out of the market text at import time, never at read time. */
+            market_price_per_kg?: number | null;
+        };
+        /** @description The whole sales page contract, all blocks whole-filter aggregates. */
+        SalesOverview: {
+            summary: components["schemas"]["SalesOverviewSummary"];
+            monthly: components["schemas"]["SalesOverviewMonthly"][];
+            price_bands: components["schemas"]["SalesPriceBand"][];
+            buyers: components["schemas"]["SalesBuyer"][];
+            buyer_pipeline: components["schemas"]["SalesBuyerPipeline"];
+            fpo_pipeline: components["schemas"]["SalesFPOPipeline"];
+            tag_roster: components["schemas"]["SalesTagRoster"];
+            weight_audit: components["schemas"]["SalesWeightAudit"];
+            market_benchmarks: components["schemas"]["SalesMarketBenchmark"][];
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];
@@ -13738,6 +14220,370 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesOverview: {
+        parameters: {
+            query?: {
+                /** @description Farm scope. Absent or `all` means the whole company; anything else is rejected. */
+                farm?: "all" | "CBE" | "CPT";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole page contract. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOverview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesDeals: {
+        parameters: {
+            query?: {
+                farm?: "all" | "CBE" | "CPT";
+                limit?: number;
+                /** @description Rows to skip. Bounded on purpose -- the ledger is an authored commercial record that grows with deals closed, never with herd size. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the ledger plus the whole-filter total. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDealPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesDeal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded deal. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesBuyerLeads: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of buyer leads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLeadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesBuyerLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesBuyerLeadWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded lead. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setSalesBuyerLeadStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesLeadStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated lead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesFpoLeads: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of farmer-group leads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLeadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesFpoLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesFpoLeadWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded lead. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setSalesFpoLeadStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesLeadStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated lead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesMarketBenchmark: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesBenchmarkWrite"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesRecorded"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesSoldTags: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesSoldTagsWrite"];
+            };
+        };
+        responses: {
+            /** @description How many animals were recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesSoldTagsResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesWeightCheck: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesWeightCheckWrite"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesRecorded"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

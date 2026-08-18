@@ -1,0 +1,237 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/sales/domain"
+	"github.com/vgoats/goatos/backend/internal/sales/ports"
+)
+
+// idemScopeDealCreate namespaces the record-sale idempotency keys.
+const idemScopeDealCreate = "sales.deal.create"
+
+// dealColumns is the single projection every deal read uses.
+//
+// Column order here and in scanDeal must move together. pgx fails loudly on a count mismatch but
+// silently mis-assigns two same-typed columns that are swapped, so any edit to one must be
+// mirrored in the other.
+const dealColumns = `
+	d.id, d.tenant_id, d.sale_date, d.farm,
+	d.source_sales_id, d.source_purchase_id, d.source_row_no,
+	d.buyer_name, d.buyer_place, d.product_type, d.breed,
+	d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
+	d.advance_amount, d.sales_value, d.status, d.feedback, d.comments,
+	d.created_at, d.updated_at`
+
+// scanDeal reads one row of dealColumns, in that exact order.
+func scanDeal(row pgx.Row) (domain.Deal, error) {
+	var (
+		d          domain.Deal
+		saleDate   time.Time
+		srcSales   *int32
+		srcPur     *int32
+		srcRow     *int32
+		createdAt  time.Time
+		updatedAt  time.Time
+		salesValue float64
+	)
+	err := row.Scan(
+		&d.DealID, &d.TenantID, &saleDate, &d.Farm,
+		&srcSales, &srcPur, &srcRow,
+		&d.BuyerName, &d.BuyerPlace, &d.ProductType, &d.Breed,
+		&d.AnimalCount, &d.MaleCount, &d.FemaleCount, &d.TotalWeightKg,
+		&d.AdvanceAmount, &salesValue, &d.Status, &d.Feedback, &d.Comments,
+		&createdAt, &updatedAt,
+	)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+	// The sale date is a business DATE: formatted as its calendar day, never shifted through a
+	// timezone conversion.
+	d.SaleDate = saleDate.Format("2006-01-02")
+	d.SalesValue = salesValue
+	d.SourceSalesID = int32Ptr(srcSales)
+	d.SourcePurchaseID = int32Ptr(srcPur)
+	d.SourceRowNo = int32Ptr(srcRow)
+	d.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+	d.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
+	return d, nil
+}
+
+func int32Ptr(v *int32) *int {
+	if v == nil {
+		return nil
+	}
+	n := int(*v)
+	return &n
+}
+
+// buildDealFilter renders the shared WHERE clause for the page read, its total, and the overview's
+// deal read, so the three can never range over different predicate sets.
+func buildDealFilter(tenantID, farm string) (string, []any) {
+	if farm == "" {
+		return "d.tenant_id = $1", []any{tenantID}
+	}
+	return "d.tenant_id = $1 AND d.farm = $2", []any{tenantID, farm}
+}
+
+// ListDeals returns one ledger page (all statuses) plus the whole-filter total.
+func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit, offset int) (ports.DealPage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	limit = domain.ClampDealPageSize(limit)
+	if offset < 0 {
+		offset = 0
+	}
+	where, args := buildDealFilter(tenantID, farm)
+
+	// scale-guard:ignore: bounded LIMIT/OFFSET over an authored commercial ledger, not a herd-sized
+	// table. The ledger grows with the number of DEALS the farm closes (63 sheet rows today, a
+	// handful per month), never with animal count, and the service rejects offset beyond
+	// domain.MaxDealOffset, so the skipped-row cost is bounded by construction. Same reasoning and
+	// shape as the procurement vendor register.
+	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE %s ORDER BY d.sale_date DESC, d.id LIMIT %d OFFSET %d`, // scale-guard:ignore: bounded authored ledger pagination; see note above
+		dealColumns, where, limit, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return ports.DealPage{}, fmt.Errorf("list sales deals: %w", err)
+	}
+	defer rows.Close()
+
+	deals := make([]domain.Deal, 0, limit)
+	for rows.Next() {
+		d, err := scanDeal(rows)
+		if err != nil {
+			return ports.DealPage{}, fmt.Errorf("list sales deals scan: %w", err)
+		}
+		deals = append(deals, d)
+	}
+	if err := rows.Err(); err != nil {
+		return ports.DealPage{}, fmt.Errorf("list sales deals rows: %w", err)
+	}
+
+	page := ports.DealPage{Deals: deals}
+	// Whole-filter total over the SAME predicates, built from the same buildDealFilter call so
+	// the list and its total cannot drift.
+	countQuery := fmt.Sprintf(`SELECT count(*) FROM public.sales_deals d WHERE %s`, where)
+	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&page.Total); err != nil {
+		return ports.DealPage{}, fmt.Errorf("count sales deals: %w", err)
+	}
+	return page, nil
+}
+
+// getDeal reads one deal inside the caller's tenant. Used by the create replay path.
+func (r *Repository) getDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error) {
+	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE d.tenant_id = $1 AND d.id = $2`, dealColumns)
+	d, err := scanDeal(r.pool.QueryRow(ctx, query, tenantID, dealID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("get sales deal: %w", err)
+	}
+	return d, nil
+}
+
+// CreateDeal records a sale: idempotency reservation, insert, and audit in ONE transaction.
+//
+// The caller has normalized and validated the write; the enums the CHECK constraints enforce were
+// already rejected with field-specific messages at the domain layer.
+func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: begin create deal: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Semantic fingerprint over every field that defines the sale's effect. A replay carrying the
+	// same key but ANY different field is a different request and must be refused, not recorded.
+	fingerprint := requestFingerprint(
+		write.SaleDate, write.Farm, write.ProductType, write.Breed,
+		write.BuyerName, write.BuyerPlace,
+		fpFloat(write.AnimalCount), fpFloat(write.MaleCount), fpFloat(write.FemaleCount),
+		fpFloat(write.TotalWeightKg), fmt.Sprintf("%.4f", write.SalesValue), fpFloat(write.AdvanceAmount),
+		write.Comments,
+	)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+	if !reservation.proceed {
+		// Exact replay: commit the (side-effect-free) reservation read and return the original row.
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Deal{}, fmt.Errorf("sales: commit replay read: %w", err)
+		}
+		return r.getDeal(ctx, tenantID, reservation.resultID)
+	}
+
+	var dealID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO public.sales_deals (
+			tenant_id, sale_date, farm, buyer_name, buyer_place,
+			product_type, breed, animal_count, male_count, female_count,
+			total_weight_kg, advance_amount, sales_value, comments
+		) VALUES (
+			$1, $2::date, $3, $4, nullif(btrim($5), ''),
+			$6, $7, $8, $9, $10,
+			$11, $12, $13, nullif(btrim($14), '')
+		)
+		RETURNING id::text`,
+		tenantID, write.SaleDate, write.Farm, write.BuyerName, write.BuyerPlace,
+		write.ProductType, write.Breed, write.AnimalCount, write.MaleCount, write.FemaleCount,
+		write.TotalWeightKg, write.AdvanceAmount, write.SalesValue, write.Comments,
+	).Scan(&dealID)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: create deal: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "sales.deal.record",
+		ResourceType: "sales_deal",
+		ResourceID:   dealID,
+		Metadata: map[string]any{
+			"domain":          "sales",
+			"module":          "sales",
+			"category":        "deal",
+			"farm":            write.Farm,
+			"product_type":    write.ProductType,
+			"sale_date":       write.SaleDate,
+			"idempotency_key": idempotencyKey,
+			"operation_id":    idempotencyKey,
+		},
+	}); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: audit deal record: %w", err)
+	}
+
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, "sales_deal", dealID); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: complete deal idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: commit create deal: %w", err)
+	}
+	return r.getDeal(ctx, tenantID, dealID)
+}
+
+// fpFloat renders an optional number as a stable, nil-safe fingerprint part (empty when absent, so
+// "not sent" and "sent as 0" fingerprint differently).
+func fpFloat(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", *v), "0"), ".")
+}

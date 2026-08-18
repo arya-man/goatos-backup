@@ -4,8 +4,8 @@ import "server-only";
 // the tenant-scoped admin API client and the same ApiResult envelope + helpers as lib/api/server.ts.
 // There is no client-side mock, fixture, or local route handler — these hit the backend process-integrity
 // and source-entry read models (GET) and the operator write contracts (POST, idempotency-keyed) directly.
-import { createAdminApiClient } from "@goatos/api-client";
-import type { AdminApiPaths } from "@goatos/api-client";
+import { createAdminApiClient, createAppApiClient } from "@goatos/api-client";
+import type { AdminApiPaths, AppApiPaths } from "@goatos/api-client";
 import {
   apiClientOptions,
   compactQuery,
@@ -13,6 +13,24 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
+import type {
+  SalesBenchmarkWrite,
+  SalesBuyerLead,
+  SalesBuyerLeadPage,
+  SalesBuyerLeadWrite,
+  SalesDeal,
+  SalesDealPage,
+  SalesDealWrite,
+  SalesFpoLead,
+  SalesFpoLeadPage,
+  SalesFpoLeadWrite,
+  SalesLeadStatusWrite,
+  SalesOverview,
+  SalesRecorded,
+  SalesSoldTagsResult,
+  SalesSoldTagsWrite,
+  SalesWeightCheckWrite,
+} from "@/lib/api/procurement";
 import type {
   AcceptProcurementIntakeRequest,
   AddProcurementLoadGoatRequest,
@@ -196,6 +214,207 @@ export async function recordProcurementArrivalReview(
   const path = `/procurement/source-entry/loads/${encodeURIComponent(loadId)}/arrival-review` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<ProcurementArrivalReviewResponse>(path, { method: "POST", cache: "no-store", headers: idempotentHeaders(idempotencyKey), body }),
+  );
+}
+
+// ---- Sales (app API) ----
+// The sales board reads the whole-page overview contract and one bounded page of the deals ledger.
+// These go through the APP api client (the /sales endpoints live in app-api.yaml), with the same
+// ApiResult envelope as everything else in this file.
+
+export async function getSalesOverview(
+  params: { farm?: string } = {},
+): Promise<ApiResult<SalesOverview>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesOverview>("/sales/overview", {
+      cache: "no-store",
+      query: compactQuery({ farm: params.farm }),
+    }),
+  );
+}
+
+export async function listSalesDeals(
+  params: { farm?: string; limit?: number; offset?: number } = {},
+): Promise<ApiResult<SalesDealPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDealPage>("/sales/deals", {
+      cache: "no-store",
+      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+export async function createSalesDeal(
+  body: SalesDealWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>("/sales/deals", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function listSalesBuyerLeads(
+  params: { limit?: number; offset?: number } = {},
+): Promise<ApiResult<SalesBuyerLeadPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesBuyerLeadPage>("/sales/buyer-leads", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+export async function createSalesBuyerLead(
+  body: SalesBuyerLeadWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesBuyerLead>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesBuyerLead>("/sales/buyer-leads", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setSalesBuyerLeadStatus(
+  leadId: string,
+  body: SalesLeadStatusWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesBuyerLead>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/sales/buyer-leads/${encodeURIComponent(leadId)}/status` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<SalesBuyerLead>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function listSalesFpoLeads(
+  params: { limit?: number; offset?: number } = {},
+): Promise<ApiResult<SalesFpoLeadPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesFpoLeadPage>("/sales/fpo-leads", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+export async function createSalesFpoLead(
+  body: SalesFpoLeadWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesFpoLead>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesFpoLead>("/sales/fpo-leads", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setSalesFpoLeadStatus(
+  leadId: string,
+  body: SalesLeadStatusWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesFpoLead>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/sales/fpo-leads/${encodeURIComponent(leadId)}/status` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<SalesFpoLead>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function createSalesBenchmark(
+  body: SalesBenchmarkWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesRecorded>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesRecorded>("/sales/market-benchmarks", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function createSalesSoldTags(
+  body: SalesSoldTagsWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesSoldTagsResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesSoldTagsResult>("/sales/sold-tags", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function createSalesWeightCheck(
+  body: SalesWeightCheckWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesRecorded>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesRecorded>("/sales/weight-checks", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
   );
 }
 
