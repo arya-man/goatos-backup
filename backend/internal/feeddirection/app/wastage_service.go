@@ -200,7 +200,24 @@ func (s *Service) wastagePen(ctx context.Context, tenantID, parkID, shedID, part
 		return nil, err
 	}
 	if !served {
-		return nil, nil
+		// Same freeze-on-first-touch contract as the worklist read: a submit that arrives before
+		// anyone opened the day's list (its due clock already passed) freezes the sheet rather
+		// than refusing work the pen genuinely owes. Before the clock, nothing freezes and the pen
+		// resolves to nil — no wastage task exists yet.
+		gate, err := s.gateOrFreeze(ctx, tenantID, parkID, feedDay, domain.WorkflowExperiment)
+		if err != nil {
+			return nil, err
+		}
+		if !gate.frozeAny {
+			return nil, nil
+		}
+		scopeRows, _, served, err = s.loadServedRows(ctx, tenantID, parkID, feedDay, domain.WorkflowExperiment)
+		if err != nil {
+			return nil, err
+		}
+		if !served {
+			return nil, nil
+		}
 	}
 	wantPartition := domain.PartitionMatchKey(partitionLabel)
 	for _, row := range domain.BuildWastageRows(scopeRows) {

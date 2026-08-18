@@ -1276,6 +1276,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"feedback.animal_count_out_of_range":   "Enter how many goats were on the scale, up to 100000.",
 			"feedback.animal_count_not_applicable": "This video is one animal's weight, so it carries no goat count.",
 			"feedback.weighing_bucket_closed":      "This shed's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
+			// The VERIFIER's feed-wastage measurement (maintainer decision 2026-08-18). Same shape
+			// as the weight correction above: the control's own copy travels on the item; these are
+			// only the outcome sentences.
+			"feedback.wastage_recorded":     "Wastage recorded. The pen's record now shows the weight you entered.",
+			"feedback.missing_wastage":      "Enter the leftover feed weight in kg.",
+			"feedback.wastage_out_of_range": "Enter a leftover weight in kg between 0 and 10000.",
 			// Rework / Re-assign / Penalty copy REMOVED with those panels (maintainer decision
 			// 2026-08-07). mock/verifier-web-mock.SPEC.md section 1: the verifier watches a proof
 			// video and accepts it, or rejects it with a reason -- "that is all. Nothing else

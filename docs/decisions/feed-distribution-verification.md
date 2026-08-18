@@ -406,3 +406,47 @@ packing session -> operator records ONE MANDATORY packing VIDEO with the live in
 `feed.packing.completed` + idempotent replay; rejection → `rework` + re-submit. Registered in the
 domain-event registry as a new `feed.packing.completed` producer plus feeddirection consumers under the
 verdict events.
+
+## Feed WASTAGE — experiment pens, and the VERIFIER records the number — 2026-08-18
+
+Feed Wastage is the fourth feed gate (maintainer decision 2026-08-18): every feed day, each pen on
+a hand-authored feed EXPERIMENT owes ONE wastage video — the operator films the leftover feed and
+submits, nothing more. The verifier watches the clip; when she can read the leftover weight in it
+she RECORDS that weight in kg and approves, and when she cannot she rejects for a re-shoot.
+
+What makes wastage different from its three siblings, and why each difference exists:
+
+- **PEN-DAY grain, no session.** Packing and distribution are per-bag work (a pen's morning and
+  evening are two bags, two videos), but wastage is what is LEFT OVER after the day's feeding,
+  measured once. Table `feed_wastage_completions` (migration `000176`), natural key
+  `(tenant, park, shed, partition_key, target_date, workflow)`.
+- **EXPERIMENT ONLY, by derivation, not by flag.** The worklist (`GET /feed-wastage/worklist`) is
+  derived from the day's FROZEN experiment sheet — the same rows packing reads — so "which pens
+  are on the experiment today" has exactly one source of truth. The write refuses a pen the sheet
+  does not cover (`422 not_experiment_pen`), and the table's CHECK pins `workflow = 'experiment'`.
+- **THE VERIFIER OWNS THE NUMBER.** The operator submits no number at all; the measured leftover
+  is born on the verifier's screen. It rides the measurement-correction mechanism the weighing
+  weight correction introduced (registry `MeasurementCorrectionSpec` on category `feed_wastage`;
+  producer route `POST /feed-direction/wastage/{completion_id}/measurement`, gated on
+  `verification.verdict`), REPLACES on re-entry, relabels the queue item with the value, and never
+  changes the completion's status — the verdict owns the lifecycle. ZERO IS A VALID MEASUREMENT
+  (an empty trough), so the range check is `>= 0`, deliberately unlike weighing's `> 0`.
+- **Recording is deliberately NOT a hard gate on approve.** Same shape as the weighing correction:
+  the two acts are separate routes, and coupling them server-side would require verification to
+  read a producer's table. The clients present the measurement control on the item; the working
+  rule is record-then-approve, and an unreadable value is a rejection.
+
+Lifecycle, idempotency, one-video-per-unit conflict (`409`), rework/re-submit, outbox event
+(`feed.wastage.completed`, emitted ONLY at approval, carrying `wastage_kg` only when recorded),
+verdict consumer (`FeedWastageVerificationHandler`, registered in `eventwiring` and both bus
+builders), audit rows, and the serving index all mirror the packing gate exactly.
+
+Permission: `feed_wastage.read` gates the worklist and the phone's fourth Feed tab
+(`/feed/wastage`); the completion write reuses `feed_direction.complete`.
+
+**Proof:** `backend/internal/feeddirection/adapters/postgres/feed_wastage_verification_integration_test.go`
+— pending-verification write with stamped experiment workflow; approval → `completed` +
+`feed.wastage.completed` + idempotent replay; rejection → `rework` + re-submit bumps row_version;
+second differing video refused; measurement stores/replaces/replays, zero accepted, out-of-range
+and unknown-completion refused; pens kept apart. Registered in the domain-event registry as the
+`feed.wastage.completed` producer plus feeddirection consumers under the verdict events.
