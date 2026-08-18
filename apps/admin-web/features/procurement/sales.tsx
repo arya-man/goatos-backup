@@ -117,7 +117,7 @@ function OverviewSections({
 
           {/* 2 — month by month. Three separate charts: rupees, heads and kg never share an axis.
               Stacked full-width so every column carries its month label and value. */}
-          <section className="card" aria-label={copy(pageContract, "section.monthly.aria")}>
+          <section className="card sales-card" aria-label={copy(pageContract, "section.monthly.aria")}>
             <div className="hd">
               <h3>{copy(pageContract, "section.monthly.title")}</h3>
             </div>
@@ -165,7 +165,7 @@ function OverviewSections({
           </section>
 
           {/* 3 — realized price per kg by breed, ordered as served (highest first). */}
-          <section className="card" aria-label={copy(pageContract, "section.price_bands.aria")}>
+          <section className="card sales-card" aria-label={copy(pageContract, "section.price_bands.aria")}>
             <div className="hd">
               <h3>{copy(pageContract, "section.price_bands.title")}</h3>
             </div>
@@ -294,7 +294,7 @@ function OverviewSections({
 
           {/* 6 — demand pipeline: buyer leads and farmer groups, status shape plus geography. */}
           <section className="grid g2" aria-label={copy(pageContract, "section.pipeline.title")}>
-            <div className="card">
+            <div className="card sales-card">
               <div className="hd">
                 <h3>{copy(pageContract, "pipeline.buyers.title")}</h3>
                 <Tag tone={overview.buyer_pipeline.total > 0 ? "info" : "mut"}>
@@ -330,7 +330,7 @@ function OverviewSections({
                 </>
               )}
             </div>
-            <div className="card">
+            <div className="card sales-card">
               <div className="hd">
                 <h3>{copy(pageContract, "pipeline.fpo.title")}</h3>
                 <Tag tone={overview.fpo_pipeline.total > 0 ? "info" : "mut"}>
@@ -370,7 +370,7 @@ function OverviewSections({
 
           {/* 7 — sale evidence: tag handovers and the video-vs-book weight check. */}
           <section className="grid g2" aria-label={copy(pageContract, "section.evidence.title")}>
-            <div className="card">
+            <div className="card sales-card">
               <div className="hd">
                 <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.tags.title")}</h3>
               </div>
@@ -401,7 +401,7 @@ function OverviewSections({
                 </>
               )}
             </div>
-            <div className="card">
+            <div className="card sales-card">
               <div className="hd">
                 <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.audit.title")}</h3>
               </div>
