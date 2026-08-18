@@ -328,10 +328,16 @@ export async function WeighingWeightsPage({
       },
     },
     {
+      // allowAll:false because this vocabulary ALREADY carries its own "All" (`weighing_mode`
+      // option `all`, which is also this filter's default value). With the bar's generic blank
+      // option added on top, the control listed "All" TWICE and the two did not agree: the real
+      // one shows every row, while the blank one set `weighing=` — a value no row's category
+      // matches — and silently halved the table. One "All", and it is the backend's.
       kind: "select",
       param: "weighing",
       label: copy(pageContract, "filter.weighing.label"),
       value: modeFilter,
+      allowAll: false,
       options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
     },
   ];
@@ -417,12 +423,15 @@ export async function WeighingWeightsPage({
       .map((row) => ({
         key: `${row.location_id}|${row.partition_label ?? ""}-shed`,
         park_name: row.park_name,
-        // The span rides on the label because a figure drawn from two days deserves
-        // to be discounted on sight — Channapatna's Castro 2 reads +1,532 g/day over
-        // a 2-day gap, which is 1.5 kg per kid per day and impossible. It is shown
-        // rather than filtered: the number is real, its span is the reason not to
-        // trust it.
-        label: `${row.operational_location_display || row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
+        // The label is the SHED NAME AND NOTHING ELSE (maintainer decision 2026-08-18).
+        // It used to carry a "(shed avg, Nd)" suffix marking which of the chart's two
+        // measurements the row is and how many days it spans. That is real context —
+        // Channapatna's Castro 2 reads +1,532 g/day across a 2-day gap, which is 1.5 kg
+        // per kid per day and impossible — but it doubled the length of every label on
+        // the one chart whose rows are already thirty-character park+shed+pen strings,
+        // and it appeared on some rows and not others. The caption still states that the
+        // chart mixes the two measurements; the per-row suffix is gone.
+        label: row.operational_location_display || row.shed_display_name,
         value: Math.round(row.shed_average_gain_g_per_day as number),
       })),
   ].sort((a, b) => b.value - a.value);

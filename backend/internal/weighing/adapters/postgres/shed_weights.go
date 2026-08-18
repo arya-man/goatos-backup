@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -62,7 +63,13 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.ShedWeights, error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time) (domain.ShedWeights, error) {
+	// The ROWS honour the selection; the VOCABULARY below is built from the whole scope. Keeping
+	// them separate is the fix for a dropdown that collapsed to the park already chosen.
+	parkIDs := scopeParkIDs
+	if selectedParkID != "" {
+		parkIDs = []string{selectedParkID}
+	}
 	out := domain.ShedWeights{
 		Rows:  []domain.ShedWeightsRow{},
 		Parks: []domain.GrowthPark{},
@@ -289,11 +296,22 @@ LIMIT $7`
 			&shedGain, &spanDays); err != nil {
 			return domain.ShedWeights{}, err
 		}
-		row.OperationalLocationDisplay = (oploc.OperationalLocation{
-			ShedID:         row.LocationID,
-			ShedName:       row.ShedDisplayName,
-			PartitionLabel: row.PartitionLabel,
-		}).Display()
+		// Same doubling guard as the sibling composer in growth.go and growthdirector's
+		// operationalLabel. `ShedDisplayName` is the weighing bucket's own planning label, and
+		// a partitioned bucket is routinely named for the pen it covers -- "Castro 2",
+		// "Godel 2 - Part 2" -- so handing it to oploc, which appends the partition to a SHED
+		// name, produced "Castro 2 2" and "Godel 2 - Part 2 - Part 2". It surfaced when the
+		// gain chart dropped its "(shed avg, Nd)" suffix and the bare label was all that was
+		// left; the table column carried it too.
+		if row.PartitionLabel != "" && strings.HasSuffix(row.ShedDisplayName, row.PartitionLabel) {
+			row.OperationalLocationDisplay = row.ShedDisplayName
+		} else {
+			row.OperationalLocationDisplay = (oploc.OperationalLocation{
+				ShedID:         row.LocationID,
+				ShedName:       row.ShedDisplayName,
+				PartitionLabel: row.PartitionLabel,
+			}).Display()
+		}
 		row.AnimalsWeighed = animals
 		if avgKg != nil {
 			row.AverageWeightKg = *avgKg
@@ -320,7 +338,7 @@ LIMIT $7`
 SELECT location_id::text, COALESCE(NULLIF(location_code, ''), name, '')
 FROM locations
 WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])
-ORDER BY display_order, name, location_id`, tenantID, parkIDs)
+ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
