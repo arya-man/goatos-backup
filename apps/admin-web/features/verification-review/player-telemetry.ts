@@ -40,17 +40,14 @@ export interface MediaLike {
   playbackRate?: number;
 }
 
-/**
- * A forward jump is allowed this far past the watched mark: ordinary playback/buffering jitter.
- *
- * It applies ONLY once something has actually been watched — see seekAllowanceMs. The allowance is
- * absolute, so on a short clip it is proportionally enormous: 1500ms is 0.8% of a three-minute proof
- * but 12.7% of an 11.8s one. Measured in WebKit, a cold scrubber click at 85% of an 11.8s clip
- * landed at 1.49s — a verifier who had watched nothing was 1.5 seconds in, which reads (correctly)
- * as "I can skip ahead". Chromium happened to clamp the same click to 0; the rule must not depend on
- * which engine she opens.
- */
-export const SEEK_TOLERANCE_MS = 1500;
+// There is deliberately NO seek tolerance any more. A 1500ms "jitter" allowance on the seek path
+// (SEEK_TOLERANCE_MS, removed 2026-08-18) was a demonstrated ratchet: paced +0.6s hops — each inside
+// the allowance, each legalized by the next playback tick advancing the mark — walked a proof from
+// 1.96s to 22.75s in 12.6 wall-seconds, with not one video_seek_attempt logged. Measured in-browser
+// against this exact component. A user-initiated forward seek past the watched mark is now ALWAYS
+// refused and logged, at any offset; jitter tolerance survives only where jitter actually occurs —
+// on the playback-tick path (PLAYBACK_TOLERANCE_MS below), which no seek can reach because every
+// seek fires `seeking` first and flags itself.
 /** A `timeupdate` further ahead than this did not play (at NORMAL speed — the effective tolerance is
  * scaled by [MediaLike.playbackRate], since a 2x tick legitimately covers twice the media time).
  * Real ticks are ~250ms apart; this leaves room for a stalled tab or a slow frame without leaving
@@ -111,22 +108,6 @@ export class WatchTracker {
 
   get watchedMs(): number {
     return this.maxWatchedMs;
-  }
-
-  /**
-   * How far past the watched mark a forward seek may land.
-   *
-   * ZERO until something has actually been watched. The tolerance is there to absorb playback and
-   * buffering jitter, and there is no jitter to absorb before a single frame has played — so a cold
-   * jump gets no allowance at all and is rolled back to the start. Once real progress exists the
-   * full tolerance applies, exactly as before, so a mid-watch nudge is not fought.
-   *
-   * maxWatchedMs is the right signal rather than a separate "has played" flag: it advances only on
-   * natural playback progress (onTimeUpdate refuses to advance it on a seek), so it is already the
-   * authoritative answer to "has any of this clip actually been watched".
-   */
-  private seekAllowanceMs(): number {
-    return this.maxWatchedMs > 0 ? SEEK_TOLERANCE_MS : 0;
   }
 
   onPlay(video: MediaLike): void {
@@ -190,35 +171,49 @@ export class WatchTracker {
    */
   overshootBeyondWatched(video: MediaLike): number | null {
     const landedMs = ms(video.currentTime);
-    // While the element is genuinely PLAYING with no seek in flight, the position legitimately runs
-    // up to one tick's worth of media ahead of the mark (the mark only catches up when the next
-    // `timeupdate` lands). The clamp must never refuse that band, or it fights natural playback —
-    // the 2026-08-18 regression: with the cold seek allowance at zero, the very first playback tick
-    // of every fresh clip (position ~250ms > mark 0 + allowance 0) was yanked back to 0, on every
-    // tick and every 250ms poll, so no proof video could play at all.
+    // Three bands, strictest condition first:
     //
-    // This band is NOT a skip loophole: any seek — scrubber, keyboard, or programmatic
-    // currentTime assignment — fires `seeking` first, which sets seekPending, and the strict
-    // allowance below applies until a natural tick clears that flag. A paused element gets the
-    // strict allowance too, so the WebKit cold-click rollback (2026-08-17) is unchanged.
-    const allowanceMs =
-      video.paused !== true && !this.seekPending
-        ? Math.max(this.seekAllowanceMs(), playbackToleranceMs(video))
-        : this.seekAllowanceMs();
+    //  - A SEEK IN FLIGHT gets no allowance at all: any position past the mark while seekPending is
+    //    an in-flight jump the revert has not caught yet, and letting it stand until the next tick
+    //    was half of the paced-hop ratchet. Clamp it to the mark immediately.
+    //  - Genuinely PLAYING with no seek in flight gets the playback-tick band: the position
+    //    legitimately runs up to one tick's worth of media ahead of the mark (the mark only catches
+    //    up when the next `timeupdate` lands). The clamp must never refuse that band, or it fights
+    //    natural playback — the 2026-08-18 pinned-at-0 regression, where every fresh clip's first
+    //    tick (position ~250ms > mark 0 + allowance 0) was yanked back to 0 forever. No seek can
+    //    hide in this band, because every seek fires `seeking` first and flags itself.
+    //  - PAUSED with no seek in flight can trail honest playback by at most a tick (pausing lands
+    //    within a tick of the last advance), so it gets one NORMAL tick of allowance once something
+    //    has been watched — and ZERO before then, preserving the WebKit cold-click rollback
+    //    (2026-08-17): a cold position past 0 that somehow arrived without a seeking event is still
+    //    an overshoot.
+    const allowanceMs = this.seekPending
+      ? 0
+      : video.paused !== true
+        ? playbackToleranceMs(video)
+        : this.maxWatchedMs > 0
+          ? PLAYBACK_TOLERANCE_MS
+          : 0;
     if (landedMs <= this.maxWatchedMs + allowanceMs) return null;
     return this.maxWatchedMs;
   }
 
   /**
    * Returns the position the element should be forced back to, or null when the seek is allowed.
-   * Rewinding and rewatching are always allowed; only skipping past unwatched video is refused.
+   * Rewinding and rewatching are always allowed; ANY seek past the watched mark is refused and
+   * logged, at any offset.
+   *
+   * There is deliberately no forward allowance here (the 1500ms one was removed 2026-08-18): paced
+   * sub-tolerance hops ratcheted through a whole proof — each hop individually allowed, each
+   * legalized by the next playback tick — gaining ~65% over honest watching, with nothing logged.
+   * Jitter tolerance lives only on the playback-tick path, which a seek can never reach.
    */
   onSeeking(video: MediaLike): number | null {
     const targetMs = ms(video.currentTime);
-    // Flagged for EVERY seek, including one small enough to allow: the following tick must not be
-    // mistaken for playback progress.
+    // Flagged for EVERY seek, including an allowed rewind: the following tick must not be mistaken
+    // for playback progress.
     this.seekPending = true;
-    if (targetMs <= this.maxWatchedMs + this.seekAllowanceMs()) return null;
+    if (targetMs <= this.maxWatchedMs) return null;
     this.sink.record("video_seek_attempt", {
       seek_from_ms: this.lastTickMs,
       seek_to_ms: targetMs,

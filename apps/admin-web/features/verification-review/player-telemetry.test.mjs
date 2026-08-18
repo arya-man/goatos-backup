@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WatchTracker, SEEK_TOLERANCE_MS } = await import("./player-telemetry.ts");
+const { WatchTracker } = await import("./player-telemetry.ts");
 
 function sink() {
   const events = [];
@@ -61,12 +61,14 @@ test("rewinding and rewatching are always allowed", () => {
   );
 });
 
-test("a jump inside the tolerance is treated as playback jitter, not a skip", () => {
+// The old behavior here — a forward seek within 1500ms allowed as "jitter" — was the paced-hop
+// ratchet's raw material (see the ratchet test below). Any forward seek is now refused and logged.
+test("even a small forward seek past the watched mark is refused and logged", () => {
   const s = sink();
   const t = new WatchTracker(s);
   t.onTimeUpdate(media(1.0));
-  assert.equal(t.onSeeking(media(1.0 + (SEEK_TOLERANCE_MS - 100) / 1000)), null);
-  assert.equal(s.events.length, 0);
+  assert.equal(t.onSeeking(media(1.6)), 1000, "a 600ms hop past the mark is a skip, not jitter");
+  assert.equal(s.events.at(-1).eventType, "video_seek_attempt");
 });
 
 test("reaching the end counts the whole clip as watched", () => {
@@ -242,15 +244,35 @@ test("a console-set 16x rate cannot race the watched mark to the end", () => {
   assert.equal(t.overshootBeyondWatched(at16x(4.5)), 500, "and the position is pulled back");
 });
 
-test("the tolerance returns once real playback progress exists", () => {
-  const tracker = new WatchTracker({ record: () => {} });
-  const video = { currentTime: 0.5, duration: 11.79, paused: false };
-  tracker.onTimeUpdate(video); // natural progress: the mark advances to 500ms
-  assert.equal(tracker.watchedMs, 500);
-
-  // 500 + 1500 = 2000ms is now allowed again, so ordinary jitter is not fought.
-  video.currentTime = 1.9;
-  assert.equal(tracker.onSeeking(video), null, "a nudge within tolerance must stay allowed once watching");
-  video.currentTime = 9;
-  assert.equal(tracker.onSeeking(video), 500, "a real skip past the watched mark must still be refused");
+// THE PACED-HOP RATCHET (found by the maintainer 2026-08-18, reproduced in-browser): +0.6s hops
+// every 700ms walked a proof from 1.96s to 22.75s in 12.6 wall-seconds — ~65% faster than honest
+// watching, with zero video_seek_attempt rows. Each hop sat inside the old 1500ms seek allowance,
+// then the next natural playback tick (within PLAYBACK_TOLERANCE_MS of the mark) legalized it and
+// the mark walked forward. The fix is two-sided: every forward seek is refused outright, and an
+// in-flight seek position gets no clamp allowance at all.
+test("paced sub-tolerance hops cannot ratchet the mark — every hop is refused, logged and clamped", () => {
+  const s = sink();
+  const t = new WatchTracker(s);
+  const playing = (seconds) => ({ currentTime: seconds, duration: 30, paused: false });
+  t.onTimeUpdate(playing(0.5));
+  t.onTimeUpdate(playing(1.0)); // 1s honestly watched
+  for (let i = 0; i < 10; i++) {
+    const mark = t.watchedMs;
+    const hopTo = mark / 1000 + 0.6;
+    assert.equal(t.onSeeking(playing(hopTo)), mark, "each hop must be refused back to the mark");
+    // The in-flight hop position gets NO allowance while the seek is pending — this is what used to
+    // let the hop survive until a tick legalized it.
+    assert.equal(t.overshootBeyondWatched(playing(hopTo)), mark, "and clamped while in flight");
+    t.onTimeUpdate(playing(mark / 1000)); // the revert lands back at the mark (seeked tick)
+    t.onTimeUpdate(playing(mark / 1000 + 0.25)); // honest playback resumes, one tick
+  }
+  assert.equal(
+    s.events.filter((e) => e.eventType === "video_seek_attempt").length,
+    10,
+    "every hop is recorded — the ratchet used to log nothing",
+  );
+  assert.ok(
+    t.watchedMs <= 1000 + 10 * 250,
+    `the mark may grow only by honest ticks, got ${t.watchedMs}ms`,
+  );
 });
