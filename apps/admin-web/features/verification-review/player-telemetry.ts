@@ -33,6 +33,11 @@ export interface MediaLike {
   /** The mark only advances while actually playing — see onTimeUpdate. Optional so a paused-state
    * omission is treated as playing rather than silently freezing the mark. */
   paused?: boolean;
+  /** Playback speed multiplier (1 = normal, 2 = the verifier's double-speed control). At 2x every
+   * real tick covers twice the media time, so the playback tolerance scales with it — otherwise the
+   * mark freezes on the first slow tick and the clamp starts dragging the clip backwards. Optional
+   * so an omission means normal speed. */
+  playbackRate?: number;
 }
 
 /**
@@ -46,10 +51,28 @@ export interface MediaLike {
  * which engine she opens.
  */
 export const SEEK_TOLERANCE_MS = 1500;
-/** A `timeupdate` further ahead than this did not play. Real ticks are ~250ms apart; this leaves room
- * for a stalled tab or a slow frame without leaving room for a jump. Must stay <= SEEK_TOLERANCE_MS so
- * there is no band the overshoot clamp refuses but the mark would still accept. */
+/** A `timeupdate` further ahead than this did not play (at NORMAL speed — the effective tolerance is
+ * scaled by [MediaLike.playbackRate], since a 2x tick legitimately covers twice the media time).
+ * Real ticks are ~250ms apart; this leaves room for a stalled tab or a slow frame without leaving
+ * room for a jump.
+ *
+ * INVARIANT (the 2026-08-18 pinned-at-0 regression): there must be NO band the overshoot clamp
+ * refuses but the mark would still accept. When the cold seek allowance became zero, the clamp —
+ * which used to rely on `seekAllowanceMs >= PLAYBACK_TOLERANCE_MS` — started refusing the very first
+ * natural playback tick (position ~250ms > mark 0 + allowance 0) and yanked every fresh clip back to
+ * the start on every tick, forever: "videos are not playing, pausing, going back". The clamp now
+ * grants the playback band explicitly while the element is genuinely playing with no seek in flight
+ * (see overshootBeyondWatched), so that invariant no longer depends on the two constants' order. */
 export const PLAYBACK_TOLERANCE_MS = 1000;
+
+/** Effective playback tolerance for this element: 2x playback covers 2x media time per tick. Never
+ * scales DOWN below normal (a 0.5x rate still gets the full tick allowance — a slow rate does not
+ * make real ticks arrive closer together in media time than the jitter the tolerance absorbs). */
+function playbackToleranceMs(video: MediaLike): number {
+  const rate = video.playbackRate;
+  const scale = typeof rate === "number" && Number.isFinite(rate) && rate > 1 ? rate : 1;
+  return PLAYBACK_TOLERANCE_MS * scale;
+}
 
 function ms(seconds: number): number {
   return Number.isFinite(seconds) ? Math.round(seconds * 1000) : 0;
@@ -140,7 +163,7 @@ export class WatchTracker {
     if (video.paused === true) return;
     if (hadSeekPending) return;
     const advanced = currentMs > this.maxWatchedMs;
-    const withinPlaybackTolerance = currentMs - this.maxWatchedMs <= PLAYBACK_TOLERANCE_MS;
+    const withinPlaybackTolerance = currentMs - this.maxWatchedMs <= playbackToleranceMs(video);
     if (advanced && withinPlaybackTolerance) this.maxWatchedMs = currentMs;
   }
 
@@ -157,7 +180,22 @@ export class WatchTracker {
    */
   overshootBeyondWatched(video: MediaLike): number | null {
     const landedMs = ms(video.currentTime);
-    if (landedMs <= this.maxWatchedMs + this.seekAllowanceMs()) return null;
+    // While the element is genuinely PLAYING with no seek in flight, the position legitimately runs
+    // up to one tick's worth of media ahead of the mark (the mark only catches up when the next
+    // `timeupdate` lands). The clamp must never refuse that band, or it fights natural playback —
+    // the 2026-08-18 regression: with the cold seek allowance at zero, the very first playback tick
+    // of every fresh clip (position ~250ms > mark 0 + allowance 0) was yanked back to 0, on every
+    // tick and every 250ms poll, so no proof video could play at all.
+    //
+    // This band is NOT a skip loophole: any seek — scrubber, keyboard, or programmatic
+    // currentTime assignment — fires `seeking` first, which sets seekPending, and the strict
+    // allowance below applies until a natural tick clears that flag. A paused element gets the
+    // strict allowance too, so the WebKit cold-click rollback (2026-08-17) is unchanged.
+    const allowanceMs =
+      video.paused !== true && !this.seekPending
+        ? Math.max(this.seekAllowanceMs(), playbackToleranceMs(video))
+        : this.seekAllowanceMs();
+    if (landedMs <= this.maxWatchedMs + allowanceMs) return null;
     return this.maxWatchedMs;
   }
 
