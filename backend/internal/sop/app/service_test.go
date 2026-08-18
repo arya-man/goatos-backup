@@ -2,8 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -246,6 +250,43 @@ func TestCreateVersionRejectsOldProofPolicyShape(t *testing.T) {
 	}
 	if appErr, ok := err.(*Error); !ok || appErr.Code != "invalid_sop_dsl" {
 		t.Fatalf("err = %#v", err)
+	}
+}
+
+func TestSeededCountsAndFeedSOPLibraryProofPoliciesValidate(t *testing.T) {
+	matches, err := filepath.Glob("../../../migrations/postgres/*_sop_library_counts_and_feed.sql")
+	if err != nil {
+		t.Fatalf("glob SOP library migration: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected one SOP library migration, found %v", matches)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read SOP library migration: %v", err)
+	}
+
+	re := regexp.MustCompile(`(?s)'(\{\n  "schema_version": "goatos\.sop-form\.v1".*?\n\})'::jsonb,\n\s*(?:proof_policy = )?'(\{[^']+\})'::jsonb`)
+	pairs := re.FindAllSubmatch(body, -1)
+	if len(pairs) != 6 {
+		t.Fatalf("seeded SOP form/proof pairs = %d, want 6", len(pairs))
+	}
+	for _, pair := range pairs {
+		var formDSL map[string]any
+		if err := json.Unmarshal(pair[1], &formDSL); err != nil {
+			t.Fatalf("decode form_dsl: %v\n%s", err, pair[1])
+		}
+		var proofPolicy map[string]any
+		if err := json.Unmarshal(pair[2], &proofPolicy); err != nil {
+			t.Fatalf("decode proof_policy: %v\n%s", err, pair[2])
+		}
+		sopCode, _ := formDSL["sop_code"].(string)
+		t.Run(sopCode, func(t *testing.T) {
+			report := ValidateFormDSL(formDSL, proofPolicy)
+			if !report.Valid {
+				t.Fatalf("seeded SOP should validate: %#v", report.Errors)
+			}
+		})
 	}
 }
 

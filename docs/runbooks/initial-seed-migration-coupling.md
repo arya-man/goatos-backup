@@ -114,7 +114,7 @@ when they exist.
 SOP Library documents (`sop_definitions` + `sop_versions`) are static
 catalog/config: they are seeded by migration data, not by a seed command. The
 baseline (`000001`) seeds `vaccination.drive`, `shifting`, and the
-`feed.direction` draft; migration `000173_sop_library_counts_and_feed.sql`
+`feed.direction` draft; migration `000175_sop_library_counts_and_feed.sql`
 completes the library for every shipped proof/verification workflow —
 `counts.birth` and `counts.death` (approval-gated captures), `shifting` v2
 (approve-first + tag toggle, retiring the stale v1), the published

@@ -97,7 +97,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Birth Recording v1', 'published',
     ]
   }
 }'::jsonb,
-'{"scope": "litter", "types": ["video", "photo"], "required": true, "minimum_count": 1, "approval_before_apply": true, "verify_before_apply": false}'::jsonb,
+'{"subject_scope": "batch", "types": ["video"], "required": true, "minimum_count": 1, "approval_before_apply": true, "verify_before_apply": false}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["photo.capture", "video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
 '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the shipped Counts birth approval workflow."}]}'::jsonb,
 now()
@@ -162,7 +162,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Death Recording v1', 'published',
     ]
   }
 }'::jsonb,
-'{"scope": "animal", "types": ["video"], "required": true, "minimum_count": 2, "approval_before_apply": true, "verify_before_apply": false}'::jsonb,
+'{"subject_scope": "goat", "types": ["video"], "required": true, "minimum_count": 2, "approval_before_apply": true, "verify_before_apply": false}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["photo.capture", "video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
 '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the shipped Counts critical-death approval workflow."}]}'::jsonb,
 now()
@@ -239,7 +239,7 @@ SELECT sd.tenant_id, sd.sop_id, 2, 'Shifting v2', 'published',
     ]
   }
 }'::jsonb,
-'{"scope": "movement", "types": ["video"], "required": true, "minimum_count": 1, "high_priority_minimum_count": 3, "approval_before_execution": true, "verify_before_apply": false}'::jsonb,
+'{"subject_scope": "task", "types": ["video"], "required": true, "minimum_count": 1, "high_priority_minimum_count": 3, "approval_before_execution": true, "verify_before_apply": false}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
 '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Replaces the pre-approval-gate v1: approve-first (2026-08-09), stage_mode tag toggle (2026-08-15), completion applies the movement, verification is post-task evidence review."}]}'::jsonb,
 now()
@@ -295,7 +295,7 @@ SET version_label = 'Feed Distribution v1',
     ]
   }
 }'::jsonb,
-    proof_policy = '{"scope": "shed_session", "types": ["photo", "video"], "required": true, "minimum_count": 3, "verify_before_apply": true}'::jsonb,
+    proof_policy = '{"subject_scope": "shed", "types": ["photo", "video"], "required": true, "minimum_count": 3, "verify_before_apply": true}'::jsonb,
     compatibility = '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["photo.capture", "video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
     validation_report = '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Replaces the v1 skeleton with the shipped verifier-gated distribution flow (2026-07-26): a session completes only after one verifier approval covering all three proofs (feed-weight photo, distribution video, water video)."}]}'::jsonb,
     updated_at = now(),
@@ -361,7 +361,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Feed Packing v1', 'published',
     ]
   }
 }'::jsonb,
-'{"scope": "pen_session_bag", "types": ["video"], "required": true, "minimum_count": 1, "verify_before_apply": true}'::jsonb,
+'{"subject_scope": "task", "types": ["video"], "required": true, "minimum_count": 1, "verify_before_apply": true}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
 '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the shipped verifier-gated packing flow at the restored shed-session grain (2026-08-11): one clip cannot prove two bags."}]}'::jsonb,
 now()
@@ -410,7 +410,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Feed Transport v1', 'published',
     ]
   }
 }'::jsonb,
-'{"scope": "shed_day", "types": ["video"], "required": true, "minimum_count": 1, "verify_before_apply": true}'::jsonb,
+'{"subject_scope": "shed", "types": ["video"], "required": true, "minimum_count": 1, "verify_before_apply": true}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
 '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the shipped daily shed-grain transport verification flow (2026-08-12): pen grain belongs to packing and distribution, never transport."}]}'::jsonb,
 now()
