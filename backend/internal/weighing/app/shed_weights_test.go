@@ -24,7 +24,7 @@ type shedWeightsRepo struct {
 	shedWeights domain.ShedWeights
 }
 
-func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, parkIDs []string, start, end time.Time) (domain.ShedWeights, error) {
+func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, parkIDs []string, _ string, start, end time.Time) (domain.ShedWeights, error) {
 	r.gotParkIDs = append([]string(nil), parkIDs...)
 	r.gotStart, r.gotEnd = start, end
 	out := r.shedWeights
