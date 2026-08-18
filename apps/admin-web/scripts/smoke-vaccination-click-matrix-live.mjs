@@ -147,7 +147,7 @@ async function verifyShell(page) {
     ["Vaccination", "/vaccination"],
     ["Source Entry", "/procurement/source-entry"],
     ["Config", "/config"],
-    ["SOP Library", "/sops"],
+    ["Vaccination SOP", "/vaccination/sops"],
     ["Herd Register", "/counts/herd"],
     ["Audit Log", "/operations/audit"],
     ["DLQ Center", "/operations/dlq"],
@@ -176,7 +176,7 @@ async function verifyVaccination(page) {
   await goto(page, "/vaccination?scope_mode=company");
 
   await openAndCloseDialog(page, page.getByRole("button", { name: "SOP", exact: true }), /Vaccination Drive SOP/i, /Close/i, "vaccination SOP quick view");
-  await openDialogClickLink(page, page.getByRole("button", { name: "SOP", exact: true }), /Vaccination Drive SOP/i, /Open in SOP Library/i, "/sops");
+  await openDialogClickLink(page, page.getByRole("button", { name: "SOP", exact: true }), /Vaccination Drive SOP/i, /Open Vaccination SOP page/i, "/vaccination/sops");
   await goto(page, "/vaccination?scope_mode=company");
 
   await clickAndExpectPath(page, page.getByRole("link", { name: /Protocol Rules/i }).first(), "/config", "vaccination Protocol Rules link");
@@ -326,7 +326,7 @@ async function verifyConfig(page) {
 }
 
 async function verifySops(page) {
-  await goto(page, "/sops?scope_mode=company");
+  await goto(page, "/vaccination/sops?scope_mode=company");
   const card = page.locator("#sopCards .card").first();
   if ((await card.count()) === 1) {
     await card.click();
@@ -336,7 +336,7 @@ async function verifySops(page) {
     await page.locator('[role="dialog"]').first().waitFor({ state: "hidden", timeout: 5_000 }).catch(() => undefined);
   }
   await Promise.all([
-    page.waitForURL((url) => url.pathname === "/sops" && (url.searchParams.get("compose") === "1" || url.searchParams.get("new") === "1"), { timeout: 10_000 }),
+    page.waitForURL((url) => url.pathname === "/vaccination/sops" && (url.searchParams.get("compose") === "1" || url.searchParams.get("new") === "1"), { timeout: 10_000 }),
     page.getByRole("button", { name: /New SOP/i }).first().click(),
   ]);
   await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
@@ -356,7 +356,7 @@ async function verifySops(page) {
     throw new Error("New SOP page Publish is enabled before draft save");
   }
   await Promise.all([
-    page.waitForURL((url) => url.pathname === "/sops" && url.searchParams.get("compose") !== "1" && url.searchParams.get("new") !== "1", { timeout: 10_000 }),
+    page.waitForURL((url) => url.pathname === "/vaccination/sops" && url.searchParams.get("compose") !== "1" && url.searchParams.get("new") !== "1", { timeout: 10_000 }),
     page.getByRole("link", { name: /Back to SOP Library/i }).first().click(),
   ]);
 }

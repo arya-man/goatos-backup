@@ -120,6 +120,13 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
 					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),
+					// SOP SPLIT (maintainer decision 2026-08-18): the top-level Admin/Data Ops
+					// SOP Library (/sops) is RETIRED. Each module owns its SOP page as a
+					// module-surface: /vaccination/sops here, /counts/sops (Herd Operations SOP:
+					// birth / death / shifting), /feed/sops (distribution / packing / transport).
+					// The three routes are the recorded exceptions in check-ia-guard.mjs; /config
+					// remains the single generic authority screen and no command lens is nested.
+					navLeafDomain("vaccination-sops", "Vaccination SOP", "/vaccination/sops", "pc.vaccination", nil),
 				},
 			},
 			{
@@ -135,6 +142,9 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+					// Herd Operations SOP: birth / death / shifting documents (SOP split,
+					// maintainer decision 2026-08-18 — see the PC group note).
+					navLeaf("counts-sops", "Herd Operations SOP", "/counts/sops", nil),
 				},
 			},
 			// Milk is its own vertical, split out of Counts here the same way it was split out of the
@@ -184,6 +194,9 @@ func navigation() domain.NavigationContract {
 					// gates, and the trial arms. DIRECTED, never "consumed" — completions
 					// carry proofs, not weights (maintainer scope decision 2026-08-17).
 					navLeaf("feed-analytics", "Feed Analytics", "/feed/analytics", nil),
+					// Feed SOP: distribution / packing / transport documents (SOP split,
+					// maintainer decision 2026-08-18 — see the PC group note).
+					navLeaf("feed-sops", "Feed SOP", "/feed/sops", nil),
 					// Feed Direction is an app-only (operator + verifier) workflow — the operator
 					// captures the mandatory feed-distribution video + water proof per shed-session
 					// and a verifier approves it in the mobile verifier queue. It is deliberately not
@@ -225,7 +238,8 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
 					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
-					navLeafDomain("sop-library", "SOP Library", "/sops", "admin.sop", nil),
+					// The SOP Library leaf is gone: SOPs split to per-module pages (see the PC
+					// group note, maintainer decision 2026-08-18).
 				},
 			},
 		},
@@ -247,11 +261,13 @@ func routeLabels() []domain.RouteLabelRule {
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
 		// crumb resolves to the parent label.
 		{Pattern: "/vaccination/live-tracker", Label: "Live Drive Tracker", Match: "exact"},
+		{Pattern: "/vaccination/sops", Label: "Vaccination SOP", Match: "exact"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/procurement/sales", Label: "Sales", Match: "exact"},
+		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
@@ -259,6 +275,7 @@ func routeLabels() []domain.RouteLabelRule {
 		// the Feed-owned authority screen (see the navigation() scope note).
 		{Pattern: "/feed/direction", Label: "Feed Direction", Match: "exact"},
 		{Pattern: "/feed/packing", Label: "Feed Packing", Match: "exact"},
+		{Pattern: "/feed/sops", Label: "Feed SOP", Match: "exact"},
 		{Pattern: "/feed/config", Label: "Feed Config — Ration Rules", Match: "exact"},
 		{Pattern: "/feed/analytics", Label: "Feed Analytics", Match: "exact"},
 		{Pattern: "/health/config", Label: "Health Config — Treatment Protocols", Match: "exact"},
@@ -266,7 +283,6 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
 		{Pattern: "/config", Label: "Config — Protocol Rules", Match: "exact"},
 		{Pattern: "/people", Label: "People / HRMS", Match: "exact"},
-		{Pattern: "/sops", Label: "SOP Library", Match: "exact"},
 		{Pattern: "/goats/{goat_id}", Label: "Goat Passport", Match: "pattern"},
 	}
 }
@@ -612,8 +628,15 @@ func pages() []domain.PageContract {
 				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
 				table("timetable", "Operator Timetable", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
 			}),
-		page("sops", "/sops", "/sops", "SOP Library", "SOP policy and form-builder surface across vaccination, counts, and feed workflows.", "authority-screen",
-			[]domain.TableContract{table("sop-library", "SOP Library", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// SOP SPLIT (maintainer decision 2026-08-18): the /sops authority screen is retired;
+		// each module owns its SOP page as a module-surface. All three share the sop-library
+		// table contract over /admin/sops — the page scopes which SOP codes it lists.
+		page("vaccination-sops", "/vaccination/sops", "/vaccination/sops", "Vaccination SOP", "Vaccination SOP policy and form-builder surface.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Vaccination SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		page("counts-sops", "/counts/sops", "/counts/sops", "Herd Operations SOP", "Birth, death, and shifting SOP documents for the herd register.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Herd Operations SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		page("feed-sops", "/feed/sops", "/feed/sops", "Feed SOP", "Distribution, packing, and transport SOP documents for the feed chain.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Feed SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("goat-passport", "/goats/{goat_id}", "/goats/{goat_id}", "Goat Passport", "Contextual goat identity, timeline, and vaccination passport detail.", "record-drilldown",
 			[]domain.TableContract{
 				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"scheduled_for", "vaccine", "status", "workflow", "action_center"}, "obligation_id"),
@@ -800,7 +823,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"alert.config_sop.body_prefix":     "Vaccination obligations and proof need a published protocol + SOP. Resolve in",
 			"alert.config_sop.config_label":    "Config",
 			"alert.config_sop.joiner":          "and",
-			"alert.config_sop.sops_label":      "SOP Library",
+			"alert.config_sop.sops_label":      "Vaccination SOP",
 			"alert.config_sop.body_suffix":     ".",
 			"empty.open_gaps":                  "No open vaccination gaps for this scope.",
 			"empty.critical_ok_title":          "No broken or at-risk vaccination process",
@@ -926,7 +949,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.reassign":                     "Reassign",
 			"action.open_passport":                "Open Passport",
 			"action.open_config":                  "Open Config",
-			"action.open_sops":                    "Open SOP Library",
+			"action.open_sops":                    "Open Vaccination SOP",
 			"action.success_tag":                  "done",
 			"action.success_message":              "Action completed.",
 			"action.failed_title":                 "Action failed",
@@ -981,7 +1004,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_action_center":      "Open Action Center",
 			"action.workflow_record":         "Workflow record",
 			"action.open_config":             "Config — Protocol Rules",
-			"action.open_sops":               "SOP Library",
+			"action.open_sops":               "Vaccination SOP",
 			"empty.ledger":                   "No adherence rows for this scope.",
 			"empty.ledger_detail":            "No open vaccination adherence gaps for this scope — every obligation is on track, deferred/explained, or none has been generated yet.",
 			"empty.ledger_filtered":          "No adherence rows match these filters.",
@@ -2053,7 +2076,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.sop_library":                               "SOP Library",
 			"action.action_center":                             "Action Center",
 			"action.open_config":                               "Open Config",
-			"action.open_in_sop_library":                       "Open in SOP Library",
+			"action.open_in_sop_library":                       "Open Vaccination SOP page",
 			"action.open_source_entry":                         "Open Source Entry",
 			"action.open_action_center":                        "Open Action Center",
 			"action.open_park_action_center":                   "Open park in the Action Center",
@@ -2115,7 +2138,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.sop.empty":                                 "No vaccination SOP is authored yet — the steps below are the standard drive flow. Author one in the SOP Library to attach proof gates and versioning.",
 			"drawer.sop.window_note":                           "Per protocol window · booster intervals tracked",
 			"drawer.sop.video_proof_required":                  "video proof required",
-			"drawer.sop.library_title":                         "Versions, change history, and authoring live in the SOP Library",
+			"drawer.sop.library_title":                         "Versions, change history, and authoring live on the Vaccination SOP page",
 			"empty.status_matrix":                              "No vaccination matrix rows for this scope.",
 			"empty.cohort_detail":                              "No cohort rows for this scope.",
 			"empty.supplier_warmup":                            "No source-entry loads yet. Holding-Farm evidence appears after a procurement load is created.",
@@ -4484,13 +4507,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.search_label":       "Search staff",
 			"filter.search_placeholder": "Search position, person, grade, center...",
 		}
-	case "sops":
-		return map[string]string{
-			"crumb":                                   "Admin / Data Ops",
+	case "vaccination-sops", "counts-sops", "feed-sops":
+		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
 			"filter.domain.aria":                      "SOP domains",
-			"filter.domain.current":                   "Current visible SOP slice is Preventive Care (PC) / Vaccination",
 			"action.new_sop":                          "New SOP",
 			"action.cancel":                           "Cancel",
 			"action.publish":                          "Publish",
@@ -4531,9 +4552,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.name_domain":         "SOP name & domain",
 			"modal.builder.field.name":                "SOP name",
 			"modal.builder.placeholder.name":          "Vaccination session",
-			"modal.builder.domain_aria":               "Domain — locked to Preventive Care (PC) / Vaccination",
-			"modal.builder.domain_title":              "Domain is locked to Preventive Care (PC) / Vaccination for the current slice",
-			"modal.builder.domain_label":              "Preventive Care (PC) / Vaccination",
 			"modal.builder.domain_locked":             "domain locked",
 			"modal.builder.code_prefix":               "sop_code",
 			"modal.builder.policy_label":              "vaccination drive/session policy",
@@ -4651,6 +4669,29 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.summary.rules":             "conditional rules",
 			"builder.summary.proof":             "proof gate",
 		}
+		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
+		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
+		switch id {
+		case "vaccination-sops":
+			m["crumb"] = "Preventive Care (PC)"
+			m["filter.domain.current"] = "This page shows Vaccination SOPs"
+			m["modal.builder.domain_aria"] = "Domain — locked to Preventive Care (PC) / Vaccination"
+			m["modal.builder.domain_title"] = "Domain is locked to Preventive Care (PC) / Vaccination on this page"
+			m["modal.builder.domain_label"] = "Preventive Care (PC) / Vaccination"
+		case "counts-sops":
+			m["crumb"] = "Counts"
+			m["filter.domain.current"] = "This page shows Herd Operations SOPs (birth, death, shifting)"
+			m["modal.builder.domain_aria"] = "Domain — locked to Counts / Herd Operations"
+			m["modal.builder.domain_title"] = "Domain is locked to Counts / Herd Operations on this page"
+			m["modal.builder.domain_label"] = "Counts / Herd Operations"
+		case "feed-sops":
+			m["crumb"] = "Feed"
+			m["filter.domain.current"] = "This page shows Feed SOPs (distribution, packing, transport)"
+			m["modal.builder.domain_aria"] = "Domain — locked to Feed"
+			m["modal.builder.domain_title"] = "Domain is locked to Feed on this page"
+			m["modal.builder.domain_label"] = "Feed"
+		}
+		return m
 	case "goat-passport":
 		return map[string]string{
 			"fallback.title":                 "Goat Passport",
@@ -5212,7 +5253,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			shedStatusOptionGroup(), capacityOptionGroup())
 	case "config":
 		return withGenericOptionGroups(configOptionGroups())
-	case "sops":
+	case "vaccination-sops", "counts-sops", "feed-sops":
 		return withGenericOptionGroups(sopOptionGroups())
 	case "action-center":
 		return withGenericOptionGroups([]domain.OptionGroup{
@@ -5646,19 +5687,8 @@ func configOptionGroups() []domain.OptionGroup {
 
 func sopOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
-		{
-			// The SOP Library slice widened from vaccination-only to every shipped
-			// proof/verification workflow (maintainer request 2026-08-18): Counts carries
-			// birth/death/shifting, Feed carries distribution/packing/transport. "all" is
-			// the default chip; a domain with no live SOPs must not be added here.
-			ID: "domain_chips",
-			Options: []domain.Option{
-				option("all", "All", "", "info"),
-				option("vaccination", "Vaccination", "", ""),
-				option("counts", "Counts", "", ""),
-				option("feed", "Feed", "", ""),
-			},
-		},
+		// domain_chips is retired with the SOP split (maintainer decision 2026-08-18): each
+		// module page is pre-scoped to its own SOP codes, so there is no cross-domain filter.
 		{
 			ID: "sop_trigger_chips",
 			Options: []domain.Option{
