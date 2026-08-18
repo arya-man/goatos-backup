@@ -795,6 +795,8 @@ design-system-guard: ## Fail if a screen invents its own colour or text style in
 
 mobile-guard:
 	bash tools/android/check-no-hardcoded-design.sh
+	node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs --self-test
+	node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --self-test
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs
 	node tools/agent-hooks/check-android-ui-foundations.mjs --self-test
@@ -828,6 +830,7 @@ mobile-guard:
 
 mobile-guard-audit:
 	bash tools/android/check-no-hardcoded-design.sh
+	node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --all
 	node tools/agent-hooks/check-android-ui-foundations.mjs
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs

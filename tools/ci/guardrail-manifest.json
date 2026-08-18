@@ -68,6 +68,17 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-outbox-lifecycle-policy",
+      "script": "tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Every Android OutboxOpType explicitly declares immediate UI, success reconciliation, terminal-failure, and process-death policy; wildcard coverage is rejected."
+    },
+    {
       "id": "android-verifier-detail-scope",
       "script": "tools/agent-hooks/check-android-verifier-detail-scope.mjs",
       "makeTarget": "mobile-guard",
