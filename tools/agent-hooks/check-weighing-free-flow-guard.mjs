@@ -225,6 +225,11 @@ function stripComments(text) {
 // global allowlist would silently unlock every weighing file, including the write
 // path, which is the exact 2026-08-04 defect this guard exists to prevent. Only
 // the named reporting file may resolve a tag, and only to read breed/sex/stage.
+// Maintainer decision 2026-08-19: the same reporting file may also read
+// goat_shed_partitions only to label lump-sum composition at exact shed/partition
+// grain. This covers historical display rows such as Castro 1/2/3, Gandhi 1/2/3,
+// legacy Gandi 1/2/3, and Godel 2 - Part 1 without letting the write path use
+// per-goat location data.
 //
 // Boundaries that still hold inside the exempt file, and are the reason this is
 // safe: it is READ-ONLY, it is a reporting path with no capture, submit or close
@@ -235,13 +240,14 @@ function stripComments(text) {
 const HERD_JOIN_EXEMPT_FILES = new Map([
   [
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
-    "maintainer decision 2026-08-07: average weight by breed/sex/stage on the Weights screen",
+    "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
   ],
 ]);
 
-// The only herd tables an exempt file may resolve, and only for those three facts.
+// The only herd tables an exempt file may resolve, and only for the reporting
+// facts above.
 // Vaccination, clinical, protocol and obligation tables stay banned everywhere.
-const HERD_JOIN_EXEMPT_TABLES = new Set(["goats", "goat_identifiers"]);
+const HERD_JOIN_EXEMPT_TABLES = new Set(["goats", "goat_identifiers", "goat_shed_partitions"]);
 
 const WRITE_PATH_ALLOWED_TABLES = new Set([
   "weighing_campaigns",
@@ -391,9 +397,10 @@ function writePathBodies(source) {
 // protocol_*, obligation_* — anything describing an ANIMAL or another module's rules. Weighing
 // knows a scanned string and a weight. It does not know what animal that is, and must not ask.
 //
-// CRITICAL: goat_shed_partitions is BANNED (PER-GOAT table, reveals which animal sits where).
-// shed_partitions (ORG-scoped catalog of existing partitions) is ALLOWED. See BANNED_SHADOW_RE
-// and guard self-test below for enforcement.
+// CRITICAL: goat_shed_partitions is BANNED except in the file-scoped reporting
+// exception above (PER-GOAT table, reveals which animal sits where). shed_partitions
+// (ORG-scoped catalog of existing partitions) is ALLOWED. See BANNED_SHADOW_RE and
+// guard self-test below for enforcement.
 //
 // Adding to this set is a maintainer decision, not a developer convenience.
 const NON_WEIGHING_TABLES_ALLOWED_ON_READ = new Set([
@@ -1606,11 +1613,12 @@ UPDATE weighing_observations observation
     );
   }
 
-  // Mode 16: shed_partitions ALLOWED, goat_shed_partitions BANNED.
+  // Mode 16: shed_partitions ALLOWED, goat_shed_partitions BANNED except for the
+  // single Weights reporting file.
   // Maintainer decision 2026-08-06: shed_partitions is an ORG-scoped catalog (tenant_id, shed_id,
   // normalized_label) with no per-animal data. goat_shed_partitions is per-goat (tenant_id, goat_id)
-  // and reveals which animal sits where -- strictly banned. This distinction is the whole point of
-  // the allowlist.
+  // and reveals which animal sits where. Maintainer decision 2026-08-19 permits that table only in
+  // weight_demographics.go to label lump-sum composition at shed/partition grain.
   const goodMode16ShedPartitions = `
 func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
   _, err := r.pool.Exec(ctx, ` + "`" + `
@@ -1641,6 +1649,15 @@ func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
   if (!badMode16.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
     throw new Error(
       `self-test failed: mode 16 did not flag goat_shed_partitions (per-goat, reveals animal location). got: ${JSON.stringify(badMode16)}`,
+    );
+  }
+  const exemptMode16 = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/weight_demographics.go",
+    badMode16GoatShedPartitions,
+  );
+  if (exemptMode16.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on goat_shed_partitions inside the Weights reporting exception. got: ${JSON.stringify(exemptMode16)}`,
     );
   }
 

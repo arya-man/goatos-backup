@@ -23153,6 +23153,7 @@ components:
       required:
         - scanned_identifier
         - shed_display_name
+        - operational_location_display
         - previous_weight_kg
         - latest_weight_kg
         - adg_g_per_day
@@ -23162,6 +23163,8 @@ components:
         scanned_identifier:
           type: string
         shed_display_name:
+          type: string
+        operational_location_display:
           type: string
         previous_weight_kg:
           type: number

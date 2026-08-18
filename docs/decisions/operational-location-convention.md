@@ -78,6 +78,17 @@ User-facing surfaces ALWAYS show the partition when one exists:
 
 **Both halves must always be read together.** Rendering the display requires BOTH `shed_id` (and its display name) AND `partition_label` in the response struct.
 
+### Weighing Read Models: Partition Composition
+
+Weighing read models must treat every row as an operational location, never as a loose shed name. Composition chips/brackets on the Weights page are keyed by `(location_id, partition_label)` and may need to resolve two historical data shapes:
+
+- Worded partition buckets: `location_id = Godel 2`, `partition_label = Part 1`. The cohort lookup must read only goats whose `goat_shed_partitions.shed_id` is `Godel 2` and whose partition is `Part 1`.
+- Numeric display rows: `location_id = Castro 1`, `partition_label = ''`. If no goats live directly on `Castro 1`, the lookup may resolve to physical shed `Castro` partition `1`, but only when a matching `goat_shed_partitions` row exists. The same rule applies to `Castro 2/3`, `Gandhi 1/2/3`, and legacy `Gandi 1/2/3`.
+
+Do not infer partitions from every trailing number. A real standalone shed such as `Ho Chi Minh 1` or `Plain 1` stays an undivided shed unless the partition table proves otherwise.
+
+Guardrail: `make weighing-partition-composition-guard` runs `TestWeightDemographicsLumpCompositionResolvesPhysicalShedPartitions`, covering `Godel 2 - Part 1`, `Castro 1/2/3`, `Gandhi 1/2/3`, legacy `Gandi 1/2/3`, and a numeric non-partition shed.
+
 ### Rule 3: Composition Location (Code)
 
 Shared location-composition logic lives in ONE place per language — use it instead of hand-rolling:

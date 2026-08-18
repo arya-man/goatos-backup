@@ -598,7 +598,7 @@ latest_pair AS (
   FROM inperiod
   ORDER BY animal_key, accepted_at DESC
 )
-SELECT animal_key, shed_name, prev_weight, weight_kg,
+SELECT animal_key, shed_name, partition_label, location_id::text, prev_weight, weight_kg,
        adg_g_per_day, days_between,
        to_char(TIMEZONE('Asia/Kolkata', accepted_at)::date, 'YYYY-MM-DD')
 FROM latest_pair
@@ -613,11 +613,21 @@ LIMIT 200`
 	out := []domain.GrowthLosingAnimal{}
 	for rows.Next() {
 		var a domain.GrowthLosingAnimal
+		var partitionLabel, locationID string
 		if err := rows.Scan(
-			&a.ScannedIdentifier, &a.ShedDisplayName, &a.PreviousWeightKg, &a.LatestWeightKg,
+			&a.ScannedIdentifier, &a.ShedDisplayName, &partitionLabel, &locationID, &a.PreviousWeightKg, &a.LatestWeightKg,
 			&a.ADGGPerDay, &a.DaysBetween, &a.LatestWeighDate,
 		); err != nil {
 			return nil, err
+		}
+		if partitionLabel != "" && strings.HasSuffix(a.ShedDisplayName, partitionLabel) {
+			a.OperationalLocationDisplay = a.ShedDisplayName
+		} else {
+			a.OperationalLocationDisplay = (oploc.OperationalLocation{
+				ShedID:         locationID,
+				ShedName:       a.ShedDisplayName,
+				PartitionLabel: partitionLabel,
+			}).Display()
 		}
 		out = append(out, a)
 	}

@@ -86,6 +86,22 @@ facets, because empty partitions are still real animal residences and must be
 selectable. The staging Cloud Deploy task wrapper must not hide migration
 failures behind `if ! main`; migrations must stop the rollout loudly.
 
+Weights page partition-composition guardrail:
+`make weighing-partition-composition-guard` protects the admin-web Weights
+read model from collapsing physical partitions into their parent shed. It covers
+worded buckets (`Godel 2 - Part 1`), numeric display rows (`Castro 1/2/3`,
+`Gandhi 1/2/3`, legacy `Gandi 1/2/3`), and a numeric non-partition shed that
+must stay whole. Load `docs/decisions/operational-location-convention.md`
+whenever a weighing change touches shed/partition labels, composition chips,
+lump-sum rows, or daily-gain/shed-average read models.
+
+Weights page rendered-proof guardrail:
+After every Weights page UI/read-model/API-contract change, verify the exact
+`/weighing/weights` route in Chrome after the final edit before reporting done
+or pushing. The acceptance check must include: page reachable on the expected
+local URL, no backend-down/error fallback, and the changed cards/tables/chips
+visibly rendered with the expected labels.
+
 Critical animal action guardrails:
 
 ```text
