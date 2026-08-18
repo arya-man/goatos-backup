@@ -12,7 +12,7 @@ die() {
 
 [[ "$PROJECT_ID" == "goatos-stg" ]] || die "PROJECT_ID must be goatos-stg, got $PROJECT_ID"
 
-repo_root="$(git rev-parse --show-toplevel)"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "${BUILD_WORKSPACE_DIRECTORY:-/workspace}")"
 cd "$repo_root"
 
 active_project="$(gcloud config get-value project 2>/dev/null)"
