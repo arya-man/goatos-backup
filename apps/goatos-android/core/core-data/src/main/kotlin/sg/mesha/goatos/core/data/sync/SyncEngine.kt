@@ -447,7 +447,9 @@ class SyncEngine(
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
-        val opType = runCatching { OutboxOpType.valueOf(item.opType) }.getOrNull() ?: return false
+        val opType = runCatching { OutboxOpType.valueOf(item.opType) }
+            .onFailure { reportCacheReconcileFailure(item, it) }
+            .getOrNull() ?: return false
         val hook = preSuccessRefreshHooks[opType] ?: return false
         return runCatching {
             hook.onSuccess(item.payloadJson)

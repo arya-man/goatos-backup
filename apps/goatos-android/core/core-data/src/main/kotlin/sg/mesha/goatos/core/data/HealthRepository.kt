@@ -189,10 +189,16 @@ class DefaultHealthRepository(
 
     override suspend fun reconcileRejectedTreatmentCompletion(healthSessionId: String): Result<Unit> {
         val cachedDetailCompleted = database.healthWorkItemDetailDao().get(healthSessionId)
-            ?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
+            ?.let { entity ->
+                runCatching { json.decodeFromString<HealthWorkItemDetailDto>(entity.dtoJson) }
+                    .onFailure { android.util.Log.w("HealthRepository", "failed to decode cached treatment detail", it) }
+                    .getOrNull()
+            }
             ?.status.equals("completed", ignoreCase = true)
         val cachedListCompleted = database.healthWorkItemDao().findAll(healthSessionId).any { row ->
-            runCatching { json.decodeFromString<HealthWorkItemDto>(row.dtoJson) }.getOrNull()
+            runCatching { json.decodeFromString<HealthWorkItemDto>(row.dtoJson) }
+                .onFailure { android.util.Log.w("HealthRepository", "failed to decode cached treatment row", it) }
+                .getOrNull()
                 ?.status.equals("completed", ignoreCase = true)
         }
         return if (cachedDetailCompleted || cachedListCompleted) {
@@ -208,7 +214,11 @@ class DefaultHealthRepository(
         val detailRefresh = refreshDetail(healthSessionId)
         if (detailRefresh.isFailure) return detailRefresh
         val detail = database.healthWorkItemDetailDao().get(healthSessionId)
-            ?.let { runCatching { json.decodeFromString<HealthWorkItemDetailDto>(it.dtoJson) }.getOrNull() }
+            ?.let { entity ->
+                runCatching { json.decodeFromString<HealthWorkItemDetailDto>(entity.dtoJson) }
+                    .onFailure { android.util.Log.w("HealthRepository", "failed to decode refreshed treatment detail", it) }
+                    .getOrNull()
+            }
             ?: return Result.failure(IllegalStateException("Health detail missing after refresh: $healthSessionId"))
         val scopes = buildList {
             addAll(cachedScopes)
