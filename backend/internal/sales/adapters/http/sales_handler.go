@@ -23,6 +23,15 @@ type SalesService interface {
 	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	ListBuyerLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.BuyerLeadPage, error)
+	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+	SetBuyerLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+	ListFPOLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.FPOLeadPage, error)
+	CreateFPOLead(ctx context.Context, tenantID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+	SetFPOLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+	CreateBenchmark(ctx context.Context, tenantID string, write domain.BenchmarkWrite, actorID, idempotencyKey string) error
+	CreateSoldTags(ctx context.Context, tenantID string, write domain.SoldTagsWrite, actorID, idempotencyKey string) (int, error)
+	CreateWeightCheck(ctx context.Context, tenantID string, write domain.WeightCheckWrite, actorID, idempotencyKey string) error
 }
 
 // SalesHandler serves /sales.
@@ -47,6 +56,15 @@ func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("GET /sales/overview", h.GetOverview)
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
 	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
+	mux.HandleFunc("GET /sales/buyer-leads", h.ListBuyerLeads)
+	mux.HandleFunc("POST /sales/buyer-leads", h.CreateBuyerLead)
+	mux.HandleFunc("POST /sales/buyer-leads/{lead_id}/status", h.SetBuyerLeadStatus)
+	mux.HandleFunc("GET /sales/fpo-leads", h.ListFPOLeads)
+	mux.HandleFunc("POST /sales/fpo-leads", h.CreateFPOLead)
+	mux.HandleFunc("POST /sales/fpo-leads/{lead_id}/status", h.SetFPOLeadStatus)
+	mux.HandleFunc("POST /sales/market-benchmarks", h.CreateBenchmark)
+	mux.HandleFunc("POST /sales/sold-tags", h.CreateSoldTags)
+	mux.HandleFunc("POST /sales/weight-checks", h.CreateWeightCheck)
 }
 
 // maxSalesRequestBytes caps a write body. The largest legitimate record-sale payload is well under

@@ -4933,6 +4933,343 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/buyer-leads:
+    get:
+      tags:
+        - Sales
+      operationId: listSalesBuyerLeads
+      summary: One page of the buyer demand pipeline.
+      description: >-
+        Buyer leads newest first, plus the whole-filter total and the tenant's existing call-status
+        vocabulary (`status_options`) for the status picker. Statuses are free text bucketed by
+        exact string on the overview, so the picker offers the stored spellings rather than
+        inventing a new vocabulary that would fragment the pipeline chart.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+      responses:
+        "200":
+          description: One page of buyer leads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesBuyerLeadPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Sales
+      operationId: createSalesBuyerLead
+      summary: Record a buyer lead.
+      description: >-
+        Records one buyer lead into the demand pipeline. Same idempotency contract as recording a
+        sale: the `Idempotency-Key` header is required, an exact replay returns the original lead,
+        and a same-key/different-payload replay is rejected 409.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesBuyerLeadWrite"
+      responses:
+        "201":
+          description: The recorded lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesBuyerLead"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/buyer-leads/{lead_id}/status:
+    post:
+      tags:
+        - Sales
+      operationId: setSalesBuyerLeadStatus
+      summary: Update a buyer lead's call status.
+      description: >-
+        Sets one lead's call status. An empty `call_status` clears it back to "not yet called".
+        Same idempotency contract as the other sales writes.
+      parameters:
+        - name: lead_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesLeadStatusWrite"
+      responses:
+        "200":
+          description: The updated lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesBuyerLead"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/fpo-leads:
+    get:
+      tags:
+        - Sales
+      operationId: listSalesFpoLeads
+      summary: One page of the farmer-group pipeline.
+      description: >-
+        Farmer-group (FPO) leads newest first, plus the whole-filter total and the stored
+        call-status vocabulary. Company-wide -- the source carries no farm.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+      responses:
+        "200":
+          description: One page of farmer-group leads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesFpoLeadPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Sales
+      operationId: createSalesFpoLead
+      summary: Record a farmer-group lead.
+      description: Records one farmer-group lead. Same idempotency contract as the other sales writes.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesFpoLeadWrite"
+      responses:
+        "201":
+          description: The recorded lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesFpoLead"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/fpo-leads/{lead_id}/status:
+    post:
+      tags:
+        - Sales
+      operationId: setSalesFpoLeadStatus
+      summary: Update a farmer-group lead's call status.
+      description: >-
+        Sets one farmer group's call status. An empty `call_status` clears it back to
+        "not yet called". Same idempotency contract as the other sales writes.
+      parameters:
+        - name: lead_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesLeadStatusWrite"
+      responses:
+        "200":
+          description: The updated lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesFpoLead"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/market-benchmarks:
+    post:
+      tags:
+        - Sales
+      operationId: createSalesMarketBenchmark
+      summary: Record a market quote.
+      description: >-
+        Records one comparable market quote for the Market check panel. Same idempotency contract
+        as the other sales writes.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesBenchmarkWrite"
+      responses:
+        "201":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesRecorded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/sold-tags:
+    post:
+      tags:
+        - Sales
+      operationId: createSalesSoldTags
+      summary: Record a sold-animal tag list.
+      description: >-
+        Records the tag list handed over at one sale -- up to 200 animals in ONE atomic batch: the
+        whole list commits or none of it does. Same idempotency contract as the other sales writes;
+        an exact replay reports the original batch size without inserting anything.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesSoldTagsWrite"
+      responses:
+        "201":
+          description: How many animals were recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesSoldTagsResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/weight-checks:
+    post:
+      tags:
+        - Sales
+      operationId: createSalesWeightCheck
+      summary: Record a weight check.
+      description: >-
+        Records one video-vs-book weight audit row for the Weight check panel. Same idempotency
+        contract as the other sales writes.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesWeightCheckWrite"
+      responses:
+        "201":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesRecorded"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/ration-groups:
     get:
       tags:
@@ -10108,6 +10445,141 @@ components:
         feeds:
           type: array
           items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+    SalesBuyerLead:
+      type: object
+      description: One buyer lead in the demand pipeline.
+      required: [lead_id, buyer_name, created_at]
+      properties:
+        lead_id: { type: string, format: uuid }
+        recorded_date: { type: string, nullable: true, description: "YYYY-MM-DD when known." }
+        farm: { type: string, nullable: true }
+        buyer_name: { type: string }
+        buyer_place: { type: string, nullable: true }
+        animal_type: { type: string, nullable: true }
+        breed: { type: string, nullable: true }
+        call_status:
+          type: string
+          nullable: true
+          description: Null means not yet called; the overview reports that bucket as "uncontacted".
+        created_at: { type: string, format: date-time }
+    SalesBuyerLeadPage:
+      type: object
+      description: One page of the buyer pipeline plus whole-filter total and status vocabulary.
+      required: [leads, total, status_options]
+      properties:
+        leads:
+          type: array
+          items: { $ref: "#/components/schemas/SalesBuyerLead" }
+        total: { type: integer, description: Whole-filter count, never the page length. }
+        status_options:
+          type: array
+          items: { type: string }
+          description: The tenant's stored call-status vocabulary, for the status picker.
+    SalesBuyerLeadWrite:
+      type: object
+      description: Records one buyer lead. Optional text sent as "" is stored as not set.
+      required: [buyer_name]
+      properties:
+        recorded_date: { type: string, description: "Optional YYYY-MM-DD." }
+        farm: { type: string, enum: ["", CBE, CPT], description: Optional farm. }
+        buyer_name: { type: string }
+        buyer_place: { type: string }
+        animal_type: { type: string }
+        breed: { type: string }
+        call_status: { type: string, description: Optional; empty means not yet called. }
+    SalesFpoLead:
+      type: object
+      description: One farmer-group (FPO) lead.
+      required: [lead_id, fpo_name, created_at]
+      properties:
+        lead_id: { type: string, format: uuid }
+        fpo_name: { type: string }
+        crops: { type: string, nullable: true }
+        district: { type: string, nullable: true }
+        taluk: { type: string, nullable: true }
+        state: { type: string, nullable: true }
+        call_status: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    SalesFpoLeadPage:
+      type: object
+      description: One page of the farmer-group pipeline plus whole-filter total and status vocabulary.
+      required: [leads, total, status_options]
+      properties:
+        leads:
+          type: array
+          items: { $ref: "#/components/schemas/SalesFpoLead" }
+        total: { type: integer }
+        status_options:
+          type: array
+          items: { type: string }
+    SalesFpoLeadWrite:
+      type: object
+      description: Records one farmer-group lead.
+      required: [fpo_name]
+      properties:
+        fpo_name: { type: string }
+        crops: { type: string }
+        district: { type: string }
+        taluk: { type: string }
+        state: { type: string }
+        call_status: { type: string }
+    SalesLeadStatusWrite:
+      type: object
+      description: Sets one lead's call status; empty clears it back to "not yet called".
+      required: [call_status]
+      properties:
+        call_status: { type: string }
+    SalesBenchmarkWrite:
+      type: object
+      description: Records one comparable market quote.
+      required: [breed]
+      properties:
+        market: { type: string }
+        category: { type: string }
+        breed: { type: string }
+        source: { type: string }
+        ex_farm_rate: { type: string }
+        transport_rate: { type: string }
+        landing_cost_per_kg: { type: number, nullable: true }
+        market_price_per_kg: { type: number, nullable: true }
+    SalesSoldTagRow:
+      type: object
+      description: One animal in a handed-over tag list.
+      required: [animal_label]
+      properties:
+        animal_label: { type: string }
+        tag_number: { type: string }
+        weight_kg: { type: number, nullable: true }
+    SalesSoldTagsWrite:
+      type: object
+      description: Records the tag list handed over at one sale, as one atomic batch.
+      required: [rows]
+      properties:
+        farm: { type: string, enum: ["", CBE, CPT] }
+        rows:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: "#/components/schemas/SalesSoldTagRow" }
+    SalesSoldTagsResult:
+      type: object
+      required: [recorded]
+      properties:
+        recorded: { type: integer, description: How many animals landed in the roster. }
+    SalesWeightCheckWrite:
+      type: object
+      description: Records one video-vs-book weight audit row.
+      required: [book_weight_kg, video_weight_kg]
+      properties:
+        tag_number: { type: string }
+        book_weight_kg: { type: number }
+        video_weight_kg: { type: number }
+        farm_born: { type: boolean, default: false }
+    SalesRecorded:
+      type: object
+      required: [recorded]
+      properties:
+        recorded: { type: boolean }
     SalesDeal:
       type: object
       description: One row of the sales ledger -- one sheet row, or one deal recorded in the app.

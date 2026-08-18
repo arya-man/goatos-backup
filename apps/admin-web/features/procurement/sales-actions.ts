@@ -8,8 +8,17 @@ import { actionRedirect, optionalString, requiredString } from "@/lib/action-hel
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
-import { createSalesDeal } from "@/lib/api/procurement-server";
-import type { SalesDealWrite } from "@/lib/api/procurement";
+import {
+  createSalesBenchmark,
+  createSalesBuyerLead,
+  createSalesDeal,
+  createSalesFpoLead,
+  createSalesSoldTags,
+  createSalesWeightCheck,
+  setSalesBuyerLeadStatus,
+  setSalesFpoLeadStatus,
+} from "@/lib/api/procurement-server";
+import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite } from "@/lib/api/procurement";
 
 const SALES_PATH = "/procurement/sales";
 
@@ -55,4 +64,152 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");
+}
+
+// ---- Pipeline & evidence entry (the retired Sales DB sheet's job, now done in the app). ----
+// Same key discipline as recordSaleAction: a fresh UUID per submit.
+
+function parseOptionalNumber(formData: FormData, key: string): number | null {
+  const trimmed = (formData.get(key)?.toString() ?? "").trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function recordBuyerLeadAction(formData: FormData): Promise<void> {
+  const result = await createSalesBuyerLead(
+    {
+      recorded_date: optionalString(formData, "recorded_date") ?? "",
+      farm: (optionalString(formData, "farm") ?? "") as SalesBuyerLeadWrite["farm"],
+      buyer_name: requiredString(formData, "buyer_name"),
+      buyer_place: optionalString(formData, "buyer_place") ?? "",
+      animal_type: optionalString(formData, "animal_type") ?? "",
+      breed: optionalString(formData, "breed") ?? "",
+      call_status: optionalString(formData, "call_status") ?? "",
+    },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.lead_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.lead_recorded");
+}
+
+export async function updateBuyerLeadStatusAction(formData: FormData): Promise<void> {
+  const result = await setSalesBuyerLeadStatus(
+    requiredString(formData, "lead_id"),
+    { call_status: optionalString(formData, "call_status") ?? "" },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.lead_status_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.lead_status_updated");
+}
+
+export async function recordFpoLeadAction(formData: FormData): Promise<void> {
+  const result = await createSalesFpoLead(
+    {
+      fpo_name: requiredString(formData, "fpo_name"),
+      crops: optionalString(formData, "crops") ?? "",
+      district: optionalString(formData, "district") ?? "",
+      taluk: optionalString(formData, "taluk") ?? "",
+      state: optionalString(formData, "state") ?? "",
+      call_status: optionalString(formData, "call_status") ?? "",
+    },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.fpo_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.fpo_recorded");
+}
+
+export async function updateFpoLeadStatusAction(formData: FormData): Promise<void> {
+  const result = await setSalesFpoLeadStatus(
+    requiredString(formData, "lead_id"),
+    { call_status: optionalString(formData, "call_status") ?? "" },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.lead_status_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.lead_status_updated");
+}
+
+export async function recordBenchmarkAction(formData: FormData): Promise<void> {
+  const result = await createSalesBenchmark(
+    {
+      market: optionalString(formData, "market") ?? "",
+      category: optionalString(formData, "category") ?? "",
+      breed: requiredString(formData, "breed"),
+      source: optionalString(formData, "source") ?? "",
+      ex_farm_rate: optionalString(formData, "ex_farm_rate") ?? "",
+      transport_rate: optionalString(formData, "transport_rate") ?? "",
+      landing_cost_per_kg: parseOptionalNumber(formData, "landing_cost_per_kg"),
+      market_price_per_kg: parseOptionalNumber(formData, "market_price_per_kg"),
+    },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.quote_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.quote_recorded");
+}
+
+/**
+ * Parses the tag-list textarea: one animal per line, comma-separated as
+ * "animal label, tag number, weight kg" — tag and weight optional.
+ */
+function parseTagRows(raw: string): SalesSoldTagsWrite["rows"] {
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .map((line) => {
+      const [label = "", tag = "", weight = ""] = line.split(",").map((part) => part.trim());
+      const parsedWeight = weight === "" ? null : Number(weight);
+      return {
+        animal_label: label,
+        tag_number: tag,
+        weight_kg: parsedWeight != null && Number.isFinite(parsedWeight) ? parsedWeight : null,
+      };
+    });
+}
+
+export async function recordSoldTagsAction(formData: FormData): Promise<void> {
+  const result = await createSalesSoldTags(
+    {
+      farm: (optionalString(formData, "farm") ?? "") as SalesSoldTagsWrite["farm"],
+      rows: parseTagRows(requiredString(formData, "tag_rows")),
+    },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.tags_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.tags_recorded");
+}
+
+export async function recordWeightCheckAction(formData: FormData): Promise<void> {
+  const result = await createSalesWeightCheck(
+    {
+      tag_number: optionalString(formData, "tag_number") ?? "",
+      book_weight_kg: Number(requiredString(formData, "book_weight_kg")),
+      video_weight_kg: Number(requiredString(formData, "video_weight_kg")),
+      farm_born: formData.get("farm_born") === "on",
+    },
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.weight_check_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.weight_check_recorded");
 }

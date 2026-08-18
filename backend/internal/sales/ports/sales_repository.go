@@ -11,6 +11,9 @@ var (
 	// ErrDealNotFound is returned when a deal id does not resolve inside the caller's tenant.
 	// Deliberately indistinguishable from "exists in another tenant" so the ledger cannot be probed.
 	ErrDealNotFound = errors.New("sales: deal not found")
+	// ErrLeadNotFound is returned when a buyer/FPO lead id does not resolve inside the caller's
+	// tenant. Same probing rule as ErrDealNotFound.
+	ErrLeadNotFound = errors.New("sales: lead not found")
 	// ErrIdempotencyConflict is returned when an Idempotency-Key is replayed with a different
 	// request payload. Surfaced as a 409 so the client knows its retry does not match what was
 	// originally recorded.
@@ -41,4 +44,48 @@ type SalesRepository interface {
 	// original deal with zero new side effects; a same-key/different-payload replay returns
 	// ErrIdempotencyConflict.
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
+
+	// ListBuyerLeads returns one page of the buyer pipeline (newest first) plus the whole-filter
+	// total and the tenant's existing call-status vocabulary (for the status picker).
+	ListBuyerLeads(ctx context.Context, tenantID string, limit, offset int) (BuyerLeadPage, error)
+
+	// CreateBuyerLead records a buyer lead. Same one-transaction idempotency contract as CreateDeal.
+	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+
+	// SetBuyerLeadStatus updates one buyer lead's call status. Same idempotency contract.
+	SetBuyerLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
+
+	// ListFPOLeads mirrors ListBuyerLeads for the farmer-group pipeline.
+	ListFPOLeads(ctx context.Context, tenantID string, limit, offset int) (FPOLeadPage, error)
+
+	// CreateFPOLead records a farmer-group lead. Same idempotency contract.
+	CreateFPOLead(ctx context.Context, tenantID string, write domain.FPOLeadWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+
+	// SetFPOLeadStatus updates one farmer-group lead's call status. Same idempotency contract.
+	SetFPOLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.FPOLead, error)
+
+	// CreateBenchmark records one market quote. Same idempotency contract.
+	CreateBenchmark(ctx context.Context, tenantID string, write domain.BenchmarkWrite, actorID, idempotencyKey string) error
+
+	// CreateSoldTags records a handed-over tag list (set-based insert). Same idempotency contract;
+	// the whole batch commits or none of it does.
+	CreateSoldTags(ctx context.Context, tenantID string, write domain.SoldTagsWrite, actorID, idempotencyKey string) (int, error)
+
+	// CreateWeightCheck records one video-vs-book weight audit row. Same idempotency contract.
+	CreateWeightCheck(ctx context.Context, tenantID string, write domain.WeightCheckWrite, actorID, idempotencyKey string) error
+}
+
+// BuyerLeadPage is one page of the buyer pipeline plus the whole-filter total and the existing
+// call-status vocabulary (distinct stored statuses, for the picker's suggestions).
+type BuyerLeadPage struct {
+	Leads         []domain.BuyerLead
+	Total         int
+	StatusOptions []string
+}
+
+// FPOLeadPage mirrors BuyerLeadPage for farmer groups.
+type FPOLeadPage struct {
+	Leads         []domain.FPOLead
+	Total         int
+	StatusOptions []string
 }
