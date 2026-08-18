@@ -58,9 +58,8 @@ interface CountsApprovalRepository {
     /**
      * Removes a decided request from the cached queue.
      *
-     * Called as soon as a decision is durably queued, so the row leaves the pending list at the
-     * moment the approver acts rather than at the next refresh — and, more importantly, so the same
-     * request cannot be decided twice while its first decision is still draining from the outbox.
+     * Called only after the outbox row succeeds. A terminal rejection must leave the cached request
+     * available for correction instead of silently losing it from the pending queue.
      */
     suspend fun forgetDecided(approvalRequestId: String)
 }

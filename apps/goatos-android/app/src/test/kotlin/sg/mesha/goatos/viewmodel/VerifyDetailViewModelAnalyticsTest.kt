@@ -98,6 +98,39 @@ class VerifyDetailViewModelAnalyticsTest {
     }
 
     @Test
+    fun `weight correction refresh waits for exact outbox success`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val refreshesBeforeCorrection = repo.refreshCount
+
+        vm.onEvent(
+            VerifyDetailEvent.CorrectWeight(
+                itemId = "item-1",
+                observationId = "observation-1",
+                refType = "weighing_observation",
+                weightKg = 42.5,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(refreshesBeforeCorrection, repo.refreshCount)
+
+        syncRepository.emitCorrectionSuccess()
+        advanceUntilIdle()
+
+        assertEquals(refreshesBeforeCorrection + 1, repo.refreshCount)
+    }
+
+    @Test
     fun `detail keeps opened weighing video when refresh page omits the group`() = runTest(dispatcher) {
         val repo = FakeVerifyDetailRepository()
         val vm = VerifyDetailViewModel(
@@ -473,6 +506,7 @@ private class RecordingCrashReporter : CrashReporter {
 private class FakeVerifyDetailRepository : VerificationRepository {
     var lastObservedScope: Triple<String?, String?, Boolean?>? = null
     var lastRefreshedScope: Triple<String?, String?, Boolean?>? = null
+    var refreshCount: Int = 0
     private val item = VerificationQueueItem(
         itemId = "item-1",
         category = "vaccination_proof",
@@ -498,6 +532,7 @@ private class FakeVerifyDetailRepository : VerificationRepository {
     }
 
     override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
+        refreshCount += 1
         lastRefreshedScope = Triple(status, businessDate, missed)
         return Result.success(Unit)
     }
@@ -516,15 +551,39 @@ private class FakeVerifyDetailRepository : VerificationRepository {
 
 private class FakeVerifyDetailSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    private val correctionItem = MutableStateFlow<SyncQueueItem?>(null)
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf()
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = correctionItem
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = AppResult.Ok("outbox-1")
+    override suspend fun enqueueWeighingWeightCorrection(
+        observationId: String,
+        refType: String,
+        weightKg: Double,
+        animalCount: Int?,
+        reason: String?,
+    ): AppResult<String> = AppResult.Ok("weight-correction-1")
+
+    fun emitCorrectionSuccess() {
+        correctionItem.value = SyncQueueItem(
+            id = "weight-correction-1",
+            opType = "WEIGHING_WEIGHT_CORRECTION",
+            idempotencyKey = "weight-key",
+            groupKey = "observation-1",
+            status = SyncItemStatus.SUCCEEDED,
+            attemptCount = 1,
+            maxAttempts = 3,
+            conflict = false,
+            createdAt = 1L,
+            updatedAt = 2L,
+            lastError = null,
+        )
+    }
     override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =

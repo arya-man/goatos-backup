@@ -66,9 +66,8 @@ interface AwaitingRfidRepository {
     /**
      * Removes a promoted goat from the cached list.
      *
-     * Called as soon as a promote is durably queued, so the goat leaves the list at the moment the
-     * operator acts rather than at the next refresh — and, more importantly, so the same goat cannot
-     * be promoted twice while its first promotion is still draining.
+     * Called only after the promote succeeds. A terminal rejection must leave the cached goat
+     * available for correction instead of silently losing it from the awaiting-RFID queue.
      */
     suspend fun forgetPromoted(goatId: String)
 

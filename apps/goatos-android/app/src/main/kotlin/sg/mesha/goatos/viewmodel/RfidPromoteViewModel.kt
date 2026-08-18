@@ -6,13 +6,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -213,9 +210,6 @@ class RfidPromoteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     outboxItemId.value = result.value
                     observeOutboxItem(result.value)
-                    // Remove any legacy cached row the moment the promote is durable so a restored
-                    // old route cannot promote the same goat while its first write drains.
-                    repo.forgetPromoted(goatId)
                     analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_SUBMITTED)
                 }
                 is AppResult.Err -> {
@@ -238,13 +232,10 @@ class RfidPromoteViewModel @Inject constructor(
     private fun observeOutboxItem(itemId: String) {
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
-            syncRepository.observeStatus()
-                .map { status -> status.items.firstOrNull { it.id == itemId } }
+            syncRepository.observeItem(itemId)
                 .filterNotNull()
                 .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
-                    item ?: return@collect
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         // A terminal server rejection (e.g. a stale row_version) drops the persisted key

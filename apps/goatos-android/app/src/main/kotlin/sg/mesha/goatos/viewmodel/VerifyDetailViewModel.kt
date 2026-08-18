@@ -407,8 +407,17 @@ class VerifyDetailViewModel @Inject constructor(
             is AppResult.Ok -> {
                 analytics.track(AnalyticsEventsVerification.WEIGHT_CORRECTION_SUBMITTED)
                 _flags.update { it.copy(isSubmitting = false) }
-                // Pull the re-labelled item back so the card stops showing the replaced weight.
-                refresh()
+                val item = syncRepo.observeItem(result.value).first { candidate ->
+                    candidate?.status == SyncItemStatus.SUCCEEDED || candidate?.isTerminalFailure == true
+                }
+                if (item?.status == SyncItemStatus.SUCCEEDED) {
+                    // Pull the re-labelled item only after the backend owns the correction.
+                    refresh()
+                } else if (item?.isTerminalFailure == true) {
+                    _flags.update {
+                        it.copy(errorMessage = item.lastError ?: "This weight correction did not go through.")
+                    }
+                }
             }
             is AppResult.Err -> {
                 runCatching {
