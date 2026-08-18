@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
@@ -213,6 +214,14 @@ interface SyncRepository {
     suspend fun enqueueVerificationBatchClose(
         batchId: String,
     ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
+
+    /** Enqueues verifier journey audit rows durably so offline/process-death does not drop them. */
+    suspend fun enqueueVerificationReviewEvents(
+        groupKey: String,
+        idempotencyKey: String,
+        request: VerificationReviewEventBatchRequestDto,
+    ): AppResult<String> = AppResult.Err("verification review audit sync is not configured")
+
     /**
      * Enqueues an operator-reported shifting/movement write (`POST /app/counts/shifting-events`).
      *
@@ -889,6 +898,18 @@ class DefaultSyncRepository(
             ),
         )
     }
+
+    override suspend fun enqueueVerificationReviewEvents(
+        groupKey: String,
+        idempotencyKey: String,
+        request: VerificationReviewEventBatchRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.VERIFICATION_REVIEW_EVENTS,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(VerificationReviewEventsPayload(request = request)),
+    )
+
     override suspend fun enqueueCountsShifting(
         groupKey: String,
         idempotencyKey: String,

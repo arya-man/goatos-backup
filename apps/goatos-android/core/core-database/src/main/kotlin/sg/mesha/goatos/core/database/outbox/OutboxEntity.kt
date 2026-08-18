@@ -20,6 +20,8 @@ enum class OutboxOpType {
     VERIFICATION_CLOSE,
     VERIFICATION_CLOSE_SUBMISSION,
     VERIFICATION_CLOSE_BATCH,
+    /** Raw verifier journey audit rows (`POST /verification/review-events`). */
+    VERIFICATION_REVIEW_EVENTS,
 
     /**
      * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17):

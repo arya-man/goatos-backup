@@ -229,6 +229,42 @@ data class VerificationCloseSubmissionResponseDto(
     @SerialName("trace_id") val traceId: String = "",
 )
 
+/** POST /verification/review-events -- verifier-only backend audit stream. */
+@Serializable
+data class VerificationReviewEventBatchRequestDto(
+    @SerialName("events") val events: List<VerificationReviewEventRequestDto> = emptyList(),
+)
+
+@Serializable
+data class VerificationReviewEventRequestDto(
+    @SerialName("item_id") val itemId: String? = null,
+    @SerialName("proof_id") val proofId: String? = null,
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("event_type") val eventType: String = "",
+    @SerialName("occurred_at") val occurredAt: String = "",
+    @SerialName("payload") val payload: VerificationReviewEventPayloadDto = VerificationReviewEventPayloadDto(),
+    @SerialName("client_event_id") val clientEventId: String = "",
+)
+
+@Serializable
+data class VerificationReviewEventPayloadDto(
+    @SerialName("video_position_ms") val videoPositionMs: Long? = null,
+    @SerialName("video_duration_ms") val videoDurationMs: Long? = null,
+    @SerialName("seek_from_ms") val seekFromMs: Long? = null,
+    @SerialName("seek_to_ms") val seekToMs: Long? = null,
+    @SerialName("verdict") val verdict: String? = null,
+    @SerialName("category") val category: String? = null,
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String? = null,
+    @SerialName("status") val status: String? = null,
+)
+
+@Serializable
+data class VerificationReviewEventBatchResponseDto(
+    @SerialName("inserted") val inserted: Int = 0,
+    @SerialName("trace_id") val traceId: String = "",
+)
+
 /** [VerificationVerdictRequestDto.decision] values — never inline string-literal-compared. */
 object VerificationDecision {
     const val APPROVED = "approved"
