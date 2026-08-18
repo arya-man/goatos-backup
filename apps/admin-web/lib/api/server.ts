@@ -249,6 +249,8 @@ export type VerificationVerdictResponse = AppApiComponents["schemas"]["Verificat
 // measurement_correction.
 export type WeighingWeightCorrectionRequest = AppApiComponents["schemas"]["WeighingWeightCorrectionRequest"];
 export type WeighingWeightCorrectionResponse = AppApiComponents["schemas"]["WeighingWeightCorrectionResponse"];
+export type FeedWastageMeasurementRequest = AppApiComponents["schemas"]["FeedWastageMeasurementRequest"];
+export type FeedWastageMeasurementResponse = AppApiComponents["schemas"]["FeedWastageMeasurementResponse"];
 export type VerificationReviewEvent = AppApiComponents["schemas"]["VerificationReviewEvent"];
 export type VerificationReviewEventBatchRequest = AppApiComponents["schemas"]["VerificationReviewEventBatchRequest"];
 export type VerificationReviewEventBatchResponse = AppApiComponents["schemas"]["VerificationReviewEventBatchResponse"];
@@ -2446,6 +2448,29 @@ export async function correctWeighingObservationWeight(
     string;
   return request(() =>
     client.request<WeighingWeightCorrectionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// recordFeedWastageMeasurement stores the leftover-feed weight a verifier read off a wastage
+// video, on the completion the verification item points at. Same route the phone calls: one act,
+// one rule, one endpoint (maintainer decision 2026-08-18, the second producer-owned measurement
+// route after the weighing weight correction).
+export async function recordFeedWastageMeasurement(
+  completionId: string,
+  body: FeedWastageMeasurementRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<FeedWastageMeasurementResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/feed-direction/wastage/${encodeURIComponent(completionId)}/measurement` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<FeedWastageMeasurementResponse>(path, {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },

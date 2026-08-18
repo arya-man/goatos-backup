@@ -6,6 +6,7 @@ import {
   assignSopTask,
   correctWeighingObservationWeight,
   getSopTask,
+  recordFeedWastageMeasurement,
   recordVerificationVerdict,
   requestSopTaskRework,
   type VerificationDecision,
@@ -163,6 +164,49 @@ export async function correctWeightAction(formData: FormData): Promise<void> {
     redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
   }
   redirect(withFeedback(url, "success", "weight_corrected"));
+}
+
+// recordWastageMeasurementAction is the VERIFIER's feed-wastage measurement (maintainer decision
+// 2026-08-18): she watches the pen's leftover-feed video and records the weight she can read in
+// it. Like the weight correction above it is a separate act from her verdict — she records the
+// value and then approves; a clip whose value she cannot read is rejected instead, and nothing is
+// recorded.
+//
+// The completion id comes from the item's backend-owned measurement_correction block, which echoes
+// source.ref_id. This action never composes that address itself.
+export async function recordWastageMeasurementAction(formData: FormData): Promise<void> {
+  const url = redirectTarget(formData);
+  const completionId = String(formData.get("completion_id") ?? "").trim();
+  const rawWastage = String(formData.get("wastage_kg") ?? "").trim();
+
+  if (!completionId) {
+    redirect(withFeedback(url, "error", "missing_item_handle"));
+  }
+  // A blank field is "she has not typed a value", NOT a zero. Zero is a VALID measurement here (an
+  // empty trough), which is exactly why blank must never be coerced into it: sending 0 for a blank
+  // would record a measurement she never made.
+  if (!rawWastage) {
+    redirect(withFeedback(url, "error", "missing_wastage"));
+  }
+  const wastageKg = Number(rawWastage);
+  if (!Number.isFinite(wastageKg)) {
+    redirect(withFeedback(url, "error", "wastage_out_of_range"));
+  }
+
+  // Derived, not random, so a double-click or a retried Server Action is ONE write. The value is
+  // part of the key: recording 3 kg and then 3.5 kg are two different acts and must not collide,
+  // while re-sending the SAME value replays for free.
+  const idempotencyKey = `feed-wastage-measurement-${completionId}-${wastageKg}`;
+  const result = await recordFeedWastageMeasurement(
+    completionId,
+    { wastage_kg: wastageKg },
+    idempotencyKey,
+  );
+  revalidateVaccinationViews();
+  if (!result.ok) {
+    redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
+  }
+  redirect(withFeedback(url, "success", "wastage_recorded"));
 }
 
 // reworkVerificationItemAction requests SOP rework on the verification item's SOURCE task. The

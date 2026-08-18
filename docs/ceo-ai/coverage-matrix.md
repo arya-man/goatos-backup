@@ -260,6 +260,7 @@ tracked as gaps below.
 | obligation_escalations | ops_exception_queue, action_center_current |
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |
 | feed_direction_completions | gap G7 (feed_adherence) |
+| feed_wastage_completions | EXCLUDED — operator pen-day wastage task state (experiment pens, one leftover-feed video, verifier-recorded kg); leadership sees pending evidence through verification_queue_status. The recorded wastage_kg becomes a leadership metric only when a governed feed-wastage aggregate is built; until then raw rows are execution/evidence state, not a CEO KPI. |
 | feed_transport_tasks | EXCLUDED — operator daily shed task state; leadership sees pending evidence through verification_queue_status, not this execution queue |
 | feed_transport_attempts | EXCLUDED — immutable row-level proof-attempt history; leadership sees aggregate verification backlog through verification_queue_status |
 | shifting_events, shifting_event_impacts, counts_approval_requests, count_projection_* | counts_movement_daily, ops_exception_queue. High-priority feed proof refs, fingerprint, and requirement snapshot are EXCLUDED evidence/config detail; verification backlog remains covered by verification_queue_status. |

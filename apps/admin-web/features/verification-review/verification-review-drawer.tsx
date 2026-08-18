@@ -12,7 +12,7 @@ import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-c
 import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { correctWeightAction, recordVerificationVerdictAction } from "./actions";
+import { correctWeightAction, recordVerificationVerdictAction, recordWastageMeasurementAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
@@ -597,7 +597,42 @@ function VerificationReviewDrawerPanel({
               It is a SIBLING form, not part of the verdict form: the correction is its own act and
               she may make it before deciding or after, including on an item she already approved.
               That is also why it is not disabled by verdictSettled. */}
-          {mayReview && correction ? (
+          {/* THE VERIFIER'S FEED-WASTAGE MEASUREMENT (maintainer decision 2026-08-18).
+
+              The same measurement_correction block drives a DIFFERENT producer route here: a
+              feed_wastage item's number is born on this screen (the operator submits only a
+              video), and the write goes to the feed module's own measurement endpoint. Routed by
+              the block's ref_type — the one value that says which producer owns the record — so
+              the weighing form below cannot post a wastage value at a weighing observation.
+
+              min is 0, not 0.001: an empty trough is a real, good measurement, and zero must stay
+              enterable. No head-count and no reason field — the backend declares neither. */}
+          {mayReview && correction && correction.ref_type === "feed_wastage_completion" ? (
+            <form
+              action={recordWastageMeasurementAction}
+              style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
+            >
+              <input type="hidden" name="completion_id" value={correction.observation_id} />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <div>
+                <b>{correction.title}</b>
+                <div className="small muted">{correction.help}</div>
+              </div>
+              <label className="fld" style={{ marginBottom: 0 }}>
+                <span>{correction.value_label}</span>
+                {/* Deliberately NOT `required`: the rule is the server's, and the action tells her
+                    to enter a value rather than sending one she never typed. */}
+                <input type="number" name="wastage_kg" step="0.001" min="0" max="10000" inputMode="decimal" />
+              </label>
+              <div>
+                <button type="submit" className="btn">
+                  {correction.submit_label}
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          {mayReview && correction && correction.ref_type !== "feed_wastage_completion" ? (
             <form
               action={correctWeightAction}
               style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
