@@ -97,6 +97,9 @@ type Service struct {
 	// (backend/internal/feeddirection/domain/alerts.go). Without it, ListAlerts fails closed with
 	// ErrAlertsUnavailable. See alerts.go.
 	alerts ports.AlertsRepository
+	// analytics is the OPTIONAL windowed directed-rollup reader behind the Feed
+	// Analytics page. Without it, DirectedAnalytics fails closed. See analytics.go.
+	analytics ports.DirectedAnalyticsReader
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {

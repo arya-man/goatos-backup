@@ -43,6 +43,12 @@ type Service interface {
 	// ListPenSessionCaptures reports which of a pen-session's proof slots are ALREADY recorded, by
 	// any operator, with the server proof id of each. Read-only; it gates nothing.
 	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) (app.PenSessionCapturesResult, error)
+	// DirectedAnalytics is the Feed Analytics windowed rollup of the frozen sheet
+	// (directed kg, head-days, per-head grams) — read-only, normal workflow only.
+	DirectedAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.DirectedAnalytics, error)
+	ExecutionAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExecutionAnalytics, error)
+	ExperimentAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExperimentAnalytics, error)
+	StockAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.StockAnalytics, error)
 }
 
 type Handler struct {
@@ -56,6 +62,10 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
+	mux.HandleFunc("GET /feed-analytics/directed", h.GetDirectedAnalytics)
+	mux.HandleFunc("GET /feed-analytics/execution", h.GetExecutionAnalytics)
+	mux.HandleFunc("GET /feed-analytics/experiment", h.GetExperimentAnalytics)
+	mux.HandleFunc("GET /feed-analytics/stock", h.GetStockAnalytics)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
 	// Which of a pen-session's proof slots are already recorded, by ANY operator. Read-only; it is
 	// what lets three people split one pen-session's three proofs.

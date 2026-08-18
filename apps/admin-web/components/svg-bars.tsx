@@ -118,6 +118,7 @@ function BarsSvg({
               height={ROW_HEIGHT}
               rx="4"
               fill={SERIES_PALETTE[index % SERIES_PALETTE.length]}
+              data-tip={`${datum.label}: ${datum.value} ${valueNoun}`}
             >
               <title>{`${datum.label}: ${datum.value} ${valueNoun}`}</title>
             </rect>
