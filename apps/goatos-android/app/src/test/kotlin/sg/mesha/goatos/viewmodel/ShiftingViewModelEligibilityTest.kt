@@ -68,7 +68,7 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
 
         assertTrue(vm.state.value.animalMatches.isEmpty())
-        assertNull(vm.state.value.selectedAnimal)
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
         assertFalse(vm.state.value.canSubmit)
         assertEquals("This animal is no longer active and cannot be shifted.", vm.state.value.animalLookupMessage)
     }
@@ -127,7 +127,7 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
 
         assertEquals("", vm.state.value.animalQuery)
-        assertNull(vm.state.value.selectedAnimal)
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
         // A successful child form returns to Actions; it must not leave its success banner on the
         // now-empty form, which is the current broken behaviour.
         assertNull(vm.state.value.lastRecordedMessage)
@@ -177,7 +177,7 @@ class ShiftingViewModelEligibilityTest {
         // The DTO -> UI mapping preserves the animal's current partition rather than dropping it,
         // which is the root cause of the reported "Coimbatore · Yashoda" FROM chip that could not
         // say which partition the animal was actually in.
-        assertEquals("1", vm.state.value.selectedAnimal?.partitionLabel)
+        assertEquals("1", vm.state.value.selectedAnimals.single().partitionLabel)
     }
 
     @Test
@@ -346,6 +346,127 @@ class ShiftingViewModelEligibilityTest {
         assertEquals("This destination has no tag set", vm.state.value.destinationStageReason)
     }
 
+    // -------------------------------------------------------------------------------------------
+    // The basket (maintainer decision 2026-08-18): one shifting carries MULTIPLE animals from ONE
+    // pen — added one by one via search/scan + tap, each removable — and submits one movement whose
+    // goat_ids is the whole basket.
+    // -------------------------------------------------------------------------------------------
+
+    @Test
+    fun `multiple animals from one pen accumulate and submit as one movement`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002"),
+            ),
+            sync,
+        )
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        // A successful add clears the query and match list so the next scan starts clean.
+        assertEquals(1, vm.state.value.selectedAnimals.size)
+        assertEquals("", vm.state.value.animalQuery)
+        assertTrue(vm.state.value.animalMatches.isEmpty())
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID_B))
+        assertEquals(2, vm.state.value.selectedAnimals.size)
+
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        assertTrue(vm.state.value.canSubmit)
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+
+        // ONE movement carrying the whole basket — never one write per animal.
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), sync.lastShiftingRequest?.goatIds)
+    }
+
+    @Test
+    fun `an animal standing in a different pen is refused and the basket is unchanged`() = runTest(dispatcher) {
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(
+                    lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002",
+                    shedId = YASHODA_SHED_ID, shedName = "Yashoda",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID_B))
+
+        // Refused, with the fix named — mirroring the backend's mixed_source_sheds rejection —
+        // rather than queueing a write that is certain to fail in the outbox.
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals(
+            "This animal is in a different shed. All animals in one shifting must come from the same shed — submit this one, then raise another shifting for the other shed.",
+            vm.state.value.animalLookupMessage,
+        )
+    }
+
+    @Test
+    fun `a same-shed different-partition animal is a different pen and is refused`() = runTest(dispatcher) {
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive", partitionLabel = "1"),
+                animal(
+                    lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002",
+                    partitionLabel = "2",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID_B))
+
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+    }
+
+    @Test
+    fun `removing the last animal clears the pinned farm and destination`() = runTest(dispatcher) {
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")))
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        assertEquals(CBE_PARK_ID, vm.state.value.destinationParkId)
+
+        vm.onEvent(ShiftingEvent.RemoveAnimal(GOAT_ID))
+
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
+        // The next group may stand somewhere else entirely, so nothing stays pinned.
+        assertEquals("", vm.state.value.destinationParkId)
+        assertEquals("", vm.state.value.destinationShedId)
+        assertFalse(vm.state.value.canSubmit)
+    }
+
     /** The lookup is async, so the scope must idle before the match can be selected. */
     private fun TestScope.selectAnimalAndPen(vm: ShiftingViewModel) {
         vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
@@ -398,10 +519,12 @@ class ShiftingViewModelEligibilityTest {
         shedId: String = CBE_SHED_ID,
         shedName: String = "Castro 1",
         partitionLabel: String? = null,
+        goatId: String = GOAT_ID,
+        tag: String = "CBE-ASSUMED-RFID-00001",
     ) = GoatSearchItemDto(
-        goatId = GOAT_ID,
+        goatId = goatId,
         displayId = "G-000325",
-        animalIdentifier1 = "CBE-ASSUMED-RFID-00001",
+        animalIdentifier1 = tag,
         lifecycleStatus = lifecycle,
         locationPath = GoatLocationPathDto(
             operationalLocationDisplay = "Coimbatore / $shedName",
@@ -415,6 +538,7 @@ class ShiftingViewModelEligibilityTest {
 
     private companion object {
         const val GOAT_ID = "d8337607-6e21-41c9-a703-a7b73ae4e545"
+        const val GOAT_ID_B = "e9448718-7f32-42da-b814-b8c84bf5f656"
         const val CBE_PARK_ID = "00000000-0000-4000-8000-000000003001"
         const val CBE_SHED_ID = "43071c6e-3b00-47a9-860c-1bbacb570575"
         const val CPT_PARK_ID = "00000000-0000-4000-8000-000000003002"

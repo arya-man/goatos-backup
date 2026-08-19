@@ -74,7 +74,9 @@
     <string name="counts_shifting_previous_actions_count">%1$d shifting actions</string>
     <string name="counts_shifting_previous_actions_empty">No shifting actions from previous days.</string>
     <string name="counts_shifting_title">Record shifting</string>
-    <string name="counts_shifting_subtitle">Move one animal to another shed</string>
+    <string name="counts_shifting_subtitle">Move animals to another shed</string>
+    <string name="counts_shifting_basket_title">Animals in this shifting (%1$d)</string>
+    <string name="counts_shifting_remove_animal">Remove %1$s from this shifting</string>
     <string name="counts_submit_shifting">Create Shifting</string>
     <string name="counts_shifting_pending_note">Movements you record are submitted for review — they are not authorised on the phone.</string>
     <string name="counts_shifting_from">FROM</string>
@@ -111,6 +113,7 @@
     <string name="counts_group_dates">DATES</string>
     <string name="counts_group_placement">PLACEMENT</string>
     <string name="counts_group_animal">ANIMAL</string>
+    <string name="counts_group_animals">ANIMALS</string>
     <string name="counts_group_account_of_death">ACCOUNT OF DEATH</string>
     <string name="counts_group_recording_death_for">RECORDING DEATH FOR</string>
     <string name="counts_group_to">MOVE TO</string>
@@ -120,7 +123,7 @@
       "management stage" or "cohort". The pen's own tag and the reason it cannot be used are
       backend-composed and rendered verbatim, so they are deliberately NOT string resources here.
     -->
-    <string name="counts_group_stage_mode">TAG FOR THIS ANIMAL</string>
+    <string name="counts_group_stage_mode">TAG FOR THESE ANIMALS</string>
     <string name="counts_stage_mode_keep_current">Keep current tag</string>
     <string name="counts_stage_mode_destination">Use destination tag</string>
     <string name="counts_group_priority">PRIORITY</string>
@@ -165,7 +168,7 @@
     <string name="counts_select_farm">Select a farm</string>
     <string name="counts_select_farm_first">Select a farm first</string>
     <string name="counts_select_animal_first">Select an animal first</string>
-    <string name="counts_shifting_farm_locked">Automatically selected from the animal’s current location</string>
+    <string name="counts_shifting_farm_locked">Automatically selected from the animals’ current location</string>
     <string name="counts_select_shed">Select a shed</string>
     <string name="counts_select_breed">Select a breed</string>
     <string name="counts_location_unknown">Not recorded</string>
@@ -184,7 +187,7 @@
     <!-- Hints -->
     <string name="counts_hint_dob">Cannot be a future date.</string>
     <string name="counts_hint_reason">Between 3 and 500 characters.</string>
-    <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
+    <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animals you add here.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
     <string name="counts_more_fields">More details</string>
 

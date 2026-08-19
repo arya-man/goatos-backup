@@ -1398,9 +1398,11 @@ func TestRecordShiftingEventDerivesImpactFromASingleAnimal(t *testing.T) {
 	if impact.StageTag == nil || *impact.StageTag != "A1" {
 		t.Fatalf("StageTag=%v, want A1", impact.StageTag)
 	}
-	// Same grain shape the explicit-impact path produces, so derived and typed-in movements for the
-	// same shed+breed land on ONE projection row.
-	wantGrain := strings.ToLower(testShedID) + ":sirohi"
+	// Same grain shape the explicit-impact path produces (both call domain.ShiftingImpactGrainKey),
+	// so derived and typed-in movements for the same cohort can never fork key shapes. The key is
+	// the full cohort identity -- shed:breed:stage:age:sex -- so a mixed group's cohorts each keep
+	// their own row under the per-event unique index.
+	wantGrain := strings.ToLower(testShedID) + ":sirohi:a1:adult:female"
 	if impact.GrainKey != wantGrain {
 		t.Fatalf("GrainKey=%q, want %q", impact.GrainKey, wantGrain)
 	}
@@ -1870,6 +1872,13 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 				t.Fatalf("status=%d body=%s, want %d", res.Code, res.Body.String(), tc.wantStatus)
 			}
 			if tc.wantStatus != http.StatusOK {
+				// The rejection must carry its own honest code: the operator's fix is one raise per
+				// source pen, which "missing_impacts" would never tell them.
+				var envelope identitydomain.ErrorEnvelope
+				decodeBody(t, res, &envelope)
+				if envelope.Code != "mixed_source_sheds" {
+					t.Fatalf("code=%q, want mixed_source_sheds", envelope.Code)
+				}
 				return
 			}
 			if repo.lastEvent.SourceParkID != nil || repo.lastEvent.SourceShedID != nil {
@@ -2037,47 +2046,64 @@ func TestRecordShiftingEventDerivesImpactsForAHomogeneousGroup(t *testing.T) {
 	}
 }
 
-// TestRecordShiftingEventRejectsOmittedImpactsForZeroOrMixedCohort pins the two remaining boundaries.
-// Zero animals has nothing to derive from (the pre-existing goat_ids requirement fires first). A
-// MIXED set -- same breed and shed but differing stage/age/sex -- cannot be auto-aggregated without
-// inventing a cohort the operator never entered, so it fails closed and asks for explicit impacts.
-func TestRecordShiftingEventRejectsOmittedImpactsForZeroOrMixedCohort(t *testing.T) {
-	otherGoatID := "99999999-9999-4999-8999-999999999999"
-	cases := map[string]struct {
-		body     map[string]any
-		wantCode string
-	}{
-		"zero animals": {body: shiftingBodyNoImpacts(), wantCode: "missing_goat_ids"},
-		"mixed cohort": {body: shiftingBodyNoImpacts(testGoatID, otherGoatID), wantCode: "missing_impacts"},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			repo := newFakeShiftingRepo()
-			// Same breed + shed, DIFFERENT sex: a cohort split the derivation must not average.
-			repo.goatFacts = map[string]domain.GoatShiftingFact{
-				testGoatID:  {GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi", StageTag: strPtrTest("K2"), Sex: strPtrTest("female")},
-				otherGoatID: {GoatID: otherGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi", StageTag: strPtrTest("K2"), Sex: strPtrTest("male")},
-			}
-			approvals := newFakeApprovalWorkflow()
-			mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+// TestRecordShiftingEventRejectsOmittedImpactsForZeroAnimals pins the remaining hard boundary:
+// zero animals has nothing to derive from, and the pre-existing goat_ids requirement fires first.
+func TestRecordShiftingEventRejectsOmittedImpactsForZeroAnimals(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
 
-			rec := post(t, mux, appShiftingEventRoute, "shift-reject-"+name, tc.body)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
-			}
-			var envelope identitydomain.ErrorEnvelope
-			decodeBody(t, rec, &envelope)
-			if envelope.Code != tc.wantCode {
-				t.Fatalf("code=%q, want %q", envelope.Code, tc.wantCode)
-			}
-			// Nothing may have been recorded, and no approval may be queued, for a rejected submit.
-			if repo.inserts != 0 {
-				t.Fatalf("inserts=%d, want 0", repo.inserts)
-			}
-			if approvals.submits != 0 {
-				t.Fatalf("approval submits=%d, want 0", approvals.submits)
-			}
-		})
+	rec := post(t, mux, appShiftingEventRoute, "shift-reject-zero", shiftingBodyNoImpacts())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	var envelope identitydomain.ErrorEnvelope
+	decodeBody(t, rec, &envelope)
+	if envelope.Code != "missing_goat_ids" {
+		t.Fatalf("code=%q, want missing_goat_ids", envelope.Code)
+	}
+	// Nothing may have been recorded, and no approval may be queued, for a rejected submit.
+	if repo.inserts != 0 {
+		t.Fatalf("inserts=%d, want 0", repo.inserts)
+	}
+	if approvals.submits != 0 {
+		t.Fatalf("approval submits=%d, want 0", approvals.submits)
+	}
+}
+
+// TestRecordShiftingEventSplitsAMixedCohortIntoImpactRows (maintainer decision 2026-08-18): a mixed
+// same-shed group -- here one breed's buck and doe, the shape a multi-RFID raise produces daily --
+// records ONE movement whose derived impacts are one truthful row per distinct cohort. The server
+// neither averages the group into an invented aggregate nor rejects it back to the operator.
+func TestRecordShiftingEventSplitsAMixedCohortIntoImpactRows(t *testing.T) {
+	otherGoatID := "99999999-9999-4999-8999-999999999999"
+	repo := newFakeShiftingRepo()
+	// Same breed + shed, DIFFERENT sex: a cohort split the derivation must state, never average.
+	repo.goatFacts = map[string]domain.GoatShiftingFact{
+		testGoatID:  {GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi", StageTag: strPtrTest("K2"), Sex: strPtrTest("female")},
+		otherGoatID: {GoatID: otherGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi", StageTag: strPtrTest("K2"), Sex: strPtrTest("male")},
+	}
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+	rec := post(t, mux, appShiftingEventRoute, "shift-mixed-cohort-ok", shiftingBodyNoImpacts(testGoatID, otherGoatID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	impacts := repo.lastEvent.Impacts
+	if len(impacts) != 2 {
+		t.Fatalf("recorded impacts=%d, want 2 (one per distinct cohort)", len(impacts))
+	}
+	if impacts[0].GrainKey == impacts[1].GrainKey {
+		t.Fatalf("both impact rows share grain key %q -- distinct cohorts need distinct keys under the per-event unique index", impacts[0].GrainKey)
+	}
+	for _, im := range impacts {
+		if im.HeadCount != 1 {
+			t.Fatalf("HeadCount=%d, want 1 per cohort row", im.HeadCount)
+		}
+	}
+	if approvals.submits != 1 {
+		t.Fatalf("approval submits=%d, want 1 (a mixed group is a normal movement)", approvals.submits)
 	}
 }
 

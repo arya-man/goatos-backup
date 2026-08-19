@@ -48,7 +48,9 @@
     <string name="counts_shifting_previous_actions_empty">గత రోజుల తరలింపు చర్యలు లేవు.</string>
     <string name="counts_shifting_raise">తరలింపును నమోదు చేయండి</string>
     <string name="counts_shifting_title">తరలింపును నమోదు చేయండి</string>
-    <string name="counts_shifting_subtitle">ఒక జంతువును మరో షెడ్‌కు తరలించండి</string>
+    <string name="counts_shifting_subtitle">జంతువులను మరో షెడ్‌కు తరలించండి</string>
+    <string name="counts_shifting_basket_title">ఈ తరలింపులో జంతువులు (%1$d)</string>
+    <string name="counts_shifting_remove_animal">%1$sను ఈ తరలింపు నుండి తొలగించండి</string>
     <string name="counts_submit_shifting">తరలింపును సృష్టించండి</string>
     <string name="counts_shifting_pending_note">మీరు నమోదు చేసిన తరలింపులు సమీక్ష కోసం సమర్పించబడతాయి — వీటిని ఫోన్‌లో అధికారం ఇవ్వరు.</string>
     <string name="counts_priority_high">అధిక</string>
@@ -83,6 +85,7 @@
     <string name="counts_group_dates">తేదీలు</string>
     <string name="counts_group_placement">స్థల నియామకం</string>
     <string name="counts_group_animal">జంతువు</string>
+    <string name="counts_group_animals">జంతువులు</string>
     <string name="counts_group_account_of_death">మరణ వివరణ</string>
     <string name="counts_group_recording_death_for">ఈ జంతువు మరణాన్ని నమోదు చేస్తున్నారు</string>
     <string name="counts_group_to">దీనికి తరలించండి</string>
@@ -92,7 +95,7 @@
       The pen's own tag and the reason it cannot be used come from the server already worded, so
       they are deliberately not translated here.
     -->
-    <string name="counts_group_stage_mode">ఈ జంతువుకు ట్యాగ్</string>
+    <string name="counts_group_stage_mode">ఈ జంతువులకు ట్యాగ్</string>
     <string name="counts_stage_mode_keep_current">ప్రస్తుత ట్యాగ్ ఉంచు</string>
     <string name="counts_stage_mode_destination">గమ్య ట్యాగ్ వాడు</string>
     <string name="counts_group_priority">ప్రాధాన్యత</string>
@@ -137,7 +140,7 @@
     <string name="counts_select_farm">ఒక ఫారంను ఎంచుకోండి</string>
     <string name="counts_select_farm_first">ముందుగా ఒక ఫారంను ఎంచుకోండి</string>
     <string name="counts_select_animal_first">ముందుగా ఒక జంతువును ఎంచుకోండి</string>
-    <string name="counts_shifting_farm_locked">జంతువు ప్రస్తుత స్థానం నుండి స్వయంచాలకంగా ఎంచుకోబడింది</string>
+    <string name="counts_shifting_farm_locked">జంతువుల ప్రస్తుత స్థానం నుండి స్వయంచాలకంగా ఎంచుకోబడింది</string>
     <string name="counts_select_shed">ఒక షెడ్‌ను ఎంచుకోండి</string>
     <string name="counts_select_breed">ఒక జాతిని ఎంచుకోండి</string>
     <string name="counts_location_unknown">నమోదు చేయలేదు</string>
@@ -156,7 +159,7 @@
     <!-- Hints -->
     <string name="counts_hint_dob">భవిష్యత్ తేదీ కావద్దు.</string>
     <string name="counts_hint_reason">3 మరియు 500 అక్షరాల మధ్య.</string>
-    <string name="counts_hint_animal_lookup">ఈ తరలింపును ఆమోదిస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే తరలిస్తారు.</string>
+    <string name="counts_hint_animal_lookup">ఈ తరలింపును ఆమోదిస్తే మీరు ఇక్కడ జోడించిన ఖచ్చితమైన జంతువులనే తరలిస్తారు.</string>
     <string name="counts_hint_death_lookup">మరణాన్ని నమోదు చేస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే నిష్క్రమిస్తుంది.</string>
 
     <!-- Census hero, filter sheet + lifecycle facet, shed subtotals -->
