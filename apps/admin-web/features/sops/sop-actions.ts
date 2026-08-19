@@ -14,7 +14,7 @@ import {
   type SOPValidationReport,
 } from "@/lib/api/server";
 import {
-  VACCINATION_SLICE_LABEL,
+  SOP_SLICE_LABEL,
   buildFormDsl,
   buildProofPolicy,
   buildSopCode,
@@ -45,7 +45,7 @@ export async function saveSopDraft(input: SopBuilderInput): Promise<SaveSopResul
   }
 
   const code = buildSopCode(input);
-  const def = await createSop({ code, name, description: `${VACCINATION_SLICE_LABEL} · ${input.trigger} SOP` });
+  const def = await createSop({ code, name, description: `${SOP_SLICE_LABEL[input.domain]} · ${input.trigger} SOP` });
   if (!def.ok) return { ok: false, message: def.error.message ?? "create SOP failed", code: def.error.code };
 
   const version = await createSopVersion(def.data.sop.sop_id, {

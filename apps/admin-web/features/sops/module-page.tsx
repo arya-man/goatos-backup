@@ -2,6 +2,7 @@ import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyE
 import type { SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
+import type { SopSliceDomain } from "./sop-derive";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -15,7 +16,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 // the builder from the SOP's latest version.
 export async function renderSopModulePage(
   contractKey: string,
-  slice: "vaccination" | "counts" | "feed",
+  slice: SopSliceDomain,
   basePath: string,
   searchParams: Promise<RouteSearchParams>,
 ) {
@@ -30,10 +31,10 @@ export async function renderSopModulePage(
         // If the version has rules/field-types this builder cannot round-trip, still show it (so the
         // author sees the SOP) but block save/publish — re-saving would silently drop that content.
         const editBlocked = !isVersionFaithfullyEditable(version.form_dsl);
-        return <SopBuilder pageContract={pageContract} basePath={basePath} initial={initial} editSopId={editId} editBlocked={editBlocked} />;
+        return <SopBuilder pageContract={pageContract} basePath={basePath} domain={slice} initial={initial} editSopId={editId} editBlocked={editBlocked} />;
       }
     }
-    return <SopBuilder pageContract={pageContract} basePath={basePath} />;
+    return <SopBuilder pageContract={pageContract} basePath={basePath} domain={slice} />;
   }
   const listed = await listSops({ limit: 200 });
 

@@ -48,6 +48,8 @@ function renderLabelOrFallback(label: string | null | undefined): string {
 export function VerificationReviewDrawer({
   items,
   initialSelectedId,
+  nextCursor,
+  nextTrail,
   actionTypeLabels,
   searchParams,
   feedback,
@@ -56,6 +58,8 @@ export function VerificationReviewDrawer({
 }: {
   items: VerificationQueueItem[];
   initialSelectedId?: string;
+  nextCursor?: string;
+  nextTrail?: string;
   // Backend-owned module/page labels, keyed by category, composed once by the page so the drawer
   // subtitle and the queue's ACTION TYPE column can never disagree.
   actionTypeLabels: Record<string, string>;
@@ -74,7 +78,7 @@ export function VerificationReviewDrawer({
   const closeTimerRef = useRef<number | null>(null);
   const item = items.find((candidate) => candidate.item_id === displayedId);
   const drawerOpen = Boolean(activeId && item);
-  const closeHref = hrefWithout(searchParams, ["vi_row"]);
+  const closeHref = hrefWithout(searchParams, ["vi_row", "vi_open_first"]);
   const currentIndex = item ? items.findIndex((i) => i.item_id === item.item_id) : -1;
   const canGoBack = currentIndex > 0;
   const canGoForward = currentIndex >= 0 && currentIndex < items.length - 1;
@@ -165,8 +169,9 @@ export function VerificationReviewDrawer({
   // The item AFTER this one in the currently rendered queue order. Carried through the verdict
   // form so an APPROVAL advances the drawer to the next video instead of dropping the verifier
   // back to the list (on the pending tab the approved item leaves the filtered list, so the
-  // redirect's vi_row no longer resolves and the drawer closed). Empty when this is the last row —
-  // then the approval falls back to the list, which really is the end of the queue.
+  // redirect's vi_row no longer resolves and the drawer closed). If the current page is exhausted
+  // but the keyset queue has another page, the action follows nextCursor instead of declaring the
+  // queue done.
   const nextRowId = currentIndex >= 0 ? (items[currentIndex + 1]?.item_id ?? "") : "";
 
   return (
@@ -183,6 +188,8 @@ export function VerificationReviewDrawer({
         actionTypeLabel={actionTypeLabels[item.category] ?? item.category}
         returnTo={returnTo}
         nextRowId={nextRowId}
+        nextCursor={nextCursor ?? ""}
+        nextTrail={nextTrail ?? ""}
         feedback={feedback}
         open={drawerOpen}
         onClose={closeDrawer}
@@ -204,6 +211,8 @@ function VerificationReviewDrawerPanel({
   actionTypeLabel,
   returnTo,
   nextRowId,
+  nextCursor,
+  nextTrail,
   feedback,
   open,
   onClose,
@@ -220,8 +229,11 @@ function VerificationReviewDrawerPanel({
   item: VerificationQueueItem;
   actionTypeLabel: string;
   returnTo: string;
-  /** The next queue row's item_id, "" when this is the last row. See nextRowId at the call site. */
+  /** The next queue row's item_id, "" when this page is exhausted. See nextRowId at the call site. */
   nextRowId: string;
+  /** Keyset cursor/trail for the next page, used only when nextRowId is empty. */
+  nextCursor: string;
+  nextTrail: string;
   feedback: { status?: string; code?: string };
   open: boolean;
   onClose: () => void;
@@ -636,6 +648,8 @@ function VerificationReviewDrawerPanel({
                       both decisions but read only on approve — a rejection keeps its current
                       return, because the verifier may still be mid-thought on the reason. */}
                   <input type="hidden" name="next_row" value={nextRowId} />
+                  <input type="hidden" name="next_cursor" value={nextCursor} />
+                  <input type="hidden" name="next_trail" value={nextTrail} />
                   <label className="fld" style={{ marginBottom: 0, display: rejecting ? "grid" : "none" }}>
                     <span>{text("verdict.reason_label")}</span>
                     {/* Deliberately not `required`: the same field is mandatory for Reject and
