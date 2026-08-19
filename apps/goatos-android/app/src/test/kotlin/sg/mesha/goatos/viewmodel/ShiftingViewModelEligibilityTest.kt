@@ -1,11 +1,14 @@
 package sg.mesha.goatos.viewmodel
 
+import android.view.KeyEvent
 import androidx.lifecycle.SavedStateHandle
 import androidx.paging.PagingData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -47,6 +50,10 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingEvent
+import sg.mesha.goatos.rfid.RfidRead
+import sg.mesha.goatos.rfid.RfidReaderDevice
+import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.rfid.RfidReaderStatus
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShiftingViewModelEligibilityTest {
@@ -467,6 +474,137 @@ class ShiftingViewModelEligibilityTest {
         assertFalse(vm.state.value.canSubmit)
     }
 
+    // -------------------------------------------------------------------------------------------
+    // Duplicate-row crash regression (2026-08-19) + RFID gun scan auto-add.
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * Regression for the field crash of 2026-08-19: the backend's old join shape returned a goat
+     * once PER MATCHED IDENTIFIER (172 STG animals carry a secondary RFID and a legacy tag under
+     * one identifier type), and two match rows sharing one goat_id blew up the LazyColumn's
+     * unique-key contract — `IllegalArgumentException: Key "match-<goat_id>" was already used` —
+     * closing the app the moment "Find animal" returned. The server grain is fixed at the source;
+     * this pins the client-side net so a duplicated server row can never crash a screen again.
+     */
+    @Test
+    fun `duplicate lookup rows for one goat collapse to one match row`() = runTest(dispatcher) {
+        val duplicated = animal(lifecycle = "alive")
+        val vm = newViewModel(listOf(duplicated, duplicated.copy(animalIdentifier2 = "CBE-1880")))
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+
+        assertEquals(listOf(GOAT_ID), vm.state.value.animalMatches.map { it.goatId })
+    }
+
+    @Test
+    fun `a gun scan resolving to one eligible animal is added to the basket without a tap`() = runTest(dispatcher) {
+        val reader = FakeShiftingRfidReader()
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002"),
+            ),
+            reader = reader,
+            filterByTag = true,
+        )
+        advanceUntilIdle()
+
+        reader.scan("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+
+        // Scan → auto-add: no tap, query cleared for the next scan, farm pinned from the animal.
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals("", vm.state.value.animalQuery)
+        assertTrue(vm.state.value.animalMatches.isEmpty())
+        assertEquals(CBE_PARK_ID, vm.state.value.destinationParkId)
+
+        reader.scan("CBE-ASSUMED-RFID-00002")
+        advanceUntilIdle()
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.selectedAnimals.map { it.goatId })
+    }
+
+    @Test
+    fun `a gun scan from a different pen is refused with the mixed-pen message`() = runTest(dispatcher) {
+        val reader = FakeShiftingRfidReader()
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(
+                    lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002",
+                    shedId = YASHODA_SHED_ID, shedName = "Yashoda",
+                ),
+            ),
+            reader = reader,
+            filterByTag = true,
+        )
+        advanceUntilIdle()
+
+        reader.scan("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+        reader.scan("CBE-ASSUMED-RFID-00002")
+        advanceUntilIdle()
+
+        // Same pen guard as the tap path — the scan cannot smuggle a second shed into the basket.
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals(
+            "This animal is in a different shed. All animals in one shifting must come from the same shed — submit this one, then raise another shifting for the other shed.",
+            vm.state.value.animalLookupMessage,
+        )
+    }
+
+    @Test
+    fun `scanning an already-added animal reports it and clears the query for the next scan`() = runTest(dispatcher) {
+        val reader = FakeShiftingRfidReader()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), reader = reader, filterByTag = true)
+        advanceUntilIdle()
+
+        reader.scan("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+        reader.scan("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals("This animal is already in this shifting.", vm.state.value.animalLookupMessage)
+        assertEquals("", vm.state.value.animalQuery)
+    }
+
+    @Test
+    fun `a gun scan matching two different animals lists them for an explicit tap`() = runTest(dispatcher) {
+        val reader = FakeShiftingRfidReader()
+        // Two DIFFERENT goats behind one scanned string (a shared legacy tag): auto-picking either
+        // would move an animal nobody chose, so both are listed and the basket stays empty.
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00001"),
+            ),
+            reader = reader,
+            filterByTag = true,
+        )
+        advanceUntilIdle()
+
+        reader.scan("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.animalMatches.map { it.goatId })
+    }
+
+    @Test
+    fun `rfid capture follows the screen's active state`() = runTest(dispatcher) {
+        val reader = FakeShiftingRfidReader()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), reader = reader)
+        advanceUntilIdle()
+
+        vm.setRfidCaptureActive(true)
+        assertTrue(reader.captureEnabled)
+        vm.setRfidCaptureActive(false)
+        assertFalse(reader.captureEnabled)
+    }
+
     /** The lookup is async, so the scope must idle before the match can be selected. */
     private fun TestScope.selectAnimalAndPen(vm: ShiftingViewModel) {
         vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
@@ -506,11 +644,14 @@ class ShiftingViewModelEligibilityTest {
         matches: List<GoatSearchItemDto>,
         syncRepository: NoopShiftingSyncRepository = NoopShiftingSyncRepository(),
         destinations: List<CountsDestinationParkDto>? = null,
+        reader: FakeShiftingRfidReader = FakeShiftingRfidReader(),
+        filterByTag: Boolean = false,
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
-        countsRepository = FakeShiftingCountsRepository(matches, destinations),
+        countsRepository = FakeShiftingCountsRepository(matches, destinations, filterByTag),
         analytics = NoopShiftingAnalytics(),
         crashReporter = NoopShiftingCrashReporter(),
+        rfidReader = reader,
         savedStateHandle = SavedStateHandle(),
     )
 
@@ -549,6 +690,8 @@ class ShiftingViewModelEligibilityTest {
 private class FakeShiftingCountsRepository(
     private val matches: List<GoatSearchItemDto>,
     private val destinations: List<CountsDestinationParkDto>? = null,
+    /** When true, [lookupAnimals] resolves like the real endpoint — only rows whose tag matches. */
+    private val filterByTag: Boolean = false,
 ) : CountsRepository {
     override fun observeHerdSummary(lifecycleStatus: String?, parkId: String?, breed: String?, sex: String?): Flow<Resource<HerdRegisterSummaryResponseDto>> =
         flowOf(Resource(data = HerdRegisterSummaryResponseDto()))
@@ -580,7 +723,32 @@ private class FakeShiftingCountsRepository(
             ),
         )
     override suspend fun refreshShiftingDestinations(): Result<Unit> = Result.success(Unit)
-    override suspend fun lookupAnimals(query: String, parkId: String?, shedId: String?): Result<List<GoatSearchItemDto>> = Result.success(matches)
+    override suspend fun lookupAnimals(query: String, parkId: String?, shedId: String?): Result<List<GoatSearchItemDto>> =
+        Result.success(if (filterByTag) matches.filter { it.animalIdentifier1 == query } else matches)
+}
+
+/** Test double for the keyboard-wedge reader: [scan] emits one completed tag read. */
+private class FakeShiftingRfidReader : RfidReaderPort {
+    private val readsFlow = MutableSharedFlow<RfidRead>()
+    override val status: StateFlow<RfidReaderStatus> = MutableStateFlow(RfidReaderStatus.READY)
+    override val reads: SharedFlow<RfidRead> = readsFlow
+    override val readerName: StateFlow<String?> = MutableStateFlow("Test reader")
+    override val devices: StateFlow<List<RfidReaderDevice>> = MutableStateFlow(emptyList())
+
+    var captureEnabled: Boolean = false
+        private set
+
+    suspend fun scan(tag: String) {
+        readsFlow.emit(RfidRead(tag = tag, capturedAtDeviceMs = 1L))
+    }
+
+    override fun refreshStatus() {}
+    override fun openSystemPairing() {}
+    override fun setCaptureEnabled(enabled: Boolean) {
+        captureEnabled = enabled
+    }
+    override fun setCompletionKeySwallowEnabled(enabled: Boolean) {}
+    override fun onKeyEvent(event: KeyEvent): Boolean = false
 }
 
 private class NoopShiftingSyncRepository : SyncRepository {

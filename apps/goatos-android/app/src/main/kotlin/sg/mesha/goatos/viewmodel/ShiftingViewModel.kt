@@ -39,6 +39,7 @@ import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
+import sg.mesha.goatos.rfid.RfidReaderPort
 import javax.inject.Inject
 
 /**
@@ -65,6 +66,7 @@ class ShiftingViewModel @Inject constructor(
     private val countsRepository: CountsRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val rfidReader: RfidReaderPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -85,6 +87,28 @@ class ShiftingViewModel @Inject constructor(
         observeDestinations()
         refreshDestinations()
         recomputeSubmitGate()
+        // HOT device stream (RFID keyboard-wedge reader), same wiring as ScanViewModel: reads only
+        // arrive while setRfidCaptureActive(true) — the shifting-add route enables capture on
+        // composition and disables it on navigate-away, so gun reads never land off-screen.
+        viewModelScope.launch {
+            rfidReader.reads.collect { onTagScanned(it.tag) }
+        }
+    }
+
+    /**
+     * Enable/disable RFID keyboard-wedge capture while the raise form owns the screen. Mirrors the
+     * vaccination Scan screen: completion keys (Enter/Tab) are swallowed while active so a gun
+     * read can never trigger the focused button or navigation.
+     */
+    fun setRfidCaptureActive(active: Boolean) {
+        rfidReader.setCaptureEnabled(active)
+        rfidReader.setCompletionKeySwallowEnabled(active)
+        if (active) rfidReader.refreshStatus()
+    }
+
+    override fun onCleared() {
+        rfidReader.setCompletionKeySwallowEnabled(false)
+        rfidReader.setCaptureEnabled(false)
     }
 
     fun onEvent(event: ShiftingEvent) {
@@ -221,7 +245,7 @@ class ShiftingViewModel @Inject constructor(
      * already named — there is no source input on this screen any more, because the source IS
      * whatever shed the found animal currently stands in.
      */
-    private fun lookupAnimals() {
+    private fun lookupAnimals(autoAdd: Boolean = false) {
         val current = _state.value
         val query = current.animalQuery.trim()
         if (query.isEmpty() || current.isLookingUpAnimals) return
@@ -229,17 +253,38 @@ class ShiftingViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.lookupAnimals(query = query)
                 .onSuccess { matches ->
-                    val eligible = matches.filter(GoatSearchItemDto::isEligibleForShifting)
+                    // distinctBy is the render-safety net for the 2026-08-19 crash (same net
+                    // [toDistinctShiftingAnimalUi] gives the birth/death lookups): a goat whose
+                    // query matched more than one of its identifiers arrived once per identifier
+                    // from the old backend join shape, and two match rows sharing one goat_id blew
+                    // up the list's unique-key contract. The backend grain is fixed at the source
+                    // (goatSummarySelect's identifier join is now a 1:1 lateral aggregate); this
+                    // keeps one screen from ever crashing the app over a duplicated server row.
+                    // Deduped at the DTO grain (not via the UI-mapping helper) because the
+                    // one-eligible-match auto-add decision below needs the deduped DTO count.
+                    val eligible = matches
+                        .filter(GoatSearchItemDto::isEligibleForShifting)
+                        .distinctBy(GoatSearchItemDto::goatId)
+                    val autoMatch = if (autoAdd && eligible.size == 1) {
+                        eligible.single().toShiftingAnimalUi()
+                    } else {
+                        null
+                    }
                     _state.update {
-                        it.copy(
+                        val listed = it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = eligible.toDistinctShiftingAnimalUi(),
+                            animalMatches = eligible.map(GoatSearchItemDto::toShiftingAnimalUi),
                             animalLookupMessage = when {
                                 eligible.isNotEmpty() -> null
                                 matches.isNotEmpty() -> INELIGIBLE_ANIMAL_MESSAGE
                                 else -> NO_MATCH_MESSAGE
                             },
                         )
+                        // A gun scan that resolves to exactly ONE eligible animal goes straight
+                        // into the basket — scan, hear the pen guard's answer, scan the next. More
+                        // than one match (a shared legacy tag) still lists rows for an explicit
+                        // tap, because auto-picking one of two animals moves an animal nobody chose.
+                        if (autoMatch != null) addAnimalToBasket(listed, autoMatch) else listed
                     }
                 }
                 .onFailure { error ->
@@ -280,26 +325,57 @@ class ShiftingViewModel @Inject constructor(
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId }
                 ?: return@update current
-            if (current.selectedAnimals.any { it.goatId == match.goatId }) return@update current
-            val anchor = current.selectedAnimals.firstOrNull()
-            if (anchor != null && !samePen(anchor, match)) {
-                return@update current.copy(animalLookupMessage = MIXED_PEN_MESSAGE)
-            }
-            current.copy(
-                selectedAnimals = current.selectedAnimals + match,
-                animalQuery = "",
-                animalMatches = emptyList(),
-                animalLookupMessage = null,
-                // A shed move is intra-farm by contract. The animals' current park is canonical,
-                // so the first added animal also selects the only legal destination farm. Later
-                // adds are guaranteed same-park by the pen guard above, so the pinned farm and any
-                // chosen destination shed stay valid.
-                destinationParkId = match.parkId,
-                destinationShedId = if (anchor == null) "" else current.destinationShedId,
-                destinationPartitionLabel = if (anchor == null) null else current.destinationPartitionLabel,
-            )
+            addAnimalToBasket(current, match)
         }
         recomputeSubmitGate()
+    }
+
+    /**
+     * The ONE basket-add, shared by the tap path and the gun-scan auto-add so the pen guard can
+     * never be bypassed by one of them. Refusals return the state with only a message changed.
+     */
+    private fun addAnimalToBasket(current: ShiftingUiState, match: ShiftingAnimalUi): ShiftingUiState {
+        if (current.selectedAnimals.any { it.goatId == match.goatId }) {
+            // Scanning the animal a second time is the gun-rhythm duplicate; say so and clear the
+            // field so the next scan starts clean instead of silently doing nothing.
+            return current.copy(
+                animalQuery = "",
+                animalMatches = emptyList(),
+                animalLookupMessage = ALREADY_ADDED_MESSAGE,
+            )
+        }
+        val anchor = current.selectedAnimals.firstOrNull()
+        if (anchor != null && !samePen(anchor, match)) {
+            return current.copy(animalLookupMessage = MIXED_PEN_MESSAGE)
+        }
+        return current.copy(
+            selectedAnimals = current.selectedAnimals + match,
+            animalQuery = "",
+            animalMatches = emptyList(),
+            animalLookupMessage = null,
+            // A shed move is intra-farm by contract. The animals' current park is canonical,
+            // so the first added animal also selects the only legal destination farm. Later
+            // adds are guaranteed same-park by the pen guard above, so the pinned farm and any
+            // chosen destination shed stay valid.
+            destinationParkId = match.parkId,
+            destinationShedId = if (anchor == null) "" else current.destinationShedId,
+            destinationPartitionLabel = if (anchor == null) null else current.destinationPartitionLabel,
+        )
+    }
+
+    /**
+     * A completed RFID-gun read. The tag string is NOT a goat id, so it takes the same round trip
+     * the typed search takes ([lookupAnimals]) — the only difference is `autoAdd`: a scan that
+     * resolves to exactly one eligible animal is added to the basket without a tap, which is what
+     * makes the flow scan → scan → scan at the pen. The reader is only capturing while the raise
+     * form is on screen (see [setRfidCaptureActive]).
+     */
+    private fun onTagScanned(tag: String) {
+        val cleaned = tag.trim()
+        if (cleaned.isEmpty()) return
+        if (!beginEdit()) return
+        _state.update { it.copy(animalQuery = cleaned, animalLookupMessage = null) }
+        lookupAnimals(autoAdd = true)
     }
 
     /**
@@ -616,6 +692,7 @@ class ShiftingViewModel @Inject constructor(
          */
         const val MIXED_PEN_MESSAGE =
             "This animal is in a different shed. All animals in one shifting must come from the same shed — submit this one, then raise another shifting for the other shed."
+        const val ALREADY_ADDED_MESSAGE = "This animal is already in this shifting."
         const val LOOKUP_FAILED_MESSAGE =
             "Couldn't search for animals. Check your connection and try again."
         const val DESTINATIONS_FAILED_MESSAGE =
