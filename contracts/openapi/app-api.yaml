@@ -11529,7 +11529,10 @@ components:
           type: string
         balance_kg:
           type: string
-          description: May be negative -- the ledger is missing a load, never clamped.
+          description: >-
+            Kg the park's store holds now. Opening balances are calibrated to the farm's
+            stock cards at import (stale loads written off); GoatOS directed kg depletes
+            from the cutover. May be negative -- the ledger is missing a load -- never clamped.
         avg_daily_kg:
           type: string
           description: Average directed kg over the item's 7 most recent locked feed days; empty when never directed.
