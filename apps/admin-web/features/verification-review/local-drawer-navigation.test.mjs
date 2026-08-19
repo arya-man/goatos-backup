@@ -49,6 +49,24 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(drawerSource, /renderLabelOrFallback\(item\.verified_by_name\)/);
 });
 
+// An APPROVAL advances the drawer to the NEXT video instead of dropping the verifier back to the
+// list (maintainer ask, 2026-08-19). On the pending tab the approved item leaves the filtered
+// list, so returning with its own vi_row no longer resolved and the drawer closed — one extra
+// click per video, hundreds of times a day. A rejection keeps its current return: the reason flow
+// is mid-thought and must not teleport.
+test("approving a video advances to the next one instead of closing to the list", () => {
+  const actionsSource = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+  // The drawer carries the FOLLOWING row's id through the verdict form...
+  assert.match(drawerSource, /const nextRowId = currentIndex >= 0 \? \(items\[currentIndex \+ 1\]\?\.item_id \?\? ""\) : "";/);
+  assert.match(drawerSource, /name="next_row" value=\{nextRowId\}/);
+  // ...and the action rewrites vi_row to it ONLY on an approval, falling back to the list (vi_row
+  // dropped) when the approved row was the last one.
+  assert.match(actionsSource, /if \(decision === "approved"\) \{/);
+  assert.match(actionsSource, /const nextRow = String\(formData\.get\("next_row"\) \?\? ""\)\.trim\(\);/);
+  assert.match(actionsSource, /if \(nextRow\) url\.searchParams\.set\("vi_row", nextRow\);/);
+  assert.match(actionsSource, /else url\.searchParams\.delete\("vi_row"\);/);
+});
+
 test("top bar hides the backend-owned as-of calendar filter", () => {
   assert.doesNotMatch(shellSource, /contract\.top_bar\.date_range_selector/);
   assert.doesNotMatch(shellSource, /<TopBarDatePicker/);

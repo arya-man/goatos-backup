@@ -162,6 +162,12 @@ export function VerificationReviewDrawer({
   if (!item) return null;
 
   const returnTo = hrefWithRow(searchParams, item.item_id);
+  // The item AFTER this one in the currently rendered queue order. Carried through the verdict
+  // form so an APPROVAL advances the drawer to the next video instead of dropping the verifier
+  // back to the list (on the pending tab the approved item leaves the filtered list, so the
+  // redirect's vi_row no longer resolves and the drawer closed). Empty when this is the last row —
+  // then the approval falls back to the list, which really is the end of the queue.
+  const nextRowId = currentIndex >= 0 ? (items[currentIndex + 1]?.item_id ?? "") : "";
 
   return (
     <>
@@ -176,6 +182,7 @@ export function VerificationReviewDrawer({
         item={item}
         actionTypeLabel={actionTypeLabels[item.category] ?? item.category}
         returnTo={returnTo}
+        nextRowId={nextRowId}
         feedback={feedback}
         open={drawerOpen}
         onClose={closeDrawer}
@@ -196,6 +203,7 @@ function VerificationReviewDrawerPanel({
   item,
   actionTypeLabel,
   returnTo,
+  nextRowId,
   feedback,
   open,
   onClose,
@@ -212,6 +220,8 @@ function VerificationReviewDrawerPanel({
   item: VerificationQueueItem;
   actionTypeLabel: string;
   returnTo: string;
+  /** The next queue row's item_id, "" when this is the last row. See nextRowId at the call site. */
+  nextRowId: string;
   feedback: { status?: string; code?: string };
   open: boolean;
   onClose: () => void;
@@ -622,6 +632,10 @@ function VerificationReviewDrawerPanel({
                       submit 409 instead of silently overwriting the other reviewer's decision. */}
                   <input type="hidden" name="row_version" value={item.row_version} />
                   <input type="hidden" name="return_to" value={returnTo} />
+                  {/* Lets an APPROVAL advance straight to the next video (see the action). Sent for
+                      both decisions but read only on approve — a rejection keeps its current
+                      return, because the verifier may still be mid-thought on the reason. */}
+                  <input type="hidden" name="next_row" value={nextRowId} />
                   <label className="fld" style={{ marginBottom: 0, display: rejecting ? "grid" : "none" }}>
                     <span>{text("verdict.reason_label")}</span>
                     {/* Deliberately not `required`: the same field is mandatory for Reject and
