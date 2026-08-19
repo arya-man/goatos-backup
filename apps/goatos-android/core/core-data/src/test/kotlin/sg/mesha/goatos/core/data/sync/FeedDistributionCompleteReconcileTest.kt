@@ -222,4 +222,86 @@ class FeedDistributionCompleteReconcileTest {
             updatedSessions[key]
         )
     }
+
+    /**
+     * The LIVE dispatch path, not the restart-repair path the two tests above drive. Found
+     * on-device 2026-08-19: an operator submitted a wastage video, the outbox row SUCCEEDED,
+     * and the worklist card stayed "Pending" until the NEXT drain pass — because processItem
+     * called `reconcileFeatureSuccess(item)` with the PRE-dispatch entity, whose `resultJson`
+     * is still null, so the `item.resultJson?.let { ... }` arm silently skipped. The stored row
+     * had the resultJson; the in-memory argument did not. Here the item starts QUEUED with no
+     * resultJson — exactly the live shape — and ONE drain pass must reconcile the Room cache.
+     */
+    @Test
+    fun `live drain pass reconciles a wastage completion in the same pass it succeeds`() = runBlocking {
+        val feedRepository = createFakeFeedRepository()
+        val store = FakeOutboxStore()
+        val engine = SyncEngine(
+            store = store,
+            api = ScriptedAppApi(),
+            connectivityGate = { true },
+            feedRepository = feedRepository,
+        )
+
+        // The mandatory wastage video's PROOF_UPLOAD row, already uploaded (SUCCEEDED with a
+        // proof id) so the completion dispatch can resolve its proof ref.
+        val proofResult = sg.mesha.goatos.core.network.dto.ProofUploadResponseDto(
+            proof = sg.mesha.goatos.core.network.dto.ProofReferenceDto(proofId = "proof-id-1"),
+        )
+        store.insert(
+            OutboxEntity(
+                id = "proof-1",
+                opType = OutboxOpType.PROOF_UPLOAD.name,
+                groupKey = "shed-1",
+                idempotencyKey = "proof-key-1",
+                payloadJson = "{}",
+                status = OutboxStatus.SUCCEEDED.name,
+                attemptCount = 1,
+                maxAttempts = 3,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = Long.MAX_VALUE,
+                lastError = null,
+                resultJson = syncJson.encodeToString(proofResult),
+            ),
+        )
+        // The wastage completion, QUEUED with resultJson = null — the live pre-dispatch shape.
+        val payload = FeedWastageCompletePayload(
+            parkId = "park-1",
+            shedId = "shed-1",
+            partitionLabel = "Part 3",
+            targetDate = "2026-08-19",
+            wastageProofOutboxItemId = "proof-1",
+        )
+        store.insert(
+            OutboxEntity(
+                id = "item-wastage",
+                opType = OutboxOpType.FEED_WASTAGE_COMPLETE.name,
+                groupKey = "shed-1",
+                idempotencyKey = "key-wastage",
+                payloadJson = syncJson.encodeToString(payload),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = 3,
+                conflict = false,
+                createdAt = 1L,
+                updatedAt = 1L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+
+        // ONE pass: dispatch succeeds (FakeAppApi returns pending_verification) and the SAME pass
+        // must reconcile the Room mirror — the operator is looking at the worklist right now.
+        engine.drainOnce()
+
+        assertEquals(
+            "The pass that syncs a wastage completion must reconcile the Room row in that same " +
+                "pass — deferring to the next pass leaves the card on Pending until app restart",
+            "pending_verification",
+            updatedSessions["shed-1|Part 3|experiment"],
+        )
+    }
 }
