@@ -171,7 +171,6 @@ fun FeedWastageScreen(
                 }
             }
             item(key = "filters") { FeedWastageFilterBar(state.filters, onEvent) }
-            item(key = "summary") { FeedWastageSummaryCard(state.summary) }
             item(key = "caption") { FeedSectionCaption(stringResource(R.string.feed_wastage_caption)) }
 
             if (rows.itemCount == 0 && state.emptyMessage != null) {
@@ -257,52 +256,6 @@ private fun FeedWastageFilterBar(filters: FeedFilterUi, onEvent: (FeedWastageEve
             FeedStatusDropdown(
                 selectedStatus = filters.status,
                 onSelect = { onEvent(FeedWastageEvent.SelectStatus(it)) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun FeedWastageSummaryCard(summary: FeedWastageSummaryUi) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.feed_wastage_summary_title),
-            color = MeshaColors.Muted,
-            style = MeshaType.pillStrong,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            FeedStatTile(
-                label = stringResource(R.string.feed_wastage_stat_pens),
-                value = summary.totalPens.toString(),
-                accent = MeshaColors.BrandD,
-                modifier = Modifier.weight(1f),
-            )
-            FeedStatTile(
-                label = stringResource(R.string.feed_status_pending),
-                value = summary.pendingPens.toString(),
-                accent = if (summary.pendingPens > 0) MeshaColors.Warn else MeshaColors.Ink,
-                modifier = Modifier.weight(1f),
-            )
-            FeedStatTile(
-                label = stringResource(R.string.feed_status_awaiting_chip),
-                value = summary.inReviewPens.toString(),
-                accent = MeshaColors.Ink,
-                modifier = Modifier.weight(1f),
-            )
-            FeedStatTile(
-                label = stringResource(R.string.feed_status_completed),
-                value = summary.completedPens.toString(),
-                accent = MeshaColors.Teal,
                 modifier = Modifier.weight(1f),
             )
         }
