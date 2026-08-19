@@ -80,6 +80,16 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   if (!result.ok) {
     redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
   }
+  // An APPROVAL advances to the next video instead of dropping back to the list (maintainer ask,
+  // 2026-08-19): on the pending tab the approved item leaves the filtered list, so returning with
+  // its own vi_row no longer resolved and the drawer closed. The drawer sends the id of the row
+  // that FOLLOWED this one at render time; when there is none, the queue is done and vi_row is
+  // dropped so the verifier lands on the list. A rejection keeps its current return unchanged.
+  if (decision === "approved") {
+    const nextRow = String(formData.get("next_row") ?? "").trim();
+    if (nextRow) url.searchParams.set("vi_row", nextRow);
+    else url.searchParams.delete("vi_row");
+  }
   redirect(withFeedback(url, "success", decision === "approved" ? "verdict_approved" : "verdict_rejected"));
 }
 
