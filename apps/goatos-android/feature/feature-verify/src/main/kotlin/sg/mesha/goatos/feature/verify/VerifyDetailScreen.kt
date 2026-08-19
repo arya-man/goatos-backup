@@ -485,13 +485,15 @@ fun VerifyDetailScreen(
 
     approveDialogForItemId?.let { targetItemId ->
         ApproveConfirmDialog(
+            isSubmitting = state.isSubmitting,
             onConfirm = {
-                approveDialogForItemId = null
                 onEvent(VerifyDetailEvent.Approve(targetItemId))
             },
             onDismiss = {
-                approveDialogForItemId = null
-                onEvent(VerifyDetailEvent.ApproveDialogCancelled(targetItemId))
+                if (!state.isSubmitting) {
+                    approveDialogForItemId = null
+                    onEvent(VerifyDetailEvent.ApproveDialogCancelled(targetItemId))
+                }
             },
         )
     }
@@ -1923,11 +1925,14 @@ private fun RejectReasonDialog(
  */
 @Composable
 private fun ApproveConfirmDialog(
+    isSubmitting: Boolean,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isSubmitting) onDismiss()
+        },
         // design-system:ignore: weight-only override on the Material dialog title style — applying a
         // MeshaType style here would also replace the AlertDialog's own title size/line-height.
         title = { Text(stringResource(R.string.verify_approve_dialog_title), fontWeight = FontWeight.W700) },
@@ -1941,14 +1946,20 @@ private fun ApproveConfirmDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(enabled = !isSubmitting, onClick = onConfirm) {
                 // design-system:ignore: weight-only override on the Material TextButton label style —
                 // a MeshaType style would also replace the button's own size/line-height.
-                Text(stringResource(R.string.verify_approve_dialog_confirm), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+                if (isSubmitting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Ok, strokeWidth = 2.dp)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.verify_detail_submitting), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+                } else {
+                    Text(stringResource(R.string.verify_approve_dialog_confirm), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(enabled = !isSubmitting, onClick = onDismiss) {
                 Text(stringResource(R.string.verify_approve_dialog_cancel), color = MeshaColors.Muted)
             }
         },
