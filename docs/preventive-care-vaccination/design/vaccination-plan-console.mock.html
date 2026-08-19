@@ -9,16 +9,17 @@
   --bg:#F4F7F2; --panel:#FFFFFF; --panel-2:#F1F5EF; --ink:#16201B; --muted:#5E6E64; --faint:#8A998F;
   --line:#E2E8E1; --line2:#EEF2ED;
   --brand:#54A02C; --brand-d:#44831F; --brand-soft:#ECF7E0; --on-brand:#FFFFFF;
+  --on-status:#0B1A0E;
   --sidebar:#ECF1E8; --sidebar-2:#DDE7D8; --sidebar-ink:#46564B; --sidebar-ink2:#13201A; --sidebar-line:#D6E0D1;
   --ok:#3F9A28; --warn:#B5791A; --warnx:#FBF1DE; --danger:#CC3D3D; --dangerx:#FBE6E6; --danger-badge-ink:#FFFFFF;
   --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06);
   --pop:0 16px 44px -12px rgba(16,32,24,.28);
-  --nav-on-ink:#08130B;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0E1512; --panel:#161F1A; --panel-2:#1D2820; --ink:#E9F1EA; --muted:#94A89A; --faint:#6E8377;
   --line:#26332B; --line2:#1C261F;
   --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15); --on-brand:#08130B;
+  --on-status:#0B1A0E;
   --sidebar:#0A0F0C; --sidebar-2:#18211A; --sidebar-ink:#9FB6A6; --sidebar-ink2:#EAF3EE; --sidebar-line:#243A2E;
   --ok:#7CCB45; --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16); --danger-badge-ink:#08130B;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36);
@@ -28,6 +29,7 @@
   --bg:#0E1512; --panel:#161F1A; --panel-2:#1D2820; --ink:#E9F1EA; --muted:#94A89A; --faint:#6E8377;
   --line:#26332B; --line2:#1C261F;
   --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15); --on-brand:#08130B;
+  --on-status:#0B1A0E;
   --sidebar:#0A0F0C; --sidebar-2:#18211A; --sidebar-ink:#9FB6A6; --sidebar-ink2:#EAF3EE; --sidebar-line:#243A2E;
   --ok:#7CCB45; --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16); --danger-badge-ink:#08130B;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36);
@@ -35,6 +37,7 @@
 }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Public Sans",ui-sans-serif,system-ui,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
 h1,h2,h3{font-family:"Bricolage Grotesque","Public Sans",sans-serif;text-wrap:balance;margin:0}
 .num{font-variant-numeric:tabular-nums}
@@ -99,7 +102,7 @@ button{font:inherit;color:inherit;background:none;border:none}
   background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:saturate(1.2) blur(6px);font-size:12.5px;color:var(--muted)}
 .navback b{color:var(--ink);font-weight:600}
 .navback .sep{opacity:.5}
-.wrap{max-width:1180px;padding:20px 22px 80px}
+.wrap{max-width:1180px;padding:20px 22px 34px}
 
 .note{border:1px dashed var(--brand);background:var(--brand-soft);border-radius:10px;padding:11px 15px;margin-bottom:18px;font-size:13px;color:var(--muted)}
 .note b{font-family:"Bricolage Grotesque",sans-serif;color:var(--brand-d);margin-right:8px}
@@ -127,12 +130,9 @@ h1{font-size:clamp(22px,2.8vw,30px);font-weight:800;letter-spacing:-.022em;line-
 .f .car{font-size:9px;opacity:.7}
 .f.plain{background:transparent;color:var(--ink);border-color:var(--line)}
 .f.plain:hover{border-color:var(--brand);box-shadow:none}
-.f.big{font-size:15px;padding:7px 13px}
 
 /* readiness */
-.ready{margin-top:17px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);padding:15px 16px}
-.ready h3{font-size:14.5px;font-weight:700;letter-spacing:-.012em}
-.ready>p{margin:3px 0 13px;color:var(--muted);font-size:13px}
+.readycard .rail-h .t{font-size:14px}
 .checks{list-style:none;margin:0;padding:12px 14px;display:flex;flex-direction:column;gap:11px}
 .checks li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px}
 .mark{flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:2px}
@@ -187,25 +187,12 @@ h1{font-size:clamp(22px,2.8vw,30px);font-weight:800;letter-spacing:-.022em;line-
 
 
 /* ---- sticky action bar ---- */
-.wrap{padding-bottom:34px}
 .actionbar{position:sticky;bottom:0;z-index:80;background:color-mix(in srgb,var(--panel) 94%,transparent);
   backdrop-filter:saturate(1.4) blur(12px);border-top:1px solid var(--line);box-shadow:0 -8px 26px -18px rgba(0,0,0,.6)}
 .ab-in{display:flex;align-items:center;gap:12px;padding:11px 22px;max-width:1180px;flex-wrap:wrap}
 .ab-spacer{flex:1;min-width:8px}
-.ab-ready{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;
-  padding:6px 12px;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink)}
-.ab-ready:hover{border-color:var(--brand)}
-.ab-ready[aria-expanded="true"] .car{transform:rotate(180deg)}
-.ab-ready .car{font-size:9px;opacity:.6;transition:transform .18s}
-.ab-mark{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;
-  background:var(--warnx);color:var(--warn);border:1px solid var(--warn);flex:none}
-.ab-mark.done{background:var(--brand-soft);color:var(--brand-d);border-color:var(--brand)}
-.ab-panel{border-top:1px solid var(--line);padding:14px 22px 16px;max-width:1180px;background:var(--panel-2)}
-.ab-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.ab-lead{margin:0 0 11px;color:var(--muted);font-size:13px}
 .ab-x{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;cursor:pointer;color:var(--muted);font-size:13px;flex:none;margin-top:-4px}
 .ab-x:hover{background:var(--panel);color:var(--ink)}
-.btn.sm{padding:8px 14px;font-size:13.5px}
 .btn.pubb:disabled{background:transparent;color:var(--ink);border-color:var(--line)}
 @media (max-width:700px){.ab-ready span:not(.ab-mark):not(.car){display:none}.ab-in{padding:10px 14px}}
 /* ---- procurement waves ---- */
@@ -213,28 +200,71 @@ h1{font-size:clamp(22px,2.8vw,30px);font-weight:800;letter-spacing:-.022em;line-
 .wave{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:13px 15px}
 .wave .wv{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:15.5px;margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .wave .wd{color:var(--faint);font-size:12.5px;margin-top:7px;line-height:1.45}
+.chips{display:flex;gap:7px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:13.5px;font-weight:600;
+  color:var(--muted);background:var(--panel-2);cursor:pointer}
+.chip:hover{border-color:var(--brand);color:var(--brand-d)}
+.chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-d)}
+/* ---- toast + collapsed sidebar ---- */
+#toast{position:fixed;left:50%;bottom:88px;transform:translate(-50%,10px);z-index:400;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--pop);
+  padding:11px 18px;font-size:13.5px;color:var(--ink);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+.side.collapsed{width:64px;padding:12px 8px}
+.side.collapsed .nav span:not(.ic):not(.ct),.side.collapsed .ggrp span:not(.ic),
+.side.collapsed .subnav,.side.collapsed .sidefoot{display:none}
+.side.collapsed .nav,.side.collapsed .ggrp{justify-content:center;padding:10px 0}
+/* ---- add vaccine ---- */
+.addvac{width:calc(100% - 12px);margin:4px 6px 8px;border:1px dashed var(--line);border-radius:9px;padding:9px;
+  font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer}
+.addvac:hover{border-color:var(--brand);color:var(--brand-d)}
+.nvsec{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-weight:600;margin:20px 0 11px}
+.nvsec:first-of-type{margin-top:4px}
+.nvgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(214px,1fr));gap:11px}
+.nvf{display:flex;flex-direction:column;gap:6px}
+.nvf.nvwide{grid-column:1/-1}
+.nvf>span{font-size:12.5px;color:var(--muted);font-weight:500}
+.nvf>span b{color:var(--warn);font-weight:700;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;margin-left:5px}
+.nvf input,.nvf select{font:inherit;font-size:14.5px;padding:9px 11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel-2);color:var(--ink);width:100%}
+.nvf input:focus,.nvf select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.nvfoot{display:flex;align-items:center;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line);flex-wrap:wrap}
+/* ---- list screen ---- */
+.backlink{font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;padding:6px 0;margin-bottom:6px}
+.backlink:hover{color:var(--brand-d)}
+.navback a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent}
+.navback a:hover{color:var(--brand-d);border-color:var(--brand)}
+.hactions{display:flex;gap:9px;flex-wrap:wrap}
+.livecard{border-color:var(--brand)}
+.livegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.livegrid>div{background:var(--panel-2);padding:12px 14px}
+.lv{margin-top:5px;font-weight:600;font-size:15px}
+.draftnudge{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  margin-top:16px;border:1px solid var(--warn);background:var(--warnx);border-radius:10px;padding:12px 15px;font-size:13.5px}
+.draftnudge b{color:var(--ink)}
+.dn-l{color:var(--muted)}
+.btn.sm{padding:7px 14px;font-size:13.5px}
 /* ---- versions ---- */
-.vtab td{vertical-align:top}
-.vtab .vby{display:block;font-size:11.5px;color:var(--faint);font-variant-numeric:normal}
+.verline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:600;font-size:14.5px}
+.vby{display:block;font-size:11.5px;color:var(--faint);font-variant-numeric:normal}
+.vst{margin-left:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:5px;padding:1px 7px;border:1px solid var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+.vst.draft{border-color:var(--warn);color:var(--warn);background:var(--warnx)}
 tr.vlive td{background:var(--brand-soft)}
 tr.voff td{opacity:.5}
-.vhere{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
 .vbtn{font-size:12.5px;font-weight:600;border:1px solid var(--line);border-radius:8px;padding:5px 11px;cursor:pointer;color:var(--ink);white-space:nowrap}
 .vbtn:hover{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
 .vmodal{position:fixed;inset:0;z-index:300;background:rgba(6,12,9,.62);display:grid;place-items:center;padding:24px}
 .vmodal[hidden]{display:none}
 .vsheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--pop);
-  width:min(760px,100%);max-height:82vh;display:flex;flex-direction:column;overflow:hidden}
+  width:min(860px,100%);max-height:82vh;display:flex;flex-direction:column;overflow:hidden}
 .vhead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 20px;border-bottom:1px solid var(--line)}
 .vhead h2{font-size:19px;font-weight:700;letter-spacing:-.018em;margin-top:3px}
 .vbody{padding:18px 20px;overflow:auto}
 .vlead{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.55}
 .vlead b{color:var(--ink)}
 /* ---- products under a vaccine ---- */
-.prods{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.prod{display:inline-flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:8px;
-  padding:7px 12px;background:var(--panel);font-weight:700;font-size:14px;color:var(--ink)}
-.prod i{font-style:normal;font-weight:500;font-size:11px;color:var(--faint);letter-spacing:.02em}
 .unres{display:flex;gap:11px;align-items:flex-start;margin-top:12px;border:1px dashed var(--warn);
   background:var(--warnx);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:var(--ink)}
 .ux{flex:none;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:12px;
@@ -283,7 +313,7 @@ tr.voff td{opacity:.5}
 .tl-tick i{display:block;font-style:normal;font-size:11px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
 .tl-bar{display:flex;height:30px;border-radius:8px;overflow:hidden;background:var(--line)}
 .tl-seg{height:100%;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 6px}
-.tl-seg span{font-size:11.5px;font-weight:700;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#0B1A0E}
+.tl-seg span{font-size:11.5px;font-weight:700;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--on-status)}
 .tl-seg.g{background:var(--brand)}
 .tl-seg.a{background:var(--warn)}
 .tl-seg.r{background:var(--danger)}
@@ -402,8 +432,7 @@ details.ref[open] summary::before{content:"▾"}
     <div class="subnav open" id="pcSub">
       <button class="leaf">Vaccination</button>
       <button class="leaf">Live Drive Tracker</button>
-      <button class="leaf on">Vaccination plan<span class="new">moved</span></button>
-      <button class="leaf">Vaccination SOP<span class="gone">folded in</span></button>
+      <button class="leaf on" aria-current="page">Vaccination plan<span class="new">moved</span></button>
     </div>
 
     <button class="ggrp"><span class="ic">▤</span>Procurement<span class="chev gsp">›</span></button>
@@ -427,15 +456,70 @@ details.ref[open] summary::before{content:"▾"}
 
   <!-- ============ MAIN ============ -->
   <main class="main">
-    <div class="navback">Preventive Care <span class="sep">/</span> <b>Vaccination plan</b> <span class="sep">/</span> Company · version 4 draft</div>
+    <div class="navback" id="crumb"></div>
 
-    <div class="wrap">
-      <div class="note"><b>Interactive mock</b>Full page in context — the sidebar shows the proposed move: <b style="color:var(--ink);font-family:inherit">Config</b> leaves Admin / Data Ops and becomes <b style="color:var(--ink);font-family:inherit">Vaccination plan</b> under Preventive Care, and the SOP page folds into it. Every control below works. Nothing saves to a server.</div>
+    <!-- ============ SCREEN 1 — the list ============ -->
+    <div class="wrap" id="screenList">
+      <div class="note"><b>Interactive mock</b>Same two screens you have today — this list, and the editor behind <b style="color:var(--ink);font-family:inherit">Edit plan</b>. Only the look and the wording change. Nothing saves to a server.</div>
 
       <header class="head">
         <div class="head-top">
           <div>
-            <div class="eyebrow">Preventive Care · Vaccination plan</div>
+            <div class="eyebrow">Preventive Care</div>
+            <h1>Vaccination plan</h1>
+            <p class="sub">One plan decides which animal gets which vaccine, and when. Only you and the COO can publish it.</p>
+          </div>
+          <div class="hactions" id="listActions"></div>
+        </div>
+      </header>
+
+      <section class="card livecard">
+        <div class="card-h">
+          <div><div class="eyebrow" style="margin-bottom:4px">Live right now</div>
+            <h2 id="liveName">V3 Real Vaccination</h2></div>
+          <span class="pill live"><span class="dot"></span>Published</span>
+        </div>
+        <div class="card-b">
+          <div class="livegrid">
+            <div><div class="k">In force since</div><div class="lv num">12 Mar 2026</div></div>
+            <div><div class="k">Applies to</div><div class="lv">Whole company · both parks</div></div>
+            <div><div class="k">Vaccines in the plan</div><div class="lv"><span class="num">6</span> of 7</div></div>
+            <div><div class="k">Published by</div><div class="lv">Ravi Teja<span class="vby">CEO · 10 Mar 2026</span></div></div>
+          </div>
+          <div class="scroll" style="margin-top:16px"><table class="tabl">
+            <thead><tr><th>Vaccine</th><th>First doses</th><th>Repeats</th><th></th></tr></thead>
+            <tbody id="liveRows"></tbody>
+          </table></div>
+          <div class="draftnudge" id="draftNudge" hidden>
+            <span class="dn-l"><b>A draft is waiting.</b> <span id="draftLabel"></span> — not live yet.</span>
+            <span class="ab-spacer"></span>
+            <button class="btn ghost sm" id="discardBtn">Discard it</button>
+            <button class="btn sm" id="openDraftBtn">Open the draft</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><div><h2>Earlier versions</h2>
+          <p class="s">Every published plan is kept. Publishing retires the current one and starts a new number — nothing is overwritten.</p></div></div>
+        <div class="card-b"><div class="scroll"><table class="tabl">
+          <thead><tr><th>Version</th><th>In force</th><th>Published</th><th>What changed</th><th></th></tr></thead>
+          <tbody id="oldRows"></tbody>
+        </table></div></div>
+      </section>
+
+    </div>
+
+    <!-- ============ SCREEN 2 — the editor ============ -->
+    <div class="wrap" id="screenEditor" hidden>
+      <div class="note"><b>Interactive mock</b>Full page in context — the sidebar shows the proposed move: <b style="color:var(--ink);font-family:inherit">Config</b> leaves Admin / Data Ops and becomes <b style="color:var(--ink);font-family:inherit">Vaccination plan</b> under Preventive Care, and the SOP page folds into it. Every control below works. Nothing saves to a server.</div>
+
+      <button class="backlink" id="backBtn">← Vaccination plan</button>
+
+      <header class="head">
+        <div class="head-top">
+          <div>
+            <div class="eyebrow" id="edEyebrow">Editing draft</div>
             <h1>Company vaccination plan</h1>
             <p class="sub">One plan decides which animal gets which vaccine, and when. Publishing it schedules every future vaccination task across both parks.</p>
           </div>
@@ -446,27 +530,17 @@ details.ref[open] summary::before{content:"▾"}
           <div><div class="k">Applies to</div><div class="vv"><button class="f plain" data-bind="scope">Whole company <span class="car">▾</span></button></div></div>
           <div><div class="k">Animals</div><div class="vv"><button class="f plain" data-bind="species">Goats and sheep <span class="car">▾</span></button></div></div>
           <div><div class="k">Starts on</div><div class="vv"><button class="f plain" data-bind="startsOn">1 Sep 2026 <span class="car">▾</span></button></div></div>
-          <div><div class="k">Replaces</div><div class="vv" style="font-weight:600;font-size:14.5px;padding-top:5px">Version 3 · live since Mar 2026</div></div>
+          <div><div class="k">Replaces</div><div class="vv verline"><span>V3 · live since 12 Mar 2026</span></div></div>
         </div>
 
       </header>
-
-      <section class="card" id="verCard">
-        <div class="card-h">
-          <div><h2>Versions</h2>
-          <p class="s">Every published plan is kept. Nothing is overwritten — publishing retires the old one and starts a new number.</p></div>
-        </div>
-        <div class="card-b"><div class="scroll"><table class="tabl vtab">
-          <thead><tr><th>Version</th><th>Status</th><th>In force</th><th>Published</th><th>What changed</th><th></th></tr></thead>
-          <tbody id="verRows"></tbody>
-        </table></div></div>
-      </section>
 
       <div class="panes">
         <div class="leftcol">
           <nav class="rail" aria-label="Vaccines">
             <div class="rail-h"><div class="t">Vaccines</div><div class="s" id="railCount"></div></div>
             <ul class="vlist" id="vlist"></ul>
+            <button class="addvac" id="addVacBtn">+ Add a vaccine</button>
           </nav>
           <section class="rail readycard">
             <div class="rail-h"><div class="t" id="readyTitle">Before this can go live</div>
@@ -498,8 +572,8 @@ details.ref[open] summary::before{content:"▾"}
       </section>
 
       <section class="card">
-        <div class="card-h"><div><h2>Goats bought in as adults</h2>
-          <p class="s">Animals that arrive from outside have no history with us. This decides how they catch up. One policy for the whole plan.</p></div></div>
+        <div class="card-h"><div><h2>Procurement holding</h2>
+          <p class="s">Only vaccines given by us, in our parks or a supervised procurement holding park with proof, count as trusted history. Anything else starts the normal schedule once the animal reaches our sheds.</p></div></div>
         <div class="card-b">
           <div class="sent" style="line-height:2.3">
             <span class="lead">Settle in</span>
@@ -510,20 +584,29 @@ details.ref[open] summary::before{content:"▾"}
             <span class="lead">Kid or adult</span>
             Anything younger than
             <button class="f" data-pp="kidUntil">${label(KIDW_OPTS,plan.kidUntil)} <span class="car">▾</span></button>
-            follows the normal kid schedule above. Older animals use the catch-up below.
+            follows the normal kid schedule above. Older animals use the waves below.
           </div>
           <div class="sent" style="line-height:2.3">
-            <span class="lead">Seller's word</span>
+            <span class="lead">Prior doses</span>
             Vaccinations the seller claims they already gave:
             <button class="f" data-pp="trustPrior">${label(TRUST_OPTS,plan.trustPrior)} <span class="car">▾</span></button>.
           </div>
-          <p class="hintline">Only vaccines given by us, in our parks or a supervised holding park with proof, ever count as real history. An unproven claim starts the schedule from scratch.</p>
-          <div class="waves">
-            <div class="wave"><div class="k">First visit</div><div class="wv">ET + TT · PPR</div>
-              <div class="wd">Given as soon as the settling-in period ends.</div></div>
-            <div class="wave"><div class="k">Second visit</div>
-              <div class="wv"><button class="f" data-pp="wave2">${label(WAVE_OPTS,plan.wave2)} <span class="car">▾</span></button> later</div>
-              <div class="wd">Goats get Goat Pox · sheep get Sheep Pox. Live vaccines need the gap.</div></div>
+
+          <div class="sec-label" style="margin-top:22px">First wave vaccines</div>
+          <div class="chips" id="wave1"></div>
+
+          <div class="sec-label" style="margin-top:20px">Second wave, after</div>
+          <div class="sent" style="line-height:2.3">
+            <span class="lead">Gap</span>
+            Wait
+            <button class="f" data-pp="wave2">${label(WAVE_OPTS,plan.wave2)} <span class="car">▾</span></button>
+            after the first wave before the second visit.
+          </div>
+          <p class="hintline">Live vaccines in the second wave still wait out the live-to-live spacing window. ET + TT dose 2 uses its own 21-day course gap.</p>
+
+          <div class="nvgrid" style="margin-top:18px">
+            <div><div class="sec-label">Goat second wave</div><div class="chips" id="wave2g"></div></div>
+            <div><div class="sec-label">Sheep second wave</div><div class="chips" id="wave2s"></div></div>
           </div>
         </div>
       </section>
@@ -568,9 +651,65 @@ details.ref[open] summary::before{content:"▾"}
 
 <div class="pop" id="pop" hidden role="listbox"></div>
 
+<div class="vmodal" id="newVacModal" hidden>
+  <div class="vsheet" role="dialog" aria-modal="true" aria-labelledby="nvTitle">
+    <div class="vhead"><div><div class="k">New vaccine</div><h2 id="nvTitle">Add a vaccine to this plan</h2></div>
+      <button class="ab-x" id="nvClose" aria-label="Close">✕</button></div>
+    <div class="vbody">
+      <p class="vlead">Everything marked <b>required</b> must be filled before the plan can be published. The rest can be left as-is.</p>
+
+      <div class="nvsec">Basics</div>
+      <div class="nvgrid">
+        <label class="nvf"><span>Name <b>required</b></span><input id="nvName" placeholder="e.g. Brucella"></label>
+        <label class="nvf"><span>Short code <b>required</b></span><input id="nvCode" placeholder="e.g. BRU"></label>
+        <label class="nvf nvwide"><span>What it protects against</span><input id="nvDisease" placeholder="e.g. Brucellosis"></label>
+      </div>
+
+      <div class="nvsec">Biology — this decides the spacing rules</div>
+      <div class="nvgrid">
+        <label class="nvf"><span>Live or killed <b>required</b></span>
+          <select id="nvType"><option>Killed</option><option>Live</option></select></label>
+        <label class="nvf"><span>Bacterial or viral <b>required</b></span>
+          <select id="nvClass"><option>Bacterial</option><option>Viral</option></select></label>
+      </div>
+      <p class="hintline" id="nvSpacing"></p>
+
+      <div class="nvsec">Who gets it</div>
+      <div class="nvgrid">
+        <label class="nvf"><span>Species <b>required</b></span>
+          <select id="nvSpp"><option>Goats and sheep</option><option>Goats only</option><option>Sheep only</option></select></label>
+
+      </div>
+
+      <div class="nvsec">The course</div>
+      <div class="nvgrid">
+        <label class="nvf"><span>One dose or two <b>required</b></span>
+          <select id="nvCourse"><option>One dose only</option><option>First dose + booster</option></select></label>
+        <label class="nvf"><span>First dose at</span>
+          <select id="nvAge"><option>4 weeks</option><option>8 weeks</option><option selected>12 weeks</option><option>16 weeks</option><option>20 weeks</option></select></label>
+        <label class="nvf" id="nvBoostWrap" hidden><span>Booster, after the first dose</span>
+          <select id="nvBoost"><option>3 weeks</option><option>4 weeks</option><option>6 weeks</option></select></label>
+        <label class="nvf"><span>Repeat every</span>
+          <select id="nvRepeat"><option>6 months</option><option>9 months</option><option selected>1 year</option><option>3 years</option></select></label>
+        <label class="nvf"><span>Can be up to … late</span>
+          <select id="nvLate"><option>1 week</option><option selected>2 weeks</option><option>3 weeks</option><option>1 month</option></select></label>
+
+      </div>
+
+
+      <div class="nvfoot">
+        <span class="hintline" id="nvErr"></span>
+        <span class="ab-spacer"></span>
+        <button class="btn ghost sm" id="nvCancel">Cancel</button>
+        <button class="btn" id="nvSave">Add to the draft</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="vmodal" id="verModal" hidden>
   <div class="vsheet" role="dialog" aria-modal="true" aria-labelledby="verTitle">
-    <div class="vhead"><div><div class="k">Published plan</div><h2 id="verTitle"></h2></div>
+    <div class="vhead"><div><div class="k">Read-only</div><h2 id="verTitle"></h2></div>
       <button class="ab-x" id="verClose" aria-label="Close">✕</button></div>
     <div class="vbody" id="verBody"></div>
   </div>
@@ -598,8 +737,6 @@ const TRUST_OPTS=[["count them",true],["ignore them",false]];
 const UNIT_OPTS=[["days","days"],["weeks","weeks"],["months","months"],["years","years"]];
 
 const VERSIONS=[
- {v:4,label:"V4 · 2026 revision",status:"draft",effective:"1 Sep 2026",publishedOn:"—",publishedBy:"—",
-  note:"You are editing this now."},
  {v:3,label:"V3 Real Vaccination",status:"live",effective:"12 Mar 2026",publishedOn:"10 Mar 2026",publishedBy:"Ravi Teja · CEO",
   note:"Added Sheep Pox. Moved Goat Pox to 16 weeks.",
   snap:[["ET + TT","4 weeks + booster 3 weeks later","6 months"],["PPR","16 weeks","3 years"],
@@ -618,10 +755,21 @@ const VERSIONS=[
 const BASE=[
  {id:"ettt",code:"ET\nTT",name:"ET + TT",on:true,priority:1,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
   blurb:"Enterotoxaemia and Tetanus. Two doses, then a repeat every 6 months. Highest priority in the drive order.",
-  products:[{n:"Z1",k:"brand"},{n:"Z2",k:"brand"},{n:"Z3",k:"separate product"}],
   stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
   courses:{mv:[{age:28},{after:21}]},
   repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
+ {id:"z1",code:"Z1",name:"Z1",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
+  blurb:"Killed, bacterial/toxoid. Same schedule as ET + TT. Real product name still needed.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,
+  courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
+ {id:"z2",code:"Z2",name:"Z2",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
+  blurb:"Killed, bacterial/toxoid. Same schedule as ET + TT. Real product name still needed.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,
+  courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
+ {id:"z3",code:"Z3",name:"Z3",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
+  blurb:"Killed, bacterial/toxoid. Same schedule as ET + TT. Real product name still needed.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,
+  courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
  {id:"ppr",code:"PPR",name:"PPR",on:true,priority:2,type:"Single",dose:"1 ml",vial:"100 doses",herd:2033,
   blurb:"Peste des Petits Ruminants. One dose, then a repeat every 3 years.",
   stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
@@ -693,7 +841,7 @@ function egLine(onTime,late){
 }
 const clone=o=>JSON.parse(JSON.stringify(o));
 let LIVE=clone(BASE),V=clone(BASE),cur="ettt",dirty=false,saved=false;
-let plan={scope:"company",species:"both",startsOn:"2026-09-01",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28},planLive=clone(plan);
+let plan={scope:"company",species:"both",startsOn:"2026-09-01",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28,firstWave:["ET + TT","PPR"],goatWave2:["Goat Pox"],sheepWave2:["Sheep Pox"]},planLive=clone(plan);
 
 const $=s=>document.querySelector(s);
 const label=(o,v)=>{const h=o.find(x=>x[1]===v);return h?h[0]:String(v)};
@@ -770,7 +918,7 @@ function renderRail(){
     if(v.id===cur)b.setAttribute("aria-current","true");
     const ch=JSON.stringify(v)!==JSON.stringify(liveVac(v.id));
     b.innerHTML=`<span class="sw">${v.code.replace("\n","<br>")}</span>
-      <span class="v-txt"><span class="v-name">${v.name}${ch?'<span class="edited" title="Changed from the live plan"></span>':""}</span>
+      <span class="v-txt"><span class="v-name">${v.name}${ch?'<span class="edited" role="img" aria-label="Changed from the live plan" title="Changed from the live plan"></span>':""}</span>
       <span class="v-sched">${schedLine(v)}</span></span>`;
     b.onclick=()=>{cur=v.id;renderAll()};li.appendChild(b);ul.appendChild(li)});
   const on=V.filter(v=>v.on).length;
@@ -781,12 +929,16 @@ function renderDetail(){
   $("#detail").innerHTML=`
   <section class="card">
     <div class="card-h">
-      <div><h2>${v.name} <span class="prio${v.type==="Booster"?" bo":""}">${v.type==="Booster"?"Booster course":"Single dose"}</span><span class="prio">Drive priority ${v.priority}</span></h2><p class="s">${v.blurb}</p></div>
+      <div><h2>${v.name} <span class="prio${v.type==="Booster"?" bo":""}">${v.type==="Booster"?"Two doses":"One dose"}</span></h2><p class="s">${v.blurb}</p></div>
       <span style="display:flex;align-items:center;gap:10px;white-space:nowrap">
         <span style="font-size:13px;color:var(--muted)">${v.on?"In this plan":"Switched off"}</span>
         <button class="sws" id="vOn" role="switch" aria-checked="${v.on}" aria-label="Include ${v.name}"></button></span>
     </div>
     <div class="card-b"${v.on?"":' style="opacity:.45;pointer-events:none"'}>
+      ${v.unnamed?`<div class="unres"><span class="ux">?</span><div><b>Real name still needed.</b>
+        "${v.name}" is our shorthand, not what is printed on the bottle. Until the label name and maker are
+        recorded, a lot cannot be traced back to a manufacturer and a vial photo showing "${v.name}" proves nothing.
+        The schedule below is the one the vet gave for it.</div></div>`:""}
       <div class="sec-label">Which animals get it</div>
       <div class="whoq">Give to
         <button class="f" data-e="stage">${label(STAGE_OPTS,v.stage)} <span class="car">▾</span></button>
@@ -850,14 +1002,6 @@ function renderDetail(){
             <div class="fact"><div class="k">Dose</div><div class="v num">${v.dose}</div></div>
             <div class="fact"><div class="k">Vial</div><div class="v num">${v.vial}</div></div>
           </div>
-          ${v.products?`
-          <div class="k" style="margin-top:16px">What the parks actually buy</div>
-          <div class="prods">${v.products.map(pr=>`<span class="prod">${pr.n}<i>${pr.k}</i></span>`).join("")}</div>
-          <div class="unres"><span class="ux">?</span><div><b>Not settled yet.</b>
-            Z1 and Z2 are different brands of this vaccine; Z3 is described as a separate product with the
-            same properties, and the vet says all of them can be given together with ET + TT.
-            Until the real label names are known, none of them is configured here — brands belong in stock,
-            not in the plan, and "all together" is three vaccines in one visit against a limit of two.</div></div>`:""}
           </div>
       </details>
     </div>
@@ -915,6 +1059,10 @@ function renderImpact(){
       2033,
       plan.proof==="animal"?["no","far more video to record and check"]:["on","much less video to record and check"]]);
   }
+  [["firstWave","First wave"],["goatWave2","Goat second wave"],["sheepWave2","Sheep second wave"]].forEach(([k,lbl])=>{
+    if(JSON.stringify(plan[k])!==JSON.stringify(planLive[k]))
+      rows.push(["Procurement holding",lbl+": "+(planLive[k].join(", ")||"none")+" \u2192 "+(plan[k].join(", ")||"none"),227,["no","arrival visits change"]]);
+  });
   [["warmup","Settling-in wait",WARM_OPTS],["kidUntil","Kid schedule limit",KIDW_OPTS],
     ["trustPrior","Seller's prior vaccinations",TRUST_OPTS],["wave2","Second catch-up visit",WAVE_OPTS]].forEach(([k,lbl,opts])=>{
     if(plan[k]!==planLive[k]) rows.push(["Bought-in adults",lbl+": "+label(opts,planLive[k])+" \u2192 "+label(opts,plan[k]),
@@ -939,7 +1087,7 @@ function renderReady(){
   const on=V.filter(v=>v.on).length,off=V.filter(v=>!v.on);
   const changed=changedVaccines().length||JSON.stringify(plan)!==JSON.stringify(planLive);
   const items=[
-    [true,`Schedule set for ${on} of ${V.length} vaccines`,off.length?`${off.map(v=>v.name).join(", ")} switched off — that is allowed.`:"Every vaccine is scheduled."],
+    [on>0,`Schedule set for ${on} of ${V.length} vaccines`,on===0?"Every vaccine is switched off — there is nothing to publish.":off.length?`${off.map(v=>v.name).join(", ")} switched off — that is allowed.`:"Every vaccine is scheduled."],
     [true,"Proof method chosen",plan.proof==="shed"?"Scan every goat, then one video per shed.":"Scan every goat, then one video of that goat."],
     [!dirty,"Draft is saved",dirty?"You have unsaved edits. Save the draft, then publish.":"No unsaved edits."],
     [saved,"Impact reviewed",saved?"You saved after reviewing the impact preview.":"Save the draft to lock in the impact figures shown below."]];
@@ -955,6 +1103,19 @@ function renderReady(){
     if(!changed){st.className="pill live";st.innerHTML='<span class="dot"></span>'+(long?"Matches the live plan":"Live")}
     else{st.className="pill";st.innerHTML='<span class="dot"></span>'+(long?"Draft \u00b7 not live yet":"Draft")}})}
 
+function renderChips(){
+  const names=V.filter(v=>v.on).map(v=>v.name);
+  [["wave1","firstWave"],["wave2g","goatWave2"],["wave2s","sheepWave2"]].forEach(([id,key])=>{
+    const box=$("#"+id); if(!box)return;
+    box.innerHTML=names.map(n=>`<button class="chip${plan[key].includes(n)?" on":""}" data-w="${key}" data-n="${n}">${n}</button>`).join("")
+      || '<span class="hintline">No vaccines are switched on.</span>';
+    box.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>{
+      const k=b.dataset.w,n=b.dataset.n;
+      plan[k]=plan[k].includes(n)?plan[k].filter(x=>x!==n):[...plan[k],n];
+      touch();
+    });
+  });
+}
 function renderPlanCards(){
   document.querySelectorAll("[data-pp]").forEach(b=>{
     const k=b.dataset.pp;
@@ -963,21 +1124,61 @@ function renderPlanCards(){
     b.onclick=()=>openSelect(b,opts,plan[k],x=>{plan[k]=x;touch()});
   });
 }
-function renderVersions(){
-  $("#verRows").innerHTML=VERSIONS.map(x=>{
-    const cls=x.status==="live"?"on":x.status==="draft"?"no":"";
-    const force=x.status==="draft"?`from ${x.effective}`
-      :x.status==="live"?`since ${x.effective}`
-      :`${x.effective} – ${x.retired}`;
-    return `<tr${x.status==="live"?' class="vlive"':''}>
-      <td><b>${x.label}</b></td>
-      <td><span class="tag ${cls}">${x.status==="live"?"Live now":x.status==="draft"?"Draft":"Retired"}</span></td>
-      <td class="num">${force}</td>
+let draft=null;            // null = no draft exists yet
+function nextVersionNo(){return Math.max(...VERSIONS.map(x=>x.v))+1}
+function startNewVersion(){
+  const live=VERSIONS.find(x=>x.status==="live");
+  draft={v:nextVersionNo(),label:"V"+nextVersionNo()+" draft",basedOn:live.label};
+  V=clone(LIVE); plan=clone(planLive); dirty=false; saved=false;
+  renderAll(); showScreen("editor");
+}
+function discardDraft(){draft=null;V=clone(LIVE);plan=clone(planLive);dirty=false;saved=false;renderAll();showScreen("list")}
+function publishDraft(){
+  const today="20 Aug 2026";
+  const live=VERSIONS.find(x=>x.status==="live");
+  live.status="retired"; live.retired=today;
+  VERSIONS.unshift({v:draft.v,label:draft.label.replace(" draft","")+" Real Vaccination",status:"live",effective:today,
+    publishedOn:today,publishedBy:"Ravi Teja · CEO",note:"Published from this session.",
+    snap:V.filter(x=>x.on).map(x=>[x.name,doses(x).map((d,i)=>i===0?ageLabel(d.age):"booster "+label(AFTER_OPTS,d.after)+" later").join(" + "),repeatLabel(x.repeat).replace("every ","")]),
+    off:V.filter(x=>!x.on).map(x=>x.name),
+    proof:plan.proof==="shed"?"one video per shed":"one video per goat"});
+  LIVE=clone(V); planLive=clone(plan); draft=null; dirty=false; saved=false;
+  renderAll(); showScreen("list");
+}
+function renderListActions(){
+  $("#listActions").innerHTML = draft
+    ? `<button class="btn" id="openDraftBtn2">Open ${draft.label}</button>`
+    : `<button class="btn" id="newVerBtn">Start a new version</button>`;
+  const a=$("#newVerBtn"); if(a)a.onclick=startNewVersion;
+  const b=$("#openDraftBtn2"); if(b)b.onclick=()=>showScreen("editor");
+  const nudge=$("#draftNudge"); nudge.hidden=!draft;
+  if(draft)$("#draftLabel").textContent=draft.label+" · based on "+draft.basedOn;
+}
+function showScreen(which){
+  $("#screenList").hidden = which!=="list";
+  $("#screenEditor").hidden = which!=="editor";
+  document.querySelector(".actionbar").hidden = which!=="editor";
+  $("#crumb").innerHTML = which==="list"
+    ? 'Preventive Care <span class="sep">/</span> <b>Vaccination plan</b>'
+    : 'Preventive Care <span class="sep">/</span> <a href="#" id="crumbBack">Vaccination plan</a> <span class="sep">/</span> <b>'+(draft?draft.label:"draft")+'</b>';
+  const cb=$("#crumbBack"); if(cb)cb.onclick=e=>{e.preventDefault();showScreen("list")};
+  window.scrollTo(0,0);
+}
+function renderEditorHead(){
+  const e=$("#edEyebrow"); if(e&&draft)e.textContent="Editing "+draft.label+" · based on "+draft.basedOn;
+}
+function renderList(){
+  const live=VERSIONS.find(x=>x.status==="live");
+  $("#liveName").textContent=live.label;
+  $("#liveRows").innerHTML=(live.snap||[]).map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td>
+      <td><span class="tag on">in the plan</span></td></tr>`).join("")
+    +(live.off||[]).map(n=>`<tr class="voff"><td><b>${n}</b></td><td>—</td><td>—</td>
+      <td><span class="tag">not in this plan</span></td></tr>`).join("");
+  $("#oldRows").innerHTML=VERSIONS.filter(x=>x.status==="retired").map(x=>`<tr>
+      <td><b>${x.label}</b></td><td class="num">${x.effective} – ${x.retired}</td>
       <td class="num">${x.publishedOn}<span class="vby">${x.publishedBy}</span></td>
-      <td>${x.note}</td>
-      <td>${x.status==="draft"?'<span class="vhere">you are here</span>':`<button class="vbtn" data-v="${x.v}">View settings</button>`}</td>
-    </tr>`}).join("");
-  $("#verRows").querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>openVersion(+b.dataset.v));
+      <td>${x.note}</td><td><button class="vbtn" data-v="${x.v}">View settings</button></td></tr>`).join("");
+  $("#oldRows").querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>openVersion(+b.dataset.v));
 }
 function openVersion(n){
   const x=VERSIONS.find(y=>y.v===n);
@@ -992,7 +1193,7 @@ function openVersion(n){
     <div class="scroll"><table class="tabl">
       <thead><tr><th>Vaccine</th><th>First doses</th><th>Repeats</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <p class="hintline">To bring any of this back, copy it into the current draft — old versions are never edited.</p>`;
+`;
   $("#verTitle").textContent=x.label;
   $("#verModal").hidden=false;
 }
@@ -1006,14 +1207,12 @@ function renderProof(){
     ? "Every goat is still scanned individually — only the video changes. One clip covers the shed, up to five allowed."
     : "Every goat gets its own clip, so a round produces as many videos as there are goats — more to record, upload, and verify.";
 }
-function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderVersions();renderImpact();renderReady()}
+function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderChips();renderImpact();renderReady();renderList();renderListActions();renderEditorHead()}
 
 $("#saveBtn").onclick=()=>{dirty=false;saved=true;renderAll();
   const n=$("#savedNote");n.classList.add("show");setTimeout(()=>n.classList.remove("show"),1800)};
-$("#pubBtn").onclick=()=>{LIVE=clone(V);planLive=clone(plan);dirty=false;saved=false;renderAll();
-  const n=$("#savedNote");n.textContent="Published. This is now the live plan.";n.classList.add("show");
-  setTimeout(()=>{n.classList.remove("show");n.textContent="Draft saved."},2600)};
-$("#resetBtn").onclick=()=>{V=clone(LIVE);plan=clone(planLive);dirty=false;saved=false;renderAll()};
+$("#pubBtn").onclick=publishDraft;
+$("#resetBtn").onclick=()=>{if(confirm("Undo every change in this draft and go back to the live plan?")){V=clone(LIVE);plan=clone(planLive);dirty=false;saved=false;renderAll()}};
 
 document.querySelectorAll("[data-bind]").forEach(b=>{
   const key=b.dataset.bind;
@@ -1023,7 +1222,8 @@ document.querySelectorAll("[data-bind]").forEach(b=>{
 // sidebar group expand/collapse
 document.querySelectorAll(".ggrp").forEach(g=>{
   const sub=g.nextElementSibling&&g.nextElementSibling.classList.contains("subnav")?g.nextElementSibling:null;
-  g.onclick=()=>{g.classList.toggle("open");if(sub)sub.classList.toggle("open")}});
+  if(sub){g.setAttribute("aria-expanded",String(g.classList.contains("open")))}
+  g.onclick=()=>{g.classList.toggle("open");if(sub){sub.classList.toggle("open");g.setAttribute("aria-expanded",String(g.classList.contains("open")))}}});
 $("#themeBtn").onclick=()=>{
   const r=document.documentElement;
   const dark=r.getAttribute("data-theme")==="dark"||(!r.getAttribute("data-theme")&&matchMedia("(prefers-color-scheme:dark)").matches);
@@ -1033,9 +1233,84 @@ $("#themeBtn").onclick=()=>{
 document.querySelectorAll("#proofPick .pc").forEach(b=>
   b.onclick=()=>{plan.proof=b.dataset.proof;touch()});
 
+$("#openDraftBtn").onclick=()=>showScreen("editor");
+$("#discardBtn").onclick=()=>{if(confirm("Throw away this draft? Everything you changed will be lost. The live plan is not affected."))discardDraft()};
+$("#backBtn").onclick=()=>showScreen("list");
 $("#verClose").onclick=()=>{$("#verModal").hidden=true};
 $("#verModal").onclick=e=>{if(e.target===$("#verModal"))$("#verModal").hidden=true};
-document.addEventListener("keydown",e=>{if(e.key==="Escape")$("#verModal").hidden=true});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){$("#verModal").hidden=true;$("#newVacModal").hidden=true}});
+
+const nv=id=>document.getElementById(id);
+function nvSpacingNote(){
+  const t=nv("nvType").value, c=nv("nvClass").value;
+  nv("nvSpacing").textContent = t==="Live"
+    ? "Live vaccines need 28 days from another live vaccine, and 14 days from a killed one. The system enforces this on its own."
+    : "Killed vaccines need 14 days from any other vaccine. The system enforces this on its own.";
+}
+nv("nvType").onchange=nvSpacingNote; nv("nvClass").onchange=nvSpacingNote;
+nv("nvCourse").onchange=()=>{const two=nv("nvCourse").value==="First dose + booster";nv("nvBoostWrap").hidden=!two;if(!two)nv("nvBoost").value="3 weeks"};
+$("#addVacBtn").onclick=()=>{nvSpacingNote();nv("nvErr").textContent="";$("#newVacModal").hidden=false;setTimeout(()=>nv("nvName").focus(),40)};
+$("#nvClose").onclick=$("#nvCancel").onclick=()=>{$("#newVacModal").hidden=true};
+$("#newVacModal").onclick=e=>{if(e.target===$("#newVacModal"))$("#newVacModal").hidden=true};
+$("#nvSave").onclick=()=>{
+  const name=nv("nvName").value.trim(), code=nv("nvCode").value.trim();
+  if(!name||!code){nv("nvErr").textContent="Name and short code are required.";return}
+  if(V.some(v=>v.id===code.toLowerCase())){nv("nvErr").textContent=`Short code "${code}" is already used by ${V.find(v=>v.id===code.toLowerCase()).name}.`;return}
+  if(V.some(v=>v.name.toLowerCase()===name.toLowerCase())){nv("nvErr").textContent=`"${name}" is already in this plan.`;return}
+  const wk=n=>parseInt(n,10)*7;
+  const rep=nv("nvRepeat").value;
+  const rmap={"6 months":{n:6,unit:"months"},"9 months":{n:9,unit:"months"},"1 year":{n:1,unit:"years"},"3 years":{n:3,unit:"years"}};
+  const lmap={"1 week":7,"2 weeks":14,"3 weeks":21,"1 month":30};
+  const smap={"Goats and sheep":"both","Goats only":"goat","Sheep only":"sheep"};
+  const booster=nv("nvCourse").value==="First dose + booster";
+  V.push({id:code.toLowerCase(),code:code.slice(0,3).toUpperCase(),name,on:true,
+    priority:0,type:booster?"Booster":"Single",
+    dose:"2 ml",vial:"100 doses",herd:2033,
+    blurb:(nv("nvDisease").value.trim()||name)+". Added to this draft — not published yet.",
+    stage:"all",sex:"all",spp:smap[nv("nvSpp").value],breed:"all",maxLate:lmap[nv("nvLate").value],
+    courses:{mv:booster?[{age:wk(nv("nvAge").value)},{after:wk(nv("nvBoost").value)}]:[{age:wk(nv("nvAge").value)}]},
+    repeat:{...rmap[rep],anchor:"last_dose"},guide:{...rmap[rep]}});
+  LIVE.push({...clone(V[V.length-1]),on:false});
+  cur=V[V.length-1].id; $("#newVacModal").hidden=true;
+  ["nvName","nvCode","nvDisease"].forEach(i=>nv(i).value="");
+  touch();
+};
+
+
+/* ---------- make every remaining control do something real ---------- */
+function toast(msg){
+  let t=document.getElementById("toast");
+  if(!t){t=document.createElement("div");t.id="toast";document.body.appendChild(t)}
+  t.textContent=msg;t.classList.add("show");
+  clearTimeout(window.__tt);window.__tt=setTimeout(()=>t.classList.remove("show"),2200);
+}
+// sidebar collapse
+$(".burger").onclick=()=>{document.querySelector(".side").classList.toggle("collapsed")};
+// park picker — really re-scopes the plan
+$(".tchip").onclick=e=>openSelect(e.currentTarget,SCOPE_OPTS,plan.scope,x=>{
+  plan.scope=x;
+  e.currentTarget.innerHTML='◎ <span class="ttx">'+(x==="company"?"All parks":label(SCOPE_OPTS,x).replace(" only",""))+'</span> <span style="font-size:9px;opacity:.7">▾</span>';
+  touch();
+});
+// notifications
+document.querySelectorAll(".ticon").forEach(b=>{
+  if(b.id==="themeBtn")return;
+  b.onclick=()=>toast("No new alerts for the vaccination plan.");
+});
+// account chip
+$(".who").onclick=e=>openSelect(e.currentTarget,[["Ravi Teja · CEO","ceo"],["Sign out","out"]],"ceo",v=>{
+  if(v==="out")toast("Sign out is not part of this mock.");
+});
+// sidebar destinations
+document.querySelectorAll(".side .nav, .side .leaf").forEach(b=>{
+  if(b.classList.contains("on")||b.disabled)return;
+  b.onclick=()=>{
+    const name=[...b.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join("").trim();
+    toast((name||b.textContent).trim()+" is a different page — not part of this mock.");
+  };
+});
+$(".leaf.on").onclick=()=>{showScreen("list");toast("You are already on the vaccination plan.")};
 
 renderAll();
+showScreen("list");
 </script>
