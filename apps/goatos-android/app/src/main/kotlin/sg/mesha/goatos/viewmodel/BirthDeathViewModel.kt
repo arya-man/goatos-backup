@@ -25,7 +25,6 @@ import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsEvidenceRefDto
-import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_PERMANENT
 import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathEvent
@@ -403,7 +402,7 @@ class BirthDeathViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = matches.map(GoatSearchItemDto::toShiftingAnimalUi),
+                            animalMatches = matches.toDistinctShiftingAnimalUi(),
                             animalLookupMessage = if (matches.isEmpty()) NO_MATCH_MESSAGE else null,
                         )
                     }
