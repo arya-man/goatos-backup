@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
-import { Scale, TrendingDown, Warehouse } from "lucide-react";
+import { TrendingDown, Warehouse } from "lucide-react";
 
-import { WeightBars } from "./weight-bars";
-import { SegmentedLinks } from "@/components/segmented-links";
 import { GrowthDirectorSection } from "./growth-director";
+import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
@@ -110,32 +109,6 @@ function workflowLabel(status: string, pageContract: AdminUiPageContract): strin
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(" ");
-}
-
-// One toggle per chart, rendered as links so the page stays a server component and
-// each chart's choice survives a reload and a shared URL. Defined at module scope:
-// declaring a component inside render recreates its type every pass.
-function MetricToggle({
-  param,
-  current,
-  params,
-  pageContract,
-}: {
-  param: string;
-  current: "weight" | "adg";
-  params: RouteSearchParams;
-  pageContract: AdminUiPageContract;
-}) {
-  return (
-    <SegmentedLinks
-      current={current}
-      options={(["adg", "weight"] as const).map((option) => ({
-        value: option,
-        label: copy(pageContract, option === "adg" ? "metric.gain" : "metric.weight"),
-        href: hrefWith(params, { [param]: option }),
-      }))}
-    />
-  );
 }
 
 // One row of the full-width shed chart: a WeightBars bar plus the park it belongs to.
@@ -474,15 +447,36 @@ export async function WeighingWeightsPage({
 
   const hasAnyData = summary.animals_weighed > 0;
 
-  // The full-width shed chart's columns for the active metric, on ONE shared scale:
+  // The full-width shed chart's columns for both metrics, on ONE shared scale per metric:
   // computed across every column's rows before the split, so a bar's length means the
   // same thing whichever column it lands in.
-  const shedChartBars: readonly ShedChartBar[] = shedMetric === "adg" ? gainChartData : chartData;
-  const shedChartCols = shedChartColumns(shedChartBars);
-  const shedChartSize = shedChartBars.length <= 8 ? "short" : "tall";
-  const shedChartDomain = {
-    lo: Math.min(0, ...shedChartBars.map((bar) => bar.value)),
-    hi: Math.max(0, ...shedChartBars.map((bar) => bar.value)),
+  const shedSeries = {
+    adg: {
+      data: gainChartData,
+      columns: shedChartColumns(gainChartData),
+      domain: {
+        lo: Math.min(0, ...gainChartData.map((bar) => bar.value)),
+        hi: Math.max(0, ...gainChartData.map((bar) => bar.value)),
+      },
+      emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+      unit: "g",
+      chartLabel: copy(pageContract, "chart.gain.aria"),
+      size: gainChartData.length <= 8 ? ("short" as const) : ("tall" as const),
+      caption: copy(pageContract, "chart.gain.caption_shed"),
+    },
+    weight: {
+      data: chartData,
+      columns: shedChartColumns(chartData),
+      domain: {
+        lo: Math.min(0, ...chartData.map((bar) => bar.value)),
+        hi: Math.max(0, ...chartData.map((bar) => bar.value)),
+      },
+      emptyLabel: copy(pageContract, "empty.no_data.body"),
+      unit: "kg",
+      chartLabel: copy(pageContract, "chart.average.aria"),
+      size: chartData.length <= 8 ? ("short" as const) : ("tall" as const),
+      caption: copy(pageContract, "chart.average.caption"),
+    },
   };
 
   // A dimension has a weight series and, separately, a gain series over the smaller
@@ -496,8 +490,10 @@ export async function WeighingWeightsPage({
     kind === "weight"
       ? weightBuckets.map((b) => ({ key: b.label, label: b.label, value: Number(b.average_weight_kg.toFixed(1)) }))
       : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
-  const dimensionTitle = (kind: "weight" | "adg", gainKey: string, weightKey: string) =>
-    copy(pageContract, kind === "adg" ? gainKey : weightKey);
+  const metricLabels = {
+    adg: copy(pageContract, "metric.gain"),
+    weight: copy(pageContract, "metric.weight"),
+  };
 
   // Growth per purchase load. The supplier is part of the label rather than a
   // separate chart: the load number alone means nothing to a reader, and the
@@ -510,23 +506,21 @@ export async function WeighingWeightsPage({
   // discounted on sight.
   const byLoad = weights.ok ? weights.data.by_load : [];
   const loadUnattributed = weights.ok ? weights.data.load_unattributed_sheds : 0;
-  const loadBars =
-    loadMetric === "weight"
-      ? byLoad
-          .slice()
-          .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
-          .map((load) => ({
-            key: load.load_ref,
-            label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
-            value: Number(load.average_weight_kg.toFixed(1)),
-          }))
-      : byLoad
-          .filter((load) => load.gain_g_per_day != null)
-          .map((load) => ({
-            key: load.load_ref,
-            label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
-            value: Math.round(load.gain_g_per_day as number),
-          }));
+  const loadWeightBars = byLoad
+    .slice()
+    .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
+    .map((load) => ({
+      key: load.load_ref,
+      label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
+      value: Number(load.average_weight_kg.toFixed(1)),
+    }));
+  const loadGainBars = byLoad
+    .filter((load) => load.gain_g_per_day != null)
+    .map((load) => ({
+      key: load.load_ref,
+      label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
+      value: Math.round(load.gain_g_per_day as number),
+    }));
 
   return (
     <div className="weights-page">
@@ -636,117 +630,100 @@ export async function WeighingWeightsPage({
       {/* Row 1 — the true growth charts. These sit before shed/scale movement because
           their daily gain is same-tag-twice ADG, not lump-sum average movement. */}
       <div className="grid g3">
-        <section className="card wchart" aria-label={copy(pageContract, "chart.breed.aria")}>
-          <h2 className="h">
-            {dimensionTitle(breedMetric, "chart.breed.title_gain", "chart.breed.title")}
-            <MetricToggle param="breed_metric" current={breedMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <p className="muted small">{copy(pageContract, "section.demographics.caption")}</p>
-          <WeightBars
-            data={dimensionBars(breedMetric, demo?.by_breed ?? [], demo?.gain_by_breed ?? [])}
-            emptyLabel={copy(pageContract, breedMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
-            unit={breedMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, "chart.breed.aria")}
-            size="short"
-          />
-        </section>
-        <section className="card wchart" aria-label={copy(pageContract, "chart.sex.aria")}>
-          <h2 className="h">
-            {dimensionTitle(sexMetric, "chart.sex.title_gain", "chart.sex.title")}
-            <MetricToggle param="sex_metric" current={sexMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <WeightBars
-            data={dimensionBars(sexMetric, demo?.by_sex ?? [], demo?.gain_by_sex ?? [])}
-            emptyLabel={copy(pageContract, sexMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
-            unit={sexMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, "chart.sex.aria")}
-            size="short"
-          />
-        </section>
-        <section className="card wchart" aria-label={copy(pageContract, "chart.stage.aria")}>
-          <h2 className="h">
-            {dimensionTitle(stageMetric, "chart.stage.title_gain", "chart.stage.title")}
-            <MetricToggle param="stage_metric" current={stageMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <WeightBars
-            data={dimensionBars(stageMetric, demo?.by_stage ?? [], demo?.gain_by_stage ?? [])}
-            emptyLabel={copy(pageContract, stageMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
-            unit={stageMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, "chart.stage.aria")}
-            size="short"
-          />
-        </section>
+        <MetricChart
+          initialMetric={breedMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.breed.title_gain"), weight: copy(pageContract, "chart.breed.title") }}
+          caption={copy(pageContract, "section.demographics.caption")}
+          series={{
+            adg: {
+              data: dimensionBars("adg", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
+              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.breed.aria"),
+            },
+            weight: {
+              data: dimensionBars("weight", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
+              emptyLabel: copy(pageContract, "empty.demographics.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.breed.aria"),
+            },
+          }}
+          size="short"
+        />
+        <MetricChart
+          initialMetric={sexMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.sex.title_gain"), weight: copy(pageContract, "chart.sex.title") }}
+          series={{
+            adg: {
+              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.sex.aria"),
+            },
+            weight: {
+              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              emptyLabel: copy(pageContract, "empty.demographics.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.sex.aria"),
+            },
+          }}
+          size="short"
+        />
+        <MetricChart
+          initialMetric={stageMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.stage.title_gain"), weight: copy(pageContract, "chart.stage.title") }}
+          series={{
+            adg: {
+              data: dimensionBars("adg", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
+              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.stage.aria"),
+            },
+            weight: {
+              data: dimensionBars("weight", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
+              emptyLabel: copy(pageContract, "empty.demographics.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.stage.aria"),
+            },
+          }}
+          size="short"
+        />
       </div>
 
       {/* Row 2 — shed/partition chart. In gain mode this intentionally mixes two
           operational signals, so each row carries a Per animal/Lump sum chip. */}
-      <section className="card wchart" aria-label={copy(pageContract, "chart.average.aria")}>
-        <h2 className="h">
-          <Scale className="ic" size={15} aria-hidden />{" "}
-          {shedMetric === "adg" ? copy(pageContract, "chart.gain.title") : copy(pageContract, "chart.average.title")}
-          <MetricToggle param="shed_metric" current={shedMetric} params={params} pageContract={pageContract} />
-        </h2>
-        <p className="muted small">
-          {shedMetric === "adg"
-            ? copy(pageContract, "chart.gain.caption_shed")
-            : copy(pageContract, "chart.average.caption")}
-        </p>
-        {shedChartCols.length === 0 ? (
-          <WeightBars
-            data={[]}
-            emptyLabel={
-              shedMetric === "adg"
-                ? copy(pageContract, "empty.metric.no_gain")
-                : copy(pageContract, "empty.no_data.body")
-            }
-            unit={shedMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
-            size={shedChartSize}
-          />
-        ) : (
-          <div className="wcols">
-            {shedChartCols.map((col, index) => (
-              // Index in the key on purpose: a single-park split renders the same
-              // heading twice, so the heading alone is not unique.
-              <div key={`${col.heading}|${index}`}>
-                <h3 className="wcol-h">{col.heading}</h3>
-                <WeightBars
-                  data={col.rows}
-                  domain={shedChartDomain}
-                  emptyLabel={
-                    shedMetric === "adg"
-                      ? copy(pageContract, "empty.metric.no_gain")
-                      : copy(pageContract, "empty.no_data.body")
-                  }
-                  unit={shedMetric === "adg" ? "g" : "kg"}
-                  chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
-                  size={shedChartSize}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      <ShedMetricChart
+        initialMetric={shedMetric}
+        labels={metricLabels}
+        title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
+        series={shedSeries}
+      />
 
       {/* Row 3 — growth by purchase load, full width: the label carries both the load
           number and the supplier, which does not fit a half-width card. */}
-      <section className="card wchart" aria-label={copy(pageContract, "chart.load.aria")}>
-        <h2 className="h">
-          {loadMetric === "adg"
-            ? copy(pageContract, "chart.load.title")
-            : copy(pageContract, "chart.load.title_weight")}
-          <MetricToggle param="load_metric" current={loadMetric} params={params} pageContract={pageContract} />
-        </h2>
-        <p className="muted small">{copy(pageContract, "chart.load.caption")}</p>
-        <WeightBars
-          data={loadBars}
-          emptyLabel={
-            byLoad.length === 0
-              ? copy(pageContract, "empty.load.body")
-              : copy(pageContract, "empty.metric.no_gain")
-          }
-          unit={loadMetric === "adg" ? "g" : "kg"}
-          chartLabel={copy(pageContract, "chart.load.aria")}
+      <div>
+        <MetricChart
+          initialMetric={loadMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.load.title"), weight: copy(pageContract, "chart.load.title_weight") }}
+          caption={copy(pageContract, "chart.load.caption")}
+          series={{
+            adg: {
+              data: loadGainBars,
+              emptyLabel: byLoad.length === 0 ? copy(pageContract, "empty.load.body") : copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.load.aria"),
+            },
+            weight: {
+              data: loadWeightBars,
+              emptyLabel: copy(pageContract, "empty.load.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.load.aria"),
+            },
+          }}
           size="short"
           wide
         />
@@ -755,7 +732,7 @@ export async function WeighingWeightsPage({
             {loadUnattributed.toLocaleString("en-IN")} {copy(pageContract, "note.load.unmapped")}
           </p>
         ) : null}
-      </section>
+      </div>
 
       {demo ? (
         <p className="muted small">

@@ -102,8 +102,20 @@ test("weighed shed rows render breed and sex composition chips from the backend 
 });
 
 test("small shed charts do not reserve the tall empty panel height", () => {
-  assert.match(source, /const shedChartSize = shedChartBars\.length <= 8 \? "short" : "tall";/);
-  assert.match(source, /size=\{shedChartSize\}/);
+  assert.match(source, /size: gainChartData\.length <= 8 \? \("short" as const\) : \("tall" as const\)/);
+  assert.match(source, /size: chartData\.length <= 8 \? \("short" as const\) : \("tall" as const\)/);
+  assert.match(source, /<ShedMetricChart/);
+});
+
+test("chart metric switches are local state, not route reloads", () => {
+  const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
+  assert.match(client, /"use client"/);
+  assert.match(client, /useState<Metric>/);
+  assert.match(client, /type="button"/);
+  assert.match(source, /series=\{\{\s*adg:/);
+  assert.doesNotMatch(source, /hrefWith\(params, \{ \[param\]: option \}\)/);
+  assert.doesNotMatch(source, /breed_metric"\} current/);
+  assert.doesNotMatch(source, /shed_metric"\} current/);
 });
 
 test("full-width shed chart labels fit without overlapping rows", () => {
