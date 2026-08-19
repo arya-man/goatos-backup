@@ -364,28 +364,6 @@ fun VerifyDetailScreen(
     // (and only) rendering for that case — no separate legacy code path needed.
     val entries = state.entries
 
-    // Auto-close once the last item in this group is decided: the item leaves the queue,
-    // entries becomes empty, and we have nothing left to show. This happens AFTER the
-    // backend confirms the decision (waitForBackendDecision succeeds), at which point the
-    // ViewModel sets autoCloseAfterDecision = true. A single legacy/bundled item (entries
-    // of length 1) closes immediately; a multi-animal shed waits until all are decided.
-    // Distinction: an entry with NO media (genuinely missing evidence) is still an entry —
-    // it renders the "No video attached" warning inside VerifyEntryCard. An item with NO
-    // entries means the queue no longer knows about this group at all — that is the signal
-    // to close.
-    // Keyed on the FLAG ALONE. It was `autoCloseAfterDecision && entries.isEmpty()`, which
-    // never fires: the ViewModel does not drain `entries` on a verdict -- decided animals stay
-    // rendered -- it sets autoCloseAfterDecision = !stillPending once every animal in the group
-    // holds a terminal verdict (see its own comment). Requiring an empty list on top of that
-    // meant the screen sat on a decided item showing "No video attached to this item" instead
-    // of returning to the queue. An item with genuinely no media never sets the flag (no verdict
-    // was submitted), so its EmptyState is untouched by this.
-    LaunchedEffect(state.autoCloseAfterDecision) {
-        if (state.autoCloseAfterDecision) {
-            onEvent(VerifyDetailEvent.Close)
-        }
-    }
-
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
         Column(
             modifier = Modifier
@@ -892,6 +870,21 @@ private fun VerifyVideoPlayer(
             player.setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
         }
     }
+    // Prepare visible proofs enough to paint their first frame and duration. The verifier should
+    // not see a black ExoPlayer box that reads 0:00 / 0:00 and have to guess whether evidence exists.
+    // Playback ownership is still only claimed on an actual play tap; this is just preview readiness.
+    LaunchedEffect(rowBounds, viewportBounds, activeProofSubject, armed, player) {
+        val row = rowBounds ?: return@LaunchedEffect
+        val viewport = viewportBounds ?: return@LaunchedEffect
+        if (
+            !armed &&
+            isRowVisibleInViewport(row, viewport) &&
+            player.playbackState == Player.STATE_IDLE
+        ) {
+            armed = true
+            player.prepare()
+        }
+    }
     // prepare() (the call that allocates the hardware decoder) is fired synchronously from the
     // play/pause click handler's STATE_IDLE branch below, in the same tap that flips `armed` to
     // true — there is no other path that sets `armed`, so a LaunchedEffect(armed, ...) mirroring
@@ -972,9 +965,10 @@ private fun VerifyVideoPlayer(
     LaunchedEffect(rowBounds, viewportBounds) {
         val row = rowBounds ?: return@LaunchedEffect
         val viewport = viewportBounds ?: return@LaunchedEffect
-        if (armed && player.isPlaying && !isRowVisibleInViewport(row, viewport)) {
+        if (armed && !isRowVisibleInViewport(row, viewport)) {
             player.playWhenReady = false
             player.stop()
+            armed = false
             if (activeProofSubject == media.proofSubject) {
                 onActiveProofSubjectChange(null)
             }
@@ -994,9 +988,10 @@ private fun VerifyVideoPlayer(
         }
     }
     LaunchedEffect(activeProofSubject, player) {
-        if (activeProofSubject != null && activeProofSubject != media.proofSubject && player.isPlaying) {
+        if (activeProofSubject != null && activeProofSubject != media.proofSubject && armed) {
             player.playWhenReady = false
             player.stop()
+            armed = false
         }
     }
     Box(

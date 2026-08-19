@@ -57,6 +57,7 @@ import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SkeletonShape
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import java.time.Instant
@@ -102,7 +103,10 @@ data class VerificationQueueRow(
     val operatorLabel: String = "",
     val capturedAtLabel: String = "",
     val statusTone: VerifyTone,
-)
+) {
+    val partitionScopedGroupKey: Pair<String, String?>
+        get() = (shedId ?: shedLabel.ifBlank { title.ifBlank { categoryLabel } }) to partitionLabel
+}
 
 enum class VerifyScopeType { INDIVIDUAL, LUMP_SUM, OTHER }
 
@@ -120,7 +124,9 @@ data class VerifyDriveClosure(
     val pendingVideos: Int,
     val shedCount: Int,
     val ready: Boolean,
-)
+) {
+    val partitionScopedKey: String get() = batchId
+}
 
 /** One backend-defined page tab. [value] is the disjoint raw category filter and [label] is
  *  backend-owned display copy from the verification registry. */
@@ -326,7 +332,7 @@ fun VerifyQueueScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
             if (state.isActionQueue) {
-                items(state.driveClosures, key = { it.batchId }) { closure ->
+                items(state.driveClosures, key = { it.partitionScopedKey }) { closure ->
                     DriveCloseCard(
                         closure = closure,
                         isClosing = state.closingBatchId == closure.batchId,
@@ -342,10 +348,13 @@ fun VerifyQueueScreen(
             // the flicker seen on every screen entered from the drawer. Until this queue has
             // synced once, the honest render is the skeleton.
             if (state.rows.isEmpty() && !state.hasLoadedOnce) {
-                // NOTHING is drawn here. Loading is told by the spinning refresh icon in the app
-                // bar, not by a shimmer that flashes in and straight back out on every
-                // navigation -- and "Queue clear" would be a confident answer before a single
-                // row has been read, which then flips to content. That flip IS the flicker.
+                item {
+                    LoadingSkeletonList(
+                        rows = 4,
+                        shape = SkeletonShape.MEDIA_CARD,
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                }
             } else if (state.isUnsupportedModule) {
                 // An empty "all caught up" here would be a lie: nothing was read at all.
                 item {
@@ -391,14 +400,7 @@ fun VerifyQueueScreen(
                     // separate groups (e.g. "Godel 1 - Part 1" and "Godel 1 - Part 3" are
                     // different rows, not merged under one header). Rows without a shedId
                     // (legacy/non-shed items) fall back to the old label key.
-                    val shedGroups = visibleRows.groupBy {
-                        if (it.shedId != null) {
-                            val key = it.shedId + (it.partitionLabel?.let { "::$it" } ?: "")
-                            key
-                        } else {
-                            it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } }
-                        }
-                    }
+                    val shedGroups = visibleRows.groupBy { it.partitionScopedGroupKey }
                     shedGroups.forEach { (groupKey, rows) ->
                         val shedLabel = rows.first().shedLabel.ifBlank {
                             rows.first().title.ifBlank { rows.first().categoryLabel }
