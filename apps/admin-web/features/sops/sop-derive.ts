@@ -76,7 +76,12 @@ export function sopSliceKey(code: string, name: string): "vaccination" | "counts
 // vaccination, plus the migration-seeded Counts (birth / death / shifting) and Feed (distribution /
 // packing / transport) library documents. isVaccinationSop still decides which cards carry the
 // "Vaccination" chip label and which map to the vaccination filter chip.
-export const VACCINATION_SLICE_LABEL = "Vaccination";
+export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed", string> = {
+  vaccination: "Vaccination",
+  counts: "Herd Operations",
+  feed: "Feed",
+};
+export const VACCINATION_SLICE_LABEL = SOP_SLICE_LABEL.vaccination;
 
 export function isVaccinationSop(code: string, name: string): boolean {
   const c = (code || "").toLowerCase();
@@ -433,9 +438,9 @@ export function conditionNeedsList(operator: ConditionOperator): boolean {
 export type ProofType = "video" | "photo";
 export type SubjectScope = "batch" | "goat";
 
-// The New SOP builder is locked to the vaccination slice (handoff scope lock). The domain is not a
-// free choice in this product slice — future domains are NOT exposed as selectable live product.
-export type SopSliceDomain = "vaccination";
+// The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
+// the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
+export type SopSliceDomain = "vaccination" | "counts" | "feed";
 
 export type SopBuilderInput = {
   name: string;
@@ -461,7 +466,7 @@ export function slugify(value: string, fallback: string): string {
 }
 
 export function buildSopCode(input: Pick<SopBuilderInput, "name" | "domain">): string {
-  const prefix = input.domain; // "vaccination" for the current slice
+  const prefix = input.domain;
   let slug = slugify(input.name, "session");
   // Avoid redundant `vaccination.vaccination_session`: drop a leading domain token from the slug.
   if (slug === prefix) slug = "session";

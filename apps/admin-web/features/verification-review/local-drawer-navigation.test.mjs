@@ -59,12 +59,19 @@ test("approving a video advances to the next one instead of closing to the list"
   // The drawer carries the FOLLOWING row's id through the verdict form...
   assert.match(drawerSource, /const nextRowId = currentIndex >= 0 \? \(items\[currentIndex \+ 1\]\?\.item_id \?\? ""\) : "";/);
   assert.match(drawerSource, /name="next_row" value=\{nextRowId\}/);
-  // ...and the action rewrites vi_row to it ONLY on an approval, falling back to the list (vi_row
-  // dropped) when the approved row was the last one.
+  // ...and the action rewrites vi_row to it ONLY on an approval. At a page boundary it follows the
+  // next keyset cursor instead of treating the whole queue as done.
   assert.match(actionsSource, /if \(decision === "approved"\) \{/);
   assert.match(actionsSource, /const nextRow = String\(formData\.get\("next_row"\) \?\? ""\)\.trim\(\);/);
+  assert.match(actionsSource, /const nextCursor = String\(formData\.get\("next_cursor"\) \?\? ""\)\.trim\(\);/);
   assert.match(actionsSource, /if \(nextRow\) url\.searchParams\.set\("vi_row", nextRow\);/);
-  assert.match(actionsSource, /else url\.searchParams\.delete\("vi_row"\);/);
+  assert.match(actionsSource, /if \(nextCursor\) \{[\s\S]*url\.searchParams\.set\("vi_cursor", nextCursor\);[\s\S]*url\.searchParams\.set\("vi_open_first", "1"\);[\s\S]*\}/);
+  assert.match(actionsSource, /url\.searchParams\.set\("vi_open_first", "1"\);/);
+  assert.match(pageSource, /one\(sp, "vi_open_first"\) === "1" \? items\[0\]\?\.item_id : undefined/);
+  assert.match(drawerSource, /name="next_cursor" value=\{nextCursor\}/);
+  assert.match(drawerSource, /name="next_trail" value=\{nextTrail\}/);
+  assert.match(drawerSource, /hrefWithout\(searchParams, \["vi_row", "vi_open_first"\]\)/);
+  assert.match(actionsSource, /url\.searchParams\.delete\("vi_open_first"\);/);
 });
 
 test("top bar hides the backend-owned as-of calendar filter", () => {
@@ -94,7 +101,7 @@ test("Actions module filter is registry-owned and cannot widen or strand the que
   // category asks the backend for a contradiction it answers 400.
   assert.match(pageSource, /nav_module: option\.key, category: null/);
   // ...and drops the keyset cursor + its back-trail, which describe the pre-filter sequence.
-  assert.match(pageSource, /const RESET_ON_FILTER = \{ vi_row: null, vi_cursor: null, vi_trail: null/);
+  assert.match(pageSource, /const RESET_ON_FILTER = \{ vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null/);
   // The action-type SELECT removed on 2026-08-07 stays removed; this row replaces nothing it did.
   assert.doesNotMatch(pageSource, /name="category"[^>]*className="vr-selbtn"/);
 });

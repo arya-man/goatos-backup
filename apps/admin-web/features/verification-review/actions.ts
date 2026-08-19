@@ -83,12 +83,23 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   // An APPROVAL advances to the next video instead of dropping back to the list (maintainer ask,
   // 2026-08-19): on the pending tab the approved item leaves the filtered list, so returning with
   // its own vi_row no longer resolved and the drawer closed. The drawer sends the id of the row
-  // that FOLLOWED this one at render time; when there is none, the queue is done and vi_row is
-  // dropped so the verifier lands on the list. A rejection keeps its current return unchanged.
+  // that FOLLOWED this one at render time. When this page is exhausted but keyset pagination has
+  // another page, follow that cursor; only without both a next row and a next cursor is the queue
+  // done. A rejection keeps its current return unchanged.
   if (decision === "approved") {
     const nextRow = String(formData.get("next_row") ?? "").trim();
+    const nextCursor = String(formData.get("next_cursor") ?? "").trim();
+    const nextTrail = String(formData.get("next_trail") ?? "").trim();
+    url.searchParams.delete("vi_open_first");
     if (nextRow) url.searchParams.set("vi_row", nextRow);
-    else url.searchParams.delete("vi_row");
+    else {
+      url.searchParams.delete("vi_row");
+      if (nextCursor) {
+        url.searchParams.set("vi_cursor", nextCursor);
+        url.searchParams.set("vi_open_first", "1");
+      }
+      if (nextTrail) url.searchParams.set("vi_trail", nextTrail);
+    }
   }
   redirect(withFeedback(url, "success", decision === "approved" ? "verdict_approved" : "verdict_rejected"));
 }
