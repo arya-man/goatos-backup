@@ -46,6 +46,9 @@ a concrete reason.
 - Green command/result on candidate:
 - Guard self-test and real-check result:
 - Affected `make ci-local` result and exact SHA:
+- Main-merge authorization, exact SHA, and source:
+  - [ ] `make land-main` passed on the exact SHA; or
+  - [ ] GitHub `ci` passed on the exact rebased PR head SHA
 - Migration/upgrade/lock/restart proof, if applicable:
 - Browser/device/production-path evidence, if applicable:
 - Deployed revision/schema/repair evidence, if applicable:
@@ -61,6 +64,9 @@ Ordinary PR only:
 
 - [ ] Ordinary affected CI and selected certification evidence are recorded;
   landing follows the repository's ordinary PR/main contract.
+- [ ] Do not merge via GitHub UI/API/connector unless `make land-main` has
+  already passed or GitHub `ci` is green for the exact current PR head SHA after
+  rebasing onto fresh `origin/main`.
 
 Sole program PR only:
 

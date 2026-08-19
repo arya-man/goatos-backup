@@ -252,6 +252,21 @@ Report the verification boundary honestly and briefly. If only a narrow check
 was run, say so; do not spend 20 minutes manufacturing confidence for a one-line
 change.
 
+## Main Merge Requires Exact-SHA CI Evidence
+
+No PR, GitHub UI merge, connector/API merge, merge queue action, or direct push
+may put code on `main` unless one of these is true for the exact commit being
+landed:
+
+1. `make land-main` completed green from a clean isolated worktree.
+2. GitHub `ci` completed green for the exact current PR head SHA after the
+   branch was rebased onto fresh `origin/main`.
+
+Pending, failed, cancelled, stale, skipped, or targeted-only checks do not
+authorize a merge to `main`. Targeted local checks are review/preflight evidence
+only. If neither exact-SHA proof exists, do not merge; run `make land-main`
+locally or wait for/dispatch GitHub CI and verify the exact SHA is green first.
+
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
 Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.
@@ -2758,7 +2773,10 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   sessions may open on dirty/shared worktrees with other agents' changes. Commit
   only the scoped work and use a clean isolated worktree for landing. Standalone
   `make ci-local` remains valid for development/hosted CI; `make land-main` is
-  the release path that mutates history and pushes.
+  the release path that mutates history and pushes. Do not use GitHub connector,
+  `gh pr merge`, or the web merge button as a shortcut unless the current PR
+  head already has a completed green GitHub `ci` run on the exact SHA after a
+  fresh-main rebase.
 - **Whole-ledger/task-kernel program landing exception**: the documentation
   foundation may use ordinary `make land-main`, but the approved implementation
   program uses exactly one external integration PR. It must not use milestone

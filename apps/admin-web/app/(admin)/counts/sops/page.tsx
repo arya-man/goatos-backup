@@ -1,4 +1,4 @@
-import { renderSopModulePage } from "@/features/sops/module-page";
+import { renderSopModulePage } from "@/features/sops";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
