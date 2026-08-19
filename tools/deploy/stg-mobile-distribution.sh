@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:-goatos-stg}"
 PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
+PLAY_QUOTA_PROJECT="${PLAY_QUOTA_PROJECT:-$PROJECT_ID}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 GOOGLE_PLAY_PACKAGE="${GOOGLE_PLAY_PACKAGE:-sg.mesha.goatos.stg}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-1:514832198871:android:0cb898377ba4f7f7f19492}"
@@ -296,13 +297,14 @@ apk_mirrored=true
 
 play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
 if play_access_token="$(play_access_token)" &&
-  edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" "${play_base}/edits")"; then
+  edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
   if [[ -n "$edit_id" ]]; then
     upload_response_file=".local/android-signing/play-upload-response.json"
     upload_status="$(
       curl -sS -o "$upload_response_file" -w '%{http_code}' -X POST \
         -H "Authorization: Bearer ${play_access_token}" \
+        -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
         -H "Content-Type: application/octet-stream" \
         --data-binary @"$AAB" \
         "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}/edits/${edit_id}/bundles?uploadType=media"
@@ -320,11 +322,13 @@ if play_access_token="$(play_access_token)" &&
 
         if curl -fsS -X PUT \
           -H "Authorization: Bearer ${play_access_token}" \
+          -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
           -H "Content-Type: application/json" \
           --data-binary @.local/android-signing/play-internal-track.json \
           "${play_base}/edits/${edit_id}/tracks/internal" >/dev/null &&
           curl -fsS -X POST \
             -H "Authorization: Bearer ${play_access_token}" \
+            -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
             "${play_base}/edits/${edit_id}:commit" >/dev/null; then
           play_uploaded=true
         fi
