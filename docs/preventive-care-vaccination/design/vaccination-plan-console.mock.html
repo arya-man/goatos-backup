@@ -1,0 +1,921 @@
+<title>Vaccination Plan Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600;700&display=swap">
+
+<style>
+/* ============ real mesha-theme.css tokens ============ */
+:root{
+  --bg:#F4F7F2; --panel:#FFFFFF; --panel-2:#F1F5EF; --ink:#16201B; --muted:#5E6E64; --faint:#8A998F;
+  --line:#E2E8E1; --line2:#EEF2ED;
+  --brand:#54A02C; --brand-d:#44831F; --brand-soft:#ECF7E0; --on-brand:#FFFFFF;
+  --sidebar:#ECF1E8; --sidebar-2:#DDE7D8; --sidebar-ink:#46564B; --sidebar-ink2:#13201A; --sidebar-line:#D6E0D1;
+  --ok:#3F9A28; --warn:#B5791A; --warnx:#FBF1DE; --danger:#CC3D3D; --dangerx:#FBE6E6; --danger-badge-ink:#FFFFFF;
+  --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06);
+  --pop:0 16px 44px -12px rgba(16,32,24,.28);
+  --nav-on-ink:#08130B;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1512; --panel:#161F1A; --panel-2:#1D2820; --ink:#E9F1EA; --muted:#94A89A; --faint:#6E8377;
+  --line:#26332B; --line2:#1C261F;
+  --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15); --on-brand:#08130B;
+  --sidebar:#0A0F0C; --sidebar-2:#18211A; --sidebar-ink:#9FB6A6; --sidebar-ink2:#EAF3EE; --sidebar-line:#243A2E;
+  --ok:#7CCB45; --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16); --danger-badge-ink:#08130B;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36);
+  --pop:0 18px 46px -12px rgba(0,0,0,.85);
+}}
+:root[data-theme="dark"]{
+  --bg:#0E1512; --panel:#161F1A; --panel-2:#1D2820; --ink:#E9F1EA; --muted:#94A89A; --faint:#6E8377;
+  --line:#26332B; --line2:#1C261F;
+  --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15); --on-brand:#08130B;
+  --sidebar:#0A0F0C; --sidebar-2:#18211A; --sidebar-ink:#9FB6A6; --sidebar-ink2:#EAF3EE; --sidebar-line:#243A2E;
+  --ok:#7CCB45; --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16); --danger-badge-ink:#08130B;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36);
+  --pop:0 18px 46px -12px rgba(0,0,0,.85);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Public Sans",ui-sans-serif,system-ui,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:"Bricolage Grotesque","Public Sans",sans-serif;text-wrap:balance;margin:0}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:none}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ============ top bar ============ */
+.top{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:14px;padding:0 18px;height:58px;
+  background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+.burger{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.burger:hover{background:var(--bg)}
+.brand{display:flex;align-items:center;gap:11px}
+.brand .logo{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:800;font-size:16px}
+.brand .bn{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:17px;letter-spacing:-.01em}
+.spacer{flex:1}
+.tchip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 13px;font-weight:600;font-size:14px;color:var(--brand-d);cursor:pointer;white-space:nowrap}
+.tchip:hover{background:var(--bg)}
+.ticon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--muted);cursor:pointer;font-size:15px}
+.ticon:hover{background:var(--bg);color:var(--ink)}
+.who{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:5px 12px 5px 6px;cursor:pointer}
+.who:hover{background:var(--bg)}
+.who .av{width:32px;height:32px;border-radius:9px;background:var(--brand-soft);color:var(--brand-d);display:grid;place-items:center;font-weight:800;font-size:12px}
+.who .r1{font-weight:700;font-size:13px;line-height:1.2}
+.who .r2{font-size:11px;color:var(--muted);line-height:1.3}
+@media (max-width:820px){.who .wt,.tchip .ttx{display:none}}
+
+/* ============ layout ============ */
+.layout{display:flex;align-items:flex-start}
+.side{width:256px;flex:none;background:var(--sidebar);color:var(--sidebar-ink);padding:12px;display:flex;flex-direction:column;gap:2px;
+  position:sticky;top:58px;height:calc(100vh - 58px);overflow:auto}
+.nav{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);font-weight:550;width:100%;text-align:left;font-size:14px}
+.nav:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
+.nav .ic{width:17px;height:17px;flex:none;opacity:.8}
+.nav .ct{margin-left:auto;font-size:11px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 7px;border-radius:20px}
+.ggrp{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-top:6px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);
+  font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;width:100%;text-align:left}
+.ggrp:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
+.ggrp .ic{width:16px;height:16px;flex:none;opacity:.85}
+.ggrp .gct{font-size:10px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 6px;border-radius:20px;margin-left:auto}
+.ggrp .chev{width:14px;height:14px;opacity:.6;transition:transform .2s;flex:none;margin-left:6px}
+.ggrp.open .chev{transform:rotate(90deg)}
+.ggrp .gsp{margin-left:auto}
+.subnav{display:none;flex-direction:column;gap:1px;margin:1px 0 4px}
+.subnav.open{display:flex}
+.leaf{display:flex;align-items:center;gap:9px;padding:7px 12px 7px 40px;border-radius:8px;cursor:pointer;color:var(--sidebar-ink);
+  font-size:13px;font-weight:500;position:relative;width:100%;text-align:left}
+.leaf::before{content:"";position:absolute;left:23px;top:50%;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.32;transform:translateY(-50%)}
+.leaf:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
+.leaf.on{background:linear-gradient(90deg,var(--brand-soft),transparent);color:var(--sidebar-ink2);font-weight:650;box-shadow:inset 2px 0 0 var(--brand)}
+.leaf.on::before{background:var(--brand);opacity:1}
+.leaf .new{margin-left:auto;font-size:9px;letter-spacing:.4px;text-transform:uppercase;font-weight:700;color:var(--brand);border:1px solid var(--brand);border-radius:5px;padding:0 5px}
+.leaf .gone{margin-left:auto;font-size:9px;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);border:1px solid var(--sidebar-line);border-radius:5px;padding:0 5px}
+.leaf.dim{opacity:.45;text-decoration:line-through;text-decoration-color:var(--faint)}
+.grow{flex:1}
+.sidefoot{font-size:11px;color:var(--sidebar-ink);padding:10px 12px;border-top:1px solid var(--sidebar-line);margin-top:8px}
+.main{flex:1;min-width:0}
+@media (max-width:1000px){.side{display:none}}
+
+/* breadcrumb */
+.navback{position:sticky;top:58px;z-index:30;display:flex;align-items:center;gap:9px;padding:8px 22px;border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:saturate(1.2) blur(6px);font-size:12.5px;color:var(--muted)}
+.navback b{color:var(--ink);font-weight:600}
+.navback .sep{opacity:.5}
+.wrap{max-width:1180px;padding:20px 22px 80px}
+
+.note{border:1px dashed var(--brand);background:var(--brand-soft);border-radius:10px;padding:11px 15px;margin-bottom:18px;font-size:13px;color:var(--muted)}
+.note b{font-family:"Bricolage Grotesque",sans-serif;color:var(--brand-d);margin-right:8px}
+
+/* ============ page header ============ */
+.head{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:16px}
+.head-top{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+h1{font-size:clamp(22px,2.8vw,30px);font-weight:800;letter-spacing:-.022em;line-height:1.13}
+.sub{color:var(--muted);font-size:14px;margin:7px 0 0;max-width:62ch}
+.pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:600;
+  border:1px solid var(--warn);background:var(--warnx);color:var(--warn);white-space:nowrap}
+.pill.live{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-d)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+.scope{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:19px}
+.scope>div{background:var(--panel-2);padding:11px 14px}
+.k{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.scope .vv{margin-top:5px}
+
+/* editable chip */
+.f{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--brand);background:var(--brand-soft);color:var(--brand-d);
+  border-radius:8px;padding:4px 10px;font-weight:600;font-size:14.5px;cursor:pointer;font-variant-numeric:tabular-nums;transition:box-shadow .12s}
+.f:hover{box-shadow:0 0 0 3px var(--brand-soft)}
+.f .car{font-size:9px;opacity:.7}
+.f.plain{background:transparent;color:var(--ink);border-color:var(--line)}
+.f.plain:hover{border-color:var(--brand);box-shadow:none}
+.f.big{font-size:15px;padding:7px 13px}
+
+/* readiness */
+.ready{margin-top:17px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);padding:15px 16px}
+.ready h3{font-size:14.5px;font-weight:700;letter-spacing:-.012em}
+.ready>p{margin:3px 0 13px;color:var(--muted);font-size:13px}
+.checks{list-style:none;margin:0;padding:12px 14px;display:flex;flex-direction:column;gap:11px}
+.checks li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px}
+.mark{flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:2px}
+.ok{background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--brand)}
+.todo{background:var(--warnx);color:var(--warn);border:1px solid var(--warn)}
+.why{color:var(--faint);display:block;font-size:11.5px;margin-top:1px;line-height:1.4}
+.actions{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap;align-items:center}
+.btn{font-weight:600;font-size:14px;border-radius:9px;padding:9px 18px;border:1px solid var(--brand);background:var(--brand);color:var(--on-brand);cursor:pointer;transition:filter .12s}
+.btn:hover:not(:disabled){filter:brightness(1.07)}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.ghost:hover:not(:disabled){border-color:var(--brand);color:var(--brand-d)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.saved-note{font-size:12.5px;color:var(--brand-d);opacity:0;transition:opacity .25s}
+.saved-note.show{opacity:1}
+
+/* panes */
+.panes{display:grid;grid-template-columns:288px 1fr;gap:16px;align-items:start}
+@media (max-width:900px){.panes{grid-template-columns:1fr}}
+.leftcol{position:sticky;top:104px;display:flex;flex-direction:column;gap:14px}
+@media (max-width:900px){.leftcol{position:static}}
+.rail{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.rail-h{padding:13px 16px;border-bottom:1px solid var(--line)}
+.rail-h .t{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:14px}
+.rail-h .s{color:var(--faint);font-size:12.5px;margin-top:1px}
+.vlist{list-style:none;margin:0;padding:6px;display:flex;flex-direction:column;gap:2px}
+.v-item{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;overflow:hidden;border-radius:9px;border:1px solid transparent;cursor:pointer;width:100%;text-align:left;transition:background .12s}
+.v-item:hover{background:var(--panel-2)}
+.v-item[aria-current="true"]{background:var(--brand-soft);border-color:var(--brand)}
+.sw{flex:none;width:30px;height:30px;margin-top:1px;border-radius:8px;display:grid;place-items:center;background:var(--panel-2);border:1px solid var(--line);
+  font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:11px;line-height:1.05;text-align:center}
+.v-item[aria-current="true"] .sw{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+.v-txt{min-width:0;flex:1 1 auto;overflow:hidden}
+.v-name{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px;line-height:1.25;min-width:0}
+.v-sched{color:var(--faint);font-size:11.5px;line-height:1.35;margin-top:2px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.v-item.off .v-name,.v-item.off .v-sched{color:var(--faint)}
+.v-item.off .sw{opacity:.5}
+.edited{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+
+.sws{position:relative;flex:none;width:38px;height:22px;border-radius:999px;background:var(--line);cursor:pointer;transition:background .16s;padding:0}
+.sws[aria-checked="true"]{background:var(--brand)}
+.sws::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--panel);transition:transform .16s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.sws[aria-checked="true"]::after{transform:translateX(16px)}
+
+/* cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+.card-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.card-h h2{font-size:19px;font-weight:700;letter-spacing:-.018em}
+.card-h .s{color:var(--muted);font-size:13px;margin:4px 0 0;max-width:66ch}
+.card-b{padding:18px 20px}
+.sec-label{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:11px}
+
+
+
+/* ---- sticky action bar ---- */
+.wrap{padding-bottom:34px}
+.actionbar{position:sticky;bottom:0;z-index:80;background:color-mix(in srgb,var(--panel) 94%,transparent);
+  backdrop-filter:saturate(1.4) blur(12px);border-top:1px solid var(--line);box-shadow:0 -8px 26px -18px rgba(0,0,0,.6)}
+.ab-in{display:flex;align-items:center;gap:12px;padding:11px 22px;max-width:1180px;flex-wrap:wrap}
+.ab-spacer{flex:1;min-width:8px}
+.ab-ready{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;
+  padding:6px 12px;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink)}
+.ab-ready:hover{border-color:var(--brand)}
+.ab-ready[aria-expanded="true"] .car{transform:rotate(180deg)}
+.ab-ready .car{font-size:9px;opacity:.6;transition:transform .18s}
+.ab-mark{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;
+  background:var(--warnx);color:var(--warn);border:1px solid var(--warn);flex:none}
+.ab-mark.done{background:var(--brand-soft);color:var(--brand-d);border-color:var(--brand)}
+.ab-panel{border-top:1px solid var(--line);padding:14px 22px 16px;max-width:1180px;background:var(--panel-2)}
+.ab-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ab-lead{margin:0 0 11px;color:var(--muted);font-size:13px}
+.ab-x{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;cursor:pointer;color:var(--muted);font-size:13px;flex:none;margin-top:-4px}
+.ab-x:hover{background:var(--panel);color:var(--ink)}
+.btn.sm{padding:8px 14px;font-size:13.5px}
+.btn.pubb:disabled{background:transparent;color:var(--ink);border-color:var(--line)}
+@media (max-width:700px){.ab-ready span:not(.ab-mark):not(.car){display:none}.ab-in{padding:10px 14px}}
+/* ---- procurement waves ---- */
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:14px}
+.wave{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:13px 15px}
+.wave .wv{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:15.5px;margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wave .wd{color:var(--faint);font-size:12.5px;margin-top:7px;line-height:1.45}
+/* ---- safety rules ---- */
+.ro{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  border:1px solid var(--line);border-radius:6px;padding:2px 8px;vertical-align:middle;margin-left:8px;font-family:"Public Sans",sans-serif}
+.safety{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.safety li{display:flex;gap:11px;align-items:flex-start;background:var(--panel-2);padding:11px 14px;font-size:13.5px;color:var(--ink)}
+.safety .sy{flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;
+  background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--brand);margin-top:2px}
+/* ---- proof picker ---- */
+.proofpick{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:12px}
+.pc{display:flex;flex-direction:column;gap:7px;text-align:left;padding:15px 16px;border:1px solid var(--line);
+  border-radius:11px;background:var(--panel-2);cursor:pointer;transition:border-color .12s,background .12s}
+.pc:hover{border-color:var(--brand)}
+.pc[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+.pc-h{display:flex;align-items:center;gap:10px}
+.pc-r{width:17px;height:17px;border-radius:50%;border:2px solid var(--line);flex:none;display:grid;place-items:center}
+.pc[aria-pressed="true"] .pc-r{border-color:var(--brand)}
+.pc[aria-pressed="true"] .pc-r::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--brand)}
+.pc-t{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:15.5px;color:var(--ink)}
+.pc-d{font-size:13px;color:var(--muted);line-height:1.5}
+.pc-m{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.pc[aria-pressed="true"] .pc-m{color:var(--brand-d)}
+/* ---- segmented control + priority ---- */
+.seg{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:10px;flex-wrap:wrap}
+.segb{padding:7px 14px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;background:var(--panel)}
+.segb+.segb{border-left:1px solid var(--line)}
+.segb:hover{background:var(--panel-2)}
+.segb[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand-d)}
+.dose-n.bo{color:var(--brand-d)}
+.prio.bo{color:var(--brand-d);border-color:var(--brand)}
+.prio{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 8px;vertical-align:middle;margin-left:6px;font-family:"Public Sans",sans-serif}
+/* ---- plain-language dose card + timeline ---- */
+.dose{border:1px solid var(--line);border-radius:11px;background:var(--panel-2);padding:14px 15px}
+.dose+.dose{margin-top:10px}
+.dose-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dose-n{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+.dose-h .lbl{font-size:15px}
+.tl{margin-top:16px}
+.tl-scale{display:flex;margin-bottom:5px}
+.tl-tick{position:relative;padding-left:9px;min-width:0;overflow:hidden}
+.tl-tick::before{content:"";position:absolute;left:0;top:2px;bottom:-6px;width:1px;background:var(--line2);border-left:1px dashed var(--faint);opacity:.55}
+.tl-tick b{display:block;font-size:11.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-tick i{display:block;font-style:normal;font-size:11px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tl-bar{display:flex;height:30px;border-radius:8px;overflow:hidden;background:var(--line)}
+.tl-seg{height:100%;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 6px}
+.tl-seg span{font-size:11.5px;font-weight:700;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#0B1A0E}
+.tl-seg.g{background:var(--brand)}
+.tl-seg.a{background:var(--warn)}
+.tl-seg.r{background:var(--danger)}
+.tl-cap{margin-top:10px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.tl-cap b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+@media (max-width:620px){.tl-seg span{font-size:10.5px}.tl-tick b{font-size:10.5px}}
+.eg{margin-top:12px;padding:10px 12px;border:1px dashed var(--line);border-radius:9px;background:var(--panel);font-size:12.5px;color:var(--muted)}
+.eg b{color:var(--ink);font-weight:600}
+.gapline{margin-top:11px;font-size:14px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:var(--ink)}
+.sent{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:15px;line-height:2.15}
+.sent+.sent{margin-top:9px}
+.lead{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);border-right:1px solid var(--line);padding-right:12px;margin-right:3px}
+.del{margin-left:auto;color:var(--faint);cursor:pointer;font-size:17px;line-height:1;padding:4px 8px;border-radius:6px}
+.del:hover{background:var(--dangerx);color:var(--danger)}
+.addrow{margin-top:9px;border:1px dashed var(--line);color:var(--muted);border-radius:10px;padding:10px;width:100%;font-size:13.5px;cursor:pointer}
+.addrow:hover{border-color:var(--brand);color:var(--brand-d)}
+.hintline{color:var(--faint);font-size:12.5px;margin:9px 0 0}
+.whoq{display:flex;flex-wrap:wrap;gap:7px;align-items:center;font-size:15px;line-height:2.15}
+
+.repeat{margin-top:22px;border:1px solid var(--brand);border-radius:11px;background:var(--brand-soft);padding:15px 16px}
+.rt{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:14.5px;color:var(--brand-d)}
+.rs{color:var(--muted);font-size:13px;margin:3px 0 12px;max-width:64ch}
+.repeat .sent{background:var(--panel);border-color:var(--brand)}
+.presets{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
+.preset{font-size:12.5px;font-weight:600;border-radius:999px;padding:4px 12px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
+.preset:hover{border-color:var(--brand)}
+.preset[aria-pressed="true"]{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+.vetnote{margin-top:10px;font-size:12.5px;color:var(--faint)}
+.vetnote.off-guide{color:var(--warn)}
+
+details.ref{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);margin-top:18px}
+details.ref summary{padding:11px 15px;cursor:pointer;font-size:13.5px;font-weight:600;color:var(--muted);list-style:none;display:flex;gap:9px;align-items:center}
+details.ref summary::-webkit-details-marker{display:none}
+details.ref summary::before{content:"▸";color:var(--faint);font-size:11px}
+details.ref[open] summary::before{content:"▾"}
+.rb{padding:0 15px 15px;color:var(--muted);font-size:13.5px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:9px;margin-top:11px}
+.fact{border:1px solid var(--line);border-radius:9px;padding:9px 12px;background:var(--panel)}
+.fact .v{font-weight:700;font-size:15px;margin-top:3px;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+.steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:7px}
+.steps li{display:flex;gap:10px;align-items:center;font-size:13.5px;color:var(--muted)}
+.steps .i{flex:none;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:var(--panel-2);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--faint)}
+
+.impact{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:11px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel-2)}
+.stat .n{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:26px;letter-spacing:-.025em;font-variant-numeric:tabular-nums;line-height:1.15}
+.stat .l{color:var(--faint);font-size:12.5px;margin-top:2px}
+.stat.up .n{color:var(--brand-d)}
+.stat.warn .n{color:var(--warn)}
+.scroll{overflow-x:auto;margin-top:14px}
+.tabl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:520px}
+.tabl th{text-align:left;font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:0 12px 8px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+.tabl td{padding:9px 12px 9px 0;border-bottom:1px solid var(--line);vertical-align:middle}
+.tabl tr:last-child td{border-bottom:none}
+.tag{display:inline-block;font-size:11px;font-weight:600;border-radius:5px;padding:2px 8px;border:1px solid var(--line);color:var(--faint);white-space:nowrap}
+.tag.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-d)}
+.tag.no{border-color:var(--warn);background:var(--warnx);color:var(--warn)}
+
+.pop{position:fixed;z-index:200;background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--pop);padding:6px;min-width:206px;max-height:min(340px,70vh);overflow-y:auto}
+.pop[hidden]{display:none}
+.opt{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;padding:8px 11px;border-radius:8px;font-size:14px;cursor:pointer}
+.opt:hover{background:var(--panel-2)}
+.opt[aria-selected="true"]{background:var(--brand-soft);color:var(--brand-d);font-weight:600}
+.opt .ck{opacity:0;font-size:12px}
+.opt[aria-selected="true"] .ck{opacity:1}
+.pop-num{padding:12px;min-width:214px}
+.pn-l{display:block;font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:9px}
+.stepper{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel-2)}
+.stepper:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.st{width:42px;flex:none;display:grid;place-items:center;cursor:pointer;color:var(--muted);font-size:17px;font-weight:600;line-height:1}
+.st:hover{background:var(--brand-soft);color:var(--brand-d)}
+.st:active{background:var(--brand);color:var(--on-brand)}
+.st-v{flex:1;min-width:0;width:100%;border:none;background:none;text-align:center;color:var(--ink);
+  font:inherit;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;padding:9px 0}
+.st-v:focus{outline:none}
+.st-v::-webkit-outer-spin-button,.st-v::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.st-v[type=number]{-moz-appearance:textfield}
+.pn-quick{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
+.qk{flex:1;min-width:34px;padding:6px 0;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);
+  color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums}
+.qk:hover{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+.foot{margin-top:24px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+
+<!-- ============ TOP BAR ============ -->
+<div class="top">
+  <button class="burger" aria-label="Toggle navigation">☰</button>
+  <span class="brand"><span class="logo">मे</span><span class="bn">Mesha</span></span>
+  <span class="spacer"></span>
+  <button class="tchip">◎ <span class="ttx">All parks</span> <span style="font-size:9px;opacity:.7">▾</span></button>
+  <button class="ticon" aria-label="Theme" id="themeBtn">☀</button>
+  <button class="ticon" aria-label="Notifications">🔔</button>
+  <button class="who"><span class="av">CX</span><span class="wt"><span class="r1">CEO / CXO</span><span class="r2">tenant scope · 2 active parks</span></span><span style="color:var(--faint);font-size:11px">›</span></button>
+</div>
+
+<div class="layout">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="side">
+    <button class="nav"><span class="ic">▤</span>Overview</button>
+    <button class="nav"><span class="ic">◈</span>Action Center<span class="ct">14</span></button>
+    <button class="nav"><span class="ic">▦</span>Calendar</button>
+    <button class="nav"><span class="ic">✓</span>Approvals</button>
+    <button class="nav"><span class="ic">◲</span>Verify</button>
+
+    <button class="ggrp open" id="pcGrp"><span class="ic">♡</span>Preventive Care (PC)<span class="gct">92</span><span class="chev">›</span></button>
+    <div class="subnav open" id="pcSub">
+      <button class="leaf">Vaccination</button>
+      <button class="leaf">Live Drive Tracker</button>
+      <button class="leaf on">Vaccination plan<span class="new">moved</span></button>
+      <button class="leaf">Vaccination SOP<span class="gone">folded in</span></button>
+    </div>
+
+    <button class="ggrp"><span class="ic">▤</span>Procurement<span class="chev gsp">›</span></button>
+    <button class="ggrp"><span class="ic">▥</span>Counts<span class="chev gsp">›</span></button>
+    <button class="ggrp"><span class="ic">◑</span>Milk<span class="chev gsp">›</span></button>
+    <button class="ggrp"><span class="ic">⚖</span>Weighing<span class="chev gsp">›</span></button>
+    <button class="ggrp"><span class="ic">✿</span>Feed<span class="chev gsp">›</span></button>
+    <button class="ggrp"><span class="ic">✚</span>Health<span class="chev gsp">›</span></button>
+
+    <button class="ggrp open" id="adGrp"><span class="ic">✎</span>Admin / Data Ops<span class="chev gsp">›</span></button>
+    <div class="subnav open" id="adSub">
+      <button class="leaf dim" disabled>Config<span class="gone">moved to PC</span></button>
+      <button class="leaf">Audit Log</button>
+      <button class="leaf">DLQ Center</button>
+      <button class="leaf">People / HRMS</button>
+    </div>
+
+    <div class="grow"></div>
+    <div class="sidefoot">Mesha · goat operating system</div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="navback">Preventive Care <span class="sep">/</span> <b>Vaccination plan</b> <span class="sep">/</span> Company · version 4 draft</div>
+
+    <div class="wrap">
+      <div class="note"><b>Interactive mock</b>Full page in context — the sidebar shows the proposed move: <b style="color:var(--ink);font-family:inherit">Config</b> leaves Admin / Data Ops and becomes <b style="color:var(--ink);font-family:inherit">Vaccination plan</b> under Preventive Care, and the SOP page folds into it. Every control below works. Nothing saves to a server.</div>
+
+      <header class="head">
+        <div class="head-top">
+          <div>
+            <div class="eyebrow">Preventive Care · Vaccination plan</div>
+            <h1>Company vaccination plan</h1>
+            <p class="sub">One plan decides which animal gets which vaccine, and when. Publishing it schedules every future vaccination task across both parks.</p>
+          </div>
+          <span class="pill" id="planStatus"><span class="dot"></span>Draft · not live yet</span>
+        </div>
+
+        <div class="scope">
+          <div><div class="k">Applies to</div><div class="vv"><button class="f plain" data-bind="scope">Whole company <span class="car">▾</span></button></div></div>
+          <div><div class="k">Animals</div><div class="vv"><button class="f plain" data-bind="species">Goats and sheep <span class="car">▾</span></button></div></div>
+          <div><div class="k">Starts on</div><div class="vv"><button class="f plain" data-bind="startsOn">1 Sep 2026 <span class="car">▾</span></button></div></div>
+          <div><div class="k">Replaces</div><div class="vv" style="font-weight:600;font-size:14.5px;padding-top:5px">Version 3 · live since Mar 2026</div></div>
+        </div>
+
+      </header>
+
+      <div class="panes">
+        <div class="leftcol">
+          <nav class="rail" aria-label="Vaccines">
+            <div class="rail-h"><div class="t">Vaccines</div><div class="s" id="railCount"></div></div>
+            <ul class="vlist" id="vlist"></ul>
+          </nav>
+          <section class="rail readycard">
+            <div class="rail-h"><div class="t" id="readyTitle">Before this can go live</div>
+              <div class="s">Nothing reaches the field until you publish.</div></div>
+            <ul class="checks" id="checks"></ul>
+          </section>
+        </div>
+        <div id="detail"></div>
+      </div>
+
+      <section class="card" style="margin-top:18px">
+        <div class="card-h"><div><h2>How the operator proves it</h2>
+          <p class="s">One choice for the whole plan. It decides what the phone asks for on every vaccination task, whichever vaccine it is.</p></div></div>
+        <div class="card-b">
+          <div class="proofpick" id="proofPick">
+            <button class="pc" data-proof="shed">
+              <span class="pc-h"><span class="pc-r"></span><span class="pc-t">One video per shed</span></span>
+              <span class="pc-d">Operator scans every goat's tag as it is done, then records one video covering the whole shed. A 200-goat shed produces 1 clip.</span>
+              <span class="pc-m">Currently live</span>
+            </button>
+            <button class="pc" data-proof="animal">
+              <span class="pc-h"><span class="pc-r"></span><span class="pc-t">One video per goat</span></span>
+              <span class="pc-d">Operator scans a goat's tag and records that goat's injection, one at a time. A 200-goat shed produces 200 clips.</span>
+              <span class="pc-m">Used for spot QA</span>
+            </button>
+          </div>
+          <p class="hintline" id="proofNote"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><div><h2>Goats bought in as adults</h2>
+          <p class="s">Animals that arrive from outside have no history with us. This decides how they catch up. One policy for the whole plan.</p></div></div>
+        <div class="card-b">
+          <div class="sent" style="line-height:2.3">
+            <span class="lead">Settle in</span>
+            After it arrives, give no vaccine for
+            <button class="f" data-pp="warmup">${label(WARM_OPTS,plan.warmup)} <span class="car">▾</span></button>.
+          </div>
+          <div class="sent" style="line-height:2.3">
+            <span class="lead">Kid or adult</span>
+            Anything younger than
+            <button class="f" data-pp="kidUntil">${label(KIDW_OPTS,plan.kidUntil)} <span class="car">▾</span></button>
+            follows the normal kid schedule above. Older animals use the catch-up below.
+          </div>
+          <div class="sent" style="line-height:2.3">
+            <span class="lead">Seller's word</span>
+            Vaccinations the seller claims they already gave:
+            <button class="f" data-pp="trustPrior">${label(TRUST_OPTS,plan.trustPrior)} <span class="car">▾</span></button>.
+          </div>
+          <p class="hintline">Only vaccines given by us, in our parks or a supervised holding park with proof, ever count as real history. An unproven claim starts the schedule from scratch.</p>
+          <div class="waves">
+            <div class="wave"><div class="k">First visit</div><div class="wv">ET + TT · PPR</div>
+              <div class="wd">Given as soon as the settling-in period ends.</div></div>
+            <div class="wave"><div class="k">Second visit</div>
+              <div class="wv"><button class="f" data-pp="wave2">${label(WAVE_OPTS,plan.wave2)} <span class="car">▾</span></button> later</div>
+              <div class="wd">Goats get Goat Pox · sheep get Sheep Pox. Live vaccines need the gap.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h">
+          <div><h2>Automatic safety rules <span class="ro">read-only</span></h2>
+          <p class="s">These come from Vaccination Rules and are not tweakable here. They run after the selectors above, on every vaccine in this plan.</p></div>
+        </div>
+        <div class="card-b">
+          <ul class="safety">
+            <li><span class="sy">✓</span>Max 2 vaccines per animal per doctor visit.</li>
+            <li><span class="sy">✓</span>Live-to-live minimum gap is 28 days.</li>
+            <li><span class="sy">✓</span>Live/killed and killed/killed spacing is 14 days unless same-day class rule permits it.</li>
+            <li><span class="sy">✓</span>Pregnancy months 4 and 5 skip vaccination; catch up within 14 days after delivery.</li>
+            <li><span class="sy">✓</span>Sick, under treatment, ICU, quarantine, warm-up, and late pregnancy are deferred.</li>
+            <li><span class="sy">✓</span>Mother vaccinated/unknown category is ignored. It is never a rule selector.</li>
+            <li><span class="sy">✓</span>Drive batching may wait up to 7 days once; safety window beats batching.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><div><h2>What publishing will change</h2>
+          <p class="s">The whole plan, compared against the live version as of today. Recalculated on every edit.</p></div></div>
+        <div class="card-b" id="impact"></div>
+      </section>
+      <p class="foot">Mesha · Preventive Care · vaccination plan — interactive redesign mock, not connected to staging.</p>
+    </div>
+
+      <div class="actionbar">
+        <div class="ab-in">
+          <span class="pill" id="planStatus2"><span class="dot"></span>Draft</span>
+          <span class="saved-note" id="savedNote">Draft saved.</span>
+          <span class="ab-spacer"></span>
+          <button class="btn ghost sm" id="resetBtn">Reset</button>
+          <button class="btn" id="saveBtn">Save draft</button>
+          <button class="btn pubb" id="pubBtn" disabled>Publish plan</button>
+        </div>
+
+      </div>
+  </main>
+</div>
+
+<div class="pop" id="pop" hidden role="listbox"></div>
+
+<script>
+"use strict";
+const UNITS={days:1,weeks:7,months:30,years:365};
+const AGE_OPTS=[["1 week",7],["2 weeks",14],["4 weeks",28],["5 weeks",35],["7 weeks",49],["8 weeks",56],["12 weeks",84],["16 weeks",112],["20 weeks",140],["6 months",182],["1 year",365]];
+const TOL_OPTS=[["3 days",3],["5 days",5],["7 days",7],["10 days",10],["14 days",14],["21 days",21],["30 days",30]];
+const AFTER_OPTS=[["3 weeks",21],["4 weeks",28],["5 weeks",35],["6 weeks",42],["8 weeks",56]];
+const GAP_OPTS=[["no minimum",0],["3 days",3],["7 days",7],["14 days",14],["21 days",21],["28 days",28]];
+const LAPSE_OPTS=[["3 days",3],["1 week",7],["2 weeks",14],["3 weeks",21],["1 month",30],["2 months",60]];
+const ANCHOR_OPTS=[["the last dose the goat actually got","last_dose"],["the day it finished the first course","course_end"],["a fixed month every year","calendar"]];
+const STAGE_OPTS=[["every stage","all"],["kids only","kid"],["growers only","grower"],["adults only","adult"],["breeding females","breeder"]];
+const SEX_OPTS=[["both sexes","all"],["females only","female"],["males only","male"]];
+const SPP_OPTS=[["goats and sheep","both"],["goats only","goat"],["sheep only","sheep"]];
+const BREED_OPTS=[["all breeds","all"],["Boer","boer"],["Sirohi","sirohi"],["Jamnapari","jamnapari"],["Dorper","dorper"]];
+const SCOPE_OPTS=[["Whole company","company"],["Ashoka Park only","p1"],["Gandhi Park only","p2"]];
+const DATE_OPTS=[["1 Sep 2026","2026-09-01"],["1 Oct 2026","2026-10-01"],["1 Jan 2027","2027-01-01"],["Immediately","now"]];
+const WARM_OPTS=[["no wait",0],["3 days",3],["7 days",7],["14 days",14],["21 days",21]];
+const KIDW_OPTS=[["12 weeks",12],["16 weeks",16],["20 weeks",20]];
+const WAVE_OPTS=[["14 days",14],["21 days",21],["28 days",28],["35 days",35]];
+const TRUST_OPTS=[["count them",true],["ignore them",false]];
+const UNIT_OPTS=[["days","days"],["weeks","weeks"],["months","months"],["years","years"]];
+
+const BASE=[
+ {id:"ettt",code:"ET\nTT",name:"ET + TT",on:true,priority:1,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
+  blurb:"Enterotoxaemia and Tetanus. Two doses, then a repeat every 6 months. Highest priority in the drive order.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
+  courses:{mv:[{age:28},{after:21}]},
+  repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
+ {id:"ppr",code:"PPR",name:"PPR",on:true,priority:2,type:"Single",dose:"1 ml",vial:"100 doses",herd:2033,
+  blurb:"Peste des Petits Ruminants. One dose, then a repeat every 3 years.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
+  courses:{mv:[{age:112}]},
+  repeat:{n:3,unit:"years",anchor:"last_dose"},guide:{n:3,unit:"years"}},
+ {id:"gpox",code:"GP",name:"Goat Pox",on:true,priority:3,type:"Single",dose:"1 ml",vial:"25 doses",herd:1806,
+  blurb:"Goats only. One dose, then a repeat every year.",
+  stage:"all",sex:"all",spp:"goat",breed:"all",maxLate:14,
+  courses:{mv:[{age:112}]},
+  repeat:{n:1,unit:"years",anchor:"last_dose"},guide:{n:1,unit:"years"}},
+ {id:"spox",code:"SP",name:"Sheep Pox",on:true,priority:3,type:"Single",dose:"1 ml",vial:"100 doses",herd:227,
+  blurb:"Sheep only. One dose, then a repeat every year.",
+  stage:"all",sex:"all",spp:"sheep",breed:"all",maxLate:14,
+  courses:{mv:[{age:84}]},
+  repeat:{n:1,unit:"years",anchor:"last_dose"},guide:{n:1,unit:"years"}},
+ {id:"bt",code:"BT",name:"Blue Tongue",on:false,priority:4,type:"Booster",dose:"2 ml",vial:"100 doses",herd:2033,
+  blurb:"Two doses, then a repeat every year. Not used at Mesha today, so it is switched off.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
+  courses:{mv:[{age:112},{after:28}]},
+  repeat:{n:1,unit:"years",anchor:"last_dose"},guide:{n:1,unit:"years"}},
+ {id:"fmd",code:"FMD",name:"FMD",on:true,priority:5,type:"Single",dose:"1 ml",vial:"30 doses",herd:2033,
+  blurb:"Foot and Mouth Disease. One dose, then a repeat every 9 months.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
+  courses:{mv:[{age:84}]},
+  repeat:{n:9,unit:"months",anchor:"last_dose"},guide:{n:9,unit:"months"}},
+ {id:"hs",code:"HS",name:"HS",on:true,priority:5,type:"Single",dose:"2 ml",vial:"100 doses",herd:2033,
+  blurb:"Haemorrhagic Septicaemia. One dose, then a repeat every year. Runs in the same drive as FMD.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
+  courses:{mv:[{age:84}]},
+  repeat:{n:1,unit:"years",anchor:"last_dose"},guide:{n:1,unit:"years"}}
+];
+
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const EG_DUE=new Date(2026,7,15); // 15 Aug 2026, worked example
+const addD=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const fmtD=d=>d.getDate()+" "+MON[d.getMonth()];
+function timeline(maxLate){
+  const tail=Math.max(Math.round(maxLate*0.55),4);
+  const span=maxLate+tail, pc=n=>(n/span*100).toFixed(2)+"%";
+  const d0=fmtD(EG_DUE), d1=fmtD(addD(EG_DUE,maxLate));
+  return `<div class="tl">
+    <div class="tl-scale">
+      <span class="tl-tick" style="width:${pc(maxLate)}"><b>Due day</b><i>${d0}</i></span>
+      <span class="tl-tick" style="width:${pc(tail)}"><b>Deadline</b><i>${d1}</i></span>
+    </div>
+    <div class="tl-bar">
+      <span class="tl-seg g" style="width:${pc(maxLate)}"><span>Can be given</span></span>
+      <span class="tl-seg r" style="width:${pc(tail)}"><span>Missed \u2192 needs your approval</span></span>
+    </div>
+    <div class="tl-cap">A goat due on <b>${d0}</b> must be vaccinated by <b>${d1}</b>. After that it counts as missed.</div>
+  </div>`;
+}
+function fitLabels(root){
+  (root||document).querySelectorAll(".tl-seg").forEach(seg=>{
+    const t=seg.querySelector("span");if(!t)return;
+    t.style.display="";seg.title=t.textContent;
+    if(seg.clientWidth < t.scrollWidth+14) t.style.display="none";
+  });
+  (root||document).querySelectorAll(".tl-tick").forEach(tk=>{
+    const b=tk.querySelector("b"),i=tk.querySelector("i");
+    b.style.visibility="";i.style.visibility="";
+    tk.title=b.textContent+" \u00b7 "+i.textContent;
+    if(tk.clientWidth<62){b.style.visibility="hidden";i.style.visibility="hidden"}
+  });
+}
+function egLine(onTime,late){
+  const a=fmtD(EG_DUE), b=fmtD(addD(EG_DUE,onTime)), c=fmtD(addD(EG_DUE,onTime+late));
+  return `<div class="eg">If a goat's dose falls due on <b>${a}</b> — on time up to <b>${b}</b>, late but still allowed up to <b>${c}</b>, and after that it needs your approval.</div>`;
+}
+const clone=o=>JSON.parse(JSON.stringify(o));
+let LIVE=clone(BASE),V=clone(BASE),cur="ettt",dirty=false,saved=false;
+let plan={scope:"company",species:"both",startsOn:"2026-09-01",proof:"shed",warmup:7,kidUntil:16,trustPrior:true,wave2:28},planLive=clone(plan);
+
+const $=s=>document.querySelector(s);
+const label=(o,v)=>{const h=o.find(x=>x[1]===v);return h?h[0]:String(v)};
+const dayLabel=(o,v)=>{const h=o.find(x=>x[1]===v);return h?h[0]:v+" days"};
+const days=r=>r.n*UNITS[r.unit];
+const ageLabel=d=>{const h=AGE_OPTS.find(o=>o[1]===d);if(h)return h[0];
+  if(d%365===0)return (d/365)+(d/365===1?" year":" years");
+  if(d%30===0)return (d/30)+" months";if(d%7===0)return (d/7)+" weeks";return d+" days"};
+const plural=(n,u)=>n===1?u.replace(/s$/,""):u;
+const repeatLabel=r=>`every ${r.n} ${plural(r.n,r.unit)}`;
+const onGuide=v=>days(v.repeat)===v.guide.n*UNITS[v.guide.unit];
+const doses=v=>v.courses.mv;
+function schedLine(v){
+  if(!v.on)return "Not in this plan";
+  const d=doses(v);
+  const first=d.length?ageLabel(d[0].age):"—";
+  return `${d.length>1?"Two doses from":"One dose at"} ${first} · repeats ${repeatLabel(v.repeat)}`;
+}
+
+const pop=$("#pop");let popOwner=null;
+function closePop(){pop.hidden=true;pop.innerHTML="";popOwner=null}
+function place(a){const r=a.getBoundingClientRect();pop.hidden=false;
+  const w=pop.offsetWidth,h=pop.offsetHeight;
+  let l=Math.max(12,Math.min(r.left,innerWidth-w-12));
+  let t=r.bottom+6;if(t+h>innerHeight-12)t=Math.max(12,r.top-h-6);
+  pop.style.left=l+"px";pop.style.top=t+"px"}
+function openSelect(a,opts,val,cb){
+  if(popOwner===a){closePop();return}
+  pop.innerHTML="";pop.setAttribute("role","listbox");
+  opts.forEach(([lab,value])=>{const b=document.createElement("button");
+    b.className="opt";b.type="button";b.setAttribute("role","option");
+    b.setAttribute("aria-selected",String(value===val));
+    b.innerHTML=`<span>${lab}</span><span class="ck">✓</span>`;
+    b.onclick=()=>{closePop();cb(value)};pop.appendChild(b)});
+  popOwner=a;place(a);pop.querySelector(".opt").focus()}
+function openNumber(a,title,val,min,max,cb){
+  if(popOwner===a){closePop();return}
+  pop.innerHTML="";pop.removeAttribute("role");
+  const d=document.createElement("div");d.className="pop-num";
+  d.innerHTML=`<span class="pn-l">${title}</span>
+    <div class="stepper">
+      <button type="button" class="st" data-s="-1" aria-label="Decrease">\u2212</button>
+      <input class="st-v" inputmode="numeric" value="${val}" aria-label="${title}">
+      <button type="button" class="st" data-s="1" aria-label="Increase">+</button>
+    </div>
+    <div class="pn-quick">${[1,2,3,6,9,12].filter(n=>n>=min&&n<=max).map(n=>`<button type="button" class="qk" data-q="${n}">${n}</button>`).join("")}</div>`;
+  pop.appendChild(d);
+  const inp=d.querySelector(".st-v");
+  const clamp=n=>Math.max(min,Math.min(max,n));
+  const commit=n=>{const c=clamp(n);inp.value=c;cb(c)};
+  d.querySelectorAll(".st").forEach(b=>b.onclick=()=>commit((parseInt(inp.value,10)||min)+ +b.dataset.s));
+  d.querySelectorAll(".qk").forEach(b=>b.onclick=()=>{commit(+b.dataset.q);closePop()});
+  inp.oninput=()=>{const n=parseInt(inp.value,10);if(!isNaN(n))cb(clamp(n))};
+  inp.onkeydown=e=>{
+    if(e.key==="Enter"){e.preventDefault();closePop()}
+    if(e.key==="ArrowUp"){e.preventDefault();commit((parseInt(inp.value,10)||min)+1)}
+    if(e.key==="ArrowDown"){e.preventDefault();commit((parseInt(inp.value,10)||min)-1)}
+  };
+  popOwner=a;place(a);inp.focus();inp.select()}
+document.addEventListener("click",e=>{if(!pop.hidden&&!pop.contains(e.target)&&e.target!==popOwner&&!popOwner?.contains?.(e.target))closePop()},true);
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closePop()});
+addEventListener("resize",closePop);addEventListener("scroll",closePop,true);
+
+function touch(){dirty=true;saved=false;renderAll()}
+const vac=id=>V.find(v=>v.id===id);
+const liveVac=id=>LIVE.find(v=>v.id===id);
+const changedVaccines=()=>V.filter(v=>JSON.stringify(v)!==JSON.stringify(liveVac(v.id)));
+
+function renderRail(){
+  const ul=$("#vlist");ul.innerHTML="";
+  V.forEach(v=>{
+    const li=document.createElement("li"),b=document.createElement("button");
+    b.type="button";b.className="v-item"+(v.on?"":" off");
+    if(v.id===cur)b.setAttribute("aria-current","true");
+    const ch=JSON.stringify(v)!==JSON.stringify(liveVac(v.id));
+    b.innerHTML=`<span class="sw">${v.code.replace("\n","<br>")}</span>
+      <span class="v-txt"><span class="v-name">${v.name}${ch?'<span class="edited" title="Changed from the live plan"></span>':""}</span>
+      <span class="v-sched">${schedLine(v)}</span></span>`;
+    b.onclick=()=>{cur=v.id;renderAll()};li.appendChild(b);ul.appendChild(li)});
+  const on=V.filter(v=>v.on).length;
+  $("#railCount").textContent=`${on} on · ${V.length-on} off`}
+
+function renderDetail(){
+  const v=vac(cur);
+  $("#detail").innerHTML=`
+  <section class="card">
+    <div class="card-h">
+      <div><h2>${v.name} <span class="prio${v.type==="Booster"?" bo":""}">${v.type==="Booster"?"Booster course":"Single dose"}</span><span class="prio">Drive priority ${v.priority}</span></h2><p class="s">${v.blurb}</p></div>
+      <span style="display:flex;align-items:center;gap:10px;white-space:nowrap">
+        <span style="font-size:13px;color:var(--muted)">${v.on?"In this plan":"Switched off"}</span>
+        <button class="sws" id="vOn" role="switch" aria-checked="${v.on}" aria-label="Include ${v.name}"></button></span>
+    </div>
+    <div class="card-b"${v.on?"":' style="opacity:.45;pointer-events:none"'}>
+      <div class="sec-label">Which animals get it</div>
+      <div class="whoq">Give to
+        <button class="f" data-e="stage">${label(STAGE_OPTS,v.stage)} <span class="car">▾</span></button>
+        <button class="f" data-e="spp">${label(SPP_OPTS,v.spp)} <span class="car">▾</span></button>
+        <button class="f" data-e="sex">${label(SEX_OPTS,v.sex)} <span class="car">▾</span></button>
+        <button class="f" data-e="breed">${label(BREED_OPTS,v.breed)} <span class="car">▾</span></button>
+      </div>
+      <p class="hintline">Ages update by themselves as goats grow, so this stays correct without anyone editing it.</p>
+
+      <div class="sec-label" style="margin-top:24px">${v.type==="Booster"?"The two doses a young goat gets":"The dose a young goat gets"}</div>
+      <div id="doseRows">${doses(v).map((r,i)=>`
+        <div class="dose">
+          <div class="dose-h">
+            <span class="dose-n${i>0?" bo":""}">${i===0?(doses(v).length>1?"First dose":"Only dose"):"Booster"}</span>
+            ${i===0?`<span class="lbl">Give it when the goat is
+              <button class="f" data-e="age" data-i="${i}">${ageLabel(r.age)} <span class="car">▾</span></button>
+              old</span>`
+            :`<span class="lbl">Give it
+              <button class="f" data-e="after" data-i="${i}">${label(AFTER_OPTS,r.after)} <span class="car">▾</span></button>
+              after the first dose</span>`}
+            ${doses(v).length>1&&i>0?`<button class="del" data-del="${i}" aria-label="Remove booster">×</button>`:""}
+          </div>
+          ${i>0?`<p class="hintline" style="margin-top:8px">Counted from the day the first dose was actually given, not from the date it was due. Never less than 3 weeks.</p>`:""}
+        </div>`).join("")}</div>
+      ${doses(v).length<2?`<button class="addrow" id="addDose">+ Add a booster dose</button>`:""}
+      <div class="dose" style="margin-top:14px">
+        <div class="dose-h"><span class="dose-n">Deadline</span>
+          <span class="lbl">Any dose can be up to
+            <button class="f" data-e="late">${dayLabel(LAPSE_OPTS,v.maxLate)} <span class="car">▾</span></button>
+            late</span></div>
+        ${timeline(v.maxLate)}
+      </div>
+      <p class="hintline">The deadline runs forward from the due day only — giving a dose early does not buy extra time. A goat bought in as an adult skips straight to the repeat schedule below.</p>
+
+      <div class="repeat">
+        <div class="rt">How often to repeat it</div>
+        <p class="rs">Change this and every future vaccination date moves with it. No engineer needed.</p>
+        <div class="sent" style="line-height:2.3">
+          <span class="lead">Repeat</span>
+          Do it again every
+          <button class="f" data-e="rn">${v.repeat.n} <span class="car">▾</span></button>
+          <button class="f" data-e="ru">${plural(v.repeat.n,v.repeat.unit)} <span class="car">▾</span></button>
+          after
+          <button class="f" data-e="ra">${label(ANCHOR_OPTS,v.repeat.anchor)} <span class="car">▾</span></button>.
+        </div>
+        <div class="presets" role="group" aria-label="Common intervals">
+          ${[[3,"months"],[6,"months"],[9,"months"],[1,"years"],[3,"years"]].map(([n,u])=>
+            `<button class="preset" data-p="${n}|${u}" aria-pressed="${v.repeat.n===n&&v.repeat.unit===u}">${n} ${plural(n,u)}</button>`).join("")}
+          <button class="preset" data-custom>Custom…</button>
+        </div>
+        <p class="vetnote${onGuide(v)?"":" off-guide"}">${onGuide(v)
+          ?`Matches vet guidance for ${v.name} (${v.guide.n} ${plural(v.guide.n,v.guide.unit)}).`
+          :`Vet guidance for ${v.name} is ${v.guide.n} ${plural(v.guide.n,v.guide.unit)}. Your change is allowed and will be recorded in the audit log with your name.`}</p>
+      </div>
+
+      <details class="ref">
+        <summary>Vaccine reference — not used for scheduling</summary>
+        <div class="rb">From the vet protocol sheet, shown so the plan reads correctly. Stock is counted in doses, not millilitres, so neither figure changes any task, quantity, or deduction.
+          <div class="facts">
+            <div class="fact"><div class="k">Type</div><div class="v">${v.type}</div></div>
+            <div class="fact"><div class="k">Dose</div><div class="v num">${v.dose}</div></div>
+            <div class="fact"><div class="k">Vial</div><div class="v num">${v.vial}</div></div>
+          </div></div>
+      </details>
+    </div>
+  </section>
+
+`;
+  wireDetail(v);fitLabels($("#detail"))}
+
+function wireDetail(v){
+  $("#vOn").onclick=()=>{v.on=!v.on;touch()};
+  const set=(k,x)=>{v[k]=x;touch()};
+  $("#detail").querySelectorAll("[data-e]").forEach(b=>{
+    const e=b.dataset.e,i=b.dataset.i!==undefined?+b.dataset.i:null;
+    b.onclick=()=>{switch(e){
+      case "stage":return openSelect(b,STAGE_OPTS,v.stage,x=>set("stage",x));
+      case "spp":return openSelect(b,SPP_OPTS,v.spp,x=>set("spp",x));
+      case "sex":return openSelect(b,SEX_OPTS,v.sex,x=>set("sex",x));
+      case "breed":return openSelect(b,BREED_OPTS,v.breed,x=>set("breed",x));
+      case "age":return openSelect(b,AGE_OPTS,doses(v)[i].age,x=>{doses(v)[i].age=x;touch()});
+      case "after":return openSelect(b,AFTER_OPTS,doses(v)[i].after,x=>{doses(v)[i].after=x;touch()});
+      case "late":return openSelect(b,LAPSE_OPTS,v.maxLate,x=>{v.maxLate=x;touch()});
+      case "rn":return openNumber(b,"Repeat every",v.repeat.n,1,60,x=>{v.repeat.n=x;touch()});
+      case "ru":return openSelect(b,UNIT_OPTS,v.repeat.unit,x=>{v.repeat.unit=x;touch()});
+      case "ra":return openSelect(b,ANCHOR_OPTS,v.repeat.anchor,x=>{v.repeat.anchor=x;touch()});
+      case "proc":return openSelect(b,[["Vaccination drive · version 9","v9"],["Vaccination drive · version 8 (retired)","v8"],["Per-goat video QA · version 2","qa2"]],"v9",()=>touch());
+    }}});
+  $("#detail").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{doses(v).splice(+b.dataset.del,1);touch()});
+  const add=$("#addDose");if(add)add.onclick=()=>{doses(v).push({after:21});touch()};
+  $("#detail").querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{
+    const[n,u]=b.dataset.p.split("|");v.repeat.n=+n;v.repeat.unit=u;touch()});
+  $("#detail").querySelector("[data-custom]").onclick=e=>
+    openNumber(e.currentTarget,"Repeat every (in "+v.repeat.unit+")",v.repeat.n,1,60,x=>{v.repeat.n=x;touch()})}
+
+function renderImpact(){
+  const rows=[];let moved=0,soon=0;
+  V.forEach(v=>{const l=liveVac(v.id);
+    if(v.on!==l.on){rows.push([v.name,v.on?"Switched on":"Switched off",v.on?v.herd:0,
+      v.on?["no","+"+v.herd.toLocaleString()+" tasks scheduled"]:["on","no future tasks"]]);
+      moved+=v.herd;if(v.on)soon+=Math.round(v.herd*.12);return}
+    if(!v.on)return;
+    const dl=days(l.repeat),dn=days(v.repeat);
+    if(dn!==dl){const sooner=dn<dl,n=Math.round(v.herd*.47);
+      rows.push([v.name,`Repeat ${repeatLabel(l.repeat)} → ${repeatLabel(v.repeat)}`,v.herd,
+        sooner?["no",n.toLocaleString()+" become due sooner"]:["on",n.toLocaleString()+" pushed later"]]);
+      moved+=n;if(sooner)soon+=Math.round(n*.07);return}
+    if(v.spp!==l.spp){rows.push([v.name,`Now ${label(SPP_OPTS,v.spp)}`,v.herd,["on","scope narrowed"]]);moved+=440;return}
+    if(JSON.stringify(v.courses)!==JSON.stringify(l.courses)){const n=Math.round(v.herd*.31);
+      rows.push([v.name,`Dose ages changed`,v.herd,["no",n.toLocaleString()+" tasks rescheduled"]]);
+      moved+=n;soon+=Math.round(n*.05);return}
+    if(v.stage!==l.stage||v.sex!==l.sex||v.breed!==l.breed){
+      rows.push([v.name,"Eligibility changed",v.herd,["on","scope changed"]]);moved+=Math.round(v.herd*.2)}});
+  if(plan.proof!==planLive.proof){
+    rows.push(["All vaccines",
+      plan.proof==="animal"?"Proof video: one per shed → one per goat":"Proof video: one per goat → one per shed",
+      2033,
+      plan.proof==="animal"?["no","one clip per goat scanned"]:["on","one clip per shed, not per goat"]]);
+  }
+  [["warmup","Settling-in wait",WARM_OPTS],["kidUntil","Kid schedule limit",KIDW_OPTS],
+    ["trustPrior","Seller's prior vaccinations",TRUST_OPTS],["wave2","Second catch-up visit",WAVE_OPTS]].forEach(([k,lbl,opts])=>{
+    if(plan[k]!==planLive[k]) rows.push(["Bought-in adults",lbl+": "+label(opts,planLive[k])+" \u2192 "+label(opts,plan[k]),
+      227,["no","catch-up dates shift"]]);
+  });
+  const covered=V.filter(v=>v.on).reduce((m,v)=>Math.max(m,v.herd),0);
+  $("#impact").innerHTML=`
+    <div class="impact">
+      <div class="stat up"><div class="n num">${covered.toLocaleString()}</div><div class="l">animals covered</div></div>
+      <div class="stat"><div class="n num">${moved.toLocaleString()}</div><div class="l">scheduled tasks move</div></div>
+      <div class="stat ${soon>0?"warn":""}"><div class="n num">${soon.toLocaleString()}</div><div class="l">become due within 7 days</div></div>
+      <div class="stat"><div class="n num">0</div><div class="l">completed records affected</div></div>
+    </div>
+    ${rows.length?`<div class="scroll"><table class="tabl">
+      <thead><tr><th>Vaccine</th><th>Change</th><th>Animals</th><th>Effect</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td style="font-weight:600">${r[0]}</td><td>${r[1]}</td>
+        <td class="num">${r[2].toLocaleString()}</td><td><span class="tag ${r[3][0]}">${r[3][1]}</span></td></tr>`).join("")}</tbody>
+    </table></div>`:`<p class="hintline" style="margin-top:14px">This draft is identical to the live plan. Change something above to see its effect here.</p>`}
+    <p class="hintline">Past vaccinations are never rewritten. Only future scheduled tasks change.</p>`}
+
+function renderReady(){
+  const on=V.filter(v=>v.on).length,off=V.filter(v=>!v.on);
+  const changed=changedVaccines().length||JSON.stringify(plan)!==JSON.stringify(planLive);
+  const items=[
+    [true,`Schedule set for ${on} of ${V.length} vaccines`,off.length?`${off.map(v=>v.name).join(", ")} switched off — that is allowed.`:"Every vaccine is scheduled."],
+    [true,"Proof method chosen",plan.proof==="shed"?"Scan every goat, then one video per shed.":"Scan every goat, then one video per goat."],
+    [!dirty,"Draft is saved",dirty?"You have unsaved edits. Save the draft, then publish.":"No unsaved edits."],
+    [saved,"Impact reviewed",saved?"You saved after reviewing the impact preview.":"Save the draft to lock in the impact figures shown below."]];
+  let n=0;
+  $("#checks").innerHTML=items.map(([d,t,w])=>{if(!d)n++;
+    return `<li><span class="mark ${d?"ok":"todo"}">${d?"✓":n}</span><span>${t}<span class="why">${w}</span></span></li>`}).join("");
+  const left=items.filter(i=>!i[0]).length;
+  $("#readyTitle").textContent=left===0?"Ready to publish":`${left===1?"One thing":left+" things"} left before this can go live`;
+  $("#pubBtn").disabled=left>0;
+  if(!changed){$("#readyTitle").textContent="No changes to publish";$("#pubBtn").disabled=true}
+  [["#planStatus",1],["#planStatus2",0]].forEach(([sel,long])=>{
+    const st=$(sel);if(!st)return;
+    if(!changed){st.className="pill live";st.innerHTML='<span class="dot"></span>'+(long?"Matches the live plan":"Live")}
+    else{st.className="pill";st.innerHTML='<span class="dot"></span>'+(long?"Draft \u00b7 not live yet":"Draft")}})}
+
+function renderPlanCards(){
+  document.querySelectorAll("[data-pp]").forEach(b=>{
+    const k=b.dataset.pp;
+    const opts=k==="warmup"?WARM_OPTS:k==="kidUntil"?KIDW_OPTS:k==="trustPrior"?TRUST_OPTS:WAVE_OPTS;
+    b.innerHTML=label(opts,plan[k])+' <span class="car">\u25be</span>';
+    b.onclick=()=>openSelect(b,opts,plan[k],x=>{plan[k]=x;touch()});
+  });
+}
+function renderProof(){
+  document.querySelectorAll("#proofPick .pc").forEach(b=>
+    b.setAttribute("aria-pressed",String(b.dataset.proof===plan.proof)));
+  $("#proofNote").textContent = plan.proof==="shed"
+    ? "Every goat is still scanned individually — only the video changes. One clip covers the shed, up to five allowed."
+    : "Every goat gets its own clip, so a round produces as many videos as there are goats — more to record, upload, and verify.";
+}
+function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderImpact();renderReady()}
+
+$("#saveBtn").onclick=()=>{dirty=false;saved=true;renderAll();
+  const n=$("#savedNote");n.classList.add("show");setTimeout(()=>n.classList.remove("show"),1800)};
+$("#pubBtn").onclick=()=>{LIVE=clone(V);planLive=clone(plan);dirty=false;saved=false;renderAll();
+  const n=$("#savedNote");n.textContent="Published. This is now the live plan.";n.classList.add("show");
+  setTimeout(()=>{n.classList.remove("show");n.textContent="Draft saved."},2600)};
+$("#resetBtn").onclick=()=>{V=clone(LIVE);plan=clone(planLive);dirty=false;saved=false;renderAll()};
+
+document.querySelectorAll("[data-bind]").forEach(b=>{
+  const key=b.dataset.bind;
+  const opts=key==="scope"?SCOPE_OPTS:key==="species"?SPP_OPTS.map(([l,v])=>[l[0].toUpperCase()+l.slice(1),v]):DATE_OPTS;
+  b.onclick=()=>openSelect(b,opts,plan[key],x=>{plan[key]=x;b.innerHTML=label(opts,x)+' <span class="car">▾</span>';touch()})});
+
+// sidebar group expand/collapse
+document.querySelectorAll(".ggrp").forEach(g=>{
+  const sub=g.nextElementSibling&&g.nextElementSibling.classList.contains("subnav")?g.nextElementSibling:null;
+  g.onclick=()=>{g.classList.toggle("open");if(sub)sub.classList.toggle("open")}});
+$("#themeBtn").onclick=()=>{
+  const r=document.documentElement;
+  const dark=r.getAttribute("data-theme")==="dark"||(!r.getAttribute("data-theme")&&matchMedia("(prefers-color-scheme:dark)").matches);
+  r.setAttribute("data-theme",dark?"light":"dark");
+  $("#themeBtn").textContent=dark?"☀":"☾"};
+
+document.querySelectorAll("#proofPick .pc").forEach(b=>
+  b.onclick=()=>{plan.proof=b.dataset.proof;touch()});
+
+renderAll();
+</script>
