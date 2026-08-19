@@ -74,6 +74,24 @@ class ShiftingViewModelEligibilityTest {
     }
 
     @Test
+    fun `animal lookup results are deduped by goat id before they reach lazy list keys`() = runTest(dispatcher) {
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive", shedName = "Castro 1"),
+                animal(lifecycle = "alive", shedName = "Castro 1"),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+
+        assertEquals(listOf(GOAT_ID), vm.state.value.animalMatches.map { it.goatId })
+        assertNull(vm.state.value.animalLookupMessage)
+    }
+
+    @Test
     fun `selecting a live goat locks destination farm to its current farm`() = runTest(dispatcher) {
         val vm = newViewModel(listOf(animal(lifecycle = "alive")))
         advanceUntilIdle()

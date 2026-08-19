@@ -232,7 +232,7 @@ class ShiftingViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = eligible.map(GoatSearchItemDto::toShiftingAnimalUi),
+                            animalMatches = eligible.toDistinctShiftingAnimalUi(),
                             animalLookupMessage = when {
                                 eligible.isNotEmpty() -> null
                                 matches.isNotEmpty() -> INELIGIBLE_ANIMAL_MESSAGE
@@ -605,6 +605,9 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     sex = sex,
     lifecycleStatus = lifecycleStatus,
 )
+
+internal fun List<GoatSearchItemDto>.toDistinctShiftingAnimalUi(): List<ShiftingAnimalUi> =
+    distinctBy { it.goatId }.map(GoatSearchItemDto::toShiftingAnimalUi)
 
 internal fun GoatSearchItemDto.isEligibleForShifting(): Boolean =
     lifecycleStatus.equals("alive", ignoreCase = true) &&

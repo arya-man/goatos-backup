@@ -23,7 +23,6 @@ import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsEvidenceRefDto
-import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.feature.counts.AddDeathEvent
 import sg.mesha.goatos.feature.counts.AddDeathUiState
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
@@ -115,7 +114,7 @@ class AddDeathViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = matches.map(GoatSearchItemDto::toShiftingAnimalUi),
+                            animalMatches = matches.toDistinctShiftingAnimalUi(),
                             animalLookupMessage = if (matches.isEmpty()) NO_MATCH_MESSAGE else null,
                         )
                     }
