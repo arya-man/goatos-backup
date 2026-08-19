@@ -95,6 +95,14 @@ export type WorklistFilterField =
       min?: string;
       max?: string;
       disabledReason?: string;
+      /**
+       * When BOTH are given, the field renders the app's own calendar (DateRangePicker in
+       * single-day mode) instead of the browser-native date input, whose popover follows the OS
+       * theme rather than the product's. Hosts that have not passed calendar copy keep the native
+       * input, so adopting the styled calendar is a per-page opt-in, never a silent repaint.
+       */
+      labels?: DateRangePickerLabels;
+      today?: string;
     }
   | {
       /**
@@ -465,7 +473,17 @@ export function WorklistFilters({
           title={effectiveField.kind === "select" ? effectiveField.note : undefined}
         >
           <span className="muted">{effectiveField.label}</span>
-          {effectiveField.kind === "date" ? (
+          {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? (
+            <DateRangePicker
+              labels={effectiveField.labels}
+              from={effectiveField.value}
+              to={effectiveField.value}
+              today={effectiveField.today}
+              busy={busy}
+              singleDayOnly
+              onChange={(from) => applyFilter(effectiveField.param, from)}
+            />
+          ) : effectiveField.kind === "date" ? (
             <input
               className="tsize"
               type="date"

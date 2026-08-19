@@ -255,19 +255,37 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, DATE '2026-07-30', $4, 'completed'),
 	if _, err := repo.PersistIssue(ctx, cmd); err != nil {
 		t.Fatalf("persist experiment: %v", err)
 	}
-	arms, err := repo.ExperimentAnalytics(ctx, fdiTenant, window)
+	expWindow := window
+	expWindow.WastageDay = time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+	exp, err := repo.ExperimentAnalytics(ctx, fdiTenant, expWindow)
 	if err != nil {
 		t.Fatalf("ExperimentAnalytics: %v", err)
 	}
-	if len(arms.Arms) != 2 {
-		t.Fatalf("want 2 arms, got %+v", arms.Arms)
+	// The series is BY FEED ITEM (maintainer decision 2026-08-19) — all three
+	// pens feed the same item, so one row carries the day's authored total.
+	if len(exp.Items) != 1 {
+		t.Fatalf("want 1 feed-item row, got %+v", exp.Items)
 	}
-	adult := arms.Arms[0]
-	if adult.ExperimentArm != "Mesha TMR — adult" || adult.AbsoluteKg != "75.000" || adult.Pens != 2 {
-		t.Errorf("adult arm: want 75.000 kg over 2 pens, got %+v", adult)
+	it := exp.Items[0]
+	if it.FeedDay != "2026-07-30" || it.FeedItemLabel != "Mesha TMR" || it.Kg != "95.000" {
+		t.Errorf("item row: want Mesha TMR 95.000 on 2026-07-30, got %+v", it)
 	}
-	if arms.Arms[1].AbsoluteKg != "20.000" || arms.Arms[1].Pens != 1 {
-		t.Errorf("sorghum arm: %+v", arms.Arms[1])
+	// The per-pen wastage table derives its pen list from the SAME sheet: three
+	// pens, none with a video yet, statuses honestly blank with kg blank —
+	// never a fabricated zero.
+	if exp.WastageDay != "2026-07-30" {
+		t.Errorf("wastage day echo: %q", exp.WastageDay)
+	}
+	if len(exp.WastagePens) != 3 {
+		t.Fatalf("want 3 wastage pens, got %+v", exp.WastagePens)
+	}
+	for _, p := range exp.WastagePens {
+		if p.LifecycleStatus != "" || p.WastageKg != "" {
+			t.Errorf("pen %s: want blank status/kg before any submit, got %+v", p.OperationalLocationDisplay, p)
+		}
+	}
+	if exp.WastagePens[0].OperationalLocationDisplay != "Castro 1" {
+		t.Errorf("pen display: want 'Castro 1' (numeric pen, space form), got %q", exp.WastagePens[0].OperationalLocationDisplay)
 	}
 }
 

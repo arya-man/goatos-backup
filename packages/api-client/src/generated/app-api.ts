@@ -1542,8 +1542,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Trial-arm absolute kg series for the Feed Analytics page.
-         * @description The experiment workflow's authored kg per (feed day, experiment arm), with the distinct pen count feeding under each arm. Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are informational, so no per-head figure exists here and none may be derived by a client.
+         * Experiment feed-item kg series plus one day's per-pen wastage.
+         * @description The experiment workflow's authored kg per (feed day, feed item) — the farm reads this screen in feed items (masoor, bhusa), never trial-arm labels — plus ONE selected day's per-pen leftover-feed (wastage) table. Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are informational, so no per-head figure exists here and none may be derived by a client.
          */
         get: operations["getFeedAnalyticsExperiment"];
         put?: never;
@@ -4591,22 +4591,44 @@ export interface components {
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
         };
-        /** @description One (feed day, experiment arm) of authored absolute kg. */
-        FeedAnalyticsExperimentArm: {
+        /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
+        FeedAnalyticsExperimentItem: {
             /** Format: date */
             feed_day: string;
-            experiment_arm: string;
-            /** @description Authored shed/pen TOTAL kg as a decimal string -- never multiplied by heads. */
-            absolute_kg: string;
-            /** Format: int64 */
-            pens: number;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description Authored TOTAL kg as a decimal string -- never multiplied by heads. */
+            kg: string;
         };
         FeedAnalyticsExperimentResponse: {
             /** Format: date */
             date_from: string;
             /** Format: date */
             date_to: string;
-            arms: components["schemas"]["FeedAnalyticsExperimentArm"][];
+            items: components["schemas"]["FeedAnalyticsExperimentItem"][];
+            /**
+             * Format: date
+             * @description Echo of the business day the wastage_pens table describes.
+             */
+            wastage_day: string;
+            /** @description The selected day's per-pen leftover-feed table, derived from that day's experiment sheet — a pen with no video yet still lists, with blank status and kg. Experiment-only by definition — wastage exists on no other workflow. */
+            wastage_pens: components["schemas"]["FeedAnalyticsExperimentWastagePen"][];
+        };
+        /** @description One experiment pen's leftover-feed state for the selected day. wastage_kg is the VERIFIER's recorded value — blank until she records one; "0" is a real measurement (an empty trough), so blank and zero are never conflated. */
+        FeedAnalyticsExperimentWastagePen: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Disambiguates the pen under a tenant-wide read — shed names repeat across parks. */
+            park_label: string;
+            shed_name: string;
+            /** @description The pen ("1", "Part 3"); empty for an undivided shed. */
+            partition_label: string;
+            /** @description Backend-composed shed+pen label ("Castro 1", "Godel 2 - Part 1"); render verbatim. */
+            operational_location_display: string;
+            /** @description Blank when no video was submitted yet, else pending_verification | rework | completed. */
+            lifecycle_status: string;
+            /** @description Verifier-recorded leftover kg as a decimal string; blank until recorded. */
+            wastage_kg: string;
         };
         /** @description One feed item's current stock position off the purchase ledger. */
         FeedAnalyticsStockItem: {
@@ -14098,6 +14120,8 @@ export interface operations {
                 date_from?: string;
                 /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
                 date_to?: string;
+                /** @description The single business day the per-pen wastage table describes, defaulting to TODAY (Asia/Kolkata) — wastage is collected live during the feed day, unlike the kg window which ends yesterday. */
+                wastage_day?: string;
             };
             header?: never;
             path?: never;
@@ -14105,7 +14129,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Per-(day, arm) authored kg, ordered by feed day then arm. */
+            /** @description Per-(day, feed item) authored kg plus the selected day's per-pen wastage. */
             200: {
                 headers: {
                     [name: string]: unknown;

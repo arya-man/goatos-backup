@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 var _ ports.DirectedAnalyticsReader = (*Repository)(nil)
@@ -45,7 +46,10 @@ WITH iss AS (
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
-      AND workflow = 'normal'
+      -- BOTH workflows (maintainer decision 2026-08-19): experiment pens are real
+      -- animals eating real feed, so the overview's directed kg, animals-fed and
+      -- per-head figures include them alongside the normal sheet.
+      AND workflow IN ('normal', 'experiment')
 ),
 pen_item AS (
     SELECT i.feed_day,
@@ -91,7 +95,10 @@ WITH iss AS (
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
-      AND workflow = 'normal'
+      -- BOTH workflows (maintainer decision 2026-08-19): experiment pens are real
+      -- animals eating real feed, so the overview's directed kg, animals-fed and
+      -- per-head figures include them alongside the normal sheet.
+      AND workflow IN ('normal', 'experiment')
 ),
 pen AS (
     SELECT i.feed_day,
@@ -329,7 +336,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 // Experiment analytics
 // ---------------------------------------------------------------------------
 
-// projection-review: membership=issue rows of the at-most-one live EXPERIMENT issue per (tenant, park, feed_day), same natural key as the directed read; group_key=(feed_day, experiment_arm) after collapsing to the pen-grain, so pens counts DISTINCT collapsed grains and kg sums resolved cells over the SAME grain set; join_cardinality=issues to rows 1:N pre-aggregated in the pen CTE before the arm GROUP BY; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set. Head counts on experiment rows are informational and deliberately absent from this read
+// projection-review: membership=issue rows of the at-most-one live EXPERIMENT issue per (tenant, park, feed_day), same natural key as the directed read; group_key=(feed_day, feed_item_key) on the one aggregated side — the kg SUM and the label MAX range over exactly the grouped rows, no ratio or cap compares across key sets; join_cardinality=issues to rows 1:N with the rows side aggregated directly, no second joined side to fan out; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set. Head counts on experiment rows are informational and deliberately absent from this read
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, same shape
 // as the directed rollup above.
@@ -342,26 +349,58 @@ WITH iss AS (
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
       AND workflow = 'experiment'
+)
+SELECT i.feed_day::text,
+       MAX(r.feed_item_label)               AS feed_item_label,
+       r.feed_item_key,
+       COALESCE(SUM(r.quantity_kg), 0)::text AS kg
+FROM iss i
+JOIN feed_direction_issue_rows r
+  ON r.tenant_id = $1
+ AND r.feed_direction_issue_id = i.feed_direction_issue_id
+GROUP BY i.feed_day, r.feed_item_key
+ORDER BY i.feed_day, r.feed_item_key`
+
+// projection-review: membership=the selected day's experiment sheet pens — issue rows of the at-most-one live EXPERIMENT issue per (tenant, park, feed_day), collapsed to DISTINCT (shed_id, partition_key) in the pen CTE, the same derivation the operator worklist uses; group_key=(shed_id, partition_key) on both sides of the LEFT JOIN — completions carry a UNIQUE (tenant, park, shed, partition_key, target_date, workflow) natural key, so the join is at most 1:1 per pen and can never fan out; join_cardinality=pens LEFT JOIN completions 1:0..1; pagination=none, one day's experiment pen list is bounded by the sheet; scope=tenant_id plus the caller's authorized park set on BOTH sides, workflow pinned 'experiment'.
+//
+// scale-guard:ignore: 5k-50k-envelope — one bounded day of sheet pens joined
+// 1:1 to completions, canonical-indexed-SQL default.
+const experimentWastagePensSQL = `
+WITH iss AS (
+    SELECT feed_direction_issue_id
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND feed_day = $3
+      AND state IN ('issued', 'amended', 'locked')
+      AND workflow = 'experiment'
 ),
 pen AS (
-    SELECT i.feed_day,
-           r.experiment_arm,
-           r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key,
-           SUM(r.quantity_kg) AS grain_kg
+    SELECT r.shed_id, r.partition_key,
+           MAX(r.park_label)                              AS park_label,
+           MAX(r.shed_label)                              AS shed_label,
+           MAX(COALESCE(r.partition_label, ''))           AS partition_label
     FROM iss i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    GROUP BY i.feed_day, r.experiment_arm,
-             r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+    GROUP BY r.shed_id, r.partition_key
 )
-SELECT feed_day::text,
-       experiment_arm,
-       COALESCE(SUM(grain_kg), 0)::text AS absolute_kg,
-       COUNT(*)                         AS pens
-FROM pen
-GROUP BY feed_day, experiment_arm
-ORDER BY feed_day, experiment_arm`
+SELECT p.shed_id::text,
+       p.park_label,
+       p.shed_label,
+       p.partition_label,
+       COALESCE(c.status, '')                             AS lifecycle_status,
+       COALESCE(c.wastage_kg::text, '')                   AS wastage_kg
+FROM pen p
+LEFT JOIN feed_wastage_completions c
+  ON c.tenant_id = $1
+ AND c.shed_id = p.shed_id
+ AND c.partition_key = p.partition_key
+ AND c.target_date = $3
+ AND c.workflow = 'experiment'
+ AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
+ORDER BY p.park_label, p.shed_label, p.partition_key`
 
 // ExperimentAnalytics serves the trial arms' authored kg series.
 func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error) {
@@ -378,16 +417,50 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment: %w", err)
 	}
 	defer rows.Close()
-	out := domain.ExperimentAnalytics{Arms: []domain.ExperimentDayArm{}}
+	out := domain.ExperimentAnalytics{Items: []domain.ExperimentDayItem{}}
 	for rows.Next() {
-		var a domain.ExperimentDayArm
-		if err := rows.Scan(&a.FeedDay, &a.ExperimentArm, &a.AbsoluteKg, &a.Pens); err != nil {
+		var it domain.ExperimentDayItem
+		if err := rows.Scan(&it.FeedDay, &it.FeedItemLabel, &it.FeedItemKey, &it.Kg); err != nil {
 			return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment scan: %w", err)
 		}
-		out.Arms = append(out.Arms, a)
+		out.Items = append(out.Items, it)
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment rows: %w", err)
+	}
+	rows.Close()
+
+	// The per-pen wastage table describes ONE selected business day. The
+	// handler defaults it to TODAY (Asia/Kolkata) even though the kg window
+	// ends yesterday: wastage is collected live DURING the feed day, and
+	// leadership watching the screen at 4pm wants today's leftovers as they
+	// land, not tomorrow.
+	wastageDay := q.WastageDay
+	if wastageDay.IsZero() {
+		wastageDay = to
+	}
+	out.WastageDay = wastageDay.Format("2006-01-02")
+	wrows, err := r.pool.Query(ctx, experimentWastagePensSQL, tenantID, parkIDs, out.WastageDay)
+	if err != nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment wastage: %w", err)
+	}
+	defer wrows.Close()
+	out.WastagePens = []domain.ExperimentWastagePen{}
+	for wrows.Next() {
+		var p domain.ExperimentWastagePen
+		if err := wrows.Scan(&p.ShedID, &p.ParkLabel, &p.ShedLabel, &p.PartitionLabel, &p.LifecycleStatus, &p.WastageKg); err != nil {
+			return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment wastage scan: %w", err)
+		}
+		// Canonical composition, never hand-rolled (operational-location rule):
+		// bare shed when undivided, "Castro 1" / "Godel 2 - Part 1" when penned.
+		p.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       p.ShedLabel,
+			PartitionLabel: p.PartitionLabel,
+		}.Display()
+		out.WastagePens = append(out.WastagePens, p)
+	}
+	if err := wrows.Err(); err != nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment wastage rows: %w", err)
 	}
 	return out, nil
 }

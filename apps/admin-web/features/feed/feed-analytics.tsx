@@ -18,6 +18,8 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ChartHover } from "@/components/chart-hover";
+import { getCensusLocations } from "@/lib/api/herd-locations";
+import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars } from "@/components/svg-bars";
 import {
@@ -73,6 +75,12 @@ function readRange(sp: RouteSearchParams): Range {
   return (RANGES as readonly string[]).includes(raw ?? "") ? (raw as Range) : "30";
 }
 
+/** The wastage table's own day picker; absent/malformed means the backend default (today, IST). */
+function readWastageDay(sp: RouteSearchParams): string | undefined {
+  const raw = one(sp, "wastage_day");
+  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
+}
+
 /** Preserves every other param so switching tab/range never resets scope. */
 function hrefWith(sp: RouteSearchParams | undefined, next: Record<string, string | undefined>): string {
   const params = new URLSearchParams();
@@ -110,11 +118,10 @@ type DirectedView = {
   mix: { key: string; label: string; value: number }[];
   itemSeries: LineSeries[];
   perHead: LineSeries[];
-  headsLine: LineSeries[];
   latestDay?: FeedAnalyticsDirectedResponse["days"][number];
 };
 
-function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: string, headsLabel: string): DirectedView {
+function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: string): DirectedView {
   const dayKeys = data.days.map((d) => d.feed_day);
   const totalsByItem = new Map<string, { label: string; total: number }>();
   for (const item of data.items) {
@@ -174,13 +181,6 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
     mix: ranked.map(([key, v]) => ({ key, label: v.label, value: Math.round(v.total) })),
     itemSeries,
     perHead: perHeadSeries,
-    headsLine: [
-      {
-        label: headsLabel,
-        colorVar: FEED_SERIES_VARS[0],
-        points: data.days.map((d) => d.head_days),
-      },
-    ],
     latestDay: data.days.length > 0 ? data.days[data.days.length - 1] : undefined,
   };
 }
@@ -205,6 +205,12 @@ export async function FeedAnalyticsPage({
   const wantDirected = tab === "overview" || tab === "items" || tab === "peranimal";
   const wantExecution = tab === "overview" || tab === "execution";
   const wantExperiment = tab === "experiment";
+  // The experiment tab carries its OWN park dropdown (fa_park), the same
+  // disable-when-top-bar-owns rule every feed page uses; other tabs stay on
+  // top-bar scope alone.
+  const faPark = one(searchParams, "fa_park") ?? "";
+  const experimentParkId = parkId || faPark;
+  const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
   const [directed, execution, experiment, stock] = await Promise.all([
     wantDirected
@@ -214,7 +220,7 @@ export async function FeedAnalyticsPage({
       ? getFeedAnalyticsExecution(params)
       : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
     wantExperiment
-      ? getFeedAnalyticsExperiment(params)
+      ? getFeedAnalyticsExperiment({ ...params, park_id: experimentParkId, wastage_day: readWastageDay(searchParams) })
       : Promise.resolve<ApiResult<FeedAnalyticsExperimentResponse> | null>(null),
     wantStock
       ? getFeedAnalyticsStock(params)
@@ -277,7 +283,19 @@ export async function FeedAnalyticsPage({
       ) : null}
 
       {tab === "experiment" && experiment?.ok ? (
-        <ExperimentTab data={experiment.data} pageContract={pageContract} />
+        <ExperimentTab
+          data={experiment.data}
+          pageContract={pageContract}
+          parkField={{
+            kind: "select",
+            param: "fa_park",
+            label: fa(pageContract, "filter.park_label"),
+            value: faPark,
+            allowAll: true,
+            disabledReason: parkId ? fa(pageContract, "filter.scope_readonly") : undefined,
+            options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+          }}
+        />
       ) : null}
     </div>
   );
@@ -296,7 +314,7 @@ function DirectedTabs({
   stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
 }) {
-  const view = buildDirectedView(data, fa(pageContract, "series.other"), fa(pageContract, "unit.heads"));
+  const view = buildDirectedView(data, fa(pageContract, "series.other"));
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
 
@@ -457,22 +475,6 @@ function DirectedTabs({
               data={view.mix}
               valueNoun={fa(pageContract, "unit.kg")}
               chartLabel={fa(pageContract, "chart.mix.title")}
-              emptyLabel={fa(pageContract, "empty.body")}
-            />
-          </ChartHover>
-        </section>
-      ) : null}
-
-      {tab === "overview" ? (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.heads.title")}>
-          <h2 className="h">{fa(pageContract, "chart.heads.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.heads.hint")}</p>
-          <ChartHover>
-            <FeedLines
-              series={view.headsLine}
-              dayLabels={view.dayLabels}
-              valueNoun={fa(pageContract, "unit.heads")}
-              chartLabel={fa(pageContract, "chart.heads.title")}
               emptyLabel={fa(pageContract, "empty.body")}
             />
           </ChartHover>
@@ -644,86 +646,125 @@ function ExecutionStacked({
 function ExperimentTab({
   data,
   pageContract,
+  parkField,
 }: {
   data: FeedAnalyticsExperimentResponse;
   pageContract: AdminUiPageContract;
+  parkField: FeedFilterField;
 }) {
-  if (data.arms.length === 0) {
-    return (
-      <section className="card">
-        <h2 className="h">{fa(pageContract, "empty.title")}</h2>
-        <p className="muted small">{fa(pageContract, "empty.experiment.body")}</p>
-      </section>
-    );
+  // ------- Authored kg BY FEED ITEM (masoor, bhusa, ...) — never trial-arm labels. -------
+  const dayKeys = [...new Set(data.items.map((it) => it.feed_day))].sort();
+  const itemKeys = [...new Set(data.items.map((it) => it.feed_item_key))];
+  // Latest-day kg ranks the chart; one palette slot per item so no two lines share a colour.
+  const latestKg = new Map<string, number>();
+  for (const key of itemKeys) {
+    const rows = data.items.filter((it) => it.feed_item_key === key);
+    latestKg.set(key, num(rows[rows.length - 1]?.kg ?? "0"));
   }
-  const dayKeys = [...new Set(data.arms.map((a) => a.feed_day))].sort();
-  const armNames = [...new Set(data.arms.map((a) => a.experiment_arm))];
-  // Latest sheet day per arm, used to rank the chart and fill the table.
-  const latestByArm = armNames.map((arm) => {
-    const rows = data.arms.filter((a) => a.experiment_arm === arm);
-    return rows[rows.length - 1];
-  });
-  // The live farm runs many more arms than the series palette has hues. Chart
-  // only the largest (one per palette slot, so no two lines share a colour) and
-  // DISCLOSE the cap — the table below lists every arm. Ranking is a sort of a
-  // backend field, not a new business number.
-  const charted = [...latestByArm]
-    .sort((a, b) => num(b.absolute_kg) - num(a.absolute_kg))
-    .slice(0, FEED_SERIES_VARS.length)
-    .map((row) => row.experiment_arm);
-  const series: LineSeries[] = charted.map((arm, s) => ({
-    label: arm,
+  const charted = [...itemKeys]
+    .sort((a, b) => (latestKg.get(b) ?? 0) - (latestKg.get(a) ?? 0))
+    .slice(0, FEED_SERIES_VARS.length);
+  const series: LineSeries[] = charted.map((key, s) => ({
+    label: data.items.find((it) => it.feed_item_key === key)?.feed_item_label ?? key,
     colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
     points: dayKeys.map((day) => {
-      const row = data.arms.find((a) => a.feed_day === day && a.experiment_arm === arm);
-      return row ? num(row.absolute_kg) : null;
+      const row = data.items.find((it) => it.feed_day === day && it.feed_item_key === key);
+      return row ? num(row.kg) : null;
     }),
   }));
+
+  // ------- Per-pen wastage for ONE selected day (the card's own date picker). -------
+  const wastageStatus = (row: FeedAnalyticsExperimentResponse["wastage_pens"][number]): string => {
+    if (row.wastage_kg !== "") return fa(pageContract, "wastage.status.done");
+    if (row.lifecycle_status === "") return fa(pageContract, "wastage.status.none");
+    if (row.lifecycle_status === "rework") return fa(pageContract, "wastage.status.rework");
+    return fa(pageContract, "wastage.status.await");
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
-        <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
-        <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
-        <ChartHover>
-          <FeedLines
-            series={series}
-            dayLabels={dayKeys}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "chart.experiment.title")}
-            emptyLabel={fa(pageContract, "empty.experiment.body")}
-          />
-        </ChartHover>
-        <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
-        <p className="muted small">{fa(pageContract, "chart.experiment.top")}</p>
-      </section>
-      <section className="card" aria-label={fa(pageContract, "table.arms.title")}>
-        <h2 className="h">{fa(pageContract, "table.arms.title")}</h2>
-        <p className="muted small">{fa(pageContract, "table.arms.hint")}</p>
-        <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "table.arms.title")}>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>{fa(pageContract, "col.arm")}</th>
-                <th>{fa(pageContract, "col.pens")}</th>
-                <th>{fa(pageContract, "col.kg")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {latestByArm.map((row) => (
-                <tr key={row.experiment_arm}>
-                  <td>{row.experiment_arm}</td>
-                  <td>{nf(row.pens)}</td>
-                  <td>{nf(num(row.absolute_kg))}</td>
+      {data.items.length === 0 ? (
+        <section className="card">
+          <h2 className="h">{fa(pageContract, "empty.title")}</h2>
+          <p className="muted small">{fa(pageContract, "empty.experiment.body")}</p>
+        </section>
+      ) : (
+        <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
+          <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
+          <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
+          <ChartHover>
+            <FeedLines
+              series={series}
+              dayLabels={dayKeys}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "chart.experiment.title")}
+              emptyLabel={fa(pageContract, "empty.experiment.body")}
+            />
+          </ChartHover>
+          <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
+        </section>
+      )}
+      <section className="card" aria-label={fa(pageContract, "wastage.title")}>
+        <h2 className="h">{fa(pageContract, "wastage.title")}</h2>
+        <p className="muted small">{fa(pageContract, "wastage.hint")}</p>
+        <FeedFilters
+          basePath={PAGE_PATH}
+          pageParam="fa_offset"
+          fields={[
+            parkField,
+            {
+              kind: "date",
+              param: "wastage_day",
+              label: fa(pageContract, "wastage.date.label"),
+              value: data.wastage_day,
+              today: todayIso(),
+              labels: {
+                field: fa(pageContract, "wastage.date.label"),
+                today: fa(pageContract, "filter.date.today"),
+                single: fa(pageContract, "filter.date.single"),
+                range: fa(pageContract, "filter.date.range"),
+                aria: fa(pageContract, "filter.date.aria"),
+                previousMonth: fa(pageContract, "filter.date.previous_month"),
+                nextMonth: fa(pageContract, "filter.date.next_month"),
+                rangeStartHint: fa(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: fa(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: fa(pageContract, "filter.date.range_separator"),
+              },
+            },
+          ]}
+          pageContract={pageContract}
+        />
+        {data.wastage_pens.length === 0 ? (
+          <p className="muted small">{fa(pageContract, "wastage.empty")}</p>
+        ) : (
+          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "wastage.title")}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{fa(pageContract, "col.wastage.park")}</th>
+                  <th>{fa(pageContract, "col.wastage.pen")}</th>
+                  <th>{fa(pageContract, "col.wastage.kg")}</th>
+                  <th>{fa(pageContract, "col.wastage.status")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
+              </thead>
+              <tbody>
+                {data.wastage_pens.map((row) => (
+                  <tr key={`${row.shed_id}|${row.partition_label}`}>
+                    <td>{row.park_label}</td>
+                    <td>{row.operational_location_display}</td>
+                    <td>{row.wastage_kg === "" ? "—" : nf(num(row.wastage_kg))}</td>
+                    <td>{wastageStatus(row)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );
 }
+
 
 
 function StockCards({
