@@ -198,8 +198,8 @@ function OverviewSections({
             {overview.market_benchmarks.length === 0 ? (
               <div className="empty">{copy(pageContract, "empty.market")}</div>
             ) : (
-              <div className="twrap">
-                <table>
+              <div className="twrap sales-market-wrap">
+                <table className="sales-market-table">
                   <thead>
                     <tr>
                       <th>{copy(pageContract, "column.market")}</th>

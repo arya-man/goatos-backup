@@ -2730,6 +2730,22 @@ select:disabled { opacity: .45; }
    "2026-08-11" -> "2026-08-" / "11" and "CPT" character-by-character (known failure mode 4b). */
 .main table.sales-deals-table th,.main table.sales-deals-table td,.main table.sales-deals-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
 
+/* Market check is wider than the sales card once the left nav is open. Let the table own horizontal
+   scroll and keep the loss signal pinned instead of clipping it at the card edge. */
+.sales-market-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.main table.sales-market-table{min-width:1720px}
+.main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+.main table.sales-market-table th:nth-child(1),.main table.sales-market-table td:nth-child(1){min-width:270px}
+.main table.sales-market-table th:nth-child(2),.main table.sales-market-table td:nth-child(2){min-width:90px}
+.main table.sales-market-table th:nth-child(3),.main table.sales-market-table td:nth-child(3){min-width:180px}
+.main table.sales-market-table th:nth-child(4),.main table.sales-market-table td:nth-child(4){min-width:280px}
+.main table.sales-market-table th:nth-child(5),.main table.sales-market-table td:nth-child(5){min-width:140px}
+.main table.sales-market-table th:nth-child(6),.main table.sales-market-table td:nth-child(6){min-width:140px}
+.main table.sales-market-table th:nth-child(7),.main table.sales-market-table td:nth-child(7){min-width:190px}
+.main table.sales-market-table th:nth-child(8),.main table.sales-market-table td:nth-child(8){min-width:210px}
+.main table.sales-market-table th:nth-child(9),.main table.sales-market-table td:nth-child(9){position:sticky;right:0;min-width:130px;background:var(--panel);box-shadow:-12px 0 18px rgba(5,10,7,.42);z-index:1}
+.main table.sales-market-table th:nth-child(9){z-index:2}
+
 /* Sales cards: headings, captions and chip rows share the charts' 14px inset, and the bar
    charts breathe vertically (the breed chart sat flush under its header). */
 .main .sales-card .mt{padding-left:14px}
