@@ -225,6 +225,8 @@ func (h *Handler) analyticsInput(w http.ResponseWriter, r *http.Request) (app.Di
 }
 
 type stockItemDTO struct {
+	ParkID        string `json:"park_id"`
+	ParkLabel     string `json:"park_label"`
 	FeedItemLabel string `json:"feed_item_label"`
 	FeedItemKey   string `json:"feed_item_key"`
 	BalanceKg     string `json:"balance_kg"`

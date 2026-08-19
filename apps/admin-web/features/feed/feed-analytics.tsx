@@ -287,6 +287,7 @@ export async function FeedAnalyticsPage({
           execution={execution?.ok ? execution.data : null}
           stock={stock?.ok ? stock.data : null}
           pageContract={pageContract}
+          searchParams={searchParams}
         />
       ) : null}
 
@@ -315,12 +316,14 @@ function DirectedTabs({
   execution,
   stock,
   pageContract,
+  searchParams,
 }: {
   tab: Tab;
   data: FeedAnalyticsDirectedResponse;
   execution: FeedAnalyticsExecutionResponse | null;
   stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
+  searchParams: RouteSearchParams;
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), fa(pageContract, "unit.heads"));
   const empty = data.days.length === 0;
@@ -381,7 +384,9 @@ function DirectedTabs({
         </section>
       ) : null}
 
-      {tab === "items" ? <StockCards stock={stock} pageContract={pageContract} /> : null}
+      {tab === "items" ? (
+        <StockCards stock={stock} pageContract={pageContract} searchParams={searchParams} />
+      ) : null}
 
       {tab === "items" ? (
         // The artifact's Feed Items tab: one small chart per feed item, each in
@@ -858,9 +863,11 @@ function ExperimentItemsChart({
 function StockCards({
   stock,
   pageContract,
+  searchParams,
 }: {
   stock: FeedAnalyticsStockResponse | null;
   pageContract: AdminUiPageContract;
+  searchParams: RouteSearchParams;
 }) {
   // Only items with a live days-left figure make a card (maintainer request
   // 2026-08-18): an item not directed recently has no burn rate to divide by,
@@ -876,12 +883,32 @@ function StockCards({
       </section>
     );
   }
+  // Stock is a PER-PARK fact (maintainer decision 2026-08-19): one farm's
+  // store per view, toggled like the maintainer's stock cards — a link-based
+  // segmented control on ?stockpark, so it survives SSR without client state.
+  const parks = [...new Set(active.map((item) => item.park_label))].sort();
+  const requested = one(searchParams, "stockpark");
+  const selectedPark = parks.includes(requested ?? "") ? (requested as string) : parks[0];
+  const shown = active.filter((item) => item.park_label === selectedPark);
   return (
     <section style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.title")}>
       <h2 className="h">{fa(pageContract, "stock.title")}</h2>
       <p className="muted small">{fa(pageContract, "stock.hint")}</p>
+      {parks.length > 1 ? (
+        <div style={{ margin: "8px 0" }}>
+          <SegmentedLinks
+            current={selectedPark}
+            ariaLabel={fa(pageContract, "stock.park.aria")}
+            options={parks.map((park) => ({
+              value: park,
+              label: park,
+              href: hrefWith(searchParams, { stockpark: park === parks[0] ? undefined : park }),
+            }))}
+          />
+        </div>
+      ) : null}
       <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
-        {active.map((item) => (
+        {shown.map((item) => (
           <div className="kpi card" key={item.feed_item_key}>
             <div className="dl" title={item.feed_item_label}>{item.feed_item_label}</div>
             <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
