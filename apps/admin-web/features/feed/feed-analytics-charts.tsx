@@ -263,9 +263,12 @@ export function FeedLines({
 /** Shared legend row; the caller resolves labels and keeps series order stable. */
 export function FeedChartLegend({ entries }: { entries: { label: string; colorVar: string }[] }) {
   return (
-    <div className="lg">
+    <div
+      className="lg"
+      style={{ display: "flex", flexWrap: "wrap", columnGap: 16, rowGap: 6, marginTop: 8 }}
+    >
       {entries.map((entry) => (
-        <span key={entry.label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <span key={entry.label} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <span
             aria-hidden
             style={{ width: 9, height: 9, borderRadius: 3, background: entry.colorVar, display: "inline-block" }}
