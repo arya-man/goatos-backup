@@ -1,6 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+
+// The three module SOP pages (SOP split, maintainer decision 2026-08-18) all render /admin/sops
+// data, so every SOP mutation revalidates all of them.
+const SOP_PAGE_PATHS = ["/vaccination/sops", "/counts/sops", "/feed/sops"];
 import {
   createSop,
   createSopVersion,
@@ -10,7 +14,7 @@ import {
   type SOPValidationReport,
 } from "@/lib/api/server";
 import {
-  VACCINATION_SLICE_LABEL,
+  SOP_SLICE_LABEL,
   buildFormDsl,
   buildProofPolicy,
   buildSopCode,
@@ -41,7 +45,7 @@ export async function saveSopDraft(input: SopBuilderInput): Promise<SaveSopResul
   }
 
   const code = buildSopCode(input);
-  const def = await createSop({ code, name, description: `${VACCINATION_SLICE_LABEL} · ${input.trigger} SOP` });
+  const def = await createSop({ code, name, description: `${SOP_SLICE_LABEL[input.domain]} · ${input.trigger} SOP` });
   if (!def.ok) return { ok: false, message: def.error.message ?? "create SOP failed", code: def.error.code };
 
   const version = await createSopVersion(def.data.sop.sop_id, {
@@ -53,7 +57,7 @@ export async function saveSopDraft(input: SopBuilderInput): Promise<SaveSopResul
     return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
   }
 
-  revalidatePath("/sops");
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   const report = version.data.version.validation_report;
   return {
     ok: true,
@@ -85,7 +89,7 @@ export async function saveSopVersionDraft(sopId: string, input: SopBuilderInput)
     return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
   }
 
-  revalidatePath("/sops");
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   const report = version.data.version.validation_report;
   return {
     ok: true,
@@ -126,6 +130,6 @@ export async function publishSop(sopId: string, versionId: string, rowVersion: n
   if (!sopId || !versionId) return { ok: false, message: "save the draft first" };
   const res = await publishSopVersion(sopId, versionId, rowVersion);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
-  revalidatePath("/sops");
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ok: true, message: "Published — immutable version; tasks pin to it." };
 }

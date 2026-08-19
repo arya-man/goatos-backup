@@ -29,7 +29,6 @@ const TOP_LEVEL_COMMAND_ROUTES = new Set([
   "/workflows/{param}",
   "/calendar/drive/{param}",
   "/config",
-  "/sops",
 ]);
 
 function walk(dir, out, predicate) {
@@ -88,7 +87,22 @@ function hasCommandSegment(route) {
 // not a routine edit: it must be backed by a maintainer decision recorded in the backend contract.
 // No command lens (Control Tower, Action Center, Calendar, Protocol Adherence, Workflows) is
 // exempted for any vertical, and none may be.
-const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config", "/health/config"]);
+// The three module SOP pages, approved by explicit maintainer decision 2026-08-18 (recorded in
+// backend/internal/adminui/app/service.go, PC nav-group note, and AGENTS.md): the top-level
+// Admin/Data Ops SOP Library (/sops) is RETIRED, and each module owns its SOP documents as a
+// module-surface — /vaccination/sops (vaccination), /counts/sops (Herd Operations: birth / death /
+// shifting), /feed/sops (distribution / packing / transport). They are not duplicates of a
+// top-level lens: no /sops route exists any more, /config remains the single generic authority
+// screen, and no command lens (Control Tower, Action Center, Calendar, Protocol Adherence,
+// Workflows) is exempted for any vertical. The "sops" segment stays in COMMAND_SEGMENTS so any
+// OTHER nested sops route (e.g. /procurement/sops) still fails without its own recorded decision.
+const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
+  "/feed/config",
+  "/health/config",
+  "/vaccination/sops",
+  "/counts/sops",
+  "/feed/sops",
+]);
 
 function isAllowedRoute(route) {
   if (TOP_LEVEL_COMMAND_ROUTES.has(route)) return true;
@@ -168,6 +182,9 @@ const SUPPORTED_COUNTS_HREFS = new Set([
   "/counts/herd",
   "/counts/breakdown",
   "/counts/milk-preparation",
+  // Herd Operations SOP page — part of the SOP split (maintainer decision 2026-08-18, see
+  // MODULE_SURFACE_ROUTE_EXCEPTIONS above).
+  "/counts/sops",
   "/action-center",
 ]);
 const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
@@ -471,7 +488,7 @@ if (findings.length > 0) {
   console.error(
     "\nAllowed pattern: /action-center?domain=<vertical>, /protocol-adherence?domain=<vertical>, " +
       "/calendar?owner_key=<owner>, /workflows?domain=<vertical>, /workflows/{row_id}?domain=<vertical>, " +
-      "/config?category=<module>, or /sops?domain=<module>.\n" +
+      "or /config?category=<module>. SOP pages are per-module surfaces: /vaccination/sops, /counts/sops, /feed/sops.\n" +
       "Vertical route trees should contain operational screens only.",
   );
   process.exit(1);

@@ -460,7 +460,7 @@ export async function ProtocolAdherencePage({
 	          {copy(pageContract, "action.open_config")}
 	        </Link>{" "}
 	        {copy(pageContract, "note.computation.joiner")}{" "}
-	        <Link href="/sops" className="lk">
+	        <Link href="/vaccination/sops" className="lk">
 	          {copy(pageContract, "action.open_sops")}
 	        </Link>
 	        {copy(pageContract, "note.computation.tail")}
