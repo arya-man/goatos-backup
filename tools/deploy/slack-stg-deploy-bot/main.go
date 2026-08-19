@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ type config struct {
 	Location      string
 	TriggerID     string
 	SigningSecret string
+	WebhookSecret string
 	AllowedUsers  map[string]bool
 }
 
@@ -70,12 +72,19 @@ type cloudBuildListBuild struct {
 	Substitutions  map[string]string `json:"substitutions"`
 }
 
+type secretAccessResponse struct {
+	Payload struct {
+		Data string `json:"data"`
+	} `json:"payload"`
+}
+
 func main() {
 	cfg := config{
 		ProjectID:     env("PROJECT_ID", "goatos-stg"),
 		Location:      env("TRIGGER_LOCATION", "global"),
 		TriggerID:     mustEnv("TRIGGER_ID"),
 		SigningSecret: mustEnv("SLACK_SIGNING_SECRET"),
+		WebhookSecret: env("SLACK_WEBHOOK_SECRET", "goatos-stg-deploy-slack-webhook-url"),
 		AllowedUsers:  parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
 	}
 
@@ -174,12 +183,162 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 
 	buildURL := cfg.cloudBuildURL(buildID)
 	deployURL := cfg.cloudDeployURL()
+	if buildID != "" && buildID != "pending" {
+		go cfg.monitorBuild(context.Background(), buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution)
+	}
 	writeSlackJSON(w, map[string]any{
 		"response_type":    "in_channel",
 		"replace_original": true,
 		"text":             fmt.Sprintf("%s from `main` started by <@%s>.\nCloud Build: %s", actionLabel, payload.User.ID, buildURL),
 		"blocks":           deployStartedBlocks(triggeredBy, actionLabel, deploySTG, mobileDistribution, buildURL, deployURL),
 	})
+}
+
+func (cfg config) monitorBuild(ctx context.Context, buildID, triggeredBy, actionLabel string, deploySTG, mobileDistribution bool) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	deadline := time.NewTimer(130 * time.Minute)
+	defer deadline.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			cfg.postBuildTerminalFailure(ctx, buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution, "watchdog timed out before Cloud Build reached a terminal status")
+			return
+		case <-ticker.C:
+			build, err := cfg.describeBuild(ctx, buildID)
+			if err != nil {
+				log.Printf("build watchdog describe failed for %s: %v", buildID, err)
+				continue
+			}
+			switch build.Status {
+			case "SUCCESS":
+				return
+			case "FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED":
+				cfg.postBuildTerminalFailure(ctx, buildID, triggeredBy, actionLabel, deploySTG, mobileDistribution, build.Status)
+				return
+			}
+		}
+	}
+}
+
+func (cfg config) describeBuild(ctx context.Context, buildID string) (cloudBuildListBuild, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	endpoint := fmt.Sprintf("https://cloudbuild.googleapis.com/v1/projects/%s/locations/%s/builds/%s", cfg.ProjectID, cfg.Location, buildID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return cloudBuildListBuild{}, fmt.Errorf("cloud build describe returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var build cloudBuildListBuild
+	if err := json.Unmarshal(respBody, &build); err != nil {
+		return cloudBuildListBuild{}, err
+	}
+	return build, nil
+}
+
+func (cfg config) postBuildTerminalFailure(ctx context.Context, buildID, triggeredBy, actionLabel string, deploySTG, mobileDistribution bool, status string) {
+	webhook, err := cfg.slackWebhookURL(ctx)
+	if err != nil {
+		log.Printf("build watchdog could not load Slack webhook: %v", err)
+		return
+	}
+	if webhook == "" {
+		return
+	}
+	mode := actionLabel
+	if deploySTG && mobileDistribution {
+		mode = "STG deploy + Android mobile distribution"
+	}
+	text := fmt.Sprintf("%s ended with `%s` before all requested deployment channels reported success.", mode, status)
+	payload := map[string]any{
+		"attachments": []map[string]any{{
+			"color": "#E01E5A",
+			"title": "Goat OS deploy failed",
+			"text":  text,
+			"fields": []map[string]any{
+				{"title": "Build", "value": buildID, "short": true},
+				{"title": "Status", "value": status, "short": true},
+				{"title": "STG deploy", "value": strconv.FormatBool(deploySTG), "short": true},
+				{"title": "Mobile distribution", "value": strconv.FormatBool(mobileDistribution), "short": true},
+				{"title": "Triggered by", "value": triggeredBy, "short": false},
+			},
+			"actions": []map[string]any{
+				{"type": "button", "text": "Cloud Build logs", "url": cfg.cloudBuildURL(buildID)},
+				{"type": "button", "text": "Cloud Deploy", "url": cfg.cloudDeployURL()},
+			},
+		}},
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		log.Printf("build watchdog could not encode Slack payload: %v", err)
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook, bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		log.Printf("build watchdog could not create Slack request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("build watchdog could not post Slack failure: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		log.Printf("build watchdog Slack post returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+}
+
+func (cfg config) slackWebhookURL(ctx context.Context) (string, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	endpoint := fmt.Sprintf("https://secretmanager.googleapis.com/v1/projects/%s/secrets/%s/versions/latest:access", cfg.ProjectID, cfg.WebhookSecret)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("secret access returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+	var parsed secretAccessResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(parsed.Payload.Data)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(decoded)), nil
 }
 
 func deployAlreadyRunningBlocks(build cloudBuildListBuild, buildURL, deployURL string) []map[string]any {
