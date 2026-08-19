@@ -219,26 +219,55 @@ deliberately ignores it.
 
 New. Publishing today silently reschedules future work with no preview.
 
-```
-2,033            2,033              244                    0
-animals covered  scheduled tasks    become due within      completed records
-                 move               7 days                 affected
+The first draft of this section used four stat tiles — animals covered / tasks moved / due
+within 7 days / completed records affected. On an unedited plan that reads `2,033 · 0 · 0 · 0`,
+which tells a CEO nothing, and "become due within 7 days" is engine vocabulary, not a business
+consequence. Replaced with prose that only appears when there is something to say.
 
-VACCINE      CHANGE                              ANIMALS  EFFECT
-ET + TT      Repeat every 6 months → 3 months     1,806   849 become due sooner
-Sheep Pox    Now sheep only                         227   440 goat tasks removed
-Blue Tongue  Switched off                             0   no future tasks
+**No edits:**
+
+> Nothing will change. This draft is the same as the plan that is already live.
+
+**After shortening the ET+TT interval from 6 months to 3:**
+
+> Publishing this changes **849** upcoming vaccinations.
+>
+> ⚠ **59 of them land in the first week.** That is extra work arriving at the parks the day you
+> publish, on top of what is already scheduled.
+>
+> | Vaccine | What you changed | What happens |
+> |---|---|---|
+> | ET + TT | Repeat every 6 months → every 3 months | 849 goats need it sooner |
+
+**After lengthening it instead**, the amber block becomes a green one: *"None of it lands in the
+first week — the parks get time to absorb it."*
+
+The workload spike is the number that matters. Everything else is context for it. Effects are
+phrased in animals rather than tasks — "849 goats need it sooner", not "849 tasks rescheduled" —
+because the CEO is deciding about animals and field labour, not rows.
+
+### When it is computed
+
+In the mock it recomputes client-side on every edit, from hardcoded herd constants — that is a
+demo affordance, not a proposal.
+
+In a real build it must not run per keystroke. The figures require counting obligations across
+the whole herd, so the proposal is **compute server-side on Save draft**:
+
+```
+edit … edit … edit  →  Save draft  →  server diffs draft vs live  →  impact shown  →  Publish enabled
 ```
 
-Diffs the draft against the live published version and recomputes on every edit. Rows disappear
-when a change is reverted. Publish stays disabled until the draft is saved, which is what
-"impact reviewed" means in the checklist.
+This is already the shape of the readiness checklist — "Impact reviewed" is satisfied by saving,
+and Publish is disabled until then. It also means the numbers a CEO approves are the numbers the
+server computed, not a client-side estimate that could drift from what publish actually does.
+
+Rows disappear when a change is reverted.
 
 **Not built.** This needs a real backend endpoint. The nearest existing thing is
 `POST /protocols/vaccination/impact-preview`, already called by the current page — the counts
-here are illustrative and must be replaced with its response before this ships.
-
----
+here are illustrative and must be replaced with its response before this ships. Whether it can
+return the first-week spike figure is the first thing to check.
 
 ## 10. Navigation
 

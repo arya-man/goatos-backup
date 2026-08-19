@@ -302,6 +302,15 @@ details.ref[open] summary::before{content:"▾"}
 .steps li{display:flex;gap:10px;align-items:center;font-size:13.5px;color:var(--muted)}
 .steps .i{flex:none;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:var(--panel-2);border:1px solid var(--line);font-size:11px;font-weight:700;color:var(--faint)}
 
+.nochange{margin:0;color:var(--muted);font-size:14px}
+.headline{margin:0 0 13px;font-family:"Bricolage Grotesque",sans-serif;font-size:18px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.headline b{font-weight:800;font-variant-numeric:tabular-nums}
+.spike{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--warn);background:var(--warnx);
+  border-radius:10px;padding:13px 15px;font-size:13.5px;color:var(--ink);line-height:1.5}
+.spike b{font-variant-numeric:tabular-nums}
+.sx{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;
+  background:var(--warn);color:var(--bg);margin-top:1px}
+.calm{margin:0;border:1px solid var(--brand);background:var(--brand-soft);border-radius:10px;padding:11px 15px;font-size:13.5px;color:var(--ink)}
 .impact{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:11px}
 .stat{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel-2)}
 .stat .n{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:26px;letter-spacing:-.025em;font-variant-numeric:tabular-nums;line-height:1.15}
@@ -502,7 +511,7 @@ details.ref[open] summary::before{content:"▾"}
 
       <section class="card">
         <div class="card-h"><div><h2>What publishing will change</h2>
-          <p class="s">The whole plan, compared against the live version as of today. Recalculated on every edit.</p></div></div>
+          <p class="s">How this draft differs from the plan that is live right now. Worked out fresh each time you save the draft.</p></div></div>
         <div class="card-b" id="impact"></div>
       </section>
       <p class="foot">Mesha · Preventive Care · vaccination plan — interactive redesign mock, not connected to staging.</p>
@@ -815,45 +824,46 @@ function renderImpact(){
   const rows=[];let moved=0,soon=0;
   V.forEach(v=>{const l=liveVac(v.id);
     if(v.on!==l.on){rows.push([v.name,v.on?"Switched on":"Switched off",v.on?v.herd:0,
-      v.on?["no","+"+v.herd.toLocaleString()+" tasks scheduled"]:["on","no future tasks"]]);
+      v.on?["no",v.herd.toLocaleString()+" goats start getting it"]:["on","no longer given to anyone"]]);
       moved+=v.herd;if(v.on)soon+=Math.round(v.herd*.12);return}
     if(!v.on)return;
     const dl=days(l.repeat),dn=days(v.repeat);
     if(dn!==dl){const sooner=dn<dl,n=Math.round(v.herd*.47);
       rows.push([v.name,`Repeat ${repeatLabel(l.repeat)} → ${repeatLabel(v.repeat)}`,v.herd,
-        sooner?["no",n.toLocaleString()+" become due sooner"]:["on",n.toLocaleString()+" pushed later"]]);
+        sooner?["no",n.toLocaleString()+" goats need it sooner"]:["on",n.toLocaleString()+" goats get more time"]]);
       moved+=n;if(sooner)soon+=Math.round(n*.07);return}
-    if(v.spp!==l.spp){rows.push([v.name,`Now ${label(SPP_OPTS,v.spp)}`,v.herd,["on","scope narrowed"]]);moved+=440;return}
+    if(v.spp!==l.spp){rows.push([v.name,`Now ${label(SPP_OPTS,v.spp)}`,v.herd,["on","fewer animals get it"]]);moved+=440;return}
     if(JSON.stringify(v.courses)!==JSON.stringify(l.courses)){const n=Math.round(v.herd*.31);
-      rows.push([v.name,`Dose ages changed`,v.herd,["no",n.toLocaleString()+" tasks rescheduled"]]);
+      rows.push([v.name,`Dose ages changed`,v.herd,["no",n.toLocaleString()+" goats move to new dates"]]);
       moved+=n;soon+=Math.round(n*.05);return}
     if(v.stage!==l.stage||v.sex!==l.sex||v.breed!==l.breed){
-      rows.push([v.name,"Eligibility changed",v.herd,["on","scope changed"]]);moved+=Math.round(v.herd*.2)}});
+      rows.push([v.name,"Who gets it changed",v.herd,["on","different animals covered"]]);moved+=Math.round(v.herd*.2)}});
   if(plan.proof!==planLive.proof){
     rows.push(["All vaccines",
       plan.proof==="animal"?"Proof video: one per shed → one per goat":"Proof video: one per goat → one per shed",
       2033,
-      plan.proof==="animal"?["no","one clip per goat scanned"]:["on","one clip per shed, not per goat"]]);
+      plan.proof==="animal"?["no","far more video to record and check"]:["on","much less video to record and check"]]);
   }
   [["warmup","Settling-in wait",WARM_OPTS],["kidUntil","Kid schedule limit",KIDW_OPTS],
     ["trustPrior","Seller's prior vaccinations",TRUST_OPTS],["wave2","Second catch-up visit",WAVE_OPTS]].forEach(([k,lbl,opts])=>{
     if(plan[k]!==planLive[k]) rows.push(["Bought-in adults",lbl+": "+label(opts,planLive[k])+" \u2192 "+label(opts,plan[k]),
-      227,["no","catch-up dates shift"]]);
+      227,["no","new arrivals catch up on different dates"]]);
   });
   const covered=V.filter(v=>v.on).reduce((m,v)=>Math.max(m,v.herd),0);
   $("#impact").innerHTML=`
-    <div class="impact">
-      <div class="stat up"><div class="n num">${covered.toLocaleString()}</div><div class="l">animals covered</div></div>
-      <div class="stat"><div class="n num">${moved.toLocaleString()}</div><div class="l">scheduled tasks move</div></div>
-      <div class="stat ${soon>0?"warn":""}"><div class="n num">${soon.toLocaleString()}</div><div class="l">become due within 7 days</div></div>
-      <div class="stat"><div class="n num">0</div><div class="l">completed records affected</div></div>
-    </div>
-    ${rows.length?`<div class="scroll"><table class="tabl">
-      <thead><tr><th>Vaccine</th><th>Change</th><th>Animals</th><th>Effect</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td style="font-weight:600">${r[0]}</td><td>${r[1]}</td>
-        <td class="num">${r[2].toLocaleString()}</td><td><span class="tag ${r[3][0]}">${r[3][1]}</span></td></tr>`).join("")}</tbody>
-    </table></div>`:`<p class="hintline" style="margin-top:14px">This draft is identical to the live plan. Change something above to see its effect here.</p>`}
-    <p class="hintline">Past vaccinations are never rewritten. Only future scheduled tasks change.</p>`}
+    ${!rows.length?`
+      <p class="nochange">Nothing will change. This draft is the same as the plan that is already live.</p>`
+    :`
+      <p class="headline">Publishing this changes <b>${moved.toLocaleString()}</b> upcoming vaccinations.</p>
+      ${soon>0?`<div class="spike"><span class="sx">!</span><div><b>${soon.toLocaleString()} of them land in the first week.</b>
+        That is extra work arriving at the parks the day you publish, on top of what is already scheduled.</div></div>`
+      :`<p class="calm">None of it lands in the first week — the parks get time to absorb it.</p>`}
+      <div class="scroll"><table class="tabl">
+        <thead><tr><th>Vaccine</th><th>What you changed</th><th>What happens</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td style="font-weight:600">${r[0]}</td><td>${r[1]}</td>
+          <td><span class="tag ${r[3][0]}">${r[3][1]}</span></td></tr>`).join("")}</tbody>
+      </table></div>`}
+    <p class="hintline">Vaccinations already done are never touched. Only what is still coming up can move.</p>`}
 
 function renderReady(){
   const on=V.filter(v=>v.on).length,off=V.filter(v=>!v.on);
