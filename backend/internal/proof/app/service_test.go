@@ -237,6 +237,46 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	}
 }
 
+func TestDownloadArtifactUsesLongReviewTTL(t *testing.T) {
+	proof := baseProof()
+	storage := &fakeProofStorage{}
+	service := NewService(&fakeProofRepo{proof: proof}, storage)
+
+	if _, _, err := service.DownloadArtifact(context.Background(), proofTestTenant, proofTestID); err != nil {
+		t.Fatalf("DownloadArtifact() error = %v", err)
+	}
+	if storage.downloadTTL != defaultDownloadSignedURLTTL {
+		t.Fatalf("download TTL = %s, want %s", storage.downloadTTL, defaultDownloadSignedURLTTL)
+	}
+}
+
+func TestCreateUploadKeepsShortUploadTTL(t *testing.T) {
+	storage := &fakeProofStorage{}
+	service := NewService(&fakeProofRepo{proof: baseProof()}, storage)
+
+	_, err := service.CreateUpload(context.Background(), domain.CreateUpload{
+		TenantID:    proofTestTenant,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     proofTestTask,
+		SubjectType: "shed",
+		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
+		Metadata: map[string]any{
+			"capture_source":    "in_app_camera",
+			"captured_start_ms": 1_000,
+			"captured_end_ms":   2_000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateUpload() error = %v", err)
+	}
+	if storage.uploadTTL != defaultSignedURLTTL {
+		t.Fatalf("upload TTL = %s, want %s", storage.uploadTTL, defaultSignedURLTTL)
+	}
+}
+
 func TestListUploadedProofsRequiresSessionIdentity(t *testing.T) {
 	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
 	if _, err := service.ListUploadedProofs(context.Background(), domain.ListUploadedProofsQuery{
@@ -450,15 +490,19 @@ type fakeProofStorage struct {
 	finalizeErr error
 	finalized   bool
 	deleted     domain.Artifact
+	uploadTTL   time.Duration
+	downloadTTL time.Duration
 }
 
 func (s *fakeProofStorage) Provider() string { return "local" }
 
-func (s *fakeProofStorage) PrepareUpload(context.Context, domain.Artifact, time.Duration) (domain.UploadTarget, error) {
+func (s *fakeProofStorage) PrepareUpload(_ context.Context, _ domain.Artifact, ttl time.Duration) (domain.UploadTarget, error) {
+	s.uploadTTL = ttl
 	return domain.UploadTarget{}, nil
 }
 
-func (s *fakeProofStorage) PrepareDownload(context.Context, domain.Artifact, time.Duration) (string, error) {
+func (s *fakeProofStorage) PrepareDownload(_ context.Context, _ domain.Artifact, ttl time.Duration) (string, error) {
+	s.downloadTTL = ttl
 	return "", nil
 }
 
