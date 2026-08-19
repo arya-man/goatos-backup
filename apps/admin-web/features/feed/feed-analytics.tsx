@@ -88,6 +88,19 @@ function hrefWith(sp: RouteSearchParams | undefined, next: Record<string, string
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
+/**
+ * Explicit calendar window from ?date_from/?date_to (both required, valid ISO
+ * dates, from <= to). Overrides the preset range when present; the preset bar
+ * links clear these params so the two controls never fight.
+ */
+function readCustomWindow(sp: RouteSearchParams): { date_from: string; date_to: string } | null {
+  const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+  const from = one(sp, "date_from");
+  const to = one(sp, "date_to");
+  if (!from || !to || !isoDay.test(from) || !isoDay.test(to) || from > to) return null;
+  return { date_from: from, date_to: to };
+}
+
 function rangeDates(range: Range): { date_from: string; date_to: string } {
   // Asia/Kolkata calendar arithmetic via the shared IST helpers — the same
   // business-day rule the backend applies to its own defaults. The previous
@@ -197,7 +210,8 @@ export async function FeedAnalyticsPage({
   const tab = readTab(searchParams);
   const range = readRange(searchParams);
   const { parkId } = backendScope(parseScope(searchParams));
-  const window = rangeDates(range);
+  const customWindow = readCustomWindow(searchParams);
+  const window = customWindow ?? rangeDates(range);
   const params = { park_id: parkId, ...window };
 
   // Overview needs directed + execution (for the adherence KPI); every other
@@ -245,12 +259,16 @@ export async function FeedAnalyticsPage({
           }))}
         />
         <SegmentedLinks
-          current={range}
+          current={customWindow ? "" : range}
           ariaLabel={fa(pageContract, "range.aria")}
           options={RANGES.map((r) => ({
             value: r,
             label: fa(pageContract, `range.${r}`),
-            href: hrefWith(searchParams, { range: r === "30" ? undefined : r }),
+            href: hrefWith(searchParams, {
+              range: r === "30" ? undefined : r,
+              date_from: undefined,
+              date_to: undefined,
+            }),
           }))}
         />
       </div>
@@ -268,6 +286,14 @@ export async function FeedAnalyticsPage({
           data={directed.data}
           execution={execution?.ok ? execution.data : null}
           stock={stock?.ok ? stock.data : null}
+          pageContract={pageContract}
+        />
+      ) : null}
+
+      {tab === "execution" ? (
+        <ExecutionCalendarFilter
+          searchParams={searchParams}
+          window={window}
           pageContract={pageContract}
         />
       ) : null}
@@ -516,6 +542,54 @@ function DirectedTabs({
   );
 }
 
+/**
+ * Calendar window for the Execution tab (maintainer request 2026-08-19).
+ * A plain GET form: native date pickers write ?date_from/?date_to and the
+ * server component re-reads. Defaults to the effective window — last 30 days
+ * ending yesterday unless a custom window is already applied. Scope/tab params
+ * ride along as hidden inputs so applying dates never resets them.
+ */
+function ExecutionCalendarFilter({
+  searchParams,
+  window,
+  pageContract,
+}: {
+  searchParams: RouteSearchParams;
+  window: { date_from: string; date_to: string };
+  pageContract: AdminUiPageContract;
+}) {
+  const carried: [string, string][] = [];
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (key === "date_from" || key === "date_to") continue;
+    if (Array.isArray(value)) value.forEach((item) => carried.push([key, item]));
+    else if (value) carried.push([key, value]);
+  }
+  return (
+    <form
+      method="get"
+      action={PAGE_PATH}
+      className="card"
+      style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end", padding: 12 }}
+      aria-label={fa(pageContract, "filter.calendar.aria")}
+    >
+      {carried.map(([key, value], i) => (
+        <input key={`${key}-${i}`} type="hidden" name={key} value={value} />
+      ))}
+      <label className="small" style={{ display: "grid", gap: 4 }}>
+        <span className="muted">{fa(pageContract, "filter.from.label")}</span>
+        <input type="date" name="date_from" defaultValue={window.date_from} max={window.date_to} required />
+      </label>
+      <label className="small" style={{ display: "grid", gap: 4 }}>
+        <span className="muted">{fa(pageContract, "filter.to.label")}</span>
+        <input type="date" name="date_to" defaultValue={window.date_to} required />
+      </label>
+      <button type="submit" className="btn">
+        {fa(pageContract, "filter.apply.label")}
+      </button>
+    </form>
+  );
+}
+
 function ExecutionTab({
   data,
   pageContract,
@@ -648,7 +722,7 @@ function ExperimentTab({
   data: FeedAnalyticsExperimentResponse;
   pageContract: AdminUiPageContract;
 }) {
-  if (data.arms.length === 0) {
+  if (data.sheds.length === 0) {
     return (
       <section className="card">
         <h2 className="h">{fa(pageContract, "empty.title")}</h2>
@@ -656,26 +730,30 @@ function ExperimentTab({
       </section>
     );
   }
-  const dayKeys = [...new Set(data.arms.map((a) => a.feed_day))].sort();
-  const armNames = [...new Set(data.arms.map((a) => a.experiment_arm))];
-  // Latest sheet day per arm, used to rank the chart and fill the table.
-  const latestByArm = armNames.map((arm) => {
-    const rows = data.arms.filter((a) => a.experiment_arm === arm);
+  // Shed-wise (maintainer decision 2026-08-19): each trial PEN is its own
+  // series and table row, labelled by the backend-composed location display.
+  const dayKeys = [...new Set(data.sheds.map((s) => s.feed_day))].sort();
+  const penNames = [...new Set(data.sheds.map((s) => s.operational_location_display))];
+  // Latest sheet day per pen, used to rank the chart and fill the table.
+  const latestByPen = penNames.map((pen) => {
+    const rows = data.sheds.filter((s) => s.operational_location_display === pen);
     return rows[rows.length - 1];
   });
-  // The live farm runs many more arms than the series palette has hues. Chart
+  // The farm runs many more trial pens than the series palette has hues. Chart
   // only the largest (one per palette slot, so no two lines share a colour) and
-  // DISCLOSE the cap — the table below lists every arm. Ranking is a sort of a
+  // DISCLOSE the cap — the table below lists every pen. Ranking is a sort of a
   // backend field, not a new business number.
-  const charted = [...latestByArm]
+  const charted = [...latestByPen]
     .sort((a, b) => num(b.absolute_kg) - num(a.absolute_kg))
     .slice(0, FEED_SERIES_VARS.length)
-    .map((row) => row.experiment_arm);
-  const series: LineSeries[] = charted.map((arm, s) => ({
-    label: arm,
+    .map((row) => row.operational_location_display);
+  const series: LineSeries[] = charted.map((pen, s) => ({
+    label: pen,
     colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
     points: dayKeys.map((day) => {
-      const row = data.arms.find((a) => a.feed_day === day && a.experiment_arm === arm);
+      const row = data.sheds.find(
+        (r) => r.feed_day === day && r.operational_location_display === pen,
+      );
       return row ? num(row.absolute_kg) : null;
     }),
   }));
@@ -696,6 +774,7 @@ function ExperimentTab({
         <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
         <p className="muted small">{fa(pageContract, "chart.experiment.top")}</p>
       </section>
+      <ExperimentItemsChart items={data.items} pageContract={pageContract} />
       <section className="card" aria-label={fa(pageContract, "table.arms.title")}>
         <h2 className="h">{fa(pageContract, "table.arms.title")}</h2>
         <p className="muted small">{fa(pageContract, "table.arms.hint")}</p>
@@ -703,16 +782,16 @@ function ExperimentTab({
           <table className="tbl">
             <thead>
               <tr>
+                <th>{fa(pageContract, "col.pen")}</th>
                 <th>{fa(pageContract, "col.arm")}</th>
-                <th>{fa(pageContract, "col.pens")}</th>
                 <th>{fa(pageContract, "col.kg")}</th>
               </tr>
             </thead>
             <tbody>
-              {latestByArm.map((row) => (
-                <tr key={row.experiment_arm}>
+              {latestByPen.map((row) => (
+                <tr key={row.operational_location_display}>
+                  <td>{row.operational_location_display}</td>
                   <td>{row.experiment_arm}</td>
-                  <td>{nf(row.pens)}</td>
                   <td>{nf(num(row.absolute_kg))}</td>
                 </tr>
               ))}
@@ -722,6 +801,56 @@ function ExperimentTab({
         <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
       </section>
     </div>
+  );
+}
+
+/**
+ * Kg per day by FEED TYPE across the trial pens (maintainer request
+ * 2026-08-19): what the experiment sheds actually ate — Dry Masoor Bhusa, the
+ * concentrates — rather than how many pens ate it.
+ */
+function ExperimentItemsChart({
+  items,
+  pageContract,
+}: {
+  items: FeedAnalyticsExperimentResponse["items"];
+  pageContract: AdminUiPageContract;
+}) {
+  if (items.length === 0) return null;
+  const dayKeys = [...new Set(items.map((it) => it.feed_day))].sort();
+  const labels = [...new Set(items.map((it) => it.feed_item_label))];
+  // Rank items by window kg and chart one per palette slot, same cap-and-
+  // disclose shape as the pens chart above.
+  const windowKg = new Map<string, number>();
+  for (const it of items) {
+    windowKg.set(it.feed_item_label, (windowKg.get(it.feed_item_label) ?? 0) + num(it.absolute_kg));
+  }
+  const charted = [...labels]
+    .sort((a, b) => (windowKg.get(b) ?? 0) - (windowKg.get(a) ?? 0))
+    .slice(0, FEED_SERIES_VARS.length);
+  const series: LineSeries[] = charted.map((label, s) => ({
+    label,
+    colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
+    points: dayKeys.map((day) => {
+      const row = items.find((it) => it.feed_day === day && it.feed_item_label === label);
+      return row ? num(row.absolute_kg) : null;
+    }),
+  }));
+  return (
+    <section className="card wchart" aria-label={fa(pageContract, "chart.expitems.title")}>
+      <h2 className="h">{fa(pageContract, "chart.expitems.title")}</h2>
+      <p className="muted small">{fa(pageContract, "chart.expitems.hint")}</p>
+      <ChartHover>
+        <FeedLines
+          series={series}
+          dayLabels={dayKeys}
+          valueNoun={fa(pageContract, "unit.kg")}
+          chartLabel={fa(pageContract, "chart.expitems.title")}
+          emptyLabel={fa(pageContract, "empty.experiment.body")}
+        />
+      </ChartHover>
+      <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
+    </section>
   );
 }
 

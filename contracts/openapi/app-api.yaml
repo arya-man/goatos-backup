@@ -3886,12 +3886,13 @@ paths:
       tags:
         - Feed Direction
       operationId: getFeedAnalyticsExperiment
-      summary: Trial-arm absolute kg series for the Feed Analytics page.
+      summary: Trial-pen absolute kg series for the Feed Analytics page.
       description: >-
-        The experiment workflow's authored kg per (feed day, experiment arm), with the distinct
-        pen count feeding under each arm. Experiment rations are ABSOLUTE shed/pen totals -- head
-        counts on those sheet rows are informational, so no per-head figure exists here and none
-        may be derived by a client.
+        The experiment workflow's authored kg per (feed day, trial pen) plus a per-(feed day,
+        feed item) series -- what each trial shed ate and of which feed type (maintainer
+        regrouping 2026-08-19; the earlier arm series and its pen count are retired).
+        Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are
+        informational, so no per-head figure exists here and none may be derived by a client.
       parameters:
         - name: park_id
           in: query
@@ -3914,7 +3915,7 @@ paths:
             format: date
       responses:
         "200":
-          description: Per-(day, arm) authored kg, ordered by feed day then arm.
+          description: Per-(day, pen) and per-(day, item) authored kg, ordered by feed day.
           content:
             application/json:
               schema:
@@ -11459,25 +11460,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsExecutionDay"
-    FeedAnalyticsExperimentArm:
+    FeedAnalyticsExperimentShed:
       type: object
-      description: One (feed day, experiment arm) of authored absolute kg.
-      required: [feed_day, experiment_arm, absolute_kg, pens]
+      description: >-
+        One (feed day, trial pen) of authored absolute kg. Regrouped shed-wise 2026-08-19
+        (maintainer decision, replacing the arm series and its pen count).
+      required: [feed_day, operational_location_display, experiment_arm, absolute_kg]
       properties:
         feed_day:
           type: string
           format: date
+        operational_location_display:
+          type: string
+          description: Backend-composed pen label ("Godel 2 - Part 4", "Castro 1"); render verbatim.
         experiment_arm:
           type: string
         absolute_kg:
           type: string
           description: Authored shed/pen TOTAL kg as a decimal string -- never multiplied by heads.
-        pens:
-          type: integer
-          format: int64
+    FeedAnalyticsExperimentItem:
+      type: object
+      description: One (feed day, feed item) of the experiment workflow -- what the trial pens ate.
+      required: [feed_day, feed_item_label, feed_item_key, absolute_kg]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        absolute_kg:
+          type: string
     FeedAnalyticsExperimentResponse:
       type: object
-      required: [date_from, date_to, arms]
+      required: [date_from, date_to, sheds, items]
       properties:
         date_from:
           type: string
@@ -11485,10 +11502,14 @@ components:
         date_to:
           type: string
           format: date
-        arms:
+        sheds:
           type: array
           items:
-            $ref: "#/components/schemas/FeedAnalyticsExperimentArm"
+            $ref: "#/components/schemas/FeedAnalyticsExperimentShed"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsExperimentItem"
     FeedAnalyticsStockItem:
       type: object
       description: One feed item's current stock position off the purchase ledger.

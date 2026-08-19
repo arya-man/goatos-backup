@@ -126,20 +126,34 @@ type ExecutionAnalytics struct {
 // Experiment analytics: the trial pens' authored absolute kg per arm per day.
 // ---------------------------------------------------------------------------
 
-// ExperimentDayArm is one (feed day, experiment arm) of the experiment
-// workflow. AbsoluteKg is a shed/pen TOTAL by authorship — head counts on these
-// rows are informational and no per-head figure exists or may be derived.
-type ExperimentDayArm struct {
+// ExperimentDayShed is one (feed day, trial PEN) of the experiment workflow —
+// the maintainer's 2026-08-19 regrouping of this payload from arm-wise to
+// shed-wise (the per-arm pen COUNT left the payload the same day). AbsoluteKg
+// is a shed/pen TOTAL by authorship — head counts on these rows are
+// informational and no per-head figure exists or may be derived.
+type ExperimentDayShed struct {
+	FeedDay string
+	// LocationDisplay is the oploc-composed pen label ("Godel 2 - Part 4",
+	// "Castro 1") — the HUMAN partition label, never the normalized key.
+	LocationDisplay string
+	ExperimentArm   string
+	AbsoluteKg      string
+}
+
+// ExperimentDayItem is one (feed day, feed item) of the experiment workflow —
+// WHAT the trial pens ate (Dry Masoor Bhusa, the concentrates, ...), added
+// 2026-08-19 by maintainer decision.
+type ExperimentDayItem struct {
 	FeedDay       string
-	ExperimentArm string
+	FeedItemLabel string
+	FeedItemKey   string
 	AbsoluteKg    string
-	// Pens is the distinct pen-grain count feeding under the arm that day.
-	Pens int64
 }
 
 // ExperimentAnalytics is the /feed-analytics/experiment payload.
 type ExperimentAnalytics struct {
-	Arms []ExperimentDayArm
+	Sheds []ExperimentDayShed
+	Items []ExperimentDayItem
 }
 
 // ---------------------------------------------------------------------------
