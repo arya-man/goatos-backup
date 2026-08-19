@@ -82,6 +82,27 @@ class VerifyDetailAutoCloseTest {
     // The screen-side rule under test is one line: close when state.autoCloseAfterDecision.
 
     @Test
+    fun `approving the only pending entry requests immediate auto-close`() =
+        runTest(dispatcher) {
+            val repo = AutoCloseRepository(itemCount = 1)
+            val sync = AutoCloseSyncRepository(repo)
+            val vm = viewModel(repo, sync)
+            backgroundScope.launch { vm.state.collect {} }
+            advanceUntilIdle()
+
+            assertEquals("entry should exist before approve", 1, vm.state.value.entries.size)
+            assertTrue("approve should be enabled before approve", vm.state.value.isApproveEnabled)
+
+            vm.onEvent(VerifyDetailEvent.Approve(itemId = "item-1"))
+            advanceUntilIdle()
+
+            assertTrue(
+                "single-entry approve should close the detail instead of waiting on a blank refetch state",
+                vm.state.value.autoCloseAfterDecision,
+            )
+        }
+
+    @Test
     fun `an entry with genuinely empty media stays in entries and does not trigger auto-close`() =
         runTest(dispatcher) {
             val sync = AutoCloseSyncRepository()

@@ -440,6 +440,7 @@ class VerifyDetailViewModel @Inject constructor(
         // from a screen state where THIS animal's evidence is not watchable, whatever produced
         // the event — a sibling animal's healthy evidence must never let this one through.
         if (decision == VerificationDecision.APPROVED && targetEntry?.isApproveEnabled != true) return@launch
+        val pendingBeforeDecision = state.value.entries.count { it.statusTone == VerifyTone.PENDING }
 
         val rowVersion = observedGroup.value.firstOrNull { it.itemId == targetItemId }?.rowVersion ?: 1
         _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null, isDecisionResolving = true) }
@@ -460,7 +461,8 @@ class VerifyDetailViewModel @Inject constructor(
                     // same as before; a multi-animal shed keeps the verifier here to work through
                     // the rest, exactly the fix this task exists for (one reject must not evict
                     // her from the shed's other, still-pending, animals).
-                    val stillPending = observedGroup.value.any { it.status == VerificationStatus.PENDING }
+                    val closesGroup = pendingBeforeDecision <= 1 ||
+                        observedGroup.value.none { it.status == VerificationStatus.PENDING }
                     // isDecisionResolving deliberately stays TRUE here. refresh() is launched, not
                     // awaited, so the queue re-emission lands AFTER this point: the decided item
                     // stops matching the observed query and the group goes momentarily empty. That
@@ -469,9 +471,11 @@ class VerifyDetailViewModel @Inject constructor(
                     // awaitDecidedItemDelivered below clears it once the refetch actually returns
                     // the item, or after a bounded wait so the screen can never latch.
                     _flags.update {
-                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = !stillPending)
+                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = closesGroup)
                     }
-                    awaitDecidedItemDelivered(targetItemId)
+                    if (!closesGroup) {
+                        awaitDecidedItemDelivered(targetItemId)
+                    }
                     AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, targetItemId, decision, totalWatchTimeMs())
                     recordBackendReviewEvent(
                         eventType = "verdict_recorded",
