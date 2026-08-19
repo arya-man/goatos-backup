@@ -1881,6 +1881,11 @@ func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (doma
 	if in.Decision == domain.DecisionRejected {
 		status = domain.StatusRejected
 	}
+	if in.Decision == domain.DecisionApproved {
+		if err := requireProducerMeasurementBeforeApproval(ctx, tx, in.TenantID, in.ItemID); err != nil {
+			return domain.Item{}, err
+		}
+	}
 	var reason any
 	if in.Reason != "" {
 		reason = in.Reason
@@ -1951,6 +1956,40 @@ WHERE tenant_id = $4::uuid
 		return domain.Item{}, err
 	}
 	return item, nil
+}
+
+func requireProducerMeasurementBeforeApproval(ctx context.Context, tx pgx.Tx, tenantID, itemID string) error {
+	var sourceModule, sourceRefType, sourceRefID, category string
+	err := tx.QueryRow(ctx, `
+SELECT source_module, source_ref_type, source_ref_id::text, category
+FROM verification_items
+WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		tenantID, itemID).Scan(&sourceModule, &sourceRefType, &sourceRefID, &category)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if sourceModule != "feed" || sourceRefType != "feed_wastage_completion" {
+		return nil
+	}
+	var measured bool
+	err = tx.QueryRow(ctx, `
+SELECT wastage_kg IS NOT NULL
+FROM feed_wastage_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`,
+		tenantID, sourceRefID).Scan(&measured)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !measured {
+		return &ports.ErrMeasurementRequired{Category: category}
+	}
+	return nil
 }
 
 // verificationItemPendingPayload is the verification.item.pending outbox payload. Field set is fixed

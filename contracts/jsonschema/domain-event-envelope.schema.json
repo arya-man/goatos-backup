@@ -112,6 +112,7 @@
         "feed.direction.completed",
         "feed.distribution.completed",
         "feed.packing.completed",
+        "feed.wastage.completed",
         "vaccination.capacity.changed",
         "vaccination.roster.changed",
         "vaccination.leave.changed"

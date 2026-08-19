@@ -32,6 +32,10 @@ var (
 	// ErrWastageValueOutOfRange is returned when a recorded wastage weight is negative, not finite,
 	// or beyond the typo ceiling. ZERO IS VALID — an empty trough is a real measurement.
 	ErrWastageValueOutOfRange = errors.New("feeddirection: wastage weight is out of range")
+	// ErrWastageMeasurementRequired is returned when a verifier approval arrives before the
+	// leftover kg has been recorded. Approval is irreversible, so the producer fails closed until
+	// the measurement exists.
+	ErrWastageMeasurementRequired = errors.New("feeddirection: wastage measurement is required before approval")
 	// ErrWastageNotExperimentPen is returned when a completion names a pen the day's experiment
 	// sheet does not cover — wastage is an experiment-pen task only, so a row here would be work no
 	// worklist line ever matches.

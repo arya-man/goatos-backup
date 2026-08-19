@@ -312,6 +312,9 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &target
 		committed = true
 		return false, nil
 	}
+	if wastageKg == nil {
+		return false, ports.ErrWastageMeasurementRequired
+	}
 
 	tag, err := tx.Exec(ctx, `
 UPDATE feed_wastage_completions
@@ -403,8 +406,20 @@ func (r *Repository) RecordWastageMeasurement(ctx context.Context, p ports.Recor
 		return ports.RecordWastageMeasurementResult{}, err
 	}
 	if !reservation.proceed {
+		if len(reservation.snapshot) > 0 {
+			var result ports.RecordWastageMeasurementResult
+			if err := json.Unmarshal(reservation.snapshot, &result); err != nil {
+				return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: decode wastage measurement idempotency snapshot: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: commit idempotent measurement snapshot replay: %w", err)
+			}
+			committed = true
+			return result, nil
+		}
 		// Exact replay: the value on the row IS this request's value (same fingerprint), so read it
-		// back and run no side effects.
+		// back and run no side effects. This fallback is only for legacy keys written before
+		// result_snapshot was used by this feed write.
 		result, readErr := r.readWastageMeasurement(ctx, tx, p.TenantID, p.CompletionID)
 		if readErr != nil {
 			return ports.RecordWastageMeasurementResult{}, readErr
@@ -474,7 +489,15 @@ RETURNING wastage_recorded_at`,
 		return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: write wastage measurement audit: %w", err)
 	}
 
-	if err := completeIdempotency(ctx, tx, p.TenantID, feedWastageMeasurementIdemScope, p.IdempotencyKey, feedWastageResourceType, p.CompletionID); err != nil {
+	result := ports.RecordWastageMeasurementResult{
+		CompletionID:      p.CompletionID,
+		WastageKg:         p.WastageKg,
+		PreviousWastageKg: previous,
+		RecordedBy:        p.RecordedBy,
+		RecordedAt:        recordedAt,
+		SubjectLabel:      wastageSubjectLabel(shedName, partitionLabel, &p.WastageKg),
+	}
+	if err := completeIdempotencyWithSnapshot(ctx, tx, p.TenantID, feedWastageMeasurementIdemScope, p.IdempotencyKey, feedWastageResourceType, p.CompletionID, result); err != nil {
 		return ports.RecordWastageMeasurementResult{}, fmt.Errorf("feeddirection: complete wastage measurement idempotency: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -482,14 +505,7 @@ RETURNING wastage_recorded_at`,
 	}
 	committed = true
 
-	return ports.RecordWastageMeasurementResult{
-		CompletionID:      p.CompletionID,
-		WastageKg:         p.WastageKg,
-		PreviousWastageKg: previous,
-		RecordedBy:        p.RecordedBy,
-		RecordedAt:        recordedAt,
-		SubjectLabel:      wastageSubjectLabel(shedName, partitionLabel, &p.WastageKg),
-	}, nil
+	return result, nil
 }
 
 // readWastageMeasurement composes the replay readback from the row's current state.

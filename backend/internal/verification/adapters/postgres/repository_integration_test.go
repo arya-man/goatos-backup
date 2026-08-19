@@ -30,6 +30,105 @@ func newTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	return tenantID
 }
 
+func TestRecordVerdictRequiresFeedWastageMeasurementBeforeApproval(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	var parkID, shedID, completionID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, 'park', 'verification-wastage-park', 'North Park', 'active')
+RETURNING location_id::text`, tenantID).Scan(&parkID); err != nil {
+		t.Fatalf("insert park: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', 'verification-wastage-shed', 'Castro', 'active')
+RETURNING location_id::text`, tenantID, parkID).Scan(&shedID); err != nil {
+		t.Fatalf("insert shed: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO feed_wastage_completions (
+  tenant_id, park_id, shed_id, target_date, workflow, status, wastage_proof_ref, completed_by, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, '2026-08-18'::date, 'experiment', 'pending_verification',
+  'proof-wastage-verdict-gate', $4::uuid, 'verification-wastage-completion'
+)
+RETURNING completion_id::text`, tenantID, parkID, shedID, tenantID).Scan(&completionID); err != nil {
+		t.Fatalf("insert wastage completion: %v", err)
+	}
+
+	created, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID: tenantID, Vertical: "feed", Module: "feed", Category: "feed_wastage",
+		Source:         domain.SourceRef{Module: "feed", RefType: "feed_wastage_completion", RefID: completionID},
+		MediaRefs:      []string{"proof-wastage-verdict-gate"},
+		ParkID:         &parkID,
+		ShedID:         &shedID,
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "verification-wastage-item",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	_, err = repo.RecordVerdict(ctx, domain.Verdict{
+		TenantID:       tenantID,
+		ItemID:         created.Item.ItemID,
+		Decision:       domain.DecisionApproved,
+		VerifierID:     tenantID,
+		RowVersion:     created.Item.RowVersion,
+		IdempotencyKey: "verification-wastage-approve-before-measurement",
+	})
+	var missing *ports.ErrMeasurementRequired
+	if !errors.As(err, &missing) {
+		t.Fatalf("approve before measurement err = %v, want ErrMeasurementRequired", err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `
+SELECT status FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		tenantID, created.Item.ItemID).Scan(&status); err != nil {
+		t.Fatalf("read verification item after refused approval: %v", err)
+	}
+	if status != domain.StatusPending {
+		t.Fatalf("verification status after refused approval = %q, want pending", status)
+	}
+	var verdictEvents int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'verification.verdict.approved' AND aggregate_id = $2::uuid`,
+		tenantID, created.Item.ItemID).Scan(&verdictEvents); err != nil {
+		t.Fatalf("count verdict outbox after refused approval: %v", err)
+	}
+	if verdictEvents != 0 {
+		t.Fatalf("approved verdict outbox before measurement = %d, want 0", verdictEvents)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE feed_wastage_completions
+SET wastage_kg = 2.5, wastage_recorded_by = $3::uuid, wastage_recorded_at = now()
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID, tenantID); err != nil {
+		t.Fatalf("record wastage measurement: %v", err)
+	}
+	item, err := repo.RecordVerdict(ctx, domain.Verdict{
+		TenantID:       tenantID,
+		ItemID:         created.Item.ItemID,
+		Decision:       domain.DecisionApproved,
+		VerifierID:     tenantID,
+		RowVersion:     created.Item.RowVersion,
+		IdempotencyKey: "verification-wastage-approve-after-measurement",
+	})
+	if err != nil {
+		t.Fatalf("approve after measurement: %v", err)
+	}
+	if item.Status != domain.StatusApproved {
+		t.Fatalf("status after measurement = %q, want approved", item.Status)
+	}
+}
+
 func TestListQueueKeepsSiblingPartitionsSeparate_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
