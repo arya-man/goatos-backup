@@ -574,7 +574,12 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		derivedPark, derivedShed, derivedPartition, err := h.shifting.DeriveShiftingSource(r.Context(), tenantID, normalized.GoatIDs)
 		switch {
 		case errors.Is(err, countsapp.ErrImpactNotDerivable):
-			h.writeCountsError(w, r, err)
+			// A group with no single truthful origin (animals standing in different sheds, or in
+			// different partitions of one shed) is rejected with its OWN code, not the generic
+			// missing_impacts: one shifting moves one shed's animals (maintainer decision
+			// 2026-08-18), and the operator's fix is to raise one movement per source pen.
+			h.writeError(w, r, http.StatusBadRequest, "mixed_source_sheds",
+				"all animals in one shifting must currently stand in the same shed and pen; raise a separate shifting for each source pen", err)
 			return
 		case errors.Is(err, ports.ErrGoatNotFound):
 			// Nothing to read the source from. The no-impacts path still fails closed on this same
@@ -855,13 +860,13 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	// animal the system already has canonical breed/stage/sex facts for is pure friction, so the
 	// server derives that single row itself (see Service.DeriveShiftingImpacts).
 	//
-	// For TWO OR MORE animals the server derives one cohort row per distinct (shed, breed) cohort and
-	// sums identical animals (Service.DeriveShiftingImpacts). A genuinely MIXED same-grain set --
-	// same breed at the same shed but differing stage/age/sex -- is not auto-aggregated: derivation
-	// returns ErrImpactNotDerivable and the handler answers missing_impacts, so the operator supplies
-	// explicit per-cohort impacts. Note this is a RELAXATION at the transport edge only: counts/app.Service
-	// still rejects an event that reaches it with zero impacts, so the invariant "a recorded movement
-	// has at least one impact" is unchanged and still enforced below the handler.
+	// For TWO OR MORE animals the server derives one cohort row per distinct cohort (destination
+	// shed x breed x stage x age x sex) and sums identical animals (Service.DeriveShiftingImpacts).
+	// A MIXED group -- multiple breeds or species, or one breed's differing stage/age/sex -- SPLITS
+	// into one truthful row per cohort (maintainer decision 2026-08-18); nothing is averaged and
+	// nothing is rejected for being mixed. Note this is a RELAXATION at the transport edge only:
+	// counts/app.Service still rejects an event that reaches it with zero impacts, so the invariant
+	// "a recorded movement has at least one impact" is unchanged and still enforced below the handler.
 	if len(req.Impacts) == 0 && len(req.GoatIDs) == 0 {
 		return req, identityapp.BadRequest("missing_impacts",
 			"impacts is required unless goat_ids names the animals to derive them from")
@@ -889,7 +894,7 @@ func shiftingImpacts(req appShiftingEventRequest) []domain.ShiftingEventImpact {
 	out := make([]domain.ShiftingEventImpact, 0, len(req.Impacts))
 	for _, impact := range req.Impacts {
 		out = append(out, domain.ShiftingEventImpact{
-			GrainKey:       strings.ToLower(req.DestinationShedID) + ":" + impact.BreedKey,
+			GrainKey:       domain.ShiftingImpactGrainKey(req.DestinationShedID, impact.BreedKey, impact.StageTag, impact.AgeClass, impact.Sex),
 			BreedID:        impact.BreedID,
 			BreedKey:       impact.BreedKey,
 			BreedLabel:     impact.BreedLabel,
@@ -1401,8 +1406,11 @@ func (h *AppWriteHandler) writeCountsError(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, r, http.StatusUnprocessableEntity, "goat_not_shiftable",
 			"this animal is no longer active and cannot be shifted", err)
 	case errors.Is(err, countsapp.ErrImpactNotDerivable):
+		// Since 2026-08-18 a mixed cohort SPLITS into per-cohort rows instead of erroring, so on the
+		// derivation path this remains only for an empty animal set (already rejected earlier as
+		// missing_goat_ids); the mapping stays for direct service callers and future derivations.
 		h.writeError(w, r, http.StatusBadRequest, "missing_impacts",
-			"the animals in this movement form a mixed cohort (same breed and shed but differing stage/age/sex); supply explicit impacts to state the cohort split", err)
+			"the movement's impact rows could not be derived; name the animals to move or supply explicit impacts", err)
 	case errors.Is(err, countsapp.ErrMissingRequiredField),
 		errors.Is(err, countsapp.ErrMissingImpact),
 		errors.Is(err, countsapp.ErrInvalidCount),

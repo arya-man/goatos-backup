@@ -26974,15 +26974,17 @@ components:
           maxLength: 200
         impacts:
           description: >-
-            The structured cohort effect of the movement, at breed grain. OPTIONAL when goat_ids
-            names EXACTLY ONE animal: the server then derives a single impact from that animal's own
-            canonical facts (breed key/label, stage tag, age class, sex, head_count 1), so an
-            operator moving one animal via RFID search does not have to describe a cohort the system
-            already knows. REQUIRED for two or more animals, because the server will not invent the
-            cohort split or the pregnancy/lactation/warm-up distribution across cohorts - omitting it
-            there is rejected with 400 missing_impacts. When supplied, it is stored verbatim and no
-            derivation runs. A derived impact never leaves pregnant/lactating/warmup non-zero; record
-            those by supplying impacts explicitly.
+            The structured cohort effect of the movement, at cohort grain. OPTIONAL whenever
+            goat_ids names the animals: the server derives one impact row per distinct cohort
+            (destination shed x breed x stage tag x age class x sex) from the animals' own canonical
+            facts, summing head_count for animals that share a cohort. A MIXED group - multiple
+            breeds or species, or one breed's differing stage/age/sex - derives one truthful row per
+            cohort; nothing is averaged and nothing is rejected for being mixed. All animals must
+            currently stand in one source shed and pen; a group spanning source pens is rejected
+            with 400 mixed_source_sheds (raise one movement per source pen). When impacts are
+            supplied explicitly, they are stored verbatim and no derivation runs. A derived impact
+            never leaves pregnant/lactating/warmup non-zero; record those by supplying impacts
+            explicitly.
           type: array
           minItems: 1
           items:

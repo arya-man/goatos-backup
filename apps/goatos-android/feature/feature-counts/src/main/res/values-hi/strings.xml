@@ -48,7 +48,9 @@
     <string name="counts_shifting_previous_actions_empty">पिछले दिनों की कोई स्थानांतरण कार्रवाई नहीं है।</string>
     <string name="counts_shifting_raise">स्थानांतरण दर्ज करें</string>
     <string name="counts_shifting_title">स्थानांतरण दर्ज करें</string>
-    <string name="counts_shifting_subtitle">एक पशु को दूसरे शेड में ले जाएँ</string>
+    <string name="counts_shifting_subtitle">पशुओं को दूसरे शेड में ले जाएँ</string>
+    <string name="counts_shifting_basket_title">इस शिफ्टिंग में पशु (%1$d)</string>
+    <string name="counts_shifting_remove_animal">%1$s को इस शिफ्टिंग से हटाएँ</string>
     <string name="counts_submit_shifting">स्थानांतरण बनाएँ</string>
     <string name="counts_shifting_pending_note">आपके द्वारा दर्ज किए गए स्थानांतरण समीक्षा के लिए भेजे जाते हैं — इन्हें फ़ोन पर अधिकृत नहीं किया जाता।</string>
     <string name="counts_priority_high">उच्च</string>
@@ -83,6 +85,7 @@
     <string name="counts_group_dates">तिथियाँ</string>
     <string name="counts_group_placement">स्थान-निर्धारण</string>
     <string name="counts_group_animal">पशु</string>
+    <string name="counts_group_animals">पशु</string>
     <string name="counts_group_account_of_death">मृत्यु का विवरण</string>
     <string name="counts_group_recording_death_for">इस पशु की मृत्यु दर्ज कर रहे हैं</string>
     <string name="counts_group_to">यहाँ ले जाएँ</string>
@@ -92,7 +95,7 @@
       The pen's own tag and the reason it cannot be used arrive from the server already worded, so
       they are deliberately not translated here.
     -->
-    <string name="counts_group_stage_mode">इस पशु का टैग</string>
+    <string name="counts_group_stage_mode">इन पशुओं का टैग</string>
     <string name="counts_stage_mode_keep_current">मौजूदा टैग रखें</string>
     <string name="counts_stage_mode_destination">गंतव्य टैग लें</string>
     <string name="counts_group_priority">प्राथमिकता</string>
@@ -137,7 +140,7 @@
     <string name="counts_select_farm">एक फ़ार्म चुनें</string>
     <string name="counts_select_farm_first">पहले एक फ़ार्म चुनें</string>
     <string name="counts_select_animal_first">पहले एक पशु चुनें</string>
-    <string name="counts_shifting_farm_locked">पशु के वर्तमान स्थान से अपने आप चुना गया</string>
+    <string name="counts_shifting_farm_locked">पशुओं के वर्तमान स्थान से अपने आप चुना गया</string>
     <string name="counts_select_shed">एक शेड चुनें</string>
     <string name="counts_select_breed">एक नस्ल चुनें</string>
     <string name="counts_location_unknown">दर्ज नहीं</string>
@@ -156,7 +159,7 @@
     <!-- Hints -->
     <string name="counts_hint_dob">भविष्य की तिथि नहीं हो सकती।</string>
     <string name="counts_hint_reason">3 से 500 वर्णों के बीच।</string>
-    <string name="counts_hint_animal_lookup">इस स्थानांतरण को स्वीकृत करने पर ठीक वही पशु स्थानांतरित होता है जिसे आप यहाँ चुनते हैं।</string>
+    <string name="counts_hint_animal_lookup">इस स्थानांतरण को स्वीकृत करने पर ठीक वही पशु स्थानांतरित होते हैं जिन्हें आप यहाँ जोड़ते हैं।</string>
     <string name="counts_hint_death_lookup">मृत्यु दर्ज करने पर ठीक वही पशु बाहर होता है जिसे आप यहाँ चुनते हैं।</string>
 
     <!-- Census hero, filter sheet + lifecycle facet, shed subtotals -->

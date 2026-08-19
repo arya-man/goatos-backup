@@ -92,6 +92,7 @@ class ShiftingViewModel @Inject constructor(
             is ShiftingEvent.EditAnimalQuery -> onEditAnimalQuery(event.value)
             ShiftingEvent.LookupAnimals -> lookupAnimals()
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
+            is ShiftingEvent.RemoveAnimal -> onRemoveAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
             is ShiftingEvent.SelectStageMode -> onSelectStageMode(event.stageMode)
@@ -185,7 +186,7 @@ class ShiftingViewModel @Inject constructor(
     }
 
     // -----------------------------------------------------------------------
-    // Animal search + single selection
+    // Animal search + basket (multi-animal, one source pen)
     // -----------------------------------------------------------------------
 
     /** Shared pre-edit guard: see [BirthDeathViewModel] for why a corrected draft re-keys. */
@@ -261,24 +262,65 @@ class ShiftingViewModel @Inject constructor(
     }
 
     /**
-     * Selects THE animal being moved. Single selection: this REPLACES any previous choice rather
-     * than appending to a list, so the screen can never carry an animal the operator stopped
-     * looking at. A tap on the already-selected row is a no-op, not a deselect — clearing the
-     * selection is not a state an operator ever wants on the way to submitting a movement.
+     * ADDS the tapped match to the basket (maintainer decision 2026-08-18: one shifting moves the
+     * whole group, so selection is a basket, not a single slot). A tap on an already-added animal
+     * is a no-op — removal is the basket row's explicit remove control, never a re-tap, so an
+     * accidental second tap can never silently drop an animal from the movement.
+     *
+     * ONE SOURCE PEN: every animal in one shifting must currently stand in the same park + shed +
+     * pen as the animals already in the basket. A mismatched add is REFUSED with a message naming
+     * the fix (the backend enforces the same rule with `mixed_source_sheds`, so accepting it here
+     * would only queue a write certain to fail after the operator walked away).
+     *
+     * A successful add clears the query and match list so the next scan/search starts clean —
+     * the gun-scan rhythm is scan → search → tap → scan again.
      */
     private fun onSelectAnimal(goatId: String) {
         if (!beginEdit()) return
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId }
                 ?: return@update current
+            if (current.selectedAnimals.any { it.goatId == match.goatId }) return@update current
+            val anchor = current.selectedAnimals.firstOrNull()
+            if (anchor != null && !samePen(anchor, match)) {
+                return@update current.copy(animalLookupMessage = MIXED_PEN_MESSAGE)
+            }
             current.copy(
-                selectedAnimal = match,
-                // A shed move is intra-farm by contract. The animal's current park is canonical,
-                // so selecting the animal also selects the only legal destination farm.
+                selectedAnimals = current.selectedAnimals + match,
+                animalQuery = "",
+                animalMatches = emptyList(),
+                animalLookupMessage = null,
+                // A shed move is intra-farm by contract. The animals' current park is canonical,
+                // so the first added animal also selects the only legal destination farm. Later
+                // adds are guaranteed same-park by the pen guard above, so the pinned farm and any
+                // chosen destination shed stay valid.
                 destinationParkId = match.parkId,
-                destinationShedId = "",
-                destinationPartitionLabel = null,
+                destinationShedId = if (anchor == null) "" else current.destinationShedId,
+                destinationPartitionLabel = if (anchor == null) null else current.destinationPartitionLabel,
             )
+        }
+        recomputeSubmitGate()
+    }
+
+    /**
+     * Removes one animal from the basket. Removing the LAST animal also clears the pinned farm and
+     * destination, because the next group may stand somewhere else entirely.
+     */
+    private fun onRemoveAnimal(goatId: String) {
+        if (!beginEdit()) return
+        _state.update { current ->
+            val remaining = current.selectedAnimals.filterNot { it.goatId == goatId }
+            if (remaining.size == current.selectedAnimals.size) return@update current
+            if (remaining.isEmpty()) {
+                current.copy(
+                    selectedAnimals = remaining,
+                    destinationParkId = "",
+                    destinationShedId = "",
+                    destinationPartitionLabel = null,
+                )
+            } else {
+                current.copy(selectedAnimals = remaining)
+            }
         }
         recomputeSubmitGate()
     }
@@ -289,12 +331,12 @@ class ShiftingViewModel @Inject constructor(
 
     /**
      * The farm is never operator-editable. Keep this event as a defensive compatibility no-op for
-     * any stale composition/test that still emits it; only selecting an animal may set the farm.
+     * any stale composition/test that still emits it; only adding an animal may set the farm.
      */
     private fun onSelectDestinationPark(parkId: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            val currentFarm = current.selectedAnimal?.parkId.orEmpty()
+            val currentFarm = current.selectedAnimals.firstOrNull()?.parkId.orEmpty()
             if (parkId == currentFarm) current.copy(destinationParkId = currentFarm) else current
         }
         recomputeSubmitGate()
@@ -460,9 +502,9 @@ class ShiftingViewModel @Inject constructor(
         // and sending "" for one of them would change the request fingerprint of an otherwise
         // identical resubmission.
         comment = comment.trim().ifBlank { null },
-        // A list of exactly one: the contract's shape is a list and the client does not narrow a
-        // server contract it does not own.
-        goatIds = listOfNotNull(selectedAnimal?.goatId),
+        // The whole basket: one movement carries every added animal, and the backend derives one
+        // truthful impact row per distinct cohort from these very ids.
+        goatIds = selectedAnimals.map { it.goatId },
     )
 
     private fun observeOutboxItem(itemId: String) {
@@ -531,16 +573,32 @@ class ShiftingViewModel @Inject constructor(
         // the backend is certain to reject with `missing_goat_ids` — durable in the outbox,
         // terminal on first dispatch, and only visible as a failure long after they walked away
         // from the shed.
-        val animal = state.selectedAnimal ?: return "Find and select the animal that moved."
-        if (!animal.lifecycleStatus.equals("alive", ignoreCase = true)) {
+        val animals = state.selectedAnimals
+        if (animals.isEmpty()) return "Find and add the animals that moved."
+        if (animals.any { !it.lifecycleStatus.equals("alive", ignoreCase = true) }) {
             return INELIGIBLE_ANIMAL_MESSAGE
         }
-        if (animal.parkId.isBlank() || state.destinationParkId != animal.parkId) {
-            return "This animal's current farm is unavailable. Refresh and try again."
+        // The add path already refuses a mixed pen; this re-checks the invariant at submit so a
+        // future code path that mutates the basket some other way still cannot queue a write the
+        // backend rejects with mixed_source_sheds.
+        val anchor = animals.first()
+        if (animals.any { !samePen(anchor, it) }) return MIXED_PEN_MESSAGE
+        if (anchor.parkId.isBlank() || state.destinationParkId != anchor.parkId) {
+            return "These animals' current farm is unavailable. Refresh and try again."
         }
-        if (state.destinationShedId.isBlank()) return "Choose the shed the animal moved to."
+        if (state.destinationShedId.isBlank()) return "Choose the shed the animals moved to."
         return null
     }
+
+    /**
+     * Whether two animals stand in the same source pen — park + shed + partition together, the
+     * same operational-location identity the backend's source derivation requires before it will
+     * record a single truthful "from". Blank and null partition both mean "not partitioned".
+     */
+    private fun samePen(a: ShiftingAnimalUi, b: ShiftingAnimalUi): Boolean =
+        a.parkId == b.parkId &&
+            a.shedId == b.shedId &&
+            a.partitionLabel?.trim().orEmpty() == b.partitionLabel?.trim().orEmpty()
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsShifting.idempotencyKey"
@@ -550,6 +608,14 @@ class ShiftingViewModel @Inject constructor(
 
         const val NO_MATCH_MESSAGE = "No live animal matches that tag. Check the tag and try again."
         const val INELIGIBLE_ANIMAL_MESSAGE = "This animal is no longer active and cannot be shifted."
+
+        /**
+         * Mirrors the backend's `mixed_source_sheds` rule: one shifting moves one pen's animals.
+         * Refusing at ADD time — while the operator is standing at the pen — beats queueing a
+         * write that is certain to fail hours later in the outbox.
+         */
+        const val MIXED_PEN_MESSAGE =
+            "This animal is in a different shed. All animals in one shifting must come from the same shed — submit this one, then raise another shifting for the other shed."
         const val LOOKUP_FAILED_MESSAGE =
             "Couldn't search for animals. Check your connection and try again."
         const val DESTINATIONS_FAILED_MESSAGE =

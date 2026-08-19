@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -34,31 +35,37 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
- * Record a shifting — the movement of ONE animal to a new shed (`/counts/shifting/add`), a hosted
- * destination with Up/Back.
+ * Record a shifting — the movement of ONE OR MORE animals from one pen to a new shed
+ * (`/counts/shifting/add`), a hosted destination with Up/Back.
  *
  * The event is REPORTED, not authorized: the backend records it `authorization_state=pending` /
  * `verification_state=unverified`, so this screen offers no approve affordance and says so.
  *
  * The flow is deliberately linear and short, in this exact order:
  *
- *  1. **Find the animal** — search by RFID/tag, then tap ONE result. Selection is SINGLE: tapping a
- *     different result REPLACES the selection rather than appending to a list. An operator standing
- *     at a pen moves the animal in front of them; a multi-select basket invited a mis-tap to
- *     silently relocate an animal nobody looked at.
- *  2. **Current location** — the selected animal's park + shed, READ-ONLY, straight from the
- *     lookup. The operator confirms it; they never type it, and the client never asserts it.
- *  3. **Destination** — the animal's current farm is selected automatically and read-only; the
+ *  1. **Find the animals** — search by RFID/tag (the RFID gun types into the same field), tap a
+ *     result to ADD it to the basket, repeat for every animal moving. The basket is the
+ *     MULTI-ANIMAL selection (maintainer decision 2026-08-18, superseding the single-selection rule
+ *     recorded here earlier): one raise moves the whole group, in one approval, with ONE completion
+ *     video. The mis-tap risk that retired the earlier basket is answered differently now — every
+ *     added animal renders as its own visible row with tag + current location and an explicit
+ *     remove control, and the running count sits on the section title, so nothing is in the
+ *     movement that the operator has not seen listed.
+ *  2. **One source pen** — every animal in one shifting must currently stand in the SAME shed and
+ *     pen. Adding an animal from a different pen is refused with a message naming the fix (raise a
+ *     separate shifting); the backend enforces the same rule with `mixed_source_sheds`.
+ *  3. **Destination** — the animals' current farm is selected automatically and read-only; the
  *     operator chooses only a destination shed inside that farm. Goats never shift between farms.
  *  4. **Priority** — High or Low (default).
  *  5. **Category** — Growth / Health / Breeding / Delivery.
  *  6. **Create shifting**.
  *
- * What used to be here and is gone on purpose: the source park/shed text inputs (now derived from
- * the animal), the free-text `effective_at` instant, the multi-animal basket, and the whole cohort
- * IMPACTS editor. The backend derives the movement's impact from the selected animal's own
- * canonical breed/stage — an operator hand-typing a breed next to an animal the server already
- * knows the breed of was a second, contradictable source of truth for the same fact.
+ * What used to be here and is gone on purpose: the source park/shed text inputs (derived from the
+ * animals), the free-text `effective_at` instant, and the whole cohort IMPACTS editor. The backend
+ * derives the movement's impacts from the animals' own canonical breed/stage — one truthful cohort
+ * row per distinct breed/stage/age/sex, so a mixed group (even mixed species) is fine — and an
+ * operator hand-typing a breed next to animals the server already knows was a second,
+ * contradictable source of truth for the same fact.
  */
 
 // ---------------------------------------------------------------------------
@@ -153,14 +160,19 @@ data class ShiftingParkUi(
 
 @Immutable
 data class ShiftingUiState(
-    // --- 1. animal search + single selection -------------------------------------------------
+    // --- 1. animal search + basket -----------------------------------------------------------
     val animalQuery: String = "",
     val animalMatches: List<ShiftingAnimalUi> = emptyList(),
     val isLookingUpAnimals: Boolean = false,
-    /** Lookup outcome copy (no match / lookup failed). Null while idle or successful. */
+    /** Lookup/add outcome copy (no match / lookup failed / different pen). Null while idle or successful. */
     val animalLookupMessage: String? = null,
-    /** THE animal being moved. Exactly one, or none. */
-    val selectedAnimal: ShiftingAnimalUi? = null,
+    /**
+     * The animals being moved — the BASKET. Every entry was individually searched, tapped, and is
+     * rendered as its own removable row, so the movement can never carry an animal the operator has
+     * not seen listed. All entries stand in the same source pen; the ViewModel refuses an add that
+     * would mix pens.
+     */
+    val selectedAnimals: List<ShiftingAnimalUi> = emptyList(),
 
     // --- 3. destination ----------------------------------------------------------------------
     /** Backend destination catalog. Empty until the first successful fetch or cache read. */
@@ -272,8 +284,14 @@ sealed interface ShiftingEvent {
     data class EditAnimalQuery(val value: String) : ShiftingEvent
     data object LookupAnimals : ShiftingEvent
 
-    /** Selects THE animal. Selecting another one replaces this; it never appends. */
+    /**
+     * ADDS the tapped match to the basket (no-op when it is already there). The ViewModel refuses
+     * an add whose animal stands in a different pen than the basket, with a message naming the fix.
+     */
     data class SelectAnimal(val goatId: String) : ShiftingEvent
+
+    /** Removes one animal from the basket — the explicit mis-tap correction. */
+    data class RemoveAnimal(val goatId: String) : ShiftingEvent
 
     /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
@@ -327,9 +345,9 @@ fun ShiftingScreen(
                 }
             }
 
-            // --- 1. Find the animal -----------------------------------------------------------
+            // --- 1. Find the animals ----------------------------------------------------------
             item(key = "animal-title") {
-                CountsFieldGroupTitle(text = stringResource(R.string.counts_group_animal))
+                CountsFieldGroupTitle(text = stringResource(R.string.counts_group_animals))
             }
             item(key = "animal-lookup") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -357,17 +375,35 @@ fun ShiftingScreen(
             items(state.animalMatches, key = { "match-${it.goatId}" }) { match ->
                 AnimalRow(
                     animal = match,
-                    selected = state.selectedAnimal?.goatId == match.goatId,
+                    selected = state.selectedAnimals.any { it.goatId == match.goatId },
                     onClick = { onEvent(ShiftingEvent.SelectAnimal(match.goatId)) },
                 )
             }
 
-            // --- 2. Animal hero: From (current, read-only) -> To (mirrors the destination
-            // dropdowns below; never a second picker of its own) -------------------------------
-            state.selectedAnimal?.let { animal ->
-                item(key = "animal-hero") {
-                    ShiftingAnimalHero(
+            // --- 2. The basket: every animal in the movement, each its own removable row, with a
+            // running count in the title — the visible-list answer to the old mis-tap concern —
+            // then From (current pen, read-only) -> To (mirrors the destination dropdowns below;
+            // never a second picker of its own).
+            if (state.selectedAnimals.isNotEmpty()) {
+                item(key = "basket-title") {
+                    CountsFieldGroupTitle(
+                        text = stringResource(
+                            R.string.counts_shifting_basket_title,
+                            state.selectedAnimals.size,
+                        ),
+                    )
+                }
+                items(state.selectedAnimals, key = { "basket-${it.goatId}" }) { animal ->
+                    BasketAnimalRow(
                         animal = animal,
+                        onRemove = { onEvent(ShiftingEvent.RemoveAnimal(animal.goatId)) },
+                    )
+                }
+                item(key = "animal-hero") {
+                    ShiftingRouteHero(
+                        // All basket animals share one pen (the ViewModel refuses a mixed add), so
+                        // the first animal's location IS the group's "from".
+                        from = state.selectedAnimals.first(),
                         toParkLabel = selectedParkName,
                         toShedLabel = selectedShedLabel,
                     )
@@ -401,7 +437,7 @@ fun ShiftingScreen(
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_shed),
                     selectedLabel = selectedShedLabel,
-                    placeholder = if (state.selectedAnimal == null) {
+                    placeholder = if (state.selectedAnimals.isEmpty()) {
                         stringResource(R.string.counts_select_animal_first)
                     } else {
                         stringResource(R.string.counts_select_shed)
@@ -539,13 +575,49 @@ fun ShiftingScreen(
 }
 
 /**
- * The animal hero: From (current park/shed, read-only) -> To (a live reflection of the
- * destination dropdowns below — NOT a second picker; selecting nothing yet renders an honest
- * placeholder rather than inventing a destination).
+ * One basket entry: the animal's identity + current location, with the explicit REMOVE control that
+ * is the basket's mis-tap correction. Removal is its own affordance rather than a tap-to-toggle on
+ * the row, so an accidental second tap can never silently drop an animal from the movement.
  */
 @Composable
-private fun ShiftingAnimalHero(
+internal fun BasketAnimalRow(
     animal: ShiftingAnimalUi,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(animal.displayId, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+            Text(animal.tag, color = MeshaColors.Muted, fontSize = 11.sp)
+        }
+        IconButton(onClick = onRemove) {
+            Icon(
+                imageVector = MeshaIcons.Close,
+                contentDescription = stringResource(R.string.counts_shifting_remove_animal, animal.displayId),
+                tint = MeshaColors.Muted,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The route hero: From (the basket's shared current pen, read-only) -> To (a live reflection of the
+ * destination dropdowns below — NOT a second picker; selecting nothing yet renders an honest
+ * placeholder rather than inventing a destination). The animals themselves are listed as basket
+ * rows above, so this card carries only the route.
+ */
+@Composable
+private fun ShiftingRouteHero(
+    from: ShiftingAnimalUi,
     toParkLabel: String?,
     toShedLabel: String?,
 ) {
@@ -557,8 +629,6 @@ private fun ShiftingAnimalHero(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = animal.displayId, color = MeshaColors.Ink, fontSize = 16.sp, fontWeight = FontWeight.W800)
-        Text(text = animal.tag, color = MeshaColors.Muted, fontSize = 12.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -567,11 +637,11 @@ private fun ShiftingAnimalHero(
             HeroLocationChip(
                 modifier = Modifier.weight(1f),
                 label = stringResource(R.string.counts_shifting_from),
-                parkLabel = animal.parkName,
-                // The operational location — shed name plus partition when the animal's shed is
+                parkLabel = from.parkName,
+                // The operational location — shed name plus partition when the animals' shed is
                 // partitioned (e.g. "Yashoda 2"), so a same-shed cross-partition move is visible.
-                shedLabel = operationalLocationLabel(animal.shedName, animal.partitionLabel),
-                fallback = animal.locationLabel,
+                shedLabel = operationalLocationLabel(from.shedName, from.partitionLabel),
+                fallback = from.locationLabel,
                 accent = MeshaColors.Faint,
             )
             Icon(
@@ -620,10 +690,9 @@ private fun HeroLocationChip(
 }
 
 /**
- * A lookup match. Tapping SELECTS it — selecting another match replaces this one, so the screen
- * always carries exactly zero or one animal. Deliberately not a toggle: an operator who taps the
- * wrong row corrects it by tapping the right one, which is the same gesture rather than a
- * deselect-then-reselect pair.
+ * A lookup match. Tapping ADDS it to the basket (a tap on an already-added row is a no-op — the
+ * check mark says it is in). Deliberately not a toggle: removing an animal is the basket row's
+ * explicit remove control, so an accidental second tap can never silently drop one.
  */
 @Composable
 internal fun AnimalRow(

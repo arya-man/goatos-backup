@@ -142,12 +142,15 @@ func nonBlank(v *string) *string {
 // The movement itself is applied and emitted one source-correct transition per goat by the
 // relocation path (identity.RelocateGoatsToShedInTx is set-based over the whole group). Here we
 // build the aggregate impact rows the count projection consumes. Each animal contributes exactly one
-// head to the cohort it belongs to (destination shed x breed), and animals that share that cohort
-// SUM their head_count into the one row shifting_event_impacts_grain_unique permits. What we never do
-// is collapse a MIXED set into an aggregate the operator never entered: if two animals land on the
-// same (shed, breed) grain but disagree on stage/age/sex, that is a genuine cohort split the server
-// cannot invent a single stage/sex for, so it FAILS CLOSED with ErrImpactNotDerivable and the
-// operator supplies explicit per-cohort impacts (the same fallback the reviewer sanctioned).
+// head to the cohort it belongs to, and animals that share that cohort SUM their head_count into one
+// row. The cohort is the FULL descriptor -- destination shed x breed x stage x age class x sex, the
+// grain domain.ShiftingImpactGrainKey encodes -- so a MIXED group (multiple breeds, or one breed's
+// buck and doe, or a kid and an adult; multiple species reduce to multiple breeds here) SPLITS into
+// one truthful row per distinct cohort rather than being collapsed into an aggregate the operator
+// never entered or rejected outright (maintainer decision 2026-08-18: one raise moves the whole
+// mixed group; the earlier fail-closed ErrImpactNotDerivable answer forced N raises for a group the
+// backend already knows animal by animal). Nothing is invented: every descriptor on every row is the
+// animal's own canonical fact, and rows never average across animals.
 // Pregnancy / lactation / warm-up stay at zero for every derived row -- those are confirmed clinical
 // facts, never inferred from a move.
 //
@@ -179,8 +182,10 @@ func (s *Service) DeriveShiftingImpacts(
 		return nil, err
 	}
 
-	// Merge per-goat legs into cohort rows keyed by grain_key (destination shed x breed), preserving
-	// insertion order so the derived set is deterministic for the idempotency-neutral persist below.
+	// Merge per-goat legs into cohort rows keyed by the FULL cohort grain (destination shed x breed
+	// x stage x age x sex), preserving insertion order so the derived set is deterministic for the
+	// idempotency-neutral persist below. Two legs share a key only when every descriptor agrees, so
+	// summing head_count can never average distinct cohorts into one invented row.
 	byGrain := make(map[string]*domain.ShiftingEventImpact, len(facts))
 	order := make([]string, 0, len(facts))
 	for _, fact := range facts {
@@ -194,9 +199,9 @@ func (s *Service) DeriveShiftingImpacts(
 			return nil, fmt.Errorf("%w: goat %s has no resolvable breed", ErrMissingRequiredField, fact.GoatID)
 		}
 		leg := domain.ShiftingEventImpact{
-			// Same grain key the explicit-impact path builds, so a derived impact lands on the
-			// exact projection row an equivalent typed-in impact would have.
-			GrainKey:       strings.ToLower(strings.TrimSpace(destinationShedID)) + ":" + breedKey,
+			// Same builder the explicit-impact path uses (domain.ShiftingImpactGrainKey), so the
+			// two paths can never produce different keys for the same cohort.
+			GrainKey:       domain.ShiftingImpactGrainKey(destinationShedID, breedKey, fact.StageTag, fact.AgeClass, fact.Sex),
 			BreedID:        fact.BreedID,
 			BreedKey:       breedKey,
 			BreedLabel:     breedLabel,
@@ -209,20 +214,13 @@ func (s *Service) DeriveShiftingImpacts(
 			WarmupCount:    0,
 			RiskFlagsJSON:  []byte("{}"),
 		}
-		existing, ok := byGrain[leg.GrainKey]
-		if !ok {
-			cp := leg
-			byGrain[leg.GrainKey] = &cp
-			order = append(order, leg.GrainKey)
+		if existing, ok := byGrain[leg.GrainKey]; ok {
+			existing.HeadCount += leg.HeadCount
 			continue
 		}
-		// Same cohort grain: only merge when the descriptive cohort identity agrees. A disagreement
-		// is a mixed set we must not average into one invented stage/sex.
-		if !sameCohortDescriptor(existing, &leg) {
-			return nil, fmt.Errorf("%w: animals of breed %q moving to this shed differ in stage/age/sex; supply explicit impacts to state the cohort split",
-				ErrImpactNotDerivable, breedLabel)
-		}
-		existing.HeadCount += leg.HeadCount
+		cp := leg
+		byGrain[leg.GrainKey] = &cp
+		order = append(order, leg.GrainKey)
 	}
 
 	impacts := make([]domain.ShiftingEventImpact, 0, len(order))
@@ -244,16 +242,6 @@ func validateShiftableGoatFacts(facts []domain.GoatShiftingFact) error {
 		}
 	}
 	return nil
-}
-
-// sameCohortDescriptor reports whether two same-grain impact legs describe the identical cohort on
-// the fields that are not part of the grain key -- stage, age class, and sex. Two animals may share
-// a (shed, breed) grain yet belong to different cohorts (a buck and a doe, a kid and an adult); those
-// must stay distinguishable rather than be summed under one animal's descriptor.
-func sameCohortDescriptor(a, b *domain.ShiftingEventImpact) bool {
-	return eqOptional(a.StageTag, b.StageTag) &&
-		eqOptional(a.AgeClass, b.AgeClass) &&
-		eqOptional(a.Sex, b.Sex)
 }
 
 // eqOptional compares two optional descriptor values treating nil and blank as the same absent value.

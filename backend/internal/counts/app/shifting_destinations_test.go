@@ -49,10 +49,11 @@ func TestDeriveShiftingImpactsBuildsOneImpactFromTheAnimal(t *testing.T) {
 	}
 	got := impacts[0]
 
-	// The grain key is the join between this write and the projection. It must be
-	// lower(shed_id) + ":" + breed_key -- the identical shape the explicit-impact handler path
-	// builds -- or a derived movement silently creates a second projection row for the same cohort.
-	wantGrain := "55555555-5555-4555-8555-555555555555:boer_cross"
+	// The grain key is the impact row's identity within the event. It must be the full cohort key
+	// domain.ShiftingImpactGrainKey builds (shed:breed:stage:age:sex) -- the identical shape the
+	// explicit-impact handler path builds -- so the two paths can never fork key shapes, and so a
+	// mixed group's distinct cohorts each get their own row under the per-event unique index.
+	wantGrain := "55555555-5555-4555-8555-555555555555:boer_cross:k2:kid:female"
 	if got.GrainKey != wantGrain {
 		t.Fatalf("GrainKey=%q, want %q", got.GrainKey, wantGrain)
 	}
@@ -164,19 +165,40 @@ func TestDeriveShiftingImpactsKeepsDistinctBreedsSeparate(t *testing.T) {
 	}
 }
 
-// TestDeriveShiftingImpactsFailsClosedOnAMixedCohort: animals sharing a (shed, breed) grain but
-// disagreeing on stage/age/sex are a cohort split the server cannot fold into one row without
-// inventing an aggregate stage/sex nobody entered. It fails closed with ErrImpactNotDerivable so the
-// operator supplies explicit per-cohort impacts -- never a manufactured aggregate.
-func TestDeriveShiftingImpactsFailsClosedOnAMixedCohort(t *testing.T) {
+// TestDeriveShiftingImpactsSplitsAMixedCohort (maintainer decision 2026-08-18): animals sharing a
+// (shed, breed) grain but disagreeing on stage/age/sex are a genuine cohort split, and the server
+// states it as SEPARATE truthful rows -- one per distinct cohort, each carrying that animal's own
+// descriptors and its own grain key -- never a manufactured aggregate averaging the two, and no
+// longer a rejection forcing the operator to raise one movement per animal.
+func TestDeriveShiftingImpactsSplitsAMixedCohort(t *testing.T) {
 	repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{
 		{GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer", StageTag: strPtr("K2"), Sex: strPtr("female")},
 		{GoatID: destGoatIDB, BreedKey: "boer", BreedLabel: "Boer", StageTag: strPtr("K2"), Sex: strPtr("male")},
 	}}
 
-	if _, err := NewService(repo).DeriveShiftingImpacts(
-		context.Background(), destTenantID, destShedID, []string{destGoatID, destGoatIDB}); !errors.Is(err, ErrImpactNotDerivable) {
-		t.Fatalf("err=%v, want ErrImpactNotDerivable (a mixed cohort must not be auto-aggregated)", err)
+	impacts, err := NewService(repo).DeriveShiftingImpacts(
+		context.Background(), destTenantID, destShedID, []string{destGoatID, destGoatIDB})
+	if err != nil {
+		t.Fatalf("DeriveShiftingImpacts: %v", err)
+	}
+	if len(impacts) != 2 {
+		t.Fatalf("len(impacts)=%d, want 2 (one row per distinct cohort, never an averaged aggregate)", len(impacts))
+	}
+	if impacts[0].GrainKey == impacts[1].GrainKey {
+		t.Fatalf("both rows share grain key %q -- distinct cohorts must have distinct keys or the per-event unique index rejects the insert", impacts[0].GrainKey)
+	}
+	for _, im := range impacts {
+		if im.HeadCount != 1 {
+			t.Fatalf("HeadCount=%d, want 1 per cohort row", im.HeadCount)
+		}
+	}
+	if sexOf := func(i int) string {
+		if impacts[i].Sex == nil {
+			return ""
+		}
+		return *impacts[i].Sex
+	}; sexOf(0) != "female" || sexOf(1) != "male" {
+		t.Fatalf("sex=(%q,%q), want (female, male) -- each row keeps its own animal's descriptor, in input order", sexOf(0), sexOf(1))
 	}
 }
 
