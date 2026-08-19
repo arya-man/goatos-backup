@@ -77,35 +77,64 @@ which is exactly what the redesigned console models with "Start a new version �
 
 ---
 
-## Finding 2 — publishing does not supersede the previous version's open work
+## Finding 2 — publishing leaves the old version's open work behind, orphaned
 
-**Read from source first.** The publish path is
-`ProtocolPublishedHandler → GenerateForVersionWithRun → generateForVersionWithRun`
-(`internal/vaccination/app/generation_handler.go:175`, `generation.go:777`). Scanning that
-function for any cancellation of prior versions returns **nothing**.
-
-The only supersede path is `CancelOpenVaccinationObligationsForGoatExceptVersions`
-(`internal/obligation/adapters/postgres/repository.go:1640`), and its single non-test caller is
-inside `generateForGoat` (`generation.go:1930`) — the **per-goat** path, reached from
-`goat.created` and from stage/location/health/reproductive rechecks. Not from publish.
-
-The CLI's own header says the same thing in operational terms
-(`cmd/generate-vaccination-obligations/main.go:1-7`):
-
-> "The :8080 API only generates obligations event-driven (on goat.created); **after publishing a
-> new version, the existing cohort has no obligations until generation is run.**"
-
-**Confirmed empirically.** Mid-run, with V2 retired and V3 published and generating:
+**CONFIRMED. Severity: data integrity, not user-facing.** Case 01, settled numbers:
 
 ```
-V3 6f01b4ad   scheduled 4,149   deferred 24     ← new work appearing
-V2 7d5c2ccc   scheduled 6,852   deferred 56     ← old work still open
+BEFORE                                    AFTER publish V3 + generation
+V2  scheduled 6,852  deferred 56          V2  scheduled 6,852  deferred 56   ← unchanged
+                                          V3  scheduled 7,209  deferred 62   ← newly generated
+    completed 5,644  canceled 3,049           completed 5,644  canceled 3,049 ← byte-identical
 ```
 
-Both versions hold open obligations for the same cohort at the same time.
+Generation reported `generated=7271 deferred=62 failed_goats=0 suppressed_trusted=4155`.
 
-*(Final counts and the per-goat overlap query complete when the run finishes — this section will
-be updated with the settled numbers rather than the mid-run snapshot.)*
+**6,908 obligations remain `scheduled`/`deferred` against the retired V2 and are never
+superseded.** 6,232 goat+dose pairs exist twice. A single goat, `et_tt_revac`:
+
+| version | due | status |
+|---|---|---|
+| V3 (new, 91-day interval) | 2026-11-03 | scheduled |
+| V2 (retired, 182-day) | 2027-02-02 | scheduled |
+
+For vaccines whose rules did not change, the duplicate carries an identical date —
+`fmd_revac` 2026-12-30 twice, `hs_revac` 2027-02-20 twice.
+
+### Why this is not (yet) an operator-visible bug
+
+Every read path filters `pv.status = 'published'` (e.g.
+`internal/calendar/adapters/postgres/canonical_read.go:199,384,648,1066,1810`). Measured on the
+same database:
+
+```
+open obligations under PUBLISHED versions   7,271   ← what the calendar shows
+open obligations under RETIRED versions     6,908   ← invisible
+duplicate goat+dose pairs an operator sees      0
+```
+
+The sweeper behaves the same way — a run logs `sweep version 6f01b4ad…` only, i.e. the published
+version. The orphans are never batched, never escalated, never closed.
+
+### What it does risk
+
+- **They never reach a terminal state.** 6,908 rows sit at `scheduled` forever, growing by
+  roughly the size of the open cohort on every publish.
+- **Anything that does not join on `pv.status='published'` double-counts** — analytics,
+  Cube models, exports, adherence maths, ad-hoc SQL. The correctness of every such consumer
+  currently depends on remembering an unwritten rule.
+- **The intent already exists but is not wired to publish.**
+  `CancelOpenVaccinationObligationsForGoatExceptVersions` does exactly the right thing, with the
+  right predicate. It is simply never called from the publish path — only from per-goat recheck
+  (`generation.go:1930`). A goat that happens to be rechecked later *does* get its stale rows
+  canceled, which makes the residue non-deterministic.
+
+### Suggested fix (not implemented)
+
+Call the existing cancel with the newly-effective version list once per cohort after a publish
+generation completes, or emit a per-goat recheck for the affected cohort. The function, its
+predicate, its status events and its outbox writes already exist and are already exercised by
+the per-goat path; this is a wiring gap, not new behaviour.
 
 ---
 
@@ -146,7 +175,7 @@ anyone pointing a local binary at the OCI dev DB.
 
 | # | Case | What it proves |
 |---|---|---|
-| 01 | publish a changed version over a live cohort | in progress — above |
+| 01 | publish a changed version over a live cohort | **done** — findings 1-4 above |
 | 02 | goat created **with** DOB | birth-age trigger produces the right first-dose date |
 | 03 | goat created **without** DOB | null-DOB path (`post_arrival`), no crash, no silent skip |
 | 04 | sheet / bulk import | same obligations as single entry |
