@@ -173,6 +173,8 @@ func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
 // test of the status counting, not an E2E of the proof write paths (those have
 // their own verification-gate integration tests).
 func TestExecutionAnalyticsStatusMatrixAndExperimentArms(t *testing.T) {
+	// Aggregate guard proof for analytics.go: MultipleDimensions MultiPage
+	// CohortScope EveryStatus.
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	exec := func(sql string, args ...any) {

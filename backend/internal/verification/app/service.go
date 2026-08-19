@@ -843,6 +843,8 @@ func mapRepoErr(err error) error {
 		return NotFound("item_not_found", "verification item not found")
 	case errors.As(err, &notVerified):
 		return Conflict("batch_not_fully_verified", batchNotFullyVerifiedMessage(notVerified.Blocking))
+	case isMeasurementRequired(err):
+		return Conflict("measurement_required", "Record the measurement before accepting this proof.")
 	case isAlreadyDecided(err):
 		// Terminal, not contended: retrying cannot help, so say the decision is final.
 		return Conflict("already_decided", "This proof already has a verdict and cannot be changed.")
@@ -995,6 +997,11 @@ func (s *Service) MarkVerdictApplied(
 func isAlreadyDecided(err error) bool {
 	decided := &ports.AlreadyDecidedError{}
 	return errors.As(err, &decided)
+}
+
+func isMeasurementRequired(err error) bool {
+	required := &ports.ErrMeasurementRequired{}
+	return errors.As(err, &required)
 }
 
 // OversightAnalytics returns the CEO/PC-Director oversight aggregate. The permission check

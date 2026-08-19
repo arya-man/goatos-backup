@@ -87,6 +87,45 @@ func TestApplyVerifiedWastageCompletesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("CompleteWastage: %v", err)
 	}
 
+	if _, err := repo.ApplyVerifiedWastage(ctx, ports.ApplyWastageParams{
+		TenantID:     fdTenant,
+		CompletionID: pending.CompletionID,
+		VerifiedBy:   fdActor,
+		TraceID:      "trace-verify-wastage-before-measurement",
+	}); !errors.Is(err, ports.ErrWastageMeasurementRequired) {
+		t.Fatalf("ApplyVerifiedWastage before measurement err = %v, want ErrWastageMeasurementRequired", err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `
+SELECT status FROM feed_wastage_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, pending.CompletionID).Scan(&status); err != nil {
+		t.Fatalf("read canonical row after refused apply: %v", err)
+	}
+	if status != domain.WastageStatusPendingVerification {
+		t.Fatalf("canonical status after refused apply = %q, want pending_verification", status)
+	}
+	var earlyOutboxCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'feed.wastage.completed' AND aggregate_id = $2::uuid`,
+		fdTenant, pending.CompletionID).Scan(&earlyOutboxCount); err != nil {
+		t.Fatalf("read refused-apply outbox: %v", err)
+	}
+	if earlyOutboxCount != 0 {
+		t.Fatalf("outbox before measurement = %d, want 0", earlyOutboxCount)
+	}
+
+	if _, err := repo.RecordWastageMeasurement(ctx, ports.RecordWastageMeasurementParams{
+		TenantID:       fdTenant,
+		CompletionID:   pending.CompletionID,
+		WastageKg:      3.5,
+		RecordedBy:     fdActor,
+		IdempotencyKey: "wastage-measure-before-approve",
+		TraceID:        "trace-measure-before-approve",
+	}); err != nil {
+		t.Fatalf("RecordWastageMeasurement before apply: %v", err)
+	}
+
 	applied, err := repo.ApplyVerifiedWastage(ctx, ports.ApplyWastageParams{
 		TenantID:     fdTenant,
 		CompletionID: pending.CompletionID,
@@ -100,7 +139,6 @@ func TestApplyVerifiedWastageCompletesAndIsIdempotent(t *testing.T) {
 		t.Fatal("ApplyVerifiedWastage applied = false, want true")
 	}
 
-	var status string
 	if err := pool.QueryRow(ctx, `
 SELECT status FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, pending.CompletionID).Scan(&status); err != nil {
@@ -327,6 +365,20 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, pending.Comp
 	}
 	if second.WastageKg != 0 || second.PreviousWastageKg == nil || *second.PreviousWastageKg != 3.5 {
 		t.Fatalf("second entry = %+v, want 0 replacing 3.5", second)
+	}
+	lateReplay, err := repo.RecordWastageMeasurement(ctx, ports.RecordWastageMeasurementParams{
+		TenantID:       fdTenant,
+		CompletionID:   pending.CompletionID,
+		WastageKg:      3.5,
+		RecordedBy:     fdActor,
+		IdempotencyKey: "wastage-measure-1",
+		TraceID:        "trace-measure-1-late-replay",
+	})
+	if err != nil {
+		t.Fatalf("late replay: %v", err)
+	}
+	if lateReplay.WastageKg != 3.5 || lateReplay.PreviousWastageKg != nil {
+		t.Fatalf("late replay = %+v, want original 3.5 result, not current row value", lateReplay)
 	}
 
 	// The overlay now carries the recorded value for the operator's completed card.

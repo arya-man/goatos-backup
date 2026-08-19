@@ -15,6 +15,22 @@ var (
 	ErrIdempotencyConflict = errors.New("verification: idempotency key reused with different payload")
 )
 
+// ErrMeasurementRequired is returned when an approval would be irreversible but the producer's
+// required measurement has not been recorded yet. It stays conflict-comparable so existing verdict
+// write refusal handling remains fail-closed.
+type ErrMeasurementRequired struct {
+	Category string
+}
+
+func (e *ErrMeasurementRequired) Error() string {
+	if e.Category == "" {
+		return "verification: required measurement missing"
+	}
+	return "verification: required measurement missing for " + e.Category
+}
+
+func (e *ErrMeasurementRequired) Is(target error) bool { return target == ErrConflict }
+
 // ErrBatchNotFullyVerified is CloseVaccinationBatch's specific refusal when at least one animal in
 // the drive is still pending or was rejected: leadership cannot sign off on a drive with unverified
 // work. Blocking names the animals still standing between the batch and closure (verification_items
