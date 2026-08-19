@@ -56,7 +56,8 @@ concurrency:
 
 jobs:
   mobile-screenshots:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
@@ -85,7 +86,8 @@ jobs:
           retention-days: 14
 
   nav-graph:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - name: Generate the Compose nav-graph diagram
@@ -104,7 +106,8 @@ jobs:
 
   e2e-report:
     if: github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 30
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
       GOATOS_RUN_POSTGRES_TESTS: "1"
@@ -150,7 +153,8 @@ jobs:
 
   e2e-hrms-report:
     if: github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 30
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
       GOATOS_RUN_POSTGRES_TESTS: "1"
@@ -190,7 +194,8 @@ jobs:
           retention-days: 14
 
   scale-audit-e2e-report:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
@@ -227,7 +232,8 @@ jobs:
       needs.scale-audit-e2e-report.result == 'success' &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-report.result) &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-hrms-report.result)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
