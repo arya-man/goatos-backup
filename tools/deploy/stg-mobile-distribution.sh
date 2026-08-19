@@ -283,10 +283,9 @@ gcloud storage cp "$APK" \
   --content-disposition="attachment; filename=\"${DOWNLOAD_NAME}\""
 
 mkdir -p .local
-gcloud storage cp \
-  gs://goatos-stg-public-downloads/operator/latest/app.apk \
-  .local/verify-latest-app.apk \
-  --project="$PROJECT_ID"
+curl -fsSL \
+  https://storage.googleapis.com/goatos-stg-public-downloads/operator/latest/app.apk \
+  -o .local/verify-latest-app.apk
 
 apk_sha="$(shasum -a 256 "$APK" | awk '{print $1}')"
 mirror_sha="$(shasum -a 256 .local/verify-latest-app.apk | awk '{print $1}')"
