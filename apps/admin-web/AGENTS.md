@@ -126,7 +126,9 @@ These words have fixed meanings in Goat OS:
   module. Control Tower, Action Center, Calendar, Protocol Adherence, and
   Workflows are command lenses. They summarize/filter work emitted by modules.
 - **Authority screen** = top-level Admin/Data Ops authoring surface. Config
-  (`/config`) and SOP Library (`/sops`) are authority screens.
+  (`/config`) is the authority screen. The old SOP Library (`/sops`) is RETIRED
+  (SOP split, maintainer decision 2026-08-18): SOPs are per-module
+  module-surfaces at `/vaccination/sops`, `/counts/sops`, and `/feed/sops`.
 
 Do not say "module/vertical" as if they are interchangeable. Preventive Care (PC) is the
 vertical. Vaccination is the module under Preventive Care (PC). Procurement is the vertical.
@@ -153,9 +155,9 @@ into generic layers; do not show unbuilt modules as live.
 
 Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows are
 **top-level command-room screens** (`/`, `/action-center`, `/calendar`,
-`/protocol-adherence`, `/workflows`), exactly as the mock places them. Config
-and SOP Library are also top-level Admin / Data Ops authority screens
-(`/config`, `/sops`). They are NOT tabs or redirects nested inside the
+`/protocol-adherence`, `/workflows`), exactly as the mock places them. Config is
+also a top-level Admin / Data Ops authority screen (`/config`). They are NOT
+tabs or redirects nested inside the
 Preventive Care (PC) Vaccination module, Procurement/source-entry, Parks, or any future vertical. The
 selected module/domain filters their *content*; it does not move them under a
 vertical. Do not reintroduce an Action Center / Calendar / Adherence /
@@ -188,9 +190,11 @@ Admin-web is built around the vaccination process-integrity slice:
   -> Execute chain, vaccination status matrix, per-cohort detail, drive/shed-event
   execution, proof/verification/rework states, and honest empty states when data
   is absent. It links OUT to the command screens; it does not embed them.
-- **Admin / Data Ops**: generic protocol config at `/config`, the CEO/admin
-  business Audit Log at `/operations/audit`, and the reopened vaccination-only
-  SOP Library / form-builder at `/sops`.
+- **Admin / Data Ops**: generic protocol config at `/config` and the CEO/admin
+  business Audit Log at `/operations/audit`. SOP pages moved to their modules
+  (SOP split, maintainer decision 2026-08-18): `/vaccination/sops`,
+  `/counts/sops` (Herd Operations SOP), and `/feed/sops`, each with the
+  form-builder at `?compose=1`.
 - **Vaccination execution context**: park/shed/stage/defer/blocker/owner context
   renders INSIDE Preventive Care (PC) / Vaccination at `/vaccination`, scoped by
   the top-bar park dropdown. It is powered by the execution read-model endpoints
@@ -588,7 +592,9 @@ Only these routes are current implemented product routes:
 /counts/breakdown            Counts Breakdown census (farm x stage x breed x gender x shed)
 /operations/audit            Admin / Data Ops Audit Log (business surface)
 /config
-/sops
+/vaccination/sops           Vaccination SOP (module-surface; builder at ?compose=1)
+/counts/sops                Herd Operations SOP — birth / death / shifting
+/feed/sops                  Feed SOP — distribution / packing / transport
 /goats/{goat_id}
 /verify                     Verify — cross-module verification evidence (top-level, below Approvals)
 /actions                    Compatibility redirect to /verify (route renamed 2026-08-12)
@@ -643,8 +649,8 @@ allowed product route or redirect.
 ## Hard Rules
 
 - Control Tower / Action Center / Protocol Adherence / Workflows are top-level
-  command screens. Config and SOP Library are top-level Admin / Data Ops
-  authority screens. Never nest them as tabs or compatibility redirects under
+  command screens. Config is the top-level Admin / Data Ops
+  authority screen. Never nest them as tabs or compatibility redirects under
   Preventive Care (PC) / Vaccination, Procurement/source-entry, Parks, or any future vertical.
   `/vaccination` is the Preventive Care (PC) operations surface and links out to them.
 - Never duplicate top-level command screens under procurement/source-entry or any
@@ -694,8 +700,10 @@ Do not rebuild these unless the product scope is explicitly reopened:
 /herd
 ```
 
-`/sops` was reopened as the Admin / Data Ops SOP Library (vaccination-only review
-surface); it is an active route, not a removed one. `/counts/herd` is active for
+`/sops` was reopened as the Admin / Data Ops SOP Library, then RETIRED by the
+SOP split (maintainer decision 2026-08-18) in favour of the per-module pages
+`/vaccination/sops`, `/counts/sops`, and `/feed/sops`; do not rebuild a
+top-level `/sops`. `/counts/herd` is active for
 Herd Register, and `/operations/audit` is active as the Admin / Data Ops business
 Audit Log for the vaccination trigger-closure slice.
 Old `/herd`, unrelated Counts modules, old `/tasks`, old Operations, old generic

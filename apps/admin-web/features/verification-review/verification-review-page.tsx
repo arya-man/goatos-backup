@@ -41,7 +41,7 @@ const PATHNAME = "/verify";
 // feedback banner: all four describe the queue as it was BEFORE the change. Carrying a cursor
 // across a filter change is the worst of them — cursors are keyset positions in one filtered
 // sequence, so reusing one lands on an unrelated slice of the new queue.
-const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null };
+const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, va_status: null, va_code: null };
 
 
 export async function VerificationReviewPage({
@@ -71,7 +71,6 @@ export async function VerificationReviewPage({
   // whole pending backlog and had no way to narrow it.
   const today = todayIso();
   const dateRange = parseDateRange(sp, today);
-  const selectedId = one(sp, "vi_row");
   const trail = decodeTrail(one(sp, "vi_trail"));
 
   // ONE read on the critical path. The staff roster the re-assign picker offers used to be fetched
@@ -98,6 +97,7 @@ export async function VerificationReviewPage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const items = queue.ok ? queue.data.items : [];
+  const selectedId = one(sp, "vi_row") ?? (one(sp, "vi_open_first") === "1" ? items[0]?.item_id : undefined);
   // `?? []` is not defensive noise: admin-web and the API deploy separately, so a browser can hit a
   // backend one release behind that has no `modules` in its filter options. The contract declares
   // the field required, which means the generated type asserts it is there — the renderer must
@@ -424,6 +424,7 @@ export async function VerificationReviewPage({
               from={dateRange.from}
               to={dateRange.to}
               today={today}
+              defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
               labels={{
                 field: copy(pageContract, "filter.date"),
                 today: copy(pageContract, "filter.date.today"),
@@ -486,7 +487,7 @@ export async function VerificationReviewPage({
             {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
                 filter the verifier set here. Clearing it stranded her on every module's queue at
                 once while the nav still highlighted the one she had picked. It DOES clear the
-                date pair, which returns the board to its today default. */}
+                date pair, which returns the board to its default recent window. */}
             <Link
               href={hrefWith(sp, {
                 shed_id: null,
@@ -619,7 +620,9 @@ export async function VerificationReviewPage({
 
       <VerificationReviewDrawer
         items={items}
-        initialSelectedId={selectedId}
+        initialSelectedId={selectedId ?? undefined}
+        nextCursor={queue.ok ? (queue.data.next_cursor ?? undefined) : undefined}
+        nextTrail={queue.ok && Boolean(queue.data.next_cursor) ? (encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]) ?? undefined) : undefined}
         actionTypeLabels={Object.fromEntries(typeLabels)}
         searchParams={sp}
         feedback={feedback}

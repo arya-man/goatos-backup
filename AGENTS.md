@@ -1568,7 +1568,7 @@ Purpose:
   actions.
 - Frontend command-room/authority guardrail: Control Tower, Action Center,
   Calendar, Protocol Adherence, and Workflows are top-level screens only. Config
-  and SOP Library are top-level Admin / Data Ops authority screens only. Do not
+  is a top-level Admin / Data Ops authority screen only. Do not
   duplicate them under procurement/source-entry, Preventive Care (PC), Parks, or any future
   vertical as routes, redirects, tabs, or nav items. A vertical can feed those
   top-level screens through a selected domain/filter/lens such as
@@ -1597,9 +1597,20 @@ Purpose:
   classified `module-surface`, not `authority-screen`. This exception covers
   Config for Health ONLY. Canonical prose:
   `docs/decisions/health-config-authoring.md`.
-  The machine guard carries the same allowlist — now exactly two entries — in
-  `apps/admin-web/scripts/check-ia-guard.mjs`; widening it needs a new recorded
-  maintainer decision here first.
+  **SOP split (maintainer decision 2026-08-18): the top-level SOP Library
+  (`/sops`) is RETIRED.** SOPs are per-module module-surfaces, mirroring the
+  `/feed/config` shape: `/vaccination/sops` (Vaccination SOP, under Preventive
+  Care), `/counts/sops` (Herd Operations SOP: birth / death / shifting), and
+  `/feed/sops` (Feed SOP: distribution / packing / transport). All three render
+  the same `sop-library` table contract over `/admin/sops`, scoped by SOP code
+  prefix; the full-page SOP builder lives at `<module page>?compose=1`. There is
+  no `/sops` route, redirect, or nav leaf any more, and `/config` stays the
+  single generic authority screen. Any OTHER nested `*/sops` route still needs
+  its own recorded maintainer decision — the three routes are named in
+  `check-ia-guard.mjs` `MODULE_SURFACE_ROUTE_EXCEPTIONS`.
+  The machine guard carries the same allowlist — the two Config entries plus
+  the three SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
+  widening it needs a new recorded maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
   (`/config`) for CEO/COO/superadmin users. It is not owned by Preventive Care (PC) / Vaccination.
   Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`, but the Config UI

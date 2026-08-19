@@ -49,12 +49,22 @@ test("the landing default is a recent window, not today alone, and is expressed 
     "landing on today alone hides the backlog the verifier is meant to be working",
   );
   assert.match(pageSource, /const today = todayIso\(\);/);
-  // ...and selecting today CLEARS the params rather than pinning the date into the URL, so a
-  // bookmark keeps meaning "today" instead of freezing on the day it was taken.
+  // ...and only a selection equal to that DEFAULT WINDOW clears the params. Selecting today alone
+  // must WRITE vd_from/vd_to=today into the URL: absence now means the whole window, so deleting
+  // the params on a today-only pick (the pre-fix behavior) silently widened the board back to two
+  // weeks and read as the date filter not working at all — the 2026-08-19 defect.
   assert.match(
     filterSource,
-    /if \(nextFrom === today && nextTo === today\) \{\s*\n\s*next\.delete\(DATE_FROM_PARAM\);\s*\n\s*next\.delete\(DATE_TO_PARAM\);/,
+    /if \(nextFrom === defaultFrom && nextTo === today\) \{\s*\n\s*next\.delete\(DATE_FROM_PARAM\);\s*\n\s*next\.delete\(DATE_TO_PARAM\);/,
   );
+  assert.doesNotMatch(
+    filterSource,
+    /nextFrom === today && nextTo === today/,
+    "a today-only selection must pin the date into the URL, not fall back to the window",
+  );
+  // The page hands the filter the same window start parseDateRange falls back to, so the two
+  // sides cannot disagree about what absence means.
+  assert.match(pageSource, /defaultFrom=\{businessDaysBefore\(today, DEFAULT_QUEUE_WINDOW_DAYS\)\}/);
 });
 
 

@@ -25,12 +25,15 @@ export function ActionsDateFilter({
   from,
   to,
   today,
+  defaultFrom,
 }: {
   labels: DateRangePickerLabels;
   basePath: string;
   from: string;
   to: string;
   today: string;
+  /** Start of the page's no-param default window (today - DEFAULT_QUEUE_WINDOW_DAYS). */
+  defaultFrom: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -54,10 +57,12 @@ export function ActionsDateFilter({
 
     const next = new URLSearchParams(searchParams?.toString() ?? "");
     for (const key of RESET_ON_FILTER) next.delete(key);
-    // Today is the default the page falls back to, so it is expressed by ABSENCE. Writing it into
-    // the URL would make a bookmark mean "12 Aug" forever instead of "today", which is the whole
-    // point of a landing default.
-    if (nextFrom === today && nextTo === today) {
+    // The page's no-param default is the recent WINDOW (defaultFrom..today), NOT today — so only a
+    // selection equal to that window is expressed by absence (a bookmark keeps meaning "the recent
+    // window" instead of freezing on the day it was taken). Today alone MUST be written into the
+    // URL: deleting the params here used to make "just today" silently fall back to the whole
+    // two-week window, which read as the filter not working at all.
+    if (nextFrom === defaultFrom && nextTo === today) {
       next.delete(DATE_FROM_PARAM);
       next.delete(DATE_TO_PARAM);
     } else {

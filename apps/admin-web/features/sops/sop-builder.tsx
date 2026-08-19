@@ -65,11 +65,17 @@ function sanitizeVisibility(rows: BuilderStep[]): BuilderStep[] {
 
 export function SopBuilder({
   pageContract,
+  basePath,
+  domain,
   initial,
   editSopId,
   editBlocked = false,
 }: {
   pageContract: AdminUiPageContract;
+  /** The module SOP page path this builder returns to (e.g. "/vaccination/sops"). */
+  basePath: string;
+  /** The module slice this route authors. Locked by the route, not user-selectable. */
+  domain: SopSliceDomain;
   initial?: BuilderInitial;
   editSopId?: string;
   editBlocked?: boolean;
@@ -91,7 +97,6 @@ export function SopBuilder({
     return options.some((o) => o.key === preferred) ? preferred : firstKey(options);
   }
 
-  const domain: SopSliceDomain = "vaccination"; // locked to the current slice
   // Editing an existing SOP seeds every control from its persisted version (faithful round-trip);
   // creating seeds name/trigger defaults + the contract's seed questions.
   const [name, setName] = useState(initial?.name ?? copy(pc, "modal.builder.default_name"));
@@ -112,7 +117,7 @@ export function SopBuilder({
 
   const input: SopBuilderInput = useMemo(
     () => ({ name, domain, trigger, steps, proofRequired, proofType, verifyBeforeApply, minCount, subjectScope }),
-    [name, trigger, steps, proofRequired, proofType, verifyBeforeApply, minCount, subjectScope],
+    [name, domain, trigger, steps, proofRequired, proofType, verifyBeforeApply, minCount, subjectScope],
   );
 
   const emitted = buildFormDsl(input);
@@ -194,7 +199,7 @@ export function SopBuilder({
       const res = await publishSop(saved.sopId!, saved.versionId!, saved.rowVersion!);
       setNotice({ ok: res.ok, message: res.message });
       if (res.ok) {
-        router.push("/sops");
+        router.push(basePath);
         router.refresh();
       }
     });
@@ -214,7 +219,7 @@ export function SopBuilder({
         <button type="button" className="btn p" onClick={() => setPreviewOpen(true)}>
           <Eye className="ic" /> {copy(pc, "builder.preview.open")}
         </button>
-        <Link className="btn" href="/sops">
+        <Link className="btn" href={basePath}>
           <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
         </Link>
       </div>

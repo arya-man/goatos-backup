@@ -253,7 +253,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
               {copy(pageContract, "alert.config_sop.config_label")}
             </Link>{" "}
             {copy(pageContract, "alert.config_sop.joiner")}{" "}
-            <Link href="/sops" className="lk">
+            <Link href="/vaccination/sops" className="lk">
               {copy(pageContract, "alert.config_sop.sops_label")}
             </Link>
             {copy(pageContract, "alert.config_sop.body_suffix")}
