@@ -2287,6 +2287,14 @@ fun AppNavHost(
         composable(Routes.COUNTS_SHIFTING_ADD) {
             val vm: ShiftingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            // RFID keyboard-wedge capture is active only while the raise form is composed (same
+            // contract as the vaccination Scan route): a completed gun read searches the herd and
+            // auto-adds a single eligible match to the basket; navigate-away disables capture so
+            // reads never land off-screen.
+            DisposableEffect(vm) {
+                vm.setRfidCaptureActive(true)
+                onDispose { vm.setRfidCaptureActive(false) }
+            }
             LaunchedEffect(state.returnToActions) {
                 if (state.returnToActions) {
                     navController.previousBackStackEntry?.savedStateHandle?.set(

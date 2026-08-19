@@ -43,8 +43,12 @@ import sg.mesha.goatos.core.ui.operationalLocationLabel
  *
  * The flow is deliberately linear and short, in this exact order:
  *
- *  1. **Find the animals** — search by RFID/tag (the RFID gun types into the same field), tap a
- *     result to ADD it to the basket, repeat for every animal moving. The basket is the
+ *  1. **Find the animals** — search by RFID/tag, tap a result to ADD it to the basket, repeat for
+ *     every animal moving. An RFID gun needs no typing OR tapping: while this screen is open the
+ *     keyboard-wedge reader is captured (same wiring as the vaccination Scan screen), and a scan
+ *     that resolves to exactly one eligible animal is added to the basket automatically — scan,
+ *     scan, scan. A scan matching several animals lists them for an explicit tap, because
+ *     auto-picking one of two animals would move an animal nobody chose. The basket is the
  *     MULTI-ANIMAL selection (maintainer decision 2026-08-18, superseding the single-selection rule
  *     recorded here earlier): one raise moves the whole group, in one approval, with ONE completion
  *     video. The mis-tap risk that retired the earlier basket is answered differently now — every

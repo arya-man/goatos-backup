@@ -116,6 +116,44 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 		t.Fatalf("Animal ID is lifetime-unique and should return 1 visible match, got %d", len(matches))
 	}
 
+	// Regression (mobile shifting crash, 2026-08-19): a goat with TWO active rows of the SAME
+	// identifier type (secondary RFID + legacy tag — 172 real STG animals) must still be ONE search
+	// row. The old per-type LEFT JOINs fanned the goat out once per identifier, and the shifting
+	// picker crashed on the duplicate list key. Grain proof: goatSummarySelect's identifier join is
+	// a LATERAL aggregate over (tenant_id, goat_id), so it is 1:1 with goats by construction, and
+	// both identifier values survive into the one row's display instead of one being dropped.
+	dupSearch, _, err := repo.SearchGoats(ctx, ports.SearchGoatsParams{
+		TenantID: meshaTenant,
+		Query:    strPtr("901007000505001"),
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("SearchGoats dup-identifier goat: %v", err)
+	}
+	if len(dupSearch) != 1 {
+		t.Fatalf("a goat with two active animal_identifier_2 rows must be ONE search row, got %d: %#v", len(dupSearch), dupSearch)
+	}
+	if dupSearch[0].GoatID != "10000000-0000-4000-8000-000000000003" {
+		t.Fatalf("unexpected dup-identifier match: %#v", dupSearch[0])
+	}
+	if dupSearch[0].AnimalIdentifier2 == nil ||
+		!strings.Contains(*dupSearch[0].AnimalIdentifier2, "901007000505001") ||
+		!strings.Contains(*dupSearch[0].AnimalIdentifier2, "CBE-9001") {
+		t.Fatalf("both active secondary identifiers must survive into the one row's display, got %v", dupSearch[0].AnimalIdentifier2)
+	}
+	// The legacy tag must find the same single row too.
+	dupSearch, _, err = repo.SearchGoats(ctx, ports.SearchGoatsParams{
+		TenantID: meshaTenant,
+		Query:    strPtr("CBE-9001"),
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("SearchGoats dup-identifier goat by legacy tag: %v", err)
+	}
+	if len(dupSearch) != 1 || dupSearch[0].GoatID != "10000000-0000-4000-8000-000000000003" {
+		t.Fatalf("legacy-tag search must return the same single row, got %#v", dupSearch)
+	}
+
 	conflict, err := repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "animal_identifier_1", "A1-1900-CBE", "global")
 	if err != nil {
 		t.Fatalf("FindOpenConflictForIdentifier: %v", err)
@@ -191,12 +229,19 @@ INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_part
 VALUES
   ('10000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cbeLocation+`', '`+cbeLocation+`', 'Synthetic Boer', 'female'),
   ('10000000-0000-4000-8000-000000000002', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cptLocation+`', '`+cptLocation+`', 'Synthetic Boer', 'male'),
+  ('10000000-0000-4000-8000-000000000003', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cbeLocation+`', '`+cbeLocation+`', 'Synthetic Boer', 'female'),
   ('10000000-0000-4000-8000-000000000101', '`+secondTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+t2Location+`', '`+t2Location+`', 'Synthetic Boer', 'female');
 
 	INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
 	VALUES
 	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'animal_identifier_1', 'A1-1900-CBE', 'A1-1900-CBE', 'global', true, 'active', now(), 'test_v1'),
 	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'animal_identifier_2', 'A2-1900-CBE', 'A2-1900-CBE', 'global', false, 'active', now(), 'test_v1'),
+	  -- The dup-tag goat: TWO active animal_identifier_2 rows (a secondary RFID plus a legacy farm
+	  -- tag), the real STG shape that made every goat_identifiers display join fan out one search row
+	  -- per identifier and crash the mobile shifting picker on duplicate list keys.
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000003', 'animal_identifier_1', '901007000503001', '901007000503001', 'global', true, 'active', now(), 'test_v1'),
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000003', 'animal_identifier_2', '901007000505001', '901007000505001', 'global', false, 'active', now(), 'test_v1'),
+	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000003', 'animal_identifier_2', 'CBE-9001', 'CBE-9001', 'global', false, 'active', now(), 'test_v1'),
 	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'animal_identifier_1', 'A1-1900-CPT', 'A1-1900-CPT', 'global', true, 'active', now(), 'test_v1'),
 	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'animal_identifier_2', 'A2-1900-CPT', 'A2-1900-CPT', 'global', false, 'active', now(), 'test_v1'),
 	  ('`+secondTenant+`', '10000000-0000-4000-8000-000000000101', 'animal_identifier_1', 'A1-1900-T2', 'A1-1900-T2', 'global', true, 'active', now(), 'test_v1'),

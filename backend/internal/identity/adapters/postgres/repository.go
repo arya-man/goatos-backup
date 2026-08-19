@@ -319,6 +319,10 @@ LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = 
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
+-- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out. Required by
+-- goatSummaryColumns' partition columns; it was missing here since those columns were added, so
+-- every FindIdentifierMatches call failed on 'missing FROM-clause entry for table gsp'.
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN LATERAL (
   SELECT (gie.payload->>'weight_kg')::float8 AS weight_kg
   FROM goat_identity_events gie
@@ -329,14 +333,7 @@ LEFT JOIN LATERAL (
   ORDER BY gie.occurred_at DESC, gie.recorded_at DESC, gie.identity_event_id DESC
   LIMIT 1
 ) latest_weight ON true
-LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
-  AND animal_id_1.goat_id = g.goat_id
-  AND animal_id_1.identifier_type = 'animal_identifier_1'
-  AND animal_id_1.status = 'active'
-LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
-  AND animal_id_2.goat_id = g.goat_id
-  AND animal_id_2.identifier_type = 'animal_identifier_2'
-  AND animal_id_2.status = 'active'
+` + goatDisplayIdentifiersJoin() + `
 WHERE ` + strings.Join(where, " AND ") + `
 ORDER BY CASE gi.status WHEN 'active' THEN 0 WHEN 'disputed' THEN 1 ELSE 2 END, gi.valid_from DESC`
 
@@ -424,22 +421,43 @@ LEFT JOIN LATERAL (
   ORDER BY gie.occurred_at DESC, gie.recorded_at DESC, gie.identity_event_id DESC
   LIMIT 1
 ) latest_weight ON true
-LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
-  AND animal_id_1.goat_id = g.goat_id
-  AND animal_id_1.identifier_type = 'animal_identifier_1'
-  AND animal_id_1.status = 'active'
-LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
-  AND animal_id_2.goat_id = g.goat_id
-  AND animal_id_2.identifier_type = 'animal_identifier_2'
-  AND animal_id_2.status = 'active'`
+` + goatDisplayIdentifiersJoin()
+}
+
+// goatDisplayIdentifiersJoin resolves an animal's DISPLAY identifiers (Animal ID 1 / Animal ID 2)
+// as a LATERAL AGGREGATE over (tenant_id, goat_id), which makes the join 1:1 with goats BY
+// CONSTRUCTION — an aggregate subquery always yields exactly one row.
+//
+// Grain proof (projection-review): the producer side (goat_identifiers) is legitimately 1:MANY per
+// (goat_id, identifier_type) — 172 live STG animals carry two ACTIVE animal_identifier_2 rows (a
+// secondary RFID plus a legacy farm tag such as 'CBE-1880'), and no unique index forbids that. The
+// consumer (every goatSummarySelect read: /goats/search, the herd register, the shifting picker)
+// needs ONE row per goat. The previous shape — one plain LEFT JOIN per identifier type — assumed
+// 1:{0,1} and fanned each such goat out once per identifier row, which crashed the mobile shifting
+// picker on a duplicate list key (LazyColumn key "match-<goat_id>" used twice) and silently
+// inflated keyset pages. Both active values survive into the display, joined with ' / ' in a
+// deterministic order, rather than one being dropped by an arbitrary LIMIT 1 pick.
+func goatDisplayIdentifiersJoin() string {
+	return `LEFT JOIN LATERAL (
+  SELECT
+    string_agg(gi.identifier_value, ' / ' ORDER BY gi.identifier_value)
+      FILTER (WHERE gi.identifier_type = 'animal_identifier_1') AS animal_identifier_1,
+    string_agg(gi.identifier_value, ' / ' ORDER BY gi.identifier_value)
+      FILTER (WHERE gi.identifier_type = 'animal_identifier_2') AS animal_identifier_2
+  FROM goat_identifiers gi
+  WHERE gi.tenant_id = g.tenant_id
+    AND gi.goat_id = g.goat_id
+    AND gi.status = 'active'
+    AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
+) display_ids ON true`
 }
 
 func goatSummaryColumns() string {
 	return `
   g.goat_id::text,
   g.display_id,
-  animal_id_1.identifier_value,
-  animal_id_2.identifier_value,
+  display_ids.animal_identifier_1,
+  display_ids.animal_identifier_2,
   g.breed,
   g.sex,
   g.age_band,
