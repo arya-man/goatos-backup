@@ -424,6 +424,7 @@ export async function VerificationReviewPage({
               from={dateRange.from}
               to={dateRange.to}
               today={today}
+              defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
               labels={{
                 field: copy(pageContract, "filter.date"),
                 today: copy(pageContract, "filter.date.today"),
@@ -486,7 +487,7 @@ export async function VerificationReviewPage({
             {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
                 filter the verifier set here. Clearing it stranded her on every module's queue at
                 once while the nav still highlighted the one she had picked. It DOES clear the
-                date pair, which returns the board to its today default. */}
+                date pair, which returns the board to its default recent window. */}
             <Link
               href={hrefWith(sp, {
                 shed_id: null,
