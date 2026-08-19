@@ -29,7 +29,9 @@ func TestParkScopedOperatorKeepsItsGrantOnTheFeedFieldRoutes(t *testing.T) {
 		{"GET", "/feed-transport/tasks"},
 		{"POST", "/feed-direction/distribution/complete"},
 		{"POST", "/feed-direction/packing/complete"},
-		{"GET", "/feed-direction/preview"}, // already admitted; guards against a regression
+		{"GET", "/feed-wastage/worklist"},            // wastage worklist (2026-08-19, same defect shape)
+		{"POST", "/feed-direction/wastage/complete"}, // wastage operator completion
+		{"GET", "/feed-direction/preview"},           // already admitted; guards against a regression
 	} {
 		route, ok := permissions.Match(tc.method, tc.path)
 		if !ok {

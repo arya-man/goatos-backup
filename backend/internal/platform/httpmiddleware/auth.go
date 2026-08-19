@@ -418,6 +418,16 @@ func routeAllowsScopedGrants(route permissions.Route) bool {
 		// operator -- which is every real operator -- resolves to roles "" and gets 403 on a read
 		// their own role permits, the exact 2026-08-08 shape described above.
 		route.Pattern == "/feed-direction/distribution/captures" ||
+		// Feed WASTAGE (2026-08-19, found on-device the same day the feature was built): the
+		// worklist read and the operator completion, admitted on the same terms as the feed
+		// routes above. Every real operator is park-scoped, so without these entries the
+		// wastage screen 403s with roles:"" — the exact 2026-08-08 shape — even though
+		// RoleOperator genuinely holds feed_wastage.read and feed_direction.complete. Both
+		// handlers clamp park_id through ResolveAuthorizedParkScopeForCapabilities before
+		// reading or writing (GetWastageWorklist and PostCompleteWastage). The verifier's
+		// measurement route is NOT admitted: the verifier is tenant-scoped by design.
+		route.Pattern == "/feed-wastage/worklist" ||
+		route.Pattern == "/feed-direction/wastage/complete" ||
 		// The transport SUBMIT was missed when the three routes above were admitted (2026-08-08), so
 		// a park-scoped operator could open his transport task, record the mandatory video, and be
 		// refused 403 on submit -- with roles resolved to "" here, before AuthorizeRoute ever ran.
