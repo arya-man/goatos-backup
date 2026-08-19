@@ -26,6 +26,10 @@ type DirectedAnalyticsInput struct {
 	AuthorizedParkIDs []string
 	DateFrom          time.Time
 	DateTo            time.Time
+	// WastageDay is the single business day the experiment read's per-pen
+	// wastage table describes; zero lets the adapter default it. Ignored by
+	// the directed/execution/stock reads.
+	WastageDay time.Time
 }
 
 // WithAnalyticsReader wires the directed-analytics rollup read. Optional: a pure
@@ -98,7 +102,7 @@ func (s *Service) ExperimentAnalytics(ctx context.Context, in DirectedAnalyticsI
 		return domain.ExperimentAnalytics{}, err
 	}
 	return s.analytics.ExperimentAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
-		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo, WastageDay: in.WastageDay,
 	})
 }
 

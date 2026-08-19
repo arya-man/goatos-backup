@@ -23,8 +23,11 @@ import (
 //     Direction screen, not in analytics.
 //   - head_count repeats per (session, feed item) CELL of the same pen-grain. A
 //     head-day counts each pen-grain ONCE per feed day, so head-day sums collapse
-//     cells to the grain (shed, partition, shed_tag, breed) first. Experiment rows
-//     (head_count_informational) never contribute to head-day or per-head math.
+//     cells to the grain (shed, partition, shed_tag, breed) first. BOTH workflows
+//     count (maintainer decision 2026-08-19): experiment pens are real animals
+//     eating real feed, so directed kg, animals-fed and the whole-herd per-head
+//     figure include them. head_count_informational still means the kg was
+//     authored absolute, never derived from the head count.
 
 // DirectedAnalyticsQuery bounds one rollup read. Dates are business dates
 // (Asia/Kolkata), inclusive on both ends. ParkIDs empty means unrestricted
@@ -34,6 +37,11 @@ type DirectedAnalyticsQuery struct {
 	ParkIDs  []uuid.UUID
 	DateFrom time.Time
 	DateTo   time.Time
+	// WastageDay selects the single business day the experiment read's per-pen
+	// wastage table describes. Zero means the caller's handler default (today,
+	// Asia/Kolkata) — wastage is collected live during the feed day. Read only
+	// by the experiment analytics; the directed/execution/stock reads ignore it.
+	WastageDay time.Time
 }
 
 // MaxAnalyticsWindowDays caps the window: three months of daily points is the
@@ -123,23 +131,56 @@ type ExecutionAnalytics struct {
 }
 
 // ---------------------------------------------------------------------------
-// Experiment analytics: the trial pens' authored absolute kg per arm per day.
+// Experiment analytics: the experiment pens' authored kg BY FEED ITEM per day
+// (maintainer decision 2026-08-19, replacing the earlier per-arm series: the
+// farm reads this screen in feed items — masoor, bhusa — never in trial-arm
+// labels, and the arms table is retired outright).
 // ---------------------------------------------------------------------------
 
-// ExperimentDayArm is one (feed day, experiment arm) of the experiment
-// workflow. AbsoluteKg is a shed/pen TOTAL by authorship — head counts on these
-// rows are informational and no per-head figure exists or may be derived.
-type ExperimentDayArm struct {
+// ExperimentDayItem is one (feed day, feed item) of the experiment workflow.
+// Kg is the authored absolute total across every experiment pen that day —
+// experiment rations are authored per pen, never multiplied by head count.
+type ExperimentDayItem struct {
 	FeedDay       string
-	ExperimentArm string
-	AbsoluteKg    string
-	// Pens is the distinct pen-grain count feeding under the arm that day.
-	Pens int64
+	FeedItemLabel string
+	FeedItemKey   string
+	Kg            string
+}
+
+// ExperimentWastagePen is ONE experiment pen's leftover-feed state for the
+// selected wastage day (Feed Wastage, maintainer decision 2026-08-18). The pen
+// list is DERIVED from the day's experiment sheet — the same rows packing and
+// the operator worklist read — LEFT-joined to the pen's wastage completion, so
+// a pen with no video yet still lists, honestly, as not submitted.
+type ExperimentWastagePen struct {
+	ShedID string
+	// ParkLabel disambiguates the pen under a tenant-wide read: shed names
+	// repeat across parks (two Castros), so the pen alone is ambiguous.
+	ParkLabel      string
+	ShedLabel      string
+	PartitionLabel string
+	// OperationalLocationDisplay is the backend-composed shed+pen label
+	// ("Castro 1", "Godel 2 - Part 1"), built with platform/oploc so every
+	// surface renders the pen the same way.
+	OperationalLocationDisplay string
+	// LifecycleStatus: "" when no video was submitted yet, else the completion's
+	// verification-lifecycle bucket (pending_verification | rework | completed).
+	LifecycleStatus string
+	// WastageKg is the VERIFIER's recorded leftover weight in kg, "" until she
+	// records one — "0" is a real measurement (an empty trough), so blank and
+	// zero are never conflated.
+	WastageKg string
 }
 
 // ExperimentAnalytics is the /feed-analytics/experiment payload.
 type ExperimentAnalytics struct {
-	Arms []ExperimentDayArm
+	Items []ExperimentDayItem
+	// WastageDay echoes the business date the pens below describe.
+	WastageDay string
+	// WastagePens is the per-pen leftover-feed table for WastageDay, same park
+	// scope as Items. Experiment-only by definition — wastage exists on no
+	// other workflow.
+	WastagePens []ExperimentWastagePen
 }
 
 // ---------------------------------------------------------------------------

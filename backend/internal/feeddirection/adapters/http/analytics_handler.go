@@ -140,17 +140,29 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
 
-type experimentArmDTO struct {
+type experimentItemDTO struct {
 	FeedDay       string `json:"feed_day"`
-	ExperimentArm string `json:"experiment_arm"`
-	AbsoluteKg    string `json:"absolute_kg"`
-	Pens          int64  `json:"pens"`
+	FeedItemLabel string `json:"feed_item_label"`
+	FeedItemKey   string `json:"feed_item_key"`
+	Kg            string `json:"kg"`
+}
+
+type experimentWastagePenDTO struct {
+	ShedID                     string `json:"shed_id"`
+	ParkLabel                  string `json:"park_label"`
+	ShedLabel                  string `json:"shed_name"`
+	PartitionLabel             string `json:"partition_label"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	LifecycleStatus            string `json:"lifecycle_status"`
+	WastageKg                  string `json:"wastage_kg"`
 }
 
 type experimentAnalyticsDTO struct {
-	DateFrom string             `json:"date_from"`
-	DateTo   string             `json:"date_to"`
-	Arms     []experimentArmDTO `json:"arms"`
+	DateFrom    string                    `json:"date_from"`
+	DateTo      string                    `json:"date_to"`
+	Items       []experimentItemDTO       `json:"items"`
+	WastageDay  string                    `json:"wastage_day"`
+	WastagePens []experimentWastagePenDTO `json:"wastage_pens"`
 }
 
 // GetExperimentAnalytics serves GET /feed-analytics/experiment.
@@ -159,6 +171,16 @@ func (h *Handler) GetExperimentAnalytics(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	// wastage_day picks the single business day the per-pen wastage table
+	// describes; absent means TODAY (Asia/Kolkata) — wastage is collected live
+	// during the feed day, unlike the kg window which ends yesterday.
+	today := biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation()))
+	wastageDay, err := optionalBusinessDate(r.URL.Query(), "wastage_day", today)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	in.WastageDay = wastageDay
 	result, err := h.service.ExperimentAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics experiment", err)
@@ -166,12 +188,17 @@ func (h *Handler) GetExperimentAnalytics(w http.ResponseWriter, r *http.Request)
 	}
 	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
 	dto := experimentAnalyticsDTO{
-		DateFrom: from.Format("2006-01-02"),
-		DateTo:   to.Format("2006-01-02"),
-		Arms:     make([]experimentArmDTO, 0, len(result.Arms)),
+		DateFrom:    from.Format("2006-01-02"),
+		DateTo:      to.Format("2006-01-02"),
+		Items:       make([]experimentItemDTO, 0, len(result.Items)),
+		WastageDay:  result.WastageDay,
+		WastagePens: make([]experimentWastagePenDTO, 0, len(result.WastagePens)),
 	}
-	for _, a := range result.Arms {
-		dto.Arms = append(dto.Arms, experimentArmDTO(a))
+	for _, it := range result.Items {
+		dto.Items = append(dto.Items, experimentItemDTO(it))
+	}
+	for _, p := range result.WastagePens {
+		dto.WastagePens = append(dto.WastagePens, experimentWastagePenDTO(p))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }

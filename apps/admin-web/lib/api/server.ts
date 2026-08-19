@@ -886,6 +886,8 @@ export type FeedAnalyticsParams = {
   /** Optional inclusive business dates; the backend defaults to the 30 days ending yesterday. */
   date_from?: string;
   date_to?: string;
+  /** Experiment read only: the day the per-pen wastage table describes; the backend defaults to today (IST). */
+  wastage_day?: string;
 };
 
 export async function getFeedAnalyticsDirected(
