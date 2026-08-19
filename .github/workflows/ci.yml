@@ -14,7 +14,8 @@ on:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 5
     outputs:
       common: ${{ steps.scope.outputs.common }}
       backend: ${{ steps.scope.outputs.backend }}
@@ -38,7 +39,8 @@ jobs:
 
   common:
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -47,17 +49,15 @@ jobs:
         with:
           node-version: 24
       - name: Install common guardrail tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-          rg --version
+        run: rg --version
       - name: Required common repository gates — same runner used locally
         run: make ci-local JOB=common
 
   backend:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 25
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
       GOATOS_RUN_POSTGRES_TESTS: ${{ needs.changes.outputs.postgres == 'true' && '1' || '0' }}
@@ -70,10 +70,7 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Install guardrail tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-          rg --version
+        run: rg --version
       - name: Install pinned sqlc for explicit Postgres run
         if: needs.changes.outputs.postgres == 'true'
         run: |
@@ -86,7 +83,8 @@ jobs:
   query-plans:
     needs: changes
     if: needs.changes.outputs.query_plans == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 25
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
     steps:
@@ -99,7 +97,8 @@ jobs:
   admin-web:
     needs: changes
     if: needs.changes.outputs.admin_web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -117,7 +116,8 @@ jobs:
   android:
     needs: changes
     if: needs.changes.outputs.android == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
         with:
@@ -126,9 +126,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      # ubuntu-latest ships the Android SDK and presets ANDROID_HOME/ANDROID_SDK_ROOT,
-      # which run-local-ci's android job consumes (JDK 21 runs Gradle/AGP; app
-      # bytecode stays Java/Kotlin 17). No USB device is required for compile+unit.
+      # The self-hosted M1 runner keeps Android SDK env vars available for
+      # run-local-ci's android job. No USB device is required for compile+unit.
       - name: Required android gates — same runner used locally
         env:
           MOBILE_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
@@ -138,7 +137,8 @@ jobs:
   live-api-latency:
     needs: changes
     if: needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16.9-alpine
@@ -181,8 +181,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Install Postgres client for canonical fixture and request-path evidence
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Verify Postgres client for canonical fixture and request-path evidence
+        run: psql --version
       - name: Migrate and seed the live CI database
         run: |
           (cd backend && go run ./cmd/migrate)
@@ -272,7 +272,8 @@ jobs:
   ci-required:
     if: always()
     needs: [changes, common, backend, query-plans, admin-web, android, live-api-latency]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Verify every affected component passed and unrelated jobs skipped

@@ -25,7 +25,8 @@ env:
 jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip stg deploy]')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     environment: staging
     steps:
       - uses: actions/checkout@v7
