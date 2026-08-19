@@ -230,7 +230,6 @@ DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-}"
 
 cd apps/goatos-android
 common_gradle_args=(
-  -x lintVitalRelease \
   -x lintVitalStgRelease \
   -x lintVitalAnalyzeRelease \
   -x lintVitalAnalyzeStgRelease \
