@@ -155,9 +155,23 @@ func (h *Handler) PostCompleteWastage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clamp the named park to the caller's own grant BEFORE the write, mirroring the worklist
+	// read above. This is the precondition for the route's admission in routeAllowsScopedGrants:
+	// a CPT operator naming a CBE park is refused here, not merely hidden.
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(),
+		tenantID,
+		strings.TrimSpace(body.ParkID),
+		permissions.FeedDirectionComplete,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, codedError{Code: parkScope.Code, Message: parkScope.Message}, nil)
+		return
+	}
+
 	res, err := h.service.CompleteWastage(r.Context(), app.CompleteWastageInput{
 		TenantID:        tenantID,
-		ParkID:          strings.TrimSpace(body.ParkID),
+		ParkID:          parkScope.ParkID,
 		ShedID:          strings.TrimSpace(body.ShedID),
 		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		TargetDate:      targetDate,
