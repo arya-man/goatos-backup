@@ -171,9 +171,18 @@ instead:
 
 ```
 HOW THE OPERATOR PROVES IT
-( ) One video per shed   — a 200-goat shed produces 1 clip.    CURRENTLY LIVE
-( ) One video per goat   — a 200-goat shed produces 200 clips. USED FOR SPOT QA
+( ) One video per shed   — a 200-goat shed produces 1 clip.
+(•) One video per goat   — a 200-goat shed produces 200 clips.   ← default
 ```
+
+**The proposed default is per-goat**, which is a deliberate departure from what staging runs
+today (`vaccination.drive`, shed-level, set by migration `000021`). Per-goat proof is the
+stronger evidence — one clip tied to one scanned tag — and the per-goat code path already exists
+(`vaccination.per_goat_video_qa`). The cost is volume: a 200-goat shed produces 200 clips to
+record, upload, verify, and store, against 1 today.
+
+This is a business decision, not a UI one. The page states the cost plainly on both cards so it
+is made with eyes open, and either choice is one click.
 
 The system attaches the matching `sop_version_id` itself. The separate **Vaccination SOP** page
 folds into this page; its question-builder authors field types that the migration deletes for

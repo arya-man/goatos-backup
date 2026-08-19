@@ -213,6 +213,23 @@ h1{font-size:clamp(22px,2.8vw,30px);font-weight:800;letter-spacing:-.022em;line-
 .wave{border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:13px 15px}
 .wave .wv{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:15.5px;margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .wave .wd{color:var(--faint);font-size:12.5px;margin-top:7px;line-height:1.45}
+/* ---- versions ---- */
+.vtab td{vertical-align:top}
+.vtab .vby{display:block;font-size:11.5px;color:var(--faint);font-variant-numeric:normal}
+tr.vlive td{background:var(--brand-soft)}
+tr.voff td{opacity:.5}
+.vhere{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.vbtn{font-size:12.5px;font-weight:600;border:1px solid var(--line);border-radius:8px;padding:5px 11px;cursor:pointer;color:var(--ink);white-space:nowrap}
+.vbtn:hover{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+.vmodal{position:fixed;inset:0;z-index:300;background:rgba(6,12,9,.62);display:grid;place-items:center;padding:24px}
+.vmodal[hidden]{display:none}
+.vsheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--pop);
+  width:min(760px,100%);max-height:82vh;display:flex;flex-direction:column;overflow:hidden}
+.vhead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.vhead h2{font-size:19px;font-weight:700;letter-spacing:-.018em;margin-top:3px}
+.vbody{padding:18px 20px;overflow:auto}
+.vlead{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.55}
+.vlead b{color:var(--ink)}
 /* ---- products under a vaccine ---- */
 .prods{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .prod{display:inline-flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:8px;
@@ -434,6 +451,17 @@ details.ref[open] summary::before{content:"▾"}
 
       </header>
 
+      <section class="card" id="verCard">
+        <div class="card-h">
+          <div><h2>Versions</h2>
+          <p class="s">Every published plan is kept. Nothing is overwritten — publishing retires the old one and starts a new number.</p></div>
+        </div>
+        <div class="card-b"><div class="scroll"><table class="tabl vtab">
+          <thead><tr><th>Version</th><th>Status</th><th>In force</th><th>Published</th><th>What changed</th><th></th></tr></thead>
+          <tbody id="verRows"></tbody>
+        </table></div></div>
+      </section>
+
       <div class="panes">
         <div class="leftcol">
           <nav class="rail" aria-label="Vaccines">
@@ -457,12 +485,12 @@ details.ref[open] summary::before{content:"▾"}
             <button class="pc" data-proof="shed">
               <span class="pc-h"><span class="pc-r"></span><span class="pc-t">One video per shed</span></span>
               <span class="pc-d">Operator scans every goat's tag as it is done, then records one video covering the whole shed. A 200-goat shed produces 1 clip.</span>
-              <span class="pc-m">Currently live</span>
+              <span class="pc-m" data-m="shed"></span>
             </button>
             <button class="pc" data-proof="animal">
               <span class="pc-h"><span class="pc-r"></span><span class="pc-t">One video per goat</span></span>
               <span class="pc-d">Operator scans a goat's tag and records that goat's injection, one at a time. A 200-goat shed produces 200 clips.</span>
-              <span class="pc-m">Used for spot QA</span>
+              <span class="pc-m" data-m="animal"></span>
             </button>
           </div>
           <p class="hintline" id="proofNote"></p>
@@ -540,6 +568,14 @@ details.ref[open] summary::before{content:"▾"}
 
 <div class="pop" id="pop" hidden role="listbox"></div>
 
+<div class="vmodal" id="verModal" hidden>
+  <div class="vsheet" role="dialog" aria-modal="true" aria-labelledby="verTitle">
+    <div class="vhead"><div><div class="k">Published plan</div><h2 id="verTitle"></h2></div>
+      <button class="ab-x" id="verClose" aria-label="Close">✕</button></div>
+    <div class="vbody" id="verBody"></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const UNITS={days:1,weeks:7,months:30,years:365};
@@ -561,6 +597,24 @@ const WAVE_OPTS=[["14 days",14],["21 days",21],["28 days",28],["35 days",35]];
 const TRUST_OPTS=[["count them",true],["ignore them",false]];
 const UNIT_OPTS=[["days","days"],["weeks","weeks"],["months","months"],["years","years"]];
 
+const VERSIONS=[
+ {v:4,label:"V4 · 2026 revision",status:"draft",effective:"1 Sep 2026",publishedOn:"—",publishedBy:"—",
+  note:"You are editing this now."},
+ {v:3,label:"V3 Real Vaccination",status:"live",effective:"12 Mar 2026",publishedOn:"10 Mar 2026",publishedBy:"Ravi Teja · CEO",
+  note:"Added Sheep Pox. Moved Goat Pox to 16 weeks.",
+  snap:[["ET + TT","4 weeks + booster 3 weeks later","6 months"],["PPR","16 weeks","3 years"],
+        ["Goat Pox","16 weeks","1 year"],["Sheep Pox","12 weeks","1 year"],
+        ["FMD","12 weeks","9 months"],["HS","12 weeks","1 year"]],off:["Blue Tongue"],proof:"one video per shed"},
+ {v:2,label:"V2 Real Vaccination",status:"retired",effective:"1 Jan 2026",publishedOn:"28 Dec 2025",publishedBy:"Ravi Teja · CEO",
+  note:"First plan with the full 7-vaccine matrix.",retired:"12 Mar 2026",
+  snap:[["ET + TT","4 weeks + booster 3 weeks later","6 months"],["PPR","16 weeks","3 years"],
+        ["Goat Pox","12 weeks","1 year"],["FMD","12 weeks","9 months"],["HS","12 weeks","1 year"]],
+  off:["Sheep Pox","Blue Tongue"],proof:"one video per shed"},
+ {v:1,label:"V1 Real Vaccination",status:"retired",effective:"1 Sep 2025",publishedOn:"29 Aug 2025",publishedBy:"Ravi Teja · CEO",
+  note:"ET+TT and PPR only.",retired:"1 Jan 2026",
+  snap:[["ET + TT","4 weeks + booster 3 weeks later","6 months"],["PPR","16 weeks","3 years"]],
+  off:["Goat Pox","Sheep Pox","Blue Tongue","FMD","HS"],proof:"one video per shed"}
+];
 const BASE=[
  {id:"ettt",code:"ET\nTT",name:"ET + TT",on:true,priority:1,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
   blurb:"Enterotoxaemia and Tetanus. Two doses, then a repeat every 6 months. Highest priority in the drive order.",
@@ -639,7 +693,7 @@ function egLine(onTime,late){
 }
 const clone=o=>JSON.parse(JSON.stringify(o));
 let LIVE=clone(BASE),V=clone(BASE),cur="ettt",dirty=false,saved=false;
-let plan={scope:"company",species:"both",startsOn:"2026-09-01",proof:"shed",warmup:7,kidUntil:16,trustPrior:true,wave2:28},planLive=clone(plan);
+let plan={scope:"company",species:"both",startsOn:"2026-09-01",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28},planLive=clone(plan);
 
 const $=s=>document.querySelector(s);
 const label=(o,v)=>{const h=o.find(x=>x[1]===v);return h?h[0]:String(v)};
@@ -886,7 +940,7 @@ function renderReady(){
   const changed=changedVaccines().length||JSON.stringify(plan)!==JSON.stringify(planLive);
   const items=[
     [true,`Schedule set for ${on} of ${V.length} vaccines`,off.length?`${off.map(v=>v.name).join(", ")} switched off — that is allowed.`:"Every vaccine is scheduled."],
-    [true,"Proof method chosen",plan.proof==="shed"?"Scan every goat, then one video per shed.":"Scan every goat, then one video per goat."],
+    [true,"Proof method chosen",plan.proof==="shed"?"Scan every goat, then one video per shed.":"Scan every goat, then one video of that goat."],
     [!dirty,"Draft is saved",dirty?"You have unsaved edits. Save the draft, then publish.":"No unsaved edits."],
     [saved,"Impact reviewed",saved?"You saved after reviewing the impact preview.":"Save the draft to lock in the impact figures shown below."]];
   let n=0;
@@ -909,14 +963,50 @@ function renderPlanCards(){
     b.onclick=()=>openSelect(b,opts,plan[k],x=>{plan[k]=x;touch()});
   });
 }
+function renderVersions(){
+  $("#verRows").innerHTML=VERSIONS.map(x=>{
+    const cls=x.status==="live"?"on":x.status==="draft"?"no":"";
+    const force=x.status==="draft"?`from ${x.effective}`
+      :x.status==="live"?`since ${x.effective}`
+      :`${x.effective} – ${x.retired}`;
+    return `<tr${x.status==="live"?' class="vlive"':''}>
+      <td><b>${x.label}</b></td>
+      <td><span class="tag ${cls}">${x.status==="live"?"Live now":x.status==="draft"?"Draft":"Retired"}</span></td>
+      <td class="num">${force}</td>
+      <td class="num">${x.publishedOn}<span class="vby">${x.publishedBy}</span></td>
+      <td>${x.note}</td>
+      <td>${x.status==="draft"?'<span class="vhere">you are here</span>':`<button class="vbtn" data-v="${x.v}">View settings</button>`}</td>
+    </tr>`}).join("");
+  $("#verRows").querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>openVersion(+b.dataset.v));
+}
+function openVersion(n){
+  const x=VERSIONS.find(y=>y.v===n);
+  const rows=(x.snap||[]).map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td>
+      <td><span class="tag on">in the plan</span></td></tr>`).join("")
+    + (x.off||[]).map(nm=>`<tr class="voff"><td><b>${nm}</b></td><td>—</td><td>—</td>
+      <td><span class="tag">not in this plan</span></td></tr>`).join("");
+  $("#verBody").innerHTML=`
+    <p class="vlead">Read-only. This is exactly what the plan said while <b>${x.label}</b> was in force
+      (${x.status==="live"?"since "+x.effective:x.effective+" – "+x.retired}).
+      Published by ${x.publishedBy} on ${x.publishedOn}. Proof method: ${x.proof}.</p>
+    <div class="scroll"><table class="tabl">
+      <thead><tr><th>Vaccine</th><th>First doses</th><th>Repeats</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <p class="hintline">To bring any of this back, copy it into the current draft — old versions are never edited.</p>`;
+  $("#verTitle").textContent=x.label;
+  $("#verModal").hidden=false;
+}
 function renderProof(){
   document.querySelectorAll("#proofPick .pc").forEach(b=>
     b.setAttribute("aria-pressed",String(b.dataset.proof===plan.proof)));
+  document.querySelectorAll("#proofPick .pc-m").forEach(m=>{
+    m.textContent = m.dataset.m===plan.proof ? "Selected" : (m.dataset.m==="shed" ? "What staging runs today" : "Stronger evidence");
+  });
   $("#proofNote").textContent = plan.proof==="shed"
     ? "Every goat is still scanned individually — only the video changes. One clip covers the shed, up to five allowed."
     : "Every goat gets its own clip, so a round produces as many videos as there are goats — more to record, upload, and verify.";
 }
-function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderImpact();renderReady()}
+function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderVersions();renderImpact();renderReady()}
 
 $("#saveBtn").onclick=()=>{dirty=false;saved=true;renderAll();
   const n=$("#savedNote");n.classList.add("show");setTimeout(()=>n.classList.remove("show"),1800)};
@@ -942,6 +1032,10 @@ $("#themeBtn").onclick=()=>{
 
 document.querySelectorAll("#proofPick .pc").forEach(b=>
   b.onclick=()=>{plan.proof=b.dataset.proof;touch()});
+
+$("#verClose").onclick=()=>{$("#verModal").hidden=true};
+$("#verModal").onclick=e=>{if(e.target===$("#verModal"))$("#verModal").hidden=true};
+document.addEventListener("keydown",e=>{if(e.key==="Escape")$("#verModal").hidden=true});
 
 renderAll();
 </script>
