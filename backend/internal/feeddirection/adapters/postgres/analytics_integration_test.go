@@ -75,8 +75,12 @@ func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
 	persist("2026-07-30", domain.WorkflowNormal, "fp-day1", analyticsCells())
 	// Day 2: same sheet again, so the series has two points.
 	persist("2026-07-31", domain.WorkflowNormal, "fp-day2", analyticsCells())
-	// An experiment issue the SAME day — absolute kg, informational heads. The
-	// directed rollup must not see one gram of it.
+	// An experiment issue the SAME day. Since 2026-08-19 (maintainer decision)
+	// the rollup counts BOTH workflows: the whole farm eats, so experiment kg
+	// and heads join the series. This extends the OneToMany cardinality proof:
+	// the pen key deliberately COLLIDES with the normal sheet's shed A
+	// partition 1 grain to prove the workflow column keeps the two pens apart
+	// instead of MAX()-collapsing them.
 	exp := []domain.StoredCell{{
 		ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
 		PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
@@ -96,7 +100,7 @@ func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
 		t.Fatalf("DirectedAnalytics: %v", err)
 	}
 
-	// ---- Day totals: two days, identical figures. ----
+	// ---- Day totals: two days. Day 1 carries the experiment sheet too. ----
 	if len(got.Days) != 2 {
 		t.Fatalf("want 2 day totals, got %d: %+v", len(got.Days), got.Days)
 	}
@@ -104,19 +108,25 @@ func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
 	if day.FeedDay != "2026-07-30" {
 		t.Fatalf("day order: %+v", got.Days)
 	}
-	// kg = 1.0 + 1.0 + 0.5 + 0 (authored zero) and NOTHING from the blocked cell
-	// or the 500 kg experiment sheet.
-	if day.DirectedKg != "2.500" {
-		t.Errorf("day kg: want 2.500 (blocked adds nothing, experiment invisible), got %q", day.DirectedKg)
+	// kg = 1.0 + 1.0 + 0.5 + 0 (authored zero) + 500 experiment; the blocked
+	// cell still adds nothing.
+	if day.DirectedKg != "502.500" {
+		t.Errorf("day kg: want 502.500 (normal 2.5 + experiment 500, blocked adds nothing), got %q", day.DirectedKg)
 	}
 	// Heads: partition1 (10, counted ONCE across sessions and items) +
-	// partition2 (5) + shed B (8) — never the experiment's 999.
-	if day.HeadDays != 23 {
-		t.Errorf("day head-days: want 23 (pen-grain once, partitions apart), got %d", day.HeadDays)
+	// partition2 (5) + shed B (8) + the experiment pen (999) — the colliding
+	// pen key stays a separate grain because workflow is part of the grain.
+	if day.HeadDays != 1022 {
+		t.Errorf("day head-days: want 1022 (23 normal + 999 experiment, workflows apart), got %d", day.HeadDays)
 	}
-	// 2.5 kg × 1000 / 23 heads = 108.7 g.
-	if day.PerHeadGrams != "108.7" {
-		t.Errorf("day per-head: want 108.7, got %q", day.PerHeadGrams)
+	// 502.5 kg × 1000 / 1022 heads = 491.7 g.
+	if day.PerHeadGrams != "491.7" {
+		t.Errorf("day per-head: want 491.7, got %q", day.PerHeadGrams)
+	}
+	// Day 2 has no experiment issue and keeps the normal-only figures.
+	day2 := got.Days[1]
+	if day2.DirectedKg != "2.500" || day2.HeadDays != 23 {
+		t.Errorf("day 2: want 2.500 kg over 23 heads (no experiment issue that day), got %q over %d", day2.DirectedKg, day2.HeadDays)
 	}
 
 	// ---- Per-item series for day 1. ----
@@ -151,8 +161,12 @@ func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
 	if hay.DirectedKg != "0" || hay.PerHeadGrams != "" {
 		t.Errorf("hay (every cell blocked): want kg \"0\" and per-head \"\", got %+v", hay)
 	}
-	if _, leaked := items["mesha tmr"]; leaked {
-		t.Errorf("experiment feed item leaked into the directed rollup")
+	tmr, ok := items["mesha_tmr"] // the write path normalizes the fixture's "mesha tmr"
+	if !ok {
+		t.Fatalf("experiment feed item missing from the directed rollup (2026-08-19: both workflows count): %+v", got.Items)
+	}
+	if tmr.DirectedKg != "500.000" || tmr.HeadDays != 999 {
+		t.Errorf("experiment item: want 500.000 kg over 999 heads, got %q over %d", tmr.DirectedKg, tmr.HeadDays)
 	}
 
 	// ---- Park filter: a park the fixture never fed returns empty, not zeros. ----
@@ -230,8 +244,11 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, DATE '2026-07-30', $4, 'completed'),
 		t.Errorf("day2 counts wrong: %+v", d2)
 	}
 
-	// Experiment series through the production write path: two arms, one with
-	// two pens of one shed — pens count by pen-grain, kg is the authored total.
+	// Experiment series through the production write path (same StatusMatrix
+	// fixture, states issued/amended/locked all counted). Since 2026-08-19
+	// (maintainer decision) the payload is SHED-WISE: one row per (day, pen)
+	// labelled by the oploc display, plus a per-(day, feed item) series; the
+	// arm rides each pen row and the per-arm pen count is gone.
 	expCell := func(partition, arm, qty string, rowSeq int32) domain.StoredCell {
 		return domain.StoredCell{
 			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
@@ -255,19 +272,32 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, DATE '2026-07-30', $4, 'completed'),
 	if _, err := repo.PersistIssue(ctx, cmd); err != nil {
 		t.Fatalf("persist experiment: %v", err)
 	}
-	arms, err := repo.ExperimentAnalytics(ctx, fdiTenant, window)
+	exp, err := repo.ExperimentAnalytics(ctx, fdiTenant, window)
 	if err != nil {
 		t.Fatalf("ExperimentAnalytics: %v", err)
 	}
-	if len(arms.Arms) != 2 {
-		t.Fatalf("want 2 arms, got %+v", arms.Arms)
+	if len(exp.Sheds) != 3 {
+		t.Fatalf("want 3 pen rows, got %+v", exp.Sheds)
 	}
-	adult := arms.Arms[0]
-	if adult.ExperimentArm != "Mesha TMR — adult" || adult.AbsoluteKg != "75.000" || adult.Pens != 2 {
-		t.Errorf("adult arm: want 75.000 kg over 2 pens, got %+v", adult)
+	// Ordered by shed label then partition key: Castro 1, 2, 3 — each labelled
+	// by the canonical oploc display (numeric pens join with a space).
+	pen1 := exp.Sheds[0]
+	if pen1.LocationDisplay != "Castro 1" || pen1.ExperimentArm != "Mesha TMR — adult" || pen1.AbsoluteKg != "40.000" {
+		t.Errorf("pen 1: want Castro 1 / Mesha TMR — adult / 40.000, got %+v", pen1)
 	}
-	if arms.Arms[1].AbsoluteKg != "20.000" || arms.Arms[1].Pens != 1 {
-		t.Errorf("sorghum arm: %+v", arms.Arms[1])
+	if exp.Sheds[1].LocationDisplay != "Castro 2" || exp.Sheds[1].AbsoluteKg != "35.000" {
+		t.Errorf("pen 2: %+v", exp.Sheds[1])
+	}
+	if exp.Sheds[2].LocationDisplay != "Castro 3" || exp.Sheds[2].ExperimentArm != "Sorghum pellet mix" || exp.Sheds[2].AbsoluteKg != "20.000" {
+		t.Errorf("pen 3: %+v", exp.Sheds[2])
+	}
+	// Feed-type series: every cell is the same item, so ONE row carrying the
+	// whole day's kg.
+	if len(exp.Items) != 1 {
+		t.Fatalf("want 1 item row, got %+v", exp.Items)
+	}
+	if exp.Items[0].FeedItemLabel != "Mesha TMR" || exp.Items[0].AbsoluteKg != "95.000" {
+		t.Errorf("item row: want Mesha TMR 95.000, got %+v", exp.Items[0])
 	}
 }
 
@@ -311,6 +341,19 @@ func TestDirectedAnalyticsParkScopeFilter(t *testing.T) {
 	}
 	if len(scoped.Days) != 1 || len(all.Days) != 1 || scoped.Days[0] != all.Days[0] {
 		t.Errorf("single-park tenant: scoped and unfiltered must agree, got %+v vs %+v", scoped.Days, all.Days)
+	}
+
+	// ParkScope for the experiment payload too (shed-wise + items, 2026-08-19):
+	// a foreign park returns EMPTY series, never fabricated zeros. Pagination
+	// adversarial case is deliberately absent for the experiment read — it is a
+	// whole-window aggregate with no limit/offset input, same as directed
+	// (pinned separately by TestDirectedAnalyticsWindowSplitPageBoundary).
+	expForeign, err := repo.ExperimentAnalytics(ctx, fdiTenant, foreign)
+	if err != nil {
+		t.Fatalf("experiment foreign park: %v", err)
+	}
+	if len(expForeign.Sheds) != 0 || len(expForeign.Items) != 0 {
+		t.Errorf("experiment foreign park must be empty, got %+v", expForeign)
 	}
 }
 

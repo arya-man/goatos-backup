@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 
 	"github.com/google/uuid"
 
@@ -18,7 +19,13 @@ var _ ports.DirectedAnalyticsReader = (*Repository)(nil)
 
 // Feed Analytics rollup over the frozen sheet.
 //
-// projection-review: membership=feed_direction_issue_rows at their natural key (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key), reached through the at-most-one live normal-workflow issue per (tenant, park, feed_day) enforced by feed_direction_issues_live_uidx; group_key=(feed_day, feed_item_label, feed_item_key) after first collapsing cells to the pen-grain (shed_id, partition_key, shed_tag_key, breed_key) so session and item cells cannot inflate head counts; join_cardinality=issues to rows is 1:N by feed_direction_issue_id and joins exactly once per day thanks to the live-issue partial unique index, and the pen_item CTE pre-aggregates the N side before the outer GROUP BY; pagination=none, whole-window aggregate invariant to any page size — there is no limit/offset input; scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
+// BOTH workflows count (maintainer decision 2026-08-19, superseding the
+// normal-only rollup): "Animals fed" and "directed kg" describe the whole
+// farm, so the experiment sheds' authored kg and heads join the series. The
+// pen-grain carries r.workflow so a pen key shared across the two same-day
+// issues can never collapse into one MAX() and undercount.
+//
+// projection-review: membership=feed_direction_issue_rows at their natural key (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key), reached through the at-most-one live issue per (tenant, park, feed_day, workflow) enforced by feed_direction_issues_live_uidx — one normal plus at most one experiment issue per day; group_key=(feed_day, feed_item_label, feed_item_key) after first collapsing cells to the pen-grain (workflow, shed_id, partition_key, shed_tag_key, breed_key) so session and item cells cannot inflate head counts and the two workflows' pens stay disjoint grains; join_cardinality=issues to rows is 1:N by feed_direction_issue_id and joins exactly once per day-workflow thanks to the live-issue partial unique index, and the pen_item CTE pre-aggregates the N side before the outer GROUP BY; pagination=none, whole-window aggregate invariant to any page size — there is no limit/offset input; scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
 //
 // Ratio key sets: per_head_grams divides SUM(quantity_kg) by SUM(head_count)
 // where BOTH range over the same collapsed pen-grain set of that
@@ -45,10 +52,11 @@ WITH iss AS (
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
-      AND workflow = 'normal'
+      AND workflow IN ('normal', 'experiment')
 ),
 pen_item AS (
     SELECT i.feed_day,
+           r.workflow,
            r.feed_item_label,
            r.feed_item_key,
            r.shed_id,
@@ -61,7 +69,7 @@ pen_item AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    GROUP BY i.feed_day, r.feed_item_label, r.feed_item_key,
+    GROUP BY i.feed_day, r.workflow, r.feed_item_label, r.feed_item_key,
              r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
 )
 SELECT feed_day::text,
@@ -82,7 +90,7 @@ ORDER BY feed_day, feed_item_label`
 // per-item head-days into a day figure would multiply the herd by the number of
 // feed items.
 //
-// projection-review: membership=same issue-row natural-key set as above; group_key=feed_day alone, after collapsing to the pen-grain (shed_id, partition_key, shed_tag_key, breed_key) WITHOUT the feed item, so a day's heads count each pen once across items and sessions; join_cardinality=issues to rows 1:N pre-aggregated in the pen CTE before the outer day GROUP BY; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set
+// projection-review: membership=same issue-row natural-key set as above; group_key=feed_day alone, after collapsing to the pen-grain (workflow, shed_id, partition_key, shed_tag_key, breed_key) WITHOUT the feed item, so a day's heads count each pen once across items and sessions while normal and experiment pens stay disjoint grains (maintainer decision 2026-08-19: experiment animals count as fed); join_cardinality=issues to rows 1:N pre-aggregated in the pen CTE before the outer day GROUP BY; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set
 const directedAnalyticsDaysSQL = `
 WITH iss AS (
     SELECT feed_direction_issue_id, feed_day
@@ -91,10 +99,11 @@ WITH iss AS (
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
-      AND workflow = 'normal'
+      AND workflow IN ('normal', 'experiment')
 ),
 pen AS (
     SELECT i.feed_day,
+           r.workflow,
            r.shed_id,
            r.partition_key,
            r.shed_tag_key,
@@ -105,7 +114,7 @@ pen AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
      AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    GROUP BY i.feed_day, r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+    GROUP BY i.feed_day, r.workflow, r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
 )
 SELECT feed_day::text,
        COALESCE(SUM(grain_kg), 0)::text                          AS directed_kg,
@@ -329,7 +338,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 // Experiment analytics
 // ---------------------------------------------------------------------------
 
-// projection-review: membership=issue rows of the at-most-one live EXPERIMENT issue per (tenant, park, feed_day), same natural key as the directed read; group_key=(feed_day, experiment_arm) after collapsing to the pen-grain, so pens counts DISTINCT collapsed grains and kg sums resolved cells over the SAME grain set; join_cardinality=issues to rows 1:N pre-aggregated in the pen CTE before the arm GROUP BY; pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set. Head counts on experiment rows are informational and deliberately absent from this read
+// projection-review: membership=issue rows of the at-most-one live EXPERIMENT issue per (tenant, park, feed_day), same natural key as the directed read; group_key=(feed_day, shed_id, partition_key) — the physical PEN, per maintainer decision 2026-08-19 replacing the arm grouping (and the pen COUNT, which left the payload the same day); labels ride as MAX() over a group whose rows all share them by generation; join_cardinality=issues to rows 1:N collapsed by the GROUP BY, one live experiment issue per (tenant, park, feed_day); pagination=none, whole-window aggregate with no limit/offset input; scope=tenant_id plus the caller's authorized park set. Head counts on experiment rows are informational and deliberately absent from this read
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, same shape
 // as the directed rollup above.
@@ -342,26 +351,43 @@ WITH iss AS (
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
       AND workflow = 'experiment'
-),
-pen AS (
-    SELECT i.feed_day,
-           r.experiment_arm,
-           r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key,
-           SUM(r.quantity_kg) AS grain_kg
-    FROM iss i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1
-     AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    GROUP BY i.feed_day, r.experiment_arm,
-             r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
 )
-SELECT feed_day::text,
-       experiment_arm,
-       COALESCE(SUM(grain_kg), 0)::text AS absolute_kg,
-       COUNT(*)                         AS pens
-FROM pen
-GROUP BY feed_day, experiment_arm
-ORDER BY feed_day, experiment_arm`
+SELECT i.feed_day::text,
+       COALESCE(MAX(r.shed_label), '')          AS shed_label,
+       COALESCE(MAX(r.partition_label), '')     AS partition_label,
+       COALESCE(MAX(r.experiment_arm), '')      AS experiment_arm,
+       COALESCE(SUM(r.quantity_kg), 0)::text    AS absolute_kg
+FROM iss i
+JOIN feed_direction_issue_rows r
+  ON r.tenant_id = $1
+ AND r.feed_direction_issue_id = i.feed_direction_issue_id
+GROUP BY i.feed_day, r.shed_id, COALESCE(r.partition_key, '')
+ORDER BY i.feed_day, MAX(r.shed_label), COALESCE(r.partition_key, '')`
+
+// projection-review: membership=the same experiment issue-row set as the pen series above; group_key=(feed_day, feed_item_label, feed_item_key) with SUM(quantity_kg) straight off the cells — no pen collapse is needed because kg is additive across sessions and pens and no head figure is derived; join_cardinality=issues to rows 1:N, one live experiment issue per (tenant, park, feed_day); pagination=none, whole-window aggregate; scope=tenant_id plus the caller's authorized park set. Added 2026-08-19 (maintainer decision): the Experiment tab shows WHAT feed the trial pens ate (Dry Masoor Bhusa, concentrates, ...), not how many pens.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, same shape
+// as the directed rollup above.
+const experimentItemsSQL = `
+WITH iss AS (
+    SELECT feed_direction_issue_id, feed_day
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND feed_day BETWEEN $3 AND $4
+      AND state IN ('issued', 'amended', 'locked')
+      AND workflow = 'experiment'
+)
+SELECT i.feed_day::text,
+       r.feed_item_label,
+       r.feed_item_key,
+       COALESCE(SUM(r.quantity_kg), 0)::text AS absolute_kg
+FROM iss i
+JOIN feed_direction_issue_rows r
+  ON r.tenant_id = $1
+ AND r.feed_direction_issue_id = i.feed_direction_issue_id
+GROUP BY i.feed_day, r.feed_item_label, r.feed_item_key
+ORDER BY i.feed_day, r.feed_item_label`
 
 // ExperimentAnalytics serves the trial arms' authored kg series.
 func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error) {
@@ -373,21 +399,45 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 	if len(q.ParkIDs) > 0 {
 		parkIDs = q.ParkIDs
 	}
-	rows, err := r.pool.Query(ctx, experimentAnalyticsSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	fromArg := from.Format("2006-01-02")
+	toArg := to.Format("2006-01-02")
+
+	rows, err := r.pool.Query(ctx, experimentAnalyticsSQL, tenantID, parkIDs, fromArg, toArg)
 	if err != nil {
 		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment: %w", err)
 	}
 	defer rows.Close()
-	out := domain.ExperimentAnalytics{Arms: []domain.ExperimentDayArm{}}
+	out := domain.ExperimentAnalytics{Sheds: []domain.ExperimentDayShed{}, Items: []domain.ExperimentDayItem{}}
 	for rows.Next() {
-		var a domain.ExperimentDayArm
-		if err := rows.Scan(&a.FeedDay, &a.ExperimentArm, &a.AbsoluteKg, &a.Pens); err != nil {
+		var s domain.ExperimentDayShed
+		var shedLabel, partitionLabel string
+		if err := rows.Scan(&s.FeedDay, &shedLabel, &partitionLabel, &s.ExperimentArm, &s.AbsoluteKg); err != nil {
 			return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment scan: %w", err)
 		}
-		out.Arms = append(out.Arms, a)
+		// Canonical composition only (operational-location Rule 5): the HUMAN
+		// partition_label rides the row; oploc owns the join of the halves.
+		s.LocationDisplay = oploc.OperationalLocation{ShedName: shedLabel, PartitionLabel: partitionLabel}.Display()
+		out.Sheds = append(out.Sheds, s)
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment rows: %w", err)
+	}
+	rows.Close()
+
+	itemRows, err := r.pool.Query(ctx, experimentItemsSQL, tenantID, parkIDs, fromArg, toArg)
+	if err != nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment items: %w", err)
+	}
+	defer itemRows.Close()
+	for itemRows.Next() {
+		var it domain.ExperimentDayItem
+		if err := itemRows.Scan(&it.FeedDay, &it.FeedItemLabel, &it.FeedItemKey, &it.AbsoluteKg); err != nil {
+			return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment items scan: %w", err)
+		}
+		out.Items = append(out.Items, it)
+	}
+	if err := itemRows.Err(); err != nil {
+		return domain.ExperimentAnalytics{}, fmt.Errorf("feed analytics experiment items rows: %w", err)
 	}
 	return out, nil
 }

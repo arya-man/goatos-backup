@@ -140,17 +140,25 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
 
-type experimentArmDTO struct {
+type experimentShedDTO struct {
+	FeedDay         string `json:"feed_day"`
+	LocationDisplay string `json:"operational_location_display"`
+	ExperimentArm   string `json:"experiment_arm"`
+	AbsoluteKg      string `json:"absolute_kg"`
+}
+
+type experimentItemDTO struct {
 	FeedDay       string `json:"feed_day"`
-	ExperimentArm string `json:"experiment_arm"`
+	FeedItemLabel string `json:"feed_item_label"`
+	FeedItemKey   string `json:"feed_item_key"`
 	AbsoluteKg    string `json:"absolute_kg"`
-	Pens          int64  `json:"pens"`
 }
 
 type experimentAnalyticsDTO struct {
-	DateFrom string             `json:"date_from"`
-	DateTo   string             `json:"date_to"`
-	Arms     []experimentArmDTO `json:"arms"`
+	DateFrom string              `json:"date_from"`
+	DateTo   string              `json:"date_to"`
+	Sheds    []experimentShedDTO `json:"sheds"`
+	Items    []experimentItemDTO `json:"items"`
 }
 
 // GetExperimentAnalytics serves GET /feed-analytics/experiment.
@@ -168,10 +176,14 @@ func (h *Handler) GetExperimentAnalytics(w http.ResponseWriter, r *http.Request)
 	dto := experimentAnalyticsDTO{
 		DateFrom: from.Format("2006-01-02"),
 		DateTo:   to.Format("2006-01-02"),
-		Arms:     make([]experimentArmDTO, 0, len(result.Arms)),
+		Sheds:    make([]experimentShedDTO, 0, len(result.Sheds)),
+		Items:    make([]experimentItemDTO, 0, len(result.Items)),
 	}
-	for _, a := range result.Arms {
-		dto.Arms = append(dto.Arms, experimentArmDTO(a))
+	for _, s := range result.Sheds {
+		dto.Sheds = append(dto.Sheds, experimentShedDTO(s))
+	}
+	for _, it := range result.Items {
+		dto.Items = append(dto.Items, experimentItemDTO(it))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }

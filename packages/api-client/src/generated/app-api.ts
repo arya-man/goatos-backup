@@ -1542,8 +1542,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Trial-arm absolute kg series for the Feed Analytics page.
-         * @description The experiment workflow's authored kg per (feed day, experiment arm), with the distinct pen count feeding under each arm. Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are informational, so no per-head figure exists here and none may be derived by a client.
+         * Trial-pen absolute kg series for the Feed Analytics page.
+         * @description The experiment workflow's authored kg per (feed day, trial pen) plus a per-(feed day, feed item) series -- what each trial shed ate and of which feed type (maintainer regrouping 2026-08-19; the earlier arm series and its pen count are retired). Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are informational, so no per-head figure exists here and none may be derived by a client.
          */
         get: operations["getFeedAnalyticsExperiment"];
         put?: never;
@@ -4515,22 +4515,31 @@ export interface components {
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
         };
-        /** @description One (feed day, experiment arm) of authored absolute kg. */
-        FeedAnalyticsExperimentArm: {
+        /** @description One (feed day, trial pen) of authored absolute kg. Regrouped shed-wise 2026-08-19 (maintainer decision, replacing the arm series and its pen count). */
+        FeedAnalyticsExperimentShed: {
             /** Format: date */
             feed_day: string;
+            /** @description Backend-composed pen label ("Godel 2 - Part 4", "Castro 1"); render verbatim. */
+            operational_location_display: string;
             experiment_arm: string;
             /** @description Authored shed/pen TOTAL kg as a decimal string -- never multiplied by heads. */
             absolute_kg: string;
-            /** Format: int64 */
-            pens: number;
+        };
+        /** @description One (feed day, feed item) of the experiment workflow -- what the trial pens ate. */
+        FeedAnalyticsExperimentItem: {
+            /** Format: date */
+            feed_day: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            absolute_kg: string;
         };
         FeedAnalyticsExperimentResponse: {
             /** Format: date */
             date_from: string;
             /** Format: date */
             date_to: string;
-            arms: components["schemas"]["FeedAnalyticsExperimentArm"][];
+            sheds: components["schemas"]["FeedAnalyticsExperimentShed"][];
+            items: components["schemas"]["FeedAnalyticsExperimentItem"][];
         };
         /** @description One feed item's current stock position off the purchase ledger. */
         FeedAnalyticsStockItem: {
@@ -13912,7 +13921,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Per-(day, arm) authored kg, ordered by feed day then arm. */
+            /** @description Per-(day, pen) and per-(day, item) authored kg, ordered by feed day. */
             200: {
                 headers: {
                     [name: string]: unknown;
