@@ -423,8 +423,14 @@ VALUES ($1::uuid, $2::uuid, $3, 'Concentrate', $4, '2026-07-01', $5, $6, '2026-0
 			t.Fatalf("seed purchase: %v", err)
 		}
 	}
-	purchase(fdiPark, "CBE", 100, 40, 1) // net 60 at CBE
-	purchase(otherPark, "CPT", 50, 10, 2) // net 40 at CPT
+	// Balance is the park's ledger NET (quantity - consumed_at_import summed
+	// over loads, minus directed since cutover). The importer calibrates
+	// consumed_at_import so that net equals the farm's stock cards
+	// (2026-08-19); the query itself just trusts the calibrated ledger.
+	purchase(fdiPark, "CBE", 20, 5, 0)    // older CBE load carrying 15 kg
+	purchase(fdiPark, "CBE", 100, 40, 1)  // current CBE load: net 60
+	purchase(otherPark, "CPT", 30, 25, 1) // older CPT load carrying 5 kg
+	purchase(otherPark, "CPT", 50, 10, 2) // current CPT load: net 40
 
 	// One LOCKED sheet at CBE directs 5 kg of the item after depletes_from —
 	// only the CBE balance may move.
@@ -466,11 +472,11 @@ WHERE tenant_id=$1::uuid AND feed_day='2026-07-30'`, fdiTenant); err != nil {
 	if len(byPark) != 2 {
 		t.Fatalf("want the item once per park, got %+v", got.Items)
 	}
-	if byPark["CBE"].BalanceKg != "55.0" {
-		t.Errorf("CBE balance: want 55.0 (net 60 minus 5 locked-directed), got %q", byPark["CBE"].BalanceKg)
+	if byPark["CBE"].BalanceKg != "70.0" {
+		t.Errorf("CBE balance: want 70.0 (ledger net 75 minus 5 locked-directed), got %q", byPark["CBE"].BalanceKg)
 	}
-	if byPark["CPT"].BalanceKg != "40.0" {
-		t.Errorf("CPT balance: want 40.0 (no directed depletion at that park), got %q", byPark["CPT"].BalanceKg)
+	if byPark["CPT"].BalanceKg != "45.0" {
+		t.Errorf("CPT balance: want 45.0 (ledger net, no directed depletion at that park), got %q", byPark["CPT"].BalanceKg)
 	}
 	if byPark["CBE"].AvgDailyKg == "" || byPark["CPT"].AvgDailyKg != "" {
 		t.Errorf("avg daily must be park-scoped: CBE %q, CPT %q", byPark["CBE"].AvgDailyKg, byPark["CPT"].AvgDailyKg)
