@@ -3212,6 +3212,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.arms.title":       "Trial pens",
 			"chart.experiment.top":   "The largest pens by latest-day kg are charted; the table below lists every pen.",
 			"stock.title":            "Feed stock",
+			"stock.park.aria":        "Choose the park for stock",
 			"stock.hint":             "Purchased minus directed since the ledger bootstrap — stock leaves the store when the sheet locks for packing",
 			"stock.days_left":        "days left",
 			"stock.balance":          "kg in store",

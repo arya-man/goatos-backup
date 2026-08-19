@@ -446,13 +446,15 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, and locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=feed_item_key on every side — purchases, depletion and the recent-day average all collapse to the item before joining, so the three sides meet strictly 1:1; join_cardinality=bought LEFT JOIN directed LEFT JOIN recent, each pre-aggregated to one row per item; pagination=none, a tenant's feed catalog is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, and locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=(park_id, feed_item_key) on every side (maintainer decision 2026-08-19: stock is a PER-PARK fact — each farm has its own store, so purchases, depletion and the recent-day average all collapse to park+item before joining and the three sides meet strictly 1:1 via IS NOT DISTINCT FROM on the nullable park); join_cardinality=bought LEFT JOIN directed LEFT JOIN recent, each pre-aggregated to one row per (park, item); pagination=none, two parks x a bounded feed catalog stays a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded per-item aggregates over the
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
 const stockItemsSQL = `
 WITH bought AS (
-    SELECT feed_item_key,
+    SELECT park_id,
+           MAX(farm_label)                               AS park_label,
+           feed_item_key,
            MAX(feed_item_label)                          AS feed_item_label,
            SUM(quantity_kg - consumed_at_import_kg)      AS net_kg,
            MAX(batch_no)                                 AS latest_batch,
@@ -460,36 +462,40 @@ WITH bought AS (
     FROM feed_purchases
     WHERE tenant_id = $1
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
-    GROUP BY feed_item_key
+    GROUP BY park_id, feed_item_key
 ),
 locked_cells AS (
-    SELECT r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+    SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
     WHERE i.tenant_id = $1
       AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
       AND i.state = 'locked'
-    GROUP BY r.feed_item_key, i.feed_day
+    GROUP BY i.park_id, r.feed_item_key, i.feed_day
 ),
 directed AS (
-    SELECT b.feed_item_key, COALESCE(SUM(lc.kg), 0) AS kg
+    SELECT b.park_id, b.feed_item_key, COALESCE(SUM(lc.kg), 0) AS kg
     FROM bought b
     LEFT JOIN locked_cells lc
-      ON lc.feed_item_key = b.feed_item_key AND lc.feed_day >= b.depletes_from
-    GROUP BY b.feed_item_key
+      ON lc.park_id = b.park_id
+     AND lc.feed_item_key = b.feed_item_key
+     AND lc.feed_day >= b.depletes_from
+    GROUP BY b.park_id, b.feed_item_key
 ),
 recent AS (
-    SELECT feed_item_key, AVG(kg) AS avg_kg
+    SELECT park_id, feed_item_key, AVG(kg) AS avg_kg
     FROM (
-        SELECT feed_item_key, kg,
-               ROW_NUMBER() OVER (PARTITION BY feed_item_key ORDER BY feed_day DESC) AS rn
+        SELECT park_id, feed_item_key, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
         FROM locked_cells
     ) ranked
     WHERE rn <= 7
-    GROUP BY feed_item_key
+    GROUP BY park_id, feed_item_key
 )
-SELECT b.feed_item_label,
+SELECT COALESCE(b.park_id::text, '')                      AS park_id,
+       COALESCE(b.park_label, '')                         AS park_label,
+       b.feed_item_label,
        b.feed_item_key,
        round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
        COALESCE(round(r.avg_kg, 1)::text, '')             AS avg_daily_kg,
@@ -498,9 +504,9 @@ SELECT b.feed_item_label,
        END                                                AS days_left,
        b.latest_batch
 FROM bought b
-JOIN directed d USING (feed_item_key)
-LEFT JOIN recent r USING (feed_item_key)
-ORDER BY days_left NULLS LAST, b.feed_item_label`
+JOIN directed d ON d.park_id IS NOT DISTINCT FROM b.park_id AND d.feed_item_key = b.feed_item_key
+LEFT JOIN recent r ON r.park_id IS NOT DISTINCT FROM b.park_id AND r.feed_item_key = b.feed_item_key
+ORDER BY park_label, days_left NULLS LAST, b.feed_item_label`
 
 // Expenditure: each (day, item)'s directed kg priced at the item's most recent
 // load rate on or before that day. The LATERAL probes one indexed row per
@@ -591,7 +597,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	defer itemRows.Close()
 	for itemRows.Next() {
 		var it domain.StockItem
-		if err := itemRows.Scan(&it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
+		if err := itemRows.Scan(&it.ParkID, &it.ParkLabel, &it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock scan: %w", err)
 		}
 		it.LowStock = it.DaysLeft != nil && *it.DaysLeft < domain.LowStockDays

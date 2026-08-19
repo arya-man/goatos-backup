@@ -164,8 +164,13 @@ type ExperimentAnalytics struct {
 // same store.
 // ---------------------------------------------------------------------------
 
-// StockItem is one feed item's current stock position.
+// StockItem is one PARK's current stock position for one feed item — each
+// farm has its own store (maintainer decision 2026-08-19; was tenant-wide).
 type StockItem struct {
+	// ParkID is empty when the source purchase rows carried no resolvable park.
+	ParkID string
+	// ParkLabel is the farm's short label off the purchase ledger (CBE, CPT).
+	ParkLabel     string
 	FeedItemLabel string
 	FeedItemKey   string
 	// BalanceKg may go negative when directed kg overruns the ledger — shown as

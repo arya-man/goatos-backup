@@ -11512,9 +11512,17 @@ components:
             $ref: "#/components/schemas/FeedAnalyticsExperimentItem"
     FeedAnalyticsStockItem:
       type: object
-      description: One feed item's current stock position off the purchase ledger.
-      required: [feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
+      description: >-
+        One PARK's current stock position for one feed item off the purchase ledger — each farm
+        has its own store (per-park grain since 2026-08-19; was tenant-wide).
+      required: [park_id, park_label, feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
       properties:
+        park_id:
+          type: string
+          description: Empty when the source purchase rows carried no resolvable park.
+        park_label:
+          type: string
+          description: The farm's short label off the purchase ledger (CBE, CPT); render verbatim.
         feed_item_label:
           type: string
         feed_item_key:

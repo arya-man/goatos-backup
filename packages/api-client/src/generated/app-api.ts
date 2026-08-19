@@ -4541,8 +4541,12 @@ export interface components {
             sheds: components["schemas"]["FeedAnalyticsExperimentShed"][];
             items: components["schemas"]["FeedAnalyticsExperimentItem"][];
         };
-        /** @description One feed item's current stock position off the purchase ledger. */
+        /** @description One PARK's current stock position for one feed item off the purchase ledger — each farm has its own store (per-park grain since 2026-08-19; was tenant-wide). */
         FeedAnalyticsStockItem: {
+            /** @description Empty when the source purchase rows carried no resolvable park. */
+            park_id: string;
+            /** @description The farm's short label off the purchase ledger (CBE, CPT); render verbatim. */
+            park_label: string;
             feed_item_label: string;
             feed_item_key: string;
             /** @description May be negative -- the ledger is missing a load, never clamped. */

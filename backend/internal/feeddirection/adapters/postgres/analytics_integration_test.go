@@ -399,3 +399,90 @@ func TestDirectedAnalyticsWindowSplitPageBoundary(t *testing.T) {
 		}
 	}
 }
+
+// TestStockAnalyticsParkScopeKeepsFarmsApart pins the 2026-08-19 per-park
+// stock grain: each farm has its own store, so the same feed item bought at
+// two parks yields two rows whose balances never merge, depletion only
+// touches the park whose locked sheet directed the kg, and a foreign
+// ParkScope filter returns EMPTY items, never fabricated zeros.
+func TestStockAnalyticsParkScopeKeepsFarmsApart(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	otherPark := "fd100000-0000-4000-8000-000000003002"
+	if _, err := pool.Exec(ctx, `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT', 'CPT', 'active') ON CONFLICT (location_id) DO NOTHING`, fdiTenant, otherPark); err != nil {
+		t.Fatalf("seed park: %v", err)
+	}
+	purchase := func(park, farm string, qty, consumed float64, batch int) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO feed_purchases
+(tenant_id, park_id, farm_label, feed_item_label, batch_no, purchase_date,
+ quantity_kg, consumed_at_import_kg, depletes_from)
+VALUES ($1::uuid, $2::uuid, $3, 'Concentrate', $4, '2026-07-01', $5, $6, '2026-07-01')`,
+			fdiTenant, park, farm, batch, qty, consumed); err != nil {
+			t.Fatalf("seed purchase: %v", err)
+		}
+	}
+	purchase(fdiPark, "CBE", 100, 40, 1) // net 60 at CBE
+	purchase(otherPark, "CPT", 50, 10, 2) // net 40 at CPT
+
+	// One LOCKED sheet at CBE directs 5 kg of the item after depletes_from —
+	// only the CBE balance may move.
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+	cmd := ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-07-30", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-stock-park",
+		IdempotencyKey: "issue:stockpark:" + fdiTenant, GeneratedBy: "test",
+		Cells: []domain.StoredCell{{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			SessionNo: 1, SessionLabel: "S", HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", QuantityKg: kg("5.000"),
+			SessionTotalKg: "5.000",
+		}},
+	}
+	if _, err := repo.PersistIssue(ctx, cmd); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE feed_direction_issues SET state='locked', locked_at=now()
+WHERE tenant_id=$1::uuid AND feed_day='2026-07-30'`, fdiTenant); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+
+	window := domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()),
+	}
+	got, err := repo.StockAnalytics(ctx, fdiTenant, window)
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	byPark := map[string]domain.StockItem{}
+	for _, it := range got.Items {
+		if it.FeedItemKey == "concentrate" {
+			byPark[it.ParkLabel] = it
+		}
+	}
+	if len(byPark) != 2 {
+		t.Fatalf("want the item once per park, got %+v", got.Items)
+	}
+	if byPark["CBE"].BalanceKg != "55.0" {
+		t.Errorf("CBE balance: want 55.0 (net 60 minus 5 locked-directed), got %q", byPark["CBE"].BalanceKg)
+	}
+	if byPark["CPT"].BalanceKg != "40.0" {
+		t.Errorf("CPT balance: want 40.0 (no directed depletion at that park), got %q", byPark["CPT"].BalanceKg)
+	}
+	if byPark["CBE"].AvgDailyKg == "" || byPark["CPT"].AvgDailyKg != "" {
+		t.Errorf("avg daily must be park-scoped: CBE %q, CPT %q", byPark["CBE"].AvgDailyKg, byPark["CPT"].AvgDailyKg)
+	}
+
+	foreign := window
+	foreign.ParkIDs = []uuid.UUID{uuid.New()}
+	filtered, err := repo.StockAnalytics(ctx, fdiTenant, foreign)
+	if err != nil {
+		t.Fatalf("foreign park: %v", err)
+	}
+	if len(filtered.Items) != 0 {
+		t.Errorf("foreign ParkScope filter: want empty stock items, got %+v", filtered.Items)
+	}
+}
