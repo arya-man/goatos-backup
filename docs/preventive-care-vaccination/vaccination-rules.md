@@ -607,3 +607,65 @@ tracked matrix so the config evidence is complete. Runtime species-aware
 targeting must not silently pretend sheep are goats; when species fields are
 present in animal data, sheep rows must use the same V1 kernel rules with a
 species eligibility dimension.
+
+## Brands and products under one vaccine (Z1 / Z2 / Z3) — UNRESOLVED
+
+Source: WhatsApp clarification from Aryaman, 2026-08-19 21:51–21:55 IST, in response to
+"can u give z1 z2 z3 properties in this way" against the vaccine properties table.
+
+Stated verbatim:
+
+- "goat + sheep; killed; bacterial/toxoid; 4 weeks + booster at 7 weeks; every 6 months" —
+  **for all** of Z1, Z2 and Z3
+- "z1 and z2 are diff brands"
+- "z3 is diff product"
+- "All with et+tt can be given simultaneously"
+
+So all three carry ET+TT's clinical properties: goat + sheep, killed, bacterial/toxoid,
+4 weeks + booster at 7 weeks, revaccination every 6 months.
+
+### What is not yet known
+
+`Z1` / `Z2` / `Z3` are internal shorthand, not trade names. They do not appear anywhere in this
+repo, in the wiki, or in public veterinary product listings — Indian or otherwise. The real
+products in this class are named CDT / 3-way, Covexin-8, Bar-Vac CD/T, Toxipra Plus, or (Indian
+market) Clostridium perfringens Type D toxoid preparations. None abbreviates to Z-anything.
+
+**Required before this can be configured:** the actual label names and manufacturers. Without
+them a lot cannot be traced to a manufacturer, a batch cannot be checked, and "Z1" written on a
+vial photo is unverifiable in an audit.
+
+### Two modelling questions this raises
+
+**1. Brands are a layer below `vaccine`, which the plan does not model.**
+
+The protocol plan authors *vaccines* (ET+TT, PPR, FMD). Z1/Z2/Z3 sit underneath one of them.
+
+- If all three are interchangeable ET+TT preparations, they belong in **inventory** — as lots
+  selected by the operator through the existing FEFO lot picker — and must **not** become three
+  rows in the plan. Three rows with an identical schedule would triple the obligations for one
+  clinical event.
+- If Z3 is genuinely a separate product given *in addition to* ET+TT rather than instead of it,
+  it needs its own vaccine row, its own `compatibility_group`, and its own priority.
+
+Aryaman's wording ("z3 is diff product", but same properties, and all givable together) does not
+settle which. It reads closer to the second, which is the more expensive answer.
+
+**2. "All with ET+TT can be given simultaneously" conflicts with a published safety rule.**
+
+The authoring UI states, read-only: *"Max 2 vaccines per animal per doctor visit."* Enforced as
+`max_vaccines_per_combo_session: 2` in `rule_dsl.compatibility_policy` and validated at publish
+(`protocol/app/publish.go` rejects a `procurement_policy` wave exceeding the cap).
+
+ET+TT + Z1 + Z3 in one visit is three. Either:
+
+- they count as one vaccine for the cap (same family / same `compatibility_group`), in which case
+  the cap logic needs an explicit same-family exemption; or
+- the cap is correct and the vet's "simultaneously" is describing something the system will
+  refuse.
+
+This must be resolved before any of Z1/Z2/Z3 is entered as a vaccine row, not after.
+
+### Status
+
+Open. No config change has been made for Z1/Z2/Z3. The vaccine matrix above is unchanged.
