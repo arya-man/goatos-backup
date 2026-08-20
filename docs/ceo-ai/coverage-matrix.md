@@ -1208,3 +1208,29 @@ sales questions through these read APIs or not at all.
 | Surface | Decision | Reason |
 | --- | --- | --- |
 | `func:NewValidatorWithPool` (`backend/internal/feeddirection/adapters/proof/validator.go`) | EXCLUDED | A second constructor for the existing `feeddirection` proof `Validator`, added so the wiring layer can hand it a `*pgxpool.Pool` alongside the existing `proofports.Repository`. It introduces no new table, event, state, or read path — `Validator` still only calls `repo.GetProofsByIDs` and compares fields already on `proof_artifacts`, exactly like `NewValidator`. The pool field exists for a follow-up direct-query capability inside this same struct, not a new reporting surface today; when that follow-up lands and actually queries through the pool, it needs its own coverage decision. |
+
+## Newborn K0 pen placement: excluded rule + write-path helpers (2026-08-20)
+
+`docs/decisions/newborn-k0-pen-placement.md` makes a newborn resolve to its
+park's KID PEN — a pen whose authored tag is `K0` — instead of accepting any pen
+the operator picked. Everything it adds is a PLACEMENT RULE and its write path.
+No new table, event, state, aggregate, or read fact exists: a birth still creates
+exactly the `goats` / `goat_births` rows it created before, and the Record shed
+fallback step reuses the already-registered `goat.location.changed` producer via
+`identity.RelocateGoatsToShedInTx`, which the shifting approval path already
+emits and which existing consumers already read.
+
+Leadership birth/mortality answers stay on the governed Counts aggregates
+(`ceo_ai.counts_movement_daily`), exactly as the `table:goat_births` exclusion
+records, and per-pen location answers stay excluded exactly as the partition
+primitives row records. If leadership later asks a placement-quality question
+("how many kids were recorded outside a kid pen last month"), that becomes a real
+coverage row against a new aggregate — not these helpers.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| `func:IsNewbornPen`, `func:NewbornPenStage` (`protocol/domain`) | EXCLUDED | A stage-vocabulary predicate, the exact sibling of the already-excluded `func:IsClinicalStage` in this matrix: it answers whether a stage code names the newborn cohort so a birth can refuse a pen tagged for another cohort. It reads no data and derives no fact; it exists in `protocol/domain` only so Counts and Tasks share ONE implementation instead of copying the comparison. |
+| `func:ResolveBirthPlacement`, `func:AllowsPen` (`counts/domain`) | EXCLUDED | The placement rule itself, pure over rows the caller already holds. `ResolveBirthPlacement` partitions ONE park's existing destination-catalog rows into "kid pens" plus a mode and a farm-worded notice; `AllowsPen` is the write-side twin that refuses a pen the form would not have offered. Both operate on `GET /app/counts/shifting/destinations`, already EXCLUDED in this matrix as an operator picker, and they add no row, no quantity, and no execution state to it — only which of its existing options a BIRTH may name. |
+| `func:ParseRecordedPenAnswer`, `func:FormatRecordedPenAnswer` (`tasks/domain`) | EXCLUDED | The `"<shed_id>\|<partition_label>"` encoding of the Record shed step's stored answer, and its inverse. Pure string handling over a value the operator selected from the same excluded picker; it reports nothing and reads nothing. Same class as the other workflow-action answer helpers already excluded with the Birth/Death row-level detail. |
+| `func:TemplateBirthKidAt`, `func:TemplateByKeyAt` (`tasks/domain`) | EXCLUDED | Existing birth-template constructors, unchanged in kind: they gain one parameter that adds the Record shed step to the kid track when the kid is not already in a kid pen. The kid track is the per-animal OPERATOR work list whose rows are already excluded above (`GET /workflows/{row_id}`, and the colostrum day lens for the same reason); one more step on it introduces no new leadership fact. |
+| `func:WithIdentityTxWriter` (`tasks/adapters/postgres`) | EXCLUDED | Dependency-injection seam, the exact twin of the identically-named `counts/adapters/postgres` injector this matrix already carries: it hands the tasks repository identity's transaction-scoped relocation writer so the Record shed placement commits with the action row. Wiring only — no table, event, read path, or fact. |
