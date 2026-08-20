@@ -2,8 +2,12 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -50,7 +54,7 @@ func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs [
 
 	const q = `
 WITH scoped AS (
-  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id,
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, c.park_id,
          COALESCE(cs.partition_label, '') AS partition_label,
          cs.weighing_category
   FROM weighing_campaign_sheds cs
@@ -178,12 +182,40 @@ SELECT t.load_ref,
          / NULLIF(sum(sl.animals) FILTER (WHERE sg.g_per_day IS NOT NULL), 0),
        COALESCE(max(sg.span_days), 0),
        (SELECT count(*) FROM shed_latest sl2
-         WHERE NOT EXISTS (SELECT 1 FROM tag t2 WHERE t2.location_id = sl2.location_id))::int
+         WHERE NOT EXISTS (SELECT 1 FROM tag t2 WHERE t2.location_id = sl2.location_id))::int,
+       -- WHERE the load's weighed animals are. Aggregated over the SAME joined rows
+       -- the figures above blend, so sum(animals) here equals column 4 and the entry
+       -- count equals column 3 by construction rather than by a second query that
+       -- could drift from it.
+       COALESCE(jsonb_agg(jsonb_build_object(
+         'park_name', COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
+         'shed_display_name', COALESCE(sh.name, ''),
+         'partition_label', sl.partition_label,
+         'animals', sl.animals
+       ) ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
+                  COALESCE(sh.name, ''), sl.partition_label), '[]'::jsonb)
 FROM tag t
 JOIN shed_latest sl ON sl.location_id = t.location_id
 LEFT JOIN shed_gain sg
   ON sg.location_id = sl.location_id
  AND sg.partition_label = sl.partition_label
+-- Both joins are 0..1 per tagged shed: shed_park GROUPs on location_id, and the two
+-- locations joins are on that table's primary key. Neither widens the key set the
+-- ratios above range over.
+LEFT JOIN LATERAL (
+  -- The park this shed belongs to, from the CAMPAIGN that scoped it -- the same
+  -- authority $2 already filters on, rather than locations.parent_location_id, which is
+  -- not guaranteed to be a park row.
+  --
+  -- A LATERAL rather than a CTE deliberately: the aggregate makes it EXACTLY ONE row per
+  -- tagged shed, so it cannot widen the key set the ratios above range over, and it keeps
+  -- this query under the CTE count at which a read stops being reviewable.
+  SELECT min(s2.park_id::text)::uuid AS park_id
+  FROM scoped s2
+  WHERE s2.location_id = t.location_id
+) sp ON TRUE
+LEFT JOIN locations sh ON sh.location_id = t.location_id AND sh.tenant_id = $1::uuid
+LEFT JOIN locations pk ON pk.location_id = sp.park_id AND pk.tenant_id = $1::uuid
 GROUP BY t.load_ref, t.owner_name
 ORDER BY 6 DESC NULLS LAST, t.load_ref`
 
@@ -196,13 +228,14 @@ ORDER BY 6 DESC NULLS LAST, t.load_ref`
 	var unattributed int
 	for rows.Next() {
 		var (
-			bucket   domain.LoadGainBucket
-			avgKg    *float64
-			gain     *float64
-			spanDays int
+			bucket     domain.LoadGainBucket
+			avgKg      *float64
+			gain       *float64
+			spanDays   int
+			placements []byte
 		)
 		if err := rows.Scan(&bucket.LoadRef, &bucket.OwnerName, &bucket.Sheds, &bucket.Animals,
-			&avgKg, &gain, &spanDays, &unattributed); err != nil {
+			&avgKg, &gain, &spanDays, &unattributed, &placements); err != nil {
 			return nil, 0, err
 		}
 		if avgKg != nil {
@@ -211,6 +244,10 @@ ORDER BY 6 DESC NULLS LAST, t.load_ref`
 		bucket.GainGPerDay = gain
 		if gain != nil {
 			bucket.GainSpanDays = spanDays
+		}
+		var err error
+		if bucket.Placements, err = decodeLoadPlacements(placements); err != nil {
+			return nil, 0, err
 		}
 		out = append(out, bucket)
 	}
@@ -241,4 +278,72 @@ WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> '
 		}
 	}
 	return out, unattributed, nil
+}
+
+// decodeLoadPlacements turns the query's jsonb placement array into the domain rows,
+// composing each operational-location display through oploc rather than in SQL.
+//
+// The doubling guard mirrors shed_weights.go and growth.go: a partitioned weighing
+// bucket is routinely NAMED for the pen it covers, and locations rows carry the same
+// legacy shapes ("Castro 1", "Godel 2 - Part 2"), so handing an already-partitioned
+// name to oploc -- which APPENDS the partition to a SHED name -- produced "Castro 2 2"
+// and "Godel 2 - Part 2 - Part 2" on the sibling surfaces.
+func decodeLoadPlacements(raw []byte) ([]domain.LoadPlacement, error) {
+	out := []domain.LoadPlacement{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("weighing: decode load placements: %w", err)
+	}
+	for i := range out {
+		p := &out[i]
+		if p.PartitionLabel != "" && strings.HasSuffix(p.ShedDisplayName, p.PartitionLabel) {
+			p.OperationalLocationDisplay = p.ShedDisplayName
+			continue
+		}
+		p.OperationalLocationDisplay = (oploc.OperationalLocation{
+			ShedName:       p.ShedDisplayName,
+			PartitionLabel: p.PartitionLabel,
+		}).Display()
+	}
+	return mergeSameOperationalLocation(out), nil
+}
+
+// mergeSameOperationalLocation collapses placement rows that are the SAME PEN, summing
+// their head counts.
+//
+// WHY THIS IS NEEDED, and why it is not the banned name-keying. The farm's pens exist
+// twice in `locations`: the canonical shed plus a legacy row literally named for the pen
+// ("Castro 1"). A load tagged to the legacy row is weighed under buckets whose own
+// partition_label is sometimes blank and sometimes the pen number, and BOTH compose --
+// correctly, through the doubling guard -- to the same display. The chart therefore
+// rendered "Castro 1 · 63" and "Castro 1 · 31" side by side: one pen, shown twice, as if
+// the load sat in two places.
+//
+// Merging is the honest fix rather than dropping the alias row. Both rows are real
+// measured buckets and both are already inside the load's blended average and its animal
+// total, so suppressing one would leave the placements no longer summing to `animals` --
+// breaking the exact reconciliation this list is trusted for. Summing keeps
+// 63 + 31 = 94 visible against a single "Castro 1".
+//
+// The key is (park, composed display) and NOT the shed name: that is the whole point --
+// two rows only merge when they resolve to the same OPERATIONAL LOCATION, which is the
+// canonical identity the convention defines. Two genuinely different pens compose to
+// different displays and never merge, and two parks that both own a "Castro" stay apart
+// because the park is in the key.
+func mergeSameOperationalLocation(in []domain.LoadPlacement) []domain.LoadPlacement {
+	type key struct{ park, display string }
+	index := make(map[key]int, len(in))
+	out := make([]domain.LoadPlacement, 0, len(in))
+	for _, p := range in {
+		k := key{park: p.ParkName, display: p.OperationalLocationDisplay}
+		if at, ok := index[k]; ok {
+			out[at].Animals += p.Animals
+			continue
+		}
+		index[k] = len(out)
+		out = append(out, p)
+	}
+	return out
 }

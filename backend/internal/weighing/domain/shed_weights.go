@@ -156,6 +156,37 @@ type LoadGainBucket struct {
 	// GainSpanDays is the widest span any contributing shed was measured over, so a
 	// figure drawn from two days can be discounted on sight rather than hidden.
 	GainSpanDays int `json:"gain_span_days,omitempty"`
+	// Placements names WHERE this load's weighed animals actually are: one entry per
+	// contributing operational shed row, park included. Without it the chart reports
+	// that a supplier's stock grew without saying which park or shed grew it, and a
+	// reader cannot walk from the load bar to the shed table below.
+	//
+	// It is the SAME key set the figures above are computed over -- the rows of
+	// shed_latest that carry this load's tag -- so sum(Placements.Animals) equals
+	// Animals and len(Placements) equals Sheds. Ordered park, then shed.
+	Placements []LoadPlacement `json:"placements"`
+}
+
+// LoadPlacement is ONE operational shed a load's weighed animals sit in.
+//
+// GRAIN: one row per (location_id, partition_label) measured row behind the load,
+// which is the grain the load's own averages blend. The load TAG itself is
+// authored at physical-shed grain (weighing_shed_load_tags keys on location_id),
+// so a partition shown here says where the weighed animals are, never that the
+// tag was authored per pen.
+type LoadPlacement struct {
+	// ParkName is the park's SHORT CODE (CBE, CPT) when it has one, falling back to
+	// its full name -- the same rule ShedWeightsRow.ParkName follows, so the two
+	// surfaces cannot disagree about what a park is called.
+	ParkName string `json:"park_name"`
+	// ShedDisplayName comes from locations.name, never from the weighing bucket's
+	// own display_name: that column is free text typed at planning time.
+	ShedDisplayName            string `json:"shed_display_name"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// Animals is this shed row's head count at its LATEST weigh -- the same figure
+	// that weights it inside the load's blended average.
+	Animals int `json:"animals"`
 }
 
 // ShedWeights is the full response.

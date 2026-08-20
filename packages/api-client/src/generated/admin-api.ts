@@ -965,6 +965,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/sale-locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Park/shed/pen vocabulary for the sale animal picker.
+         * @description The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's pens exist twice in the location register (canonical shed plus its pen catalog, and old rows literally named "Castro 1"), and the alias rows hold no animals and no pens, so offering them gave an operator a choice that could only return an empty list. Sheds that can yield no candidate at all are likewise omitted.
+         */
+        get: operations["listSaleLocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List animals of a park/shed/pen as sale candidates, each already judged against the sale blockers.
+         * @description The animal picker behind "Tag animals to sale". Every row carries the backend's verdict: `sellable` plus, when false, a `blocker` code and a farm-worded `blocked_reason`. Blocked animals are RETURNED rather than hidden -- a person who can see the animal in the pen but not in the list assumes the system is broken, whereas "In quarantine" answers the question. Keyset paged by goat_id.
+         */
+        get: operations["listSaleCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-allocations/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review the picked animals for a sale, shed-wise, without changing anything.
+         * @description The review step. Returns the picked animals grouped by operational shed -- the gather list a person walks the farm with -- plus every refused animal with its reason. MUTATES NOTHING. The confirm re-runs this judgement and never trusts this response, because an animal can be quarantined between the two calls.
+         */
+        post: operations["previewSaleAllocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-allocations/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tag the picked animals to the sale and mark them sold.
+         * @description Records which animals the sale is made of AND exits each one as sold, in one transaction, through the canonical per-goat exit -- so each animal gets its goat.exited event, decision record and audit row, and its open vaccination obligations are cancelled.
+         *
+         *     FAIL-CLOSED AND ALL-OR-NOTHING. If any named animal is refused by the sale blockers (quarantine, ICU, sick, under treatment, milk-drinking kid, unexpired medicine withdrawal, already exited, already tagged to another sale) the whole confirmation is rejected with `animals_blocked` and NOTHING is written. There is deliberately no override field: an override would put a contagious or residue-carrying animal on a buyer's truck on one person's say-so.
+         */
+        post: operations["confirmSaleAllocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-allocations/{sales_deal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read back the animals one recorded sale is made of, shed-wise.
+         * @description The sales ledger stores no goat_id (the sales module reads no herd table), so the deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT taken when the animal was tagged, not the goat's present location -- a sold animal's row keeps moving and would make an old sale re-describe itself.
+         */
+        get: operations["getSaleAllocation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/manual-campaigns": {
         parameters: {
             query?: never;
@@ -3434,6 +3536,108 @@ export interface components {
         ProcurementHealthState: "pending" | "passed" | "failed" | "deferred";
         /** @enum {unknown} */
         ProcurementArrivalState: "matched" | "missing" | "extra_unresolved" | "health_flag" | "weight_flag" | "accepted" | "rejected" | "deferred" | "blocked";
+        SaleLocationCatalog: {
+            parks: components["schemas"]["SaleLocationPark"][];
+            /** @description Selectable operational locations, PEN-WISE: a pen where the shed is subdivided, the shed itself where it is not. A subdivided shed never offers its bare parent -- "active shed" means active operational location, and a parent-only dropdown forces the operator to guess which pen was meant. */
+            locations: components["schemas"]["SaleLocationEntry"][];
+        };
+        SaleLocationPark: {
+            /** Format: uuid */
+            park_id: string;
+            /** @description Park short code (CBE, CPT) when it has one, else the full name. */
+            label: string;
+        };
+        SaleLocationEntry: {
+            /** Format: uuid */
+            shed_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** @description HUMAN pen label ('1', 'Part 3'), never the normalized matching key. Absent for an undivided shed. */
+            partition_label?: string;
+            /** @description Composed operational display, rendered verbatim: a numeric pen joins with a space ("Castro 1"), a worded one with a dash ("Godel 1 - Part 3"). */
+            operational_location_display: string;
+        };
+        /** @description One animal as the sale picker shows it: identity, where it stands, and the backend's verdict on whether it may be sold. */
+        SaleCandidate: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id?: string;
+            /** @description The identifier a person reads off the animal -- active RFID first, then a visible tag. */
+            tag_number?: string;
+            /** Format: uuid */
+            park_id?: string;
+            /** @description Park short code (CBE, CPT) when it has one, else the full name. */
+            park_name?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_name?: string;
+            /** @description Human pen label ('Part 3'), absent for an undivided shed. Never the normalized matching key. */
+            partition_label?: string;
+            /** @description Backend-composed park-local shed label; clients render it verbatim. */
+            operational_location_display: string;
+            breed?: string;
+            sex?: string;
+            /** @description Captured when the picker listed the animal and echoed back on confirm, which is what makes the write no-clobber: an animal whose version has since moved is refused rather than overwritten. */
+            row_version: number;
+            sellable: boolean;
+            /**
+             * @description Machine code for WHICH rule refused the animal. Absent when sellable.
+             * @enum {string}
+             */
+            blocker?: "clinical_state" | "milk_drinking_kid" | "medicine_withdrawal" | "already_exited" | "already_tagged";
+            /** @description Farm-worded sentence explaining the refusal ("In quarantine", "Medicine withdrawal until 2026-08-24"). Rendered VERBATIM; clients must not compose their own sentence from `blocker`. */
+            blocked_reason?: string;
+        };
+        SaleCandidateListResponse: {
+            candidates: components["schemas"]["SaleCandidate"][];
+            /** @description Keyset cursor for the next page. Absent on the last page. */
+            next_cursor?: string;
+        };
+        /** @description The sale and the picked animals. Unknown fields are REJECTED, so a client that sends an override flag is told rather than having it silently discarded. */
+        SaleAllocationRequest: {
+            /**
+             * Format: uuid
+             * @description The sales ledger deal these animals belong to.
+             */
+            sales_deal_id: string;
+            /** @description The picked animals. Duplicates collapse to one. The cap keeps one confirmation a bounded transactional write and fits the canonical per-goat exit inside the hot-API latency budget; a larger sale is split into two confirmations, each atomic on its own. */
+            goat_ids: string[];
+            reason?: string;
+        };
+        /** @description The picked animals of ONE operational shed -- the gather list, in the order a person walks the farm. */
+        SaleAllocationShedGroup: {
+            park_name?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_name?: string;
+            partition_label?: string;
+            operational_location_display: string;
+            animals: number;
+            tag_numbers: string[];
+        };
+        /** @description The review step's result. `sellable` and `blocked` are DISJOINT and together cover every named animal, so a client can render "12 ready, 2 blocked" without a third overlapping count. */
+        SaleAllocationPreviewResponse: {
+            /** Format: uuid */
+            sales_deal_id: string;
+            /** @description How many animals the SALE is for. The mapping must hit this exactly -- a sale cannot be tagged half now and half later. */
+            declared_animal_count: number;
+            /** @description How many of them are already tagged to this sale. */
+            already_tagged: number;
+            /** @description Whether the current selection exactly fills what is still to be mapped, with nothing blocked. Clients offer Confirm only when true; the server enforces the same rule regardless. */
+            complete: boolean;
+            sellable: number;
+            blocked: number;
+            /** @description Covers the SELLABLE animals only -- an animal that will not be sold does not belong on the gather list. */
+            shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
+            blocked_animals: components["schemas"]["SaleCandidate"][];
+        };
+        SaleAllocationConfirmResponse: {
+            /** Format: uuid */
+            sales_deal_id: string;
+            /** @description How many animals this sale is now made of. */
+            allocated: number;
+            shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
+        };
         BulkStatusPreviewRequest: {
             /**
              * @description Status dimension being bulk-updated.
@@ -5851,6 +6055,147 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSaleLocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The picker vocabulary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleLocationCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSaleCandidates: {
+        parameters: {
+            query: {
+                park_id: string;
+                shed_id?: string;
+                /** @description Repeatable. Several pens of one shed may be requested at once, because a sale routinely takes animals from more than one. Matched on the catalog's normalized key, so '3' and 'Part 3' mean the same pen. Omit for every pen of the shed. */
+                partition_label?: string[];
+                /** @description Filter by identifier or display id prefix, so one animal in hand can be found without scrolling. */
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A keyset page of judged sale candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleCandidateListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    previewSaleAllocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaleAllocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Review completed; no state changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleAllocationPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    confirmSaleAllocation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaleAllocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Animals tagged to the sale and marked sold, or an exact replay of the same confirmation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleAllocationConfirmResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSaleAllocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sales_deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The animals tagged to this sale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleAllocationConfirmResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

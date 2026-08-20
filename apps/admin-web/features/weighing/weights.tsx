@@ -341,6 +341,7 @@ export async function WeighingWeightsPage({
 
   const shedColumns = tableLabels(pageContract, "shed-weights");
   const losingColumns = tableLabels(pageContract, "losing-kids");
+  const placementColumns = tableLabels(pageContract, "load-placements");
 
   const demo = demographics.ok ? demographics.data : null;
   const compositionByShed = new Map(
@@ -521,6 +522,32 @@ export async function WeighingWeightsPage({
       label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
       value: Math.round(load.gain_g_per_day as number),
     }));
+
+  // WHERE each load sits. Ordered by head count so the biggest placement reads first —
+  // the load chart's own order changes with the metric toggle, and a table that
+  // reshuffled underneath it would be harder to read, not easier.
+  //
+  // The park chips are the DISTINCT parks across the load's sheds: a load bought once
+  // and split across two parks is a real shape, and naming only the first would be a
+  // quiet lie. Shed labels are the backend-composed operational display, rendered
+  // verbatim.
+  const loadPlacementRows = byLoad
+    .filter((load) => (load.placements ?? []).length > 0)
+    .map((load) => {
+      const placements = load.placements ?? [];
+      return {
+        key: load.load_ref,
+        loadRef: load.load_ref,
+        ownerName: load.owner_name ?? "",
+        parks: [...new Set(placements.map((p) => p.park_name).filter(Boolean))],
+        sheds: placements.map((p) => ({
+          key: `${p.park_name}|${p.operational_location_display}`,
+          label: `${p.operational_location_display} · ${p.animals.toLocaleString("en-IN")}`,
+        })),
+        animals: load.animals,
+      };
+    })
+    .sort((a, b) => b.animals - a.animals);
 
   return (
     <div className="weights-page">
@@ -733,6 +760,57 @@ export async function WeighingWeightsPage({
           </p>
         ) : null}
       </div>
+
+      {/* Row 3b — WHERE each load sits. The chart above says a supplier's stock is
+          growing; without this a reader cannot tell which park or shed grew it, and
+          cannot walk from a load bar down to the shed table.
+
+          Every row is rendered from the backend's own placement entries — the park
+          name, the shed label and the head count all arrive composed, so this never
+          re-derives an operational location client-side (AGENTS.md rule 5). The load
+          list is bounded by the authored tag estate, so it is not paged. */}
+      <section className="card wtable" aria-label={copy(pageContract, "section.load_placements.aria")}>
+        <h2 className="h">
+          <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_placements.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "section.load_placements.caption")}</p>
+        {loadPlacementRows.length === 0 ? (
+          <div className="empty">
+            <span className="muted small">{copy(pageContract, "empty.load_placements.body")}</span>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {placementColumns.map((label) => (
+                    <th key={label}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loadPlacementRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <b>{row.loadRef}</b>
+                      {row.ownerName ? <div className="muted small">{row.ownerName}</div> : null}
+                    </td>
+                    <td>{row.parks.join(", ")}</td>
+                    <td>
+                      {row.sheds.map((shed) => (
+                        <Tag key={shed.key} tone="mut">
+                          {shed.label}
+                        </Tag>
+                      ))}
+                    </td>
+                    <td>{row.animals.toLocaleString("en-IN")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {demo ? (
         <p className="muted small">

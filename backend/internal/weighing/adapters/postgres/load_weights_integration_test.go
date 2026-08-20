@@ -361,3 +361,178 @@ func TestLoadWeightsGainPartitionOneToManyPageBoundaryParkScopeStatusMatrix(t *t
 	}
 	t.Fatal("expected the partitioned load to appear")
 }
+
+// PLACEMENTS: the load chart says a supplier's stock is growing; this proves the response
+// also says WHERE, and that the two cannot drift apart.
+//
+// The reconciliation assertions are the point. Placements are aggregated over the SAME
+// joined rows the blended figures range over, so len(Placements) must equal Sheds and
+// sum(Placements.Animals) must equal Animals BY CONSTRUCTION. A second query, or a join
+// that fanned the key set out, would break exactly these two equalities while every
+// weight and gain on the row still looked plausible.
+//
+// It also pins the partition case at both grains: two measured pens of ONE tagged shed
+// are TWO placement rows (the tag is authored per physical shed, but the head counts are
+// per pen and a merged row could not be reconciled against the shed table), and the
+// display must not double a partition that the shed name already carries.
+func TestLoadPlacementsNameParkAndShedAndReconcileWithTheLoadTotals(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Two measured pens of the ONE tagged shed (baseline location Q1, park CBE).
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoPerShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoPerShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 12,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 8,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadTag(t, ctx, pool, repoPerShed, "L-WHERE", "Placement Supplier")
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+
+	for _, load := range out.ByLoad {
+		if load.LoadRef != "L-WHERE" {
+			continue
+		}
+		if len(load.Placements) != load.Sheds {
+			t.Fatalf("placements must cover every contributing shed row: %d placement(s) vs sheds=%d",
+				len(load.Placements), load.Sheds)
+		}
+		total := 0
+		for _, p := range load.Placements {
+			if p.ParkName != "CBE" {
+				t.Fatalf("placement park must be the park SHORT CODE, got %q", p.ParkName)
+			}
+			if p.ShedDisplayName != "Q1" {
+				t.Fatalf("placement shed must come from locations.name, got %q", p.ShedDisplayName)
+			}
+			// Q1 does not end in its partition label, so the label is appended once.
+			want := "Q1 - " + p.PartitionLabel
+			if p.OperationalLocationDisplay != want {
+				t.Fatalf("placement display = %q, want %q", p.OperationalLocationDisplay, want)
+			}
+			total += p.Animals
+		}
+		if total != load.Animals {
+			t.Fatalf("placement head counts must sum to the load's own animal total: %d vs %d",
+				total, load.Animals)
+		}
+		if total != 20 {
+			t.Fatalf("seeded 12 + 8 head, got %d", total)
+		}
+		return
+	}
+	t.Fatal("expected the tagged load to carry placements")
+}
+
+// The DOUBLING GUARD, which is the defect this composition shipped twice on sibling
+// surfaces: a partitioned location is routinely NAMED for the pen it covers
+// ("Gandhi 1 - Part 1"), so appending the partition again renders
+// "Gandhi 1 - Part 1 - Part 1" to a reader.
+func TestLoadPlacementDisplayDoesNotDoubleAPartitionTheShedNameCarries(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	repo := NewRepository(pool, 5*time.Second)
+
+	// repoExpectedShed is named "Gandhi 1 - Part 1" in the baseline locations register.
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoExpectedShed, "Part 1", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 21.0, 9,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadTag(t, ctx, pool, repoExpectedShed, "L-DOUBLE", "Gandhi Supplier")
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, load := range out.ByLoad {
+		if load.LoadRef != "L-DOUBLE" {
+			continue
+		}
+		if len(load.Placements) != 1 {
+			t.Fatalf("want one placement, got %d", len(load.Placements))
+		}
+		if got := load.Placements[0].OperationalLocationDisplay; got != "Gandhi 1 - Part 1" {
+			t.Fatalf("placement display = %q, want %q (the partition must not be appended twice)",
+				got, "Gandhi 1 - Part 1")
+		}
+		return
+	}
+	t.Fatal("expected the tagged load to appear")
+}
+
+// ONE PEN, SHOWN ONCE. The farm's pens exist twice in `locations` -- the canonical shed
+// plus a legacy row named for the pen ("Castro 1") -- and buckets against the legacy row
+// carry a partition label sometimes and not others. Both compose to the same display, so
+// the placement list rendered the same pen twice with its head count split across the two
+// chips ("Castro 1 · 63" beside "Castro 1 · 31"), reading as a load sitting in two places.
+//
+// Found by opening the page, not by a unit test. The merged row must keep the counts, so
+// the placements still sum to the load's own animal total.
+func TestOnePenIsListedOnceWithItsHeadCountsSummed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	repo := NewRepository(pool, 5*time.Second)
+
+	// The SAME location weighed under two different bucket partition labels: blank, and
+	// the pen number that the shed's own name already ends in. Both compose to "Q1"-style
+	// single displays through the doubling guard.
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoPerShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoPerShed, "1", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 63,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 22.0, 31,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadTag(t, ctx, pool, repoPerShed, "L-ONEPEN", "Alias Supplier")
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, load := range out.ByLoad {
+		if load.LoadRef != "L-ONEPEN" {
+			continue
+		}
+		seen := map[string]int{}
+		total := 0
+		for _, p := range load.Placements {
+			seen[p.OperationalLocationDisplay]++
+			total += p.Animals
+		}
+		for display, times := range seen {
+			if times > 1 {
+				t.Fatalf("%q was listed %d times -- one pen must appear once", display, times)
+			}
+		}
+		// The merge must not lose animals: the placements still reconcile with the load.
+		if total != load.Animals {
+			t.Fatalf("merged placements sum to %d but the load carries %d animals", total, load.Animals)
+		}
+		if total != 94 {
+			t.Fatalf("seeded 63 + 31 head, got %d", total)
+		}
+		return
+	}
+	t.Fatal("expected the tagged load to appear")
+}

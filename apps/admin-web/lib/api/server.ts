@@ -3625,3 +3625,112 @@ export async function postVerificationReviewEvents(
     }),
   );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Sale allocation: which real animals a recorded sale is made of.
+//
+// These are ADMIN-api routes, not sales routes, and deliberately so: they read and write HERD
+// IDENTITY. The sales module stores no goat_id (migration 000177 keeps that lock), so the Sales
+// page reaches the mapping through identity rather than through its own schema.
+// ---------------------------------------------------------------------------------------------
+
+export type SaleCandidate = AdminApiComponents["schemas"]["SaleCandidate"];
+export type SaleCandidateListResponse = AdminApiComponents["schemas"]["SaleCandidateListResponse"];
+export type SaleAllocationRequest = AdminApiComponents["schemas"]["SaleAllocationRequest"];
+export type SaleAllocationPreviewResponse = AdminApiComponents["schemas"]["SaleAllocationPreviewResponse"];
+export type SaleAllocationConfirmResponse = AdminApiComponents["schemas"]["SaleAllocationConfirmResponse"];
+export type SaleAllocationShedGroup = AdminApiComponents["schemas"]["SaleAllocationShedGroup"];
+
+/**
+ * The animal picker: one keyset page of a park/shed/pen, each row already carrying the backend's
+ * sellable verdict and, when refused, its farm-worded reason.
+ *
+ * Blocked animals come back in the list rather than being filtered out — the page renders them
+ * unselectable with the reason attached, because a person who can see the animal in the pen but
+ * not on screen assumes the system is broken.
+ */
+export async function listSaleCandidates(params: {
+  park_id: string;
+  shed_id?: string;
+  partition_label?: string[];
+  q?: string;
+  limit?: number;
+  cursor?: string;
+}): Promise<ApiResult<SaleCandidateListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const query = new URLSearchParams();
+  query.set("park_id", params.park_id);
+  if (params.shed_id) query.set("shed_id", params.shed_id);
+  // Repeated, not comma-joined: a pen label can legitimately contain a comma-free but spaced
+  // form ("Part 3"), and the contract declares this parameter as repeatable.
+  for (const label of params.partition_label ?? []) query.append("partition_label", label);
+  if (params.q) query.set("q", params.q);
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.cursor) query.set("cursor", params.cursor);
+  const path = `/admin/goats/sale-candidates?${query.toString()}` as keyof AdminApiPaths & string;
+  return request(() => client.request<SaleCandidateListResponse>(path, { cache: "no-store" }));
+}
+
+/** The review step. Mutates nothing; the confirm re-judges and never trusts this response. */
+export async function previewSaleAllocation(
+  body: SaleAllocationRequest,
+): Promise<ApiResult<SaleAllocationPreviewResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = "/admin/goats/sale-allocations/preview" as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SaleAllocationPreviewResponse>(path, { method: "POST", cache: "no-store", body }),
+  );
+}
+
+/** Tag the picked animals to the sale and mark them sold. Fail-closed and all-or-nothing. */
+export async function confirmSaleAllocation(
+  body: SaleAllocationRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<SaleAllocationConfirmResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = "/admin/goats/sale-allocations/confirm" as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SaleAllocationConfirmResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
+/** Read back the animals one recorded sale is made of, shed-wise. */
+export async function getSaleAllocation(
+  salesDealId: string,
+): Promise<ApiResult<SaleAllocationConfirmResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/goats/sale-allocations/${encodeURIComponent(salesDealId)}` as keyof AdminApiPaths &
+    string;
+  return request(() => client.request<SaleAllocationConfirmResponse>(path, { cache: "no-store" }));
+}
+
+export type SaleLocationCatalog = AdminApiComponents["schemas"]["SaleLocationCatalog"];
+
+/**
+ * The sale picker's park/shed/pen vocabulary, legacy partition-alias shed rows already
+ * excluded by the backend.
+ *
+ * Deliberately NOT the generic locations list: that returns every active `location_type='shed'`
+ * row, which on this tenant includes old rows literally named "Castro 1" holding zero animals
+ * and zero pens. Picking one returned an empty list and read as a broken screen.
+ */
+export async function listSaleLocations(): Promise<ApiResult<SaleLocationCatalog>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = "/admin/goats/sale-locations" as keyof AdminApiPaths & string;
+  return request(() => client.request<SaleLocationCatalog>(path, { cache: "no-store" }));
+}
