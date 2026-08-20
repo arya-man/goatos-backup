@@ -14,27 +14,24 @@
  *   - no dead text: a card with nothing to say does not render
  */
 
+import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
 import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
-import {
-  describeFirstDoses,
-  describeRepeats,
-  groupSchedule,
-  type PlanCatalogEntry,
-} from "./plan-model";
+import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
 import { VersionSheet, type VersionSheetData } from "./version-sheet";
 
 type Props = {
   versions: ProtocolConfigItem[];
-  catalog: PlanCatalogEntry[];
+  catalog: VaccineGroup[];
   changeNotes: Record<string, string>;
   loadError: string | null;
 };
 
 export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadError }: Props) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<VersionSheetData | null>(null);
@@ -56,6 +53,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
     startTransition(async () => {
       const result = await discardDraft(draftVersionId);
       if (!result.ok) setError(result.error);
+      router.refresh();
     });
   }
 
@@ -64,6 +62,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
     startTransition(async () => {
       const result = await startNewVersion();
       if (!result.ok) setError(result.error);
+      router.refresh();
     });
   }
 
@@ -82,7 +81,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
       label: version.version_label || `V${version.version}`,
       inForce: `${formatDate(version.effective_from)} – ${formatDate(version.effective_to)}`,
       published: formatDate(version.published_at),
-      vaccines: groupSchedule(result.ruleDsl),
+      vaccines: readVaccines(result.ruleDsl),
     });
   }, []);
 

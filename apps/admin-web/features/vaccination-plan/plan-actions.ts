@@ -18,6 +18,9 @@
 import { revalidatePath } from "next/cache";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
+
+import type { EditorPlan } from "./editor-model";
+import { toRuleDsl } from "./editor-model";
 import {
   createProtocolVersion,
   discardProtocolVersion,
@@ -92,12 +95,19 @@ export async function startNewVersion(): Promise<PlanActionResult> {
  * the plan is one coherent bundle and cross-vaccine safety rules must never see a
  * half-applied state.
  */
+/**
+ * Save the draft.
+ *
+ * A draft version's rules cannot be updated in place -- protocol_rules may only
+ * be attached while a version is a draft, and the row itself carries a
+ * row_version -- so a save creates the next draft carrying the edited document
+ * and returns its id. The caller must use the RETURNED id afterwards; the one it
+ * held is stale.
+ */
 export async function saveDraftPlan(
-  protocolId: string,
   draftVersionId: string,
-  versionLabel: string,
-  ruleDsl: unknown,
-  proofPolicy: unknown,
+  plan: EditorPlan,
+  originalRuleDsl: unknown,
 ): Promise<PlanActionResult> {
   const existing = await getProtocolVersion(draftVersionId);
   if (!existing.ok) return failure("could not read the draft", existing.error);
@@ -105,16 +115,25 @@ export async function saveDraftPlan(
     return { ok: false, error: "That version is already published and cannot be edited." };
   }
 
-  const saved = await createProtocolVersion(protocolId, {
+  const configs = await listProtocolConfigs(CATEGORY);
+  const label = configs.ok
+    ? configs.data.items?.find((i) => i.protocol_version_id === draftVersionId)?.version_label
+    : undefined;
+
+  const saved = await createProtocolVersion(existing.data.protocol_id, {
     scope_type: existing.data.scope_type ?? "tenant",
     scope_id: existing.data.scope_id || undefined,
-    version_label: versionLabel,
+    version_label: label,
     effective_from: today(),
-    rule_dsl: ruleDsl,
-    proof_policy: proofPolicy,
+    rule_dsl: toRuleDsl(originalRuleDsl, plan),
+    proof_policy: existing.data.proof_policy,
     sop_version_id: existing.data.sop_version_id || undefined,
   });
   if (!saved.ok) return failure("could not save the draft", saved.error);
+
+  // The superseded draft is removed, so the list never shows two drafts for one
+  // edit. Failure here is not fatal: the save itself succeeded.
+  await discardProtocolVersion(draftVersionId);
 
   revalidatePath(PLAN_ROUTE);
   return { ok: true, versionId: saved.data.protocol_version_id };
@@ -189,7 +208,25 @@ export async function readVersionSettings(
  */
 export async function discardDraft(draftVersionId: string): Promise<PlanActionResult> {
   const discarded = await discardProtocolVersion(draftVersionId);
-  if (!discarded.ok) return failure("could not discard the draft", discarded.error);
+  if (!discarded.ok) {
+    // A 404 means the draft is already gone -- discarded in another tab, or the
+    // page was open long enough to go stale. The caller asked for it not to
+    // exist, and it does not exist, so this is the outcome they wanted. Report
+    // success and let the refresh below correct the stale screen.
+    if (isNotFound(discarded.error)) {
+      revalidatePath(PLAN_ROUTE);
+      return { ok: true };
+    }
+    return failure("could not discard the draft", discarded.error);
+  }
   revalidatePath(PLAN_ROUTE);
   return { ok: true };
+}
+
+function isNotFound(detail: unknown): boolean {
+  if (!detail || typeof detail !== "object") return false;
+  const status = (detail as { status?: unknown }).status;
+  if (status === 404) return true;
+  const body = (detail as { body?: { code?: unknown } }).body;
+  return body?.code === "not_found";
 }

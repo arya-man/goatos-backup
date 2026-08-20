@@ -84,12 +84,12 @@ export function VersionSheet({ data, loading, error, onClose }: Props) {
                   </thead>
                   <tbody>
                     {data.vaccines.map((v) => (
-                      <tr key={v.code}>
+                      <tr className={v.inPlan ? undefined : "voff"} key={v.code}>
                         <td>
                           <b>{v.name}</b>
                         </td>
-                        <td>{describeFirstDoses(v.firstDoses)}</td>
-                        <td>{describeRepeats(v.repeats)}</td>
+                        <td>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</td>
+                        <td>{v.inPlan ? describeRepeats(v.repeats) : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -1,5 +1,5 @@
 import { VaccinationPlanConsole } from "@/features/vaccination-plan";
-import { buildCatalog, describeChange, groupSchedule, type VaccineGroup } from "@/features/vaccination-plan/plan-model";
+import { describeChange, readVaccines, type VaccineGroup } from "@/features/vaccination-plan/plan-model";
 import { getProtocolVersion, listProtocolConfigs, requireAdminWebPageContract } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function Page() {
       const doc = await getProtocolVersion(item.protocol_version_id);
       return {
         versionId: item.protocol_version_id,
-        groups: doc.ok ? groupSchedule(doc.data.rule_dsl) : ([] as VaccineGroup[]),
+        groups: doc.ok ? readVaccines(doc.data.rule_dsl) : ([] as VaccineGroup[]),
         loaded: doc.ok,
       };
     }),
@@ -45,12 +45,7 @@ export default async function Page() {
 
   const groupsById = new Map(documents.map((d) => [d.versionId, d]));
   const live = versions.find((item) => item.status === "published");
-  const liveGroups = live ? (groupsById.get(live.protocol_version_id)?.groups ?? []) : [];
-
-  const catalog = buildCatalog(
-    liveGroups,
-    documents.map((d) => d.groups),
-  );
+  const catalog = live ? (groupsById.get(live.protocol_version_id)?.groups ?? []) : [];
 
   // A version's note compares it with the one immediately before it. Only
   // computed where BOTH documents were actually read -- a failed fetch must not
