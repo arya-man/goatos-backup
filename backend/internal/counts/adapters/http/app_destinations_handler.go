@@ -25,6 +25,42 @@ type appShiftingDestinationPark struct {
 	ParkID string                       `json:"park_id"`
 	Name   string                       `json:"name"`
 	Sheds  []appShiftingDestinationShed `json:"sheds"`
+
+	// BirthPlacement is the newborn-placement contract for THIS park (maintainer decision
+	// 2026-08-20): which pens a kid born here may go into, and the farm-worded notice the birth
+	// form shows above them.
+	//
+	// It rides on the destinations response rather than a route of its own because the birth form
+	// already fetches and caches this catalog, and the pens it names are rows of this very catalog
+	// -- a second endpoint would be a second copy of the same bounded configuration, cached
+	// separately and able to disagree with the picker beside it.
+	//
+	// BACKEND OWNS THE MODE AND THE COPY. The phone must not re-derive "how many kid pens does this
+	// park have" by filtering sheds on destination_stage: the mode also governs whether the WRITE
+	// will accept a freely chosen pen, and a client that computed its own answer could offer a pen
+	// the birth would then refuse.
+	BirthPlacement appBirthPlacement `json:"birth_placement"`
+}
+
+// appBirthPlacement is the wire form of domain.BirthPlacementResolution.
+type appBirthPlacement struct {
+	// Mode is "automatic" (exactly one kid pen -- shown read-only, not chosen), "choose" (several
+	// kid pens -- the picker offers only these), or "record_later" (no kid pen configured -- the
+	// operator picks freely and the kid's care steps carry Record shed).
+	Mode string `json:"mode"`
+	// Notice is farm-worded copy rendered VERBATIM above the placement field.
+	Notice string `json:"notice"`
+	// Pens is this park's kid pens, empty in record_later mode and exactly one entry in automatic
+	// mode. Each carries the full operational location so the form never re-derives a display
+	// string from shed_id + partition_label.
+	Pens []appBirthPlacementPen `json:"pens"`
+}
+
+type appBirthPlacementPen struct {
+	ShedID                     string  `json:"shed_id"`
+	ShedName                   string  `json:"shed_name"`
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
 }
 
 type appShiftingDestinationShed struct {
@@ -112,10 +148,27 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 				DestinationStageReason:     stage.Reason,
 			})
 		}
+		// Resolved with the SAME function the birth write validates against, from the SAME catalog
+		// rows, so the pens this form offers are byte-for-byte the pens the write accepts.
+		placement := domain.ResolveBirthPlacement(park.Sheds)
+		pens := make([]appBirthPlacementPen, 0, len(placement.Pens))
+		for _, pen := range placement.Pens {
+			pens = append(pens, appBirthPlacementPen{
+				ShedID:                     pen.ShedID,
+				ShedName:                   pen.ShedName,
+				PartitionLabel:             pen.PartitionLabel,
+				OperationalLocationDisplay: pen.Display,
+			})
+		}
 		parks = append(parks, appShiftingDestinationPark{
 			ParkID: park.ParkID,
 			Name:   park.Name,
 			Sheds:  sheds,
+			BirthPlacement: appBirthPlacement{
+				Mode:   placement.Mode,
+				Notice: placement.Notice,
+				Pens:   pens,
+			},
 		})
 	}
 

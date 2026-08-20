@@ -217,10 +217,28 @@ class AddBirthViewModel @Inject constructor(
     }
 
     /** Choosing a park RESETS the shed — a shed id belongs to exactly one park. */
+    /**
+     * Selecting the park also resolves the newborn's placement.
+     *
+     * A park with exactly ONE kid pen places the kid there automatically — the operator never picks
+     * a shed, because there is only one right answer and asking invites the wrong one. Several kid
+     * pens leave the choice open but narrow the picker to those pens, and a park with none clears
+     * the selection so the operator picks from the full cascade.
+     *
+     * The pen is taken from the backend's own [BirthPlacementUi.pens]; the form does not scan the
+     * shed list for kid pens itself.
+     */
     private fun onSelectPark(parkId: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            if (current.parkId == parkId) current else current.copy(parkId = parkId, shedId = "")
+            if (current.parkId == parkId) return@update current
+            val placement = current.destinationParks.firstOrNull { it.parkId == parkId }?.birthPlacement
+            val automatic = placement?.automaticPen
+            current.copy(
+                parkId = parkId,
+                shedId = automatic?.shedId.orEmpty(),
+                partitionLabel = automatic?.partitionLabel,
+            )
         }
         recomputeSubmitGate()
     }
@@ -234,7 +252,7 @@ class AddBirthViewModel @Inject constructor(
     private fun onSelectShed(optionKey: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            val option = current.shedsForSelectedPark.firstOrNull { it.optionKey == optionKey }
+            val option = current.placementOptions.firstOrNull { it.optionKey == optionKey }
             if (option != null) {
                 current.copy(shedId = option.shedId, partitionLabel = option.partitionLabel)
             } else {
@@ -424,6 +442,7 @@ class AddBirthViewModel @Inject constructor(
         state.litterSize !in 1..3 -> "Choose 1, twins, or triplets."
         // Placement is REQUIRED and chosen from the catalog — a newborn is never recorded into no shed.
         state.parkId.isBlank() -> "Choose the park the newborn is placed in."
+        state.shedId.isBlank() && state.birthPlacement.isChoice -> "Choose the kid pen the newborn goes into."
         state.shedId.isBlank() -> "Choose the shed the newborn is placed in."
         else -> null
     }

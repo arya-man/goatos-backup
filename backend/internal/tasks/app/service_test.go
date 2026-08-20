@@ -41,7 +41,7 @@ func (f *fakeRepo) nextID(prefix string) string {
 }
 
 func (f *fakeRepo) OpenWorkflow(_ context.Context, cmd ports.OpenWorkflowCommand) (bool, error) {
-	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt)
+	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt, false)
 	if !ok {
 		return false, domain.ErrUnknownTemplate
 	}

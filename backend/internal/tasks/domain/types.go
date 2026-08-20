@@ -181,6 +181,16 @@ func ApplyAnswer(a WorkflowAction, cmd AnswerActionCommand) (WorkflowAction, boo
 	if a.ActionKey == ActionKeyTakeWeight && !ValidKidWeightKilograms(answer) {
 		return a, false, ErrInvalidAnswer
 	}
+	// The Record shed answer names an operational location. Only its FORMAT is checked here, in the
+	// pure state machine; whether the pen actually exists is proved against live location rows in
+	// the same transaction as the write (see the postgres adapter). A malformed value is rejected
+	// before the action is marked completed, so a kid is never recorded as placed by a value that
+	// resolves to no pen.
+	if a.ActionKey == ActionKeyRecordShed {
+		if _, _, err := ParseRecordedPenAnswer(answer); err != nil {
+			return a, false, err
+		}
+	}
 	if a.RequiresVideo && cmd.ProofRef == "" {
 		return a, false, ErrProofRequired
 	}

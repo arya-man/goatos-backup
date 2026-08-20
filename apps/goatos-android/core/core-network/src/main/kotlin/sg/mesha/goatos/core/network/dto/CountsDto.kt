@@ -223,6 +223,52 @@ data class CountsDestinationParkDto(
     @SerialName("park_id") val parkId: String = "",
     @SerialName("name") val name: String = "",
     @SerialName("sheds") val sheds: List<CountsDestinationShedDto> = emptyList(),
+    /**
+     * Where a newborn recorded in THIS park may be placed. Backend-owned and rendered verbatim.
+     *
+     * Do NOT re-derive it by filtering [sheds] on `destinationStage`: the mode also governs whether
+     * the birth WRITE accepts a freely chosen pen, so a locally computed answer could offer a pen
+     * the server then refuses.
+     */
+    @SerialName("birth_placement") val birthPlacement: CountsBirthPlacementDto = CountsBirthPlacementDto(),
+)
+
+/**
+ * The newborn-placement contract for one park (maintainer decision 2026-08-20).
+ *
+ * [mode] is `automatic` (one kid pen — shown read-only, not chosen), `choose` (several kid pens —
+ * the picker offers only these), or `record_later` (no kid pen — the operator picks freely and the
+ * kid's care steps carry "Record shed").
+ *
+ * The default is `record_later` with no pens, which is what a payload cached by a build that
+ * predates this field decodes to: the safe reading, because it falls back to the full shed cascade
+ * the form already renders rather than showing an empty picker.
+ */
+@Serializable
+data class CountsBirthPlacementDto(
+    @SerialName("mode") val mode: String = MODE_RECORD_LATER,
+    /** Farm-worded copy shown above the placement field. Rendered VERBATIM. */
+    @SerialName("notice") val notice: String = "",
+    @SerialName("pens") val pens: List<CountsBirthPlacementPenDto> = emptyList(),
+) {
+    companion object {
+        const val MODE_AUTOMATIC = "automatic"
+        const val MODE_CHOOSE = "choose"
+        const val MODE_RECORD_LATER = "record_later"
+    }
+}
+
+/**
+ * One kid pen. Carries its whole operational location, so the form never joins
+ * [shedName] and [partitionLabel] itself — that hand-rolled composition is what once rendered
+ * `Godel 1 1` on the weighing screens.
+ */
+@Serializable
+data class CountsBirthPlacementPenDto(
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
 )
 
 @Serializable
