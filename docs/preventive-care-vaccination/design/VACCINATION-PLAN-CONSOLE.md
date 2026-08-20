@@ -3,7 +3,7 @@
 **Status:** proposal, not built
 **Replaces:** `/config?scope_mode=company&category=vaccination` (Config — Protocol Rules)
 **Mock:** [`vaccination-plan-console.mock.html`](./vaccination-plan-console.mock.html) — standalone, interactive, no backend
-**Baseline:** `origin/main` @ `b6800387f`
+**Baseline:** `origin/main` @ `be23d7de5`
 
 The current authoring page is a developer's view of `rule_dsl` rendered as a form. It asks a
 non-technical CEO for `offset_days`, `due_window_days`, `min_gap_days`, and an "Executable SOP
