@@ -29,6 +29,8 @@ type fakeConfig struct {
 	stages        []domain.AnimalStage
 	stagesErr     error
 	gotStagesTn   string
+	discardErr    error
+	discardedID   string
 }
 
 func (f *fakeConfig) CreateDefinition(_ context.Context, in domain.NewDefinition) (string, error) {
@@ -48,6 +50,10 @@ func (f *fakeConfig) GetVersion(context.Context, string, string) (domain.Version
 }
 func (f *fakeConfig) PublishVersion(context.Context, string, string, *string, ...string) error {
 	return f.publishErr
+}
+func (f *fakeConfig) DiscardVersion(_ context.Context, _ string, versionID string) error {
+	f.discardedID = versionID
+	return f.discardErr
 }
 func (f *fakeConfig) ListConfigs(_ context.Context, _ string, category string) ([]domain.ConfigListItem, error) {
 	f.gotListCat = category
@@ -336,5 +342,34 @@ func TestCreateDefinitionEmptyBody(t *testing.T) {
 	rec := serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty body: want 400, got %d", rec.Code)
+	}
+}
+
+// TestDiscardVersionRefusesPublished proves the handler maps a not-draft refusal to
+// 409 rather than a generic error. The restriction itself lives in SQL; this asserts
+// the caller is told WHY, because a 500 would send someone looking for an outage.
+func TestDiscardVersionRefusesPublished(t *testing.T) {
+	fake := &fakeConfig{discardErr: ports.ErrVersionNotDraft}
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/ver-1/discard", "")
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), "version_not_draft") {
+		t.Fatalf("body = %s, want version_not_draft", rec.Body.String())
+	}
+}
+
+// TestDiscardVersionDeletesDraft proves the success path answers 204 and passes the
+// version id straight through.
+func TestDiscardVersionDeletesDraft(t *testing.T) {
+	fake := &fakeConfig{}
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/draft-9/discard", "")
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if fake.discardedID != "draft-9" {
+		t.Fatalf("discarded %q, want draft-9", fake.discardedID)
 	}
 }
