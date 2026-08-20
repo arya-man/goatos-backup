@@ -18,12 +18,19 @@ export type MonthColumnDatum = {
   value: number;
   /** Compact value label drawn above the column (e.g. "₹19.4L"); blank hides it. */
   display: string;
+  /**
+   * Optional second compact figure for the same month in a DIFFERENT unit (e.g. the rupees behind
+   * a count or a kg column). Drawn under the axis label, never on the bar's axis — the bar height
+   * stays owned by `value` alone so two units can never be read as one series. Blank hides it.
+   */
+  subDisplay?: string;
 };
 
 export function MonthColumns({
   data,
   chartLabel,
   valueNoun,
+  subValueNoun,
   emptyLabel,
 }: {
   data: MonthColumnDatum[];
@@ -31,6 +38,8 @@ export function MonthColumns({
   chartLabel: string;
   /** Resolved from the page contract by the caller; used in per-column tooltips. */
   valueNoun: string;
+  /** Resolved from the page contract by the caller; names the `subDisplay` figure in tooltips. */
+  subValueNoun?: string;
   /** Resolved from the page contract by the caller. */
   emptyLabel: string;
 }) {
@@ -48,8 +57,11 @@ export function MonthColumns({
     <div className="mcols" role="img" aria-label={chartLabel}>
       {data.map((datum) => {
         const pct = (datum.value / max) * 100;
+        const tooltip = `${datum.label}: ${datum.value.toLocaleString("en-IN")} ${valueNoun}${
+          datum.subDisplay && subValueNoun ? ` · ${datum.subDisplay} ${subValueNoun}` : ""
+        }`;
         return (
-          <div className="mcol" key={datum.key} title={`${datum.label}: ${datum.value.toLocaleString("en-IN")} ${valueNoun}`}>
+          <div className="mcol" key={datum.key} title={tooltip}>
             <span className="mcarea">
               {datum.value > 0 ? (
                 <span className="mcstack">
@@ -59,6 +71,7 @@ export function MonthColumns({
               ) : null}
             </span>
             <span className="mclab">{datum.axisLabel}</span>
+            {datum.subDisplay ? <span className="mcsub">{datum.subDisplay}</span> : null}
           </div>
         );
       })}

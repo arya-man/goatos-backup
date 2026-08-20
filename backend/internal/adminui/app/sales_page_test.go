@@ -24,10 +24,19 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		t.Fatalf("sales must be a module surface, got %q", page.SurfaceKind)
 	}
 
-	if len(page.Tables) != 1 || page.Tables[0].ID != "sales-deals" {
+	if len(page.Tables) != 2 || page.Tables[0].ID != "sales-deals" || page.Tables[1].ID != "sales-buyers" {
 		t.Fatalf("sales tables = %+v", page.Tables)
 	}
 	deals := page.Tables[0]
+	// The buyer board is paged in the renderer off the overview response: the contract owns the
+	// page size, and declares no row click because there is no buyer record to open.
+	buyers := page.Tables[1]
+	if len(buyers.PageSizeOptions) == 0 || buyers.PageSizeOptions[0] != 10 {
+		t.Fatalf("buyers page sizes = %v", buyers.PageSizeOptions)
+	}
+	if buyers.RowClick.Enabled {
+		t.Fatalf("buyers table must not declare a row click: %+v", buyers.RowClick)
+	}
 	if deals.DataSource != "/sales/deals" {
 		t.Fatalf("deals table source = %q", deals.DataSource)
 	}
@@ -44,6 +53,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"chart.monthly_revenue.title", "chart.monthly_animals.title",
 		"chart.monthly_manure.title", "chart.price_bands.title",
 		"chart.monthly_revenue.empty", "chart.price_bands.empty",
+		"chart.monthly_animals.sub", "chart.monthly_manure.sub",
 		"evidence.audit.within_0_3", "evidence.audit.within_1", "evidence.audit.over_1",
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",
 		"field.breed", "field.buyer_name", "field.total_weight_kg", "field.sales_value",

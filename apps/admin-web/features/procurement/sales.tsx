@@ -15,6 +15,7 @@ import {
   optionGroup,
   table,
   tableLabels,
+  tablePageSizes,
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -30,6 +31,7 @@ import {
   inrCompact,
   marketLossPerKg,
   monthLabel,
+  monthlyAnimalRevenueTotal,
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
@@ -42,6 +44,8 @@ import { SalesRecordDrawer } from "./sales-record-drawer";
 const PAGE_PATH = "/procurement/sales";
 const DEFAULT_FARM = "all";
 const DEFAULT_LIMIT = 25;
+/** Only used when an older backend contract has no buyer board table; the contract page size wins. */
+const BUYERS_PAGE_SIZE = 10;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();
@@ -61,11 +65,17 @@ function OverviewSections({
   overview,
   pageContract,
   panelLink,
+  buyersHref,
+  buyersPage,
 }: {
   overview: SalesOverview;
   pageContract: AdminUiPageContract;
   /** Renders the header button that opens one entry drawer, or null when the caller cannot record. */
   panelLink: (panel: SalesPanel, labelKey: string) => ReactNode;
+  /** Link builder for the buyer board's pager, preserving every other selected search param. */
+  buyersHref: (page: number) => string;
+  /** 1-based buyer board page, already clamped by the caller. */
+  buyersPage: number;
 }) {
   const summary = overview.summary;
   const none = copy(pageContract, "value.none");
@@ -74,6 +84,14 @@ function OverviewSections({
   const seriesLabel = (productType: string) => copy(pageContract, `chart.series.${productType.toLowerCase()}`);
   const statusLabel = (status: string) =>
     status === "uncontacted" ? copy(pageContract, "value.status.uncontacted") : status;
+  // The buyer board rides on the overview response (a bounded, pre-aggregated board), so its pages
+  // are sliced here rather than re-fetched. The page SIZE is the backend contract's, not a local
+  // literal, and the pager reports the whole-list total -- never the sliced page's length.
+  const buyersPageSize = tablePageSizes(pageContract, "sales-buyers")[0] ?? BUYERS_PAGE_SIZE;
+  const buyersPageCount = Math.max(1, Math.ceil(overview.buyers.length / buyersPageSize));
+  const buyersPageNumber = Math.min(Math.max(buyersPage, 1), buyersPageCount);
+  const buyersStart = (buyersPageNumber - 1) * buyersPageSize;
+  const buyersRows = overview.buyers.slice(buyersStart, buyersStart + buyersPageSize);
   return (
     <>
           {/* 1 — headline figures, verbatim from the overview summary. */}
@@ -141,6 +159,8 @@ function OverviewSections({
               emptyLabel={copy(pageContract, "chart.monthly_revenue.empty")}
             />
             <div className="mt">{copy(pageContract, "chart.monthly_animals.title")}</div>
+            {/* Head count owns the bar; the rupees it earned ride under the month label so the two
+                units are read separately and never share the axis. */}
             <MonthColumns
               data={overview.monthly.map((month) => ({
                 key: month.month,
@@ -148,9 +168,12 @@ function OverviewSections({
                 label: monthLabel(month.month),
                 value: monthlyAnimalsTotal(month),
                 display: num(monthlyAnimalsTotal(month)),
+                subDisplay:
+                  monthlyAnimalRevenueTotal(month) > 0 ? inrCompact(monthlyAnimalRevenueTotal(month)) : "",
               }))}
               chartLabel={copy(pageContract, "chart.monthly_animals.title")}
               valueNoun={copy(pageContract, "chart.monthly_animals.value")}
+              subValueNoun={copy(pageContract, "chart.monthly_animals.sub")}
               emptyLabel={copy(pageContract, "chart.monthly_animals.empty")}
             />
             <div className="mt">{copy(pageContract, "chart.monthly_manure.title")}</div>
@@ -160,10 +183,12 @@ function OverviewSections({
                 axisLabel: monthLabel(month.month),
                 label: monthLabel(month.month),
                 value: month.manure_kg,
-                display: numCompact(month.manure_kg),
+                display: `${numCompact(month.manure_kg)} ${kgSuffix}`,
+                subDisplay: month.manure_revenue > 0 ? inrCompact(month.manure_revenue) : "",
               }))}
               chartLabel={copy(pageContract, "chart.monthly_manure.title")}
               valueNoun={copy(pageContract, "chart.monthly_manure.value")}
+              subValueNoun={copy(pageContract, "chart.monthly_manure.sub")}
               emptyLabel={copy(pageContract, "chart.monthly_manure.empty")}
             />
           </section>
@@ -278,7 +303,7 @@ function OverviewSections({
                     </tr>
                   </thead>
                   <tbody>
-                    {overview.buyers.map((buyer) => (
+                    {buyersRows.map((buyer) => (
                       <tr key={`${buyer.buyer_name}|${buyer.buyer_place}`}>
                         <td>
                           <b>{buyer.buyer_name}</b>
@@ -295,6 +320,24 @@ function OverviewSections({
                 </table>
               </div>
             )}
+            {buyersPageCount > 1 ? (
+              <div className="pager2">
+                <span className="muted">
+                  {copy(pageContract, "pager.page")} {buyersPageNumber} {copy(pageContract, "pager.of")}{" "}
+                  {buyersPageCount} · {num(overview.buyers.length)} {copy(pageContract, "summary.buyers")}
+                </span>
+                {buyersPageNumber > 1 ? (
+                  <Link href={buyersHref(buyersPageNumber - 1)} scroll={false} className="btn">
+                    {copy(pageContract, "action.prev_page")}
+                  </Link>
+                ) : null}
+                {buyersPageNumber < buyersPageCount ? (
+                  <Link href={buyersHref(buyersPageNumber + 1)} scroll={false} className="btn">
+                    {copy(pageContract, "action.next_page")}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           {/* 6 — demand pipeline: buyer leads and farmer groups, status shape plus geography. */}
@@ -481,6 +524,9 @@ export async function SalesPage({
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
+  // Buyer board page. A hand-edited value is clamped here and again against the served row count,
+  // so an out-of-range page can never take the section down.
+  const buyersPage = boundedInt(one(sp, "buyers_page"), 1, 1, 1000);
 
   // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
   // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
@@ -583,7 +629,15 @@ export async function SalesPage({
         ))}
       </div>
 
-      {overview ? <OverviewSections overview={overview} pageContract={pageContract} panelLink={panelLink} /> : null}
+      {overview ? (
+        <OverviewSections
+          overview={overview}
+          pageContract={pageContract}
+          panelLink={panelLink}
+          buyersPage={buyersPage}
+          buyersHref={(page) => hrefWithQuery(sp, { buyers_page: page > 1 ? String(page) : null })}
+        />
+      ) : null}
 
       {/* 8 — the deals ledger. */}
       <section className="card">
