@@ -9396,6 +9396,21 @@ export interface components {
             gain_g_per_day?: number;
             /** @description Widest span any contributing shed was measured over, so a figure drawn from two days can be discounted on sight rather than hidden. */
             gain_span_days?: number;
+            /** @description Where this load's weighed animals actually are -- one entry per contributing operational shed row, park included. Aggregated over the same key set the figures above blend, so the animal counts sum to `animals` and the entry count equals `sheds`. Ordered park, then shed. */
+            placements: components["schemas"]["WeighingLoadPlacement"][];
+        };
+        /** @description One operational shed a procurement load's weighed animals sit in. The grain is (shed, partition) -- the measured row -- while the load TAG itself is authored at physical-shed grain, so a partition here says where the weighed animals are, never that the tag was authored per pen. */
+        WeighingLoadPlacement: {
+            /** @description Park short code (CBE, CPT) when it has one, falling back to the full name -- the same rule the shed table's park_name follows. */
+            park_name: string;
+            /** @description Shed name from the locations register, never the weighing bucket's planning label. */
+            shed_display_name: string;
+            /** @description Human partition label ('Part 3'), absent for an undivided shed. */
+            partition_label?: string;
+            /** @description Backend-composed park-local shed label; clients render it verbatim. */
+            operational_location_display: string;
+            /** @description Head count at this shed row's latest weigh -- the same figure that weights it inside the load's blended average. */
+            animals: number;
         };
         /** @description CEO-tier ADG / growth read model for a park or the herd. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh, and no target/benchmark ADG value is included anywhere. */
         WeighingGrowthADGResponse: {

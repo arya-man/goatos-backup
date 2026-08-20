@@ -56,6 +56,7 @@ import (
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/identity/adapters/salesbridge"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
@@ -429,6 +430,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	identityService := identityapp.NewService(identityRepo).WithBulkPreviewSigningKey(bulkPreviewSigningKey)
 	identityHandler := identityhttp.NewHandler(identityService, log)
+	// The sale-count gate needs one fact from the sales ledger (how many animals a deal
+	// is for). It arrives through a BRIDGE rather than a join, so identity's own queries
+	// stay clear of the sales schema -- see migration 000177.
+	saleAllocationHandler := identityhttp.NewSaleAllocationHandler(
+		identityapp.NewSaleAllocationService(identityRepo, identityRepo, salesbridge.New(pool)), log)
 	bulkStatusRepo := bulkstatuspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	bulkStatusService := bulkstatusapp.NewService(bulkStatusRepo, bulkStatusRepo).WithSigningKey(bulkPreviewSigningKey)
 	bulkStatusHandler := bulkstatushttp.NewHandler(bulkStatusService, log)
@@ -1092,6 +1098,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		_ = json.NewEncoder(w).Encode(body)
 	})
 	identityhttp.Register(protectedMux, identityHandler)
+	identityhttp.RegisterSaleAllocation(protectedMux, saleAllocationHandler)
 	bulkstatushttp.Register(protectedMux, bulkStatusHandler)
 	locationshttp.Register(protectedMux, locationsHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)

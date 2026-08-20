@@ -2784,3 +2784,44 @@ select:disabled { opacity: .45; }
 .sales-leadname{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
 .sales-leadrow select{width:100%;min-width:0}
 .sales-check{display:flex;align-items:center;gap:8px;cursor:pointer}
+
+/* ---------- Sales: "Tag animals to sale" picker drawer ----------
+   The pick step is two columns -- the animal list, and a sticky running count on the
+   RIGHT so the sale can be seen taking shape while picking. Wider than the standard
+   drawer because a one-column 380px panel cannot hold a tag, a shed label, a blocker
+   chip and a checkbox on one row without clipping the chip. */
+.sales-tagdrawer{width:min(760px,96vw)}
+.sales-tagpick{display:grid;grid-template-columns:minmax(0,1fr) 168px;gap:14px;align-items:start}
+.sales-tagpick-main{min-width:0}
+.sales-tagpick-side{position:sticky;top:0;border-left:1px solid var(--line);padding-left:12px}
+.sales-tagcount{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
+.sales-tagcount b{font-size:26px;line-height:1.1}
+.sales-taglist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.sales-taglist li{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Three side-by-side fields. Each is a canonical `.fld`, which is what paints the border,
+   background and focus ring -- hand-rolling the wrapper left the search input with no
+   visible edges at all, so it read as missing rather than empty. Only the row layout and
+   the bottom-margin reset belong here. */
+.sales-tagfilters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px}
+.sales-tagfilters .fld{margin-bottom:0;min-width:0}
+/* The blocker chip is the reason a person cannot pick the animal, so it must never be
+   clipped: the tag column truncates instead and the chip column keeps its full width. */
+.sales-tagtable{width:100%;table-layout:auto}
+.sales-tagtable td{padding:5px 6px;vertical-align:middle}
+.sales-tagtable td:first-child{width:26px}
+.sales-tagtable td:nth-child(2){font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.sales-tagtable td:nth-child(3){color:var(--muted);font-size:11.5px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sales-tagtable td:last-child{white-space:normal;text-align:right}
+.sales-tagreview{display:grid;gap:10px}
+.sales-tagreview .card{padding:10px 12px}
+@media (max-width:720px){
+  .sales-tagpick{grid-template-columns:minmax(0,1fr)}
+  .sales-tagpick-side{position:static;border-left:0;border-top:1px solid var(--line);padding:10px 0 0}
+}
+/* The sale being tagged to. Full width above the location filters: it is the one choice
+   that decides what everything below means. */
+.sales-tagdeal{display:grid;gap:4px;margin:10px 0 12px}
+.sales-tagdeal select{width:100%;min-width:0}
+/* The target beside the running count: "3 / 5". Muted so the picked number stays the
+   figure the eye lands on. */
+.sales-tagtarget{color:var(--muted);font-weight:600;font-size:18px}

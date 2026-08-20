@@ -19,7 +19,7 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError } from "@/lib/api/server";
+import { firstAuthRequiredError, listSaleLocations } from "@/lib/api/server";
 import { getSalesOverview, listSalesBuyerLeads, listSalesDeals, listSalesFpoLeads } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
 import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
@@ -40,6 +40,7 @@ import {
   salesHref,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
+import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 
 const PAGE_PATH = "/procurement/sales";
 const DEFAULT_FARM = "all";
@@ -531,14 +532,21 @@ export async function SalesPage({
   // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
   // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
   // without an RSC request, so drawer data must ride with the page).
-  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult] = await Promise.all([
+  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult, saleLocations] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
     listSalesBuyerLeads({ limit: 20 }),
     listSalesFpoLeads({ limit: 20 }),
+    // The picker's park/shed/pen vocabulary, backend-owned. It excludes the legacy
+    // partition-alias shed rows ("Castro 1") that hold no animals and no pens -- offering
+    // them gave an operator a choice that could only ever return an empty list.
+    listSaleLocations(),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
+
+  // Rendered verbatim; the drawer receives plain data and issues no fetch of its own on open.
+  const tagLocations = saleLocations.ok ? saleLocations.data : { parks: [], locations: [] };
 
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
   const deals: SalesDeal[] = dealsResult.ok ? dealsResult.data.deals : [];
@@ -585,6 +593,20 @@ export async function SalesPage({
             style={{ marginBottom: 4 }}
           >
             {copy(pageContract, "action.record_sale.label")}
+          </LocalOverlayLink>
+        ) : null}
+        {/* Tagging animals to a sale WRITES HERD IDENTITY -- it exits each animal as sold --
+            so it is gated on the same record_sale capability as recording the deal, and
+            additionally on there being a recorded sale to tag animals to. */}
+        {canRecord && deals.length > 0 ? (
+          <LocalOverlayLink
+            href={hrefWithQuery(sp, { tag_sale: deals[0].deal_id })}
+            className="btn"
+            scroll={false}
+            style={{ marginBottom: 4 }}
+            title={copy(pageContract, "action.tag_animals.hint")}
+          >
+            {copy(pageContract, "action.tag_animals.label")}
           </LocalOverlayLink>
         ) : null}
       </div>
@@ -735,6 +757,14 @@ export async function SalesPage({
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}
       <SalesRecordDrawer deals={deals} pageContract={pageContract} listHref={listHref} canRecord={canRecord} />
+      {canRecord ? (
+        <SaleAllocationDrawer
+          deals={deals}
+          locations={tagLocations}
+          pageContract={pageContract}
+          listHref={listHref}
+        />
+      ) : null}
       <SalesPipelineDrawers
         pageContract={pageContract}
         listHref={listHref}

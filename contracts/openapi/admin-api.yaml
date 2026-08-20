@@ -1990,6 +1990,209 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/goats/sale-locations:
+    get:
+      tags:
+        - Admin Goats
+      operationId: listSaleLocations
+      summary: Park/shed/pen vocabulary for the sale animal picker.
+      description: >-
+        The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's
+        pens exist twice in the location register (canonical shed plus its pen catalog,
+        and old rows literally named "Castro 1"), and the alias rows hold no animals and
+        no pens, so offering them gave an operator a choice that could only return an
+        empty list. Sheds that can yield no candidate at all are likewise omitted.
+      responses:
+        "200":
+          description: The picker vocabulary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleLocationCatalog"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/goats/sale-candidates:
+    get:
+      tags:
+        - Admin Goats
+      operationId: listSaleCandidates
+      summary: List animals of a park/shed/pen as sale candidates, each already judged against the sale blockers.
+      description: >-
+        The animal picker behind "Tag animals to sale". Every row carries the backend's
+        verdict: `sellable` plus, when false, a `blocker` code and a farm-worded
+        `blocked_reason`. Blocked animals are RETURNED rather than hidden -- a person who
+        can see the animal in the pen but not in the list assumes the system is broken,
+        whereas "In quarantine" answers the question. Keyset paged by goat_id.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: partition_label
+          in: query
+          required: false
+          description: >-
+            Repeatable. Several pens of one shed may be requested at once, because a sale
+            routinely takes animals from more than one. Matched on the catalog's normalized
+            key, so '3' and 'Part 3' mean the same pen. Omit for every pen of the shed.
+          schema:
+            type: array
+            items:
+              type: string
+        - name: q
+          in: query
+          required: false
+          description: Filter by identifier or display id prefix, so one animal in hand can be found without scrolling.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A keyset page of judged sale candidates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleCandidateListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/goats/sale-allocations/preview:
+    post:
+      tags:
+        - Admin Goats
+      operationId: previewSaleAllocation
+      summary: Review the picked animals for a sale, shed-wise, without changing anything.
+      description: >-
+        The review step. Returns the picked animals grouped by operational shed -- the
+        gather list a person walks the farm with -- plus every refused animal with its
+        reason. MUTATES NOTHING. The confirm re-runs this judgement and never trusts this
+        response, because an animal can be quarantined between the two calls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleAllocationRequest"
+      responses:
+        "200":
+          description: Review completed; no state changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleAllocationPreviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/goats/sale-allocations/confirm:
+    post:
+      tags:
+        - Admin Goats
+      operationId: confirmSaleAllocation
+      summary: Tag the picked animals to the sale and mark them sold.
+      description: >-
+        Records which animals the sale is made of AND exits each one as sold, in one
+        transaction, through the canonical per-goat exit -- so each animal gets its
+        goat.exited event, decision record and audit row, and its open vaccination
+        obligations are cancelled.
+
+
+        FAIL-CLOSED AND ALL-OR-NOTHING. If any named animal is refused by the sale
+        blockers (quarantine, ICU, sick, under treatment, milk-drinking kid, unexpired
+        medicine withdrawal, already exited, already tagged to another sale) the whole
+        confirmation is rejected with `animals_blocked` and NOTHING is written. There is
+        deliberately no override field: an override would put a contagious or
+        residue-carrying animal on a buyer's truck on one person's say-so.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Animals tagged to the sale and marked sold, or an exact replay of the same confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleAllocationConfirmResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleAllocationRequest"
+  /admin/goats/sale-allocations/{sales_deal_id}:
+    get:
+      tags:
+        - Admin Goats
+      operationId: getSaleAllocation
+      summary: Read back the animals one recorded sale is made of, shed-wise.
+      description: >-
+        The sales ledger stores no goat_id (the sales module reads no herd table), so the
+        deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT
+        taken when the animal was tagged, not the goat's present location -- a sold
+        animal's row keeps moving and would make an old sale re-describe itself.
+      parameters:
+        - name: sales_deal_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The animals tagged to this sale.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleAllocationConfirmResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/manual-campaigns:
     post:
       tags:
@@ -9061,6 +9264,250 @@ components:
         - rejected
         - deferred
         - blocked
+    SaleLocationCatalog:
+      type: object
+      additionalProperties: false
+      required: [parks, locations]
+      properties:
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleLocationPark"
+        locations:
+          type: array
+          description: >-
+            Selectable operational locations, PEN-WISE: a pen where the shed is
+            subdivided, the shed itself where it is not. A subdivided shed never offers
+            its bare parent -- "active shed" means active operational location, and a
+            parent-only dropdown forces the operator to guess which pen was meant.
+          items:
+            $ref: "#/components/schemas/SaleLocationEntry"
+    SaleLocationPark:
+      type: object
+      additionalProperties: false
+      required: [park_id, label]
+      properties:
+        park_id: { type: string, format: uuid }
+        label:
+          type: string
+          description: Park short code (CBE, CPT) when it has one, else the full name.
+    SaleLocationEntry:
+      type: object
+      additionalProperties: false
+      required: [shed_id, park_id, operational_location_display]
+      properties:
+        shed_id: { type: string, format: uuid }
+        park_id: { type: string, format: uuid }
+        partition_label:
+          type: string
+          description: >-
+            HUMAN pen label ('1', 'Part 3'), never the normalized matching key. Absent for
+            an undivided shed.
+        operational_location_display:
+          type: string
+          description: >-
+            Composed operational display, rendered verbatim: a numeric pen joins with a
+            space ("Castro 1"), a worded one with a dash ("Godel 1 - Part 3").
+    SaleCandidate:
+      type: object
+      additionalProperties: false
+      description: >-
+        One animal as the sale picker shows it: identity, where it stands, and the
+        backend's verdict on whether it may be sold.
+      required:
+        - goat_id
+        - operational_location_display
+        - row_version
+        - sellable
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+        tag_number:
+          type: string
+          description: The identifier a person reads off the animal -- active RFID first, then a visible tag.
+        park_id:
+          type: string
+          format: uuid
+        park_name:
+          type: string
+          description: Park short code (CBE, CPT) when it has one, else the full name.
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          description: Human pen label ('Part 3'), absent for an undivided shed. Never the normalized matching key.
+        operational_location_display:
+          type: string
+          description: Backend-composed park-local shed label; clients render it verbatim.
+        breed:
+          type: string
+        sex:
+          type: string
+        row_version:
+          type: integer
+          description: >-
+            Captured when the picker listed the animal and echoed back on confirm, which is
+            what makes the write no-clobber: an animal whose version has since moved is
+            refused rather than overwritten.
+        sellable:
+          type: boolean
+        blocker:
+          type: string
+          description: >-
+            Machine code for WHICH rule refused the animal. Absent when sellable.
+          enum:
+            - clinical_state
+            - milk_drinking_kid
+            - medicine_withdrawal
+            - already_exited
+            - already_tagged
+        blocked_reason:
+          type: string
+          description: >-
+            Farm-worded sentence explaining the refusal ("In quarantine", "Medicine
+            withdrawal until 2026-08-24"). Rendered VERBATIM; clients must not compose
+            their own sentence from `blocker`.
+    SaleCandidateListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - candidates
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleCandidate"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent on the last page.
+    SaleAllocationRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        The sale and the picked animals. Unknown fields are REJECTED, so a client that
+        sends an override flag is told rather than having it silently discarded.
+      required:
+        - sales_deal_id
+        - goat_ids
+      properties:
+        sales_deal_id:
+          type: string
+          format: uuid
+          description: The sales ledger deal these animals belong to.
+        goat_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: >-
+            The picked animals. Duplicates collapse to one. The cap keeps one confirmation
+            a bounded transactional write and fits the canonical per-goat exit inside the
+            hot-API latency budget; a larger sale is split into two confirmations, each
+            atomic on its own.
+          items:
+            type: string
+            format: uuid
+        reason:
+          type: string
+          maxLength: 500
+    SaleAllocationShedGroup:
+      type: object
+      additionalProperties: false
+      description: >-
+        The picked animals of ONE operational shed -- the gather list, in the order a
+        person walks the farm.
+      required:
+        - operational_location_display
+        - animals
+        - tag_numbers
+      properties:
+        park_name:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
+        animals:
+          type: integer
+        tag_numbers:
+          type: array
+          items:
+            type: string
+    SaleAllocationPreviewResponse:
+      type: object
+      additionalProperties: false
+      description: >-
+        The review step's result. `sellable` and `blocked` are DISJOINT and together cover
+        every named animal, so a client can render "12 ready, 2 blocked" without a third
+        overlapping count.
+      required:
+        - sales_deal_id
+        - declared_animal_count
+        - already_tagged
+        - complete
+        - sellable
+        - blocked
+        - shed_groups
+        - blocked_animals
+      properties:
+        sales_deal_id:
+          type: string
+          format: uuid
+        declared_animal_count:
+          type: integer
+          description: >-
+            How many animals the SALE is for. The mapping must hit this exactly -- a sale
+            cannot be tagged half now and half later.
+        already_tagged:
+          type: integer
+          description: How many of them are already tagged to this sale.
+        complete:
+          type: boolean
+          description: >-
+            Whether the current selection exactly fills what is still to be mapped, with
+            nothing blocked. Clients offer Confirm only when true; the server enforces the
+            same rule regardless.
+        sellable:
+          type: integer
+        blocked:
+          type: integer
+        shed_groups:
+          type: array
+          description: Covers the SELLABLE animals only -- an animal that will not be sold does not belong on the gather list.
+          items:
+            $ref: "#/components/schemas/SaleAllocationShedGroup"
+        blocked_animals:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleCandidate"
+    SaleAllocationConfirmResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - sales_deal_id
+        - allocated
+        - shed_groups
+      properties:
+        sales_deal_id:
+          type: string
+          format: uuid
+        allocated:
+          type: integer
+          description: How many animals this sale is now made of.
+        shed_groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleAllocationShedGroup"
     BulkStatusPreviewRequest:
       type: object
       additionalProperties: false

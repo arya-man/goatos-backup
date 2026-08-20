@@ -501,6 +501,12 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
 				tableP("losing-kids", "Kids losing weight", "/weighing/leadership/growth", []string{"tag", "shed", "previous", "latest", "change", "days_apart", "last_weighed"}, "scanned_identifier", []int{10, 25, 50}),
+				// Where each purchase load's weighed animals actually sit. It rides on the
+				// SAME /weighing/shed-weights response as the load chart above (the
+				// placements ride on by_load), so it declares no row click -- there is no
+				// load record to open, and a declared row click the page cannot honour
+				// would be a contract lie.
+				withoutRowClick(tableP("load-placements", "Where each load sits", "/weighing/shed-weights", []string{"load", "park", "sheds", "animals"}, "", []int{10, 25, 50})),
 			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
@@ -2519,6 +2525,33 @@ func pageSpecificCopy(id string) map[string]string {
 			"summary.count":          "deals",
 			"summary.buyers":         "buyers",
 
+			// "Tag animals to sale": pick the real animals a recorded sale is made of.
+			// The blockers' own sentences are composed by the identity module and rendered
+			// verbatim, so they are deliberately NOT duplicated here -- two copies of a
+			// medical refusal is how the two come to disagree.
+			"action.tag_animals.label": "Tag animals to sale",
+			"action.tag_animals.hint":  "Pick the animals this sale is made of, then mark them sold.",
+			"action.done":              "Done",
+			"action.confirm_sold":      "Confirm and mark sold",
+			"action.load_more":         "Show more animals",
+			"field.sale":               "Sale",
+			"field.park":               "Park",
+			"field.shed":               "Shed",
+			"field.search_tag":         "Find a tag",
+			"value.choose_park":        "Choose a park",
+			"value.search_tag_hint":    "RFID or animal ID",
+			"value.all_sheds":          "All sheds",
+			"label.selected":           "selected",
+			"label.still_to_pick":      "still to pick",
+			"label.all_picked":         "All picked",
+			"label.cannot_sell":        "Cannot be sold yet",
+			"label.marked_sold":        "animals are tagged to this sale and marked sold.",
+			"hint.review":              "Check the animals below before confirming. Once confirmed they leave the herd.",
+			"hint.pick_all_prefix":     "Pick all",
+			"hint.pick_all_suffix":     "animals for this sale before confirming.",
+			"hint.too_many":            "That is more animals than this sale is for.",
+			"hint.sale_no_count":       "This sale does not say how many animals it is for, so animals cannot be tagged to it.",
+
 			// Filters.
 			"filter.farm":  "Farm",
 			"filter.all":   "All farms",
@@ -2965,14 +2998,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.load.caption":           "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
 			"empty.load.body":              "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
 			"note.load.unmapped":           "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
-			"metric.weight":                "Weight",
-			"metric.gain":                  "Daily gain",
-			"empty.metric.no_gain":         "No daily gain here yet — a kid has to be weighed twice before a gain exists.",
-			"empty.losing.title":           "No data available",
-			"empty.losing.body":            "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
-			"note.no_cadence":              "There is no weighing schedule, so a shed with no recent weigh is not late.",
-			"error.load.title":             "Weights could not be loaded",
-			"error.load.body":              "Try again in a moment.",
+			// The load chart says a supplier's stock is growing; this says WHERE. Without
+			// it a reader cannot walk from a load bar to the shed table below it.
+			"section.load_placements.title":   "Where each load sits",
+			"section.load_placements.aria":    "Parks and sheds each purchase load was placed into",
+			"section.load_placements.caption": "The park and shed each load's weighed animals are in, with the head count at that shed's latest weigh. The counts add up to the load's own animal total, so this and the chart above always agree.",
+			"empty.load_placements.body":      "No load has a weighed shed yet, so there is nowhere to point to.",
+			"metric.weight":                   "Weight",
+			"metric.gain":                     "Daily gain",
+			"empty.metric.no_gain":            "No daily gain here yet — a kid has to be weighed twice before a gain exists.",
+			"empty.losing.title":              "No data available",
+			"empty.losing.body":               "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
+			"note.no_cadence":                 "There is no weighing schedule, so a shed with no recent weigh is not late.",
+			"error.load.title":                "Weights could not be loaded",
+			"error.load.body":                 "Try again in a moment.",
 			// Growth Director section. Same copy firewall as the rest of this
 			// page: farm language, honest denominators (every count is kids or
 			// scans actually seen — there is no expected roster, so nothing here
