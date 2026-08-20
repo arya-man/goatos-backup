@@ -63,9 +63,26 @@ declare global {
   }
 }
 
-export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: string }) {
-  const [status, setStatus] = useState<"loading" | "ready" | "signing_in" | "sending_reset" | "redirecting" | "error">("loading");
-  const [authMethod, setAuthMethod] = useState<"google" | "password" | null>(null);
+export function GoogleLogin({
+  nextPath = DEFAULT_NEXT_PATH,
+  completingGoogleRedirect = false,
+}: {
+  nextPath?: string;
+  /**
+   * True on the hop BACK from Google, when the page already knows a credential is waiting. Google's
+   * redirect ux_mode lands the user on a freshly rendered /login, so without this the screen looks
+   * exactly like "you are back at the sign-in page" for the seconds Firebase and the session
+   * exchange take. It only picks the STARTING state -- a failed exchange restores the form.
+   */
+  completingGoogleRedirect?: boolean;
+}) {
+  const [completingRedirect, setCompletingRedirect] = useState(completingGoogleRedirect);
+  const [status, setStatus] = useState<"loading" | "ready" | "signing_in" | "sending_reset" | "redirecting" | "error">(
+    completingGoogleRedirect ? "signing_in" : "loading",
+  );
+  const [authMethod, setAuthMethod] = useState<"google" | "password" | null>(
+    completingGoogleRedirect ? "google" : null,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -118,6 +135,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       consumedRedirectCredential.current = true;
       window.setTimeout(() => {
         if (!mounted.current) return;
+        setCompletingRedirect(false);
         setStatus("ready");
         setMessage("Google sign-in did not return a valid credential. Try again.");
       }, 0);
@@ -146,6 +164,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
         })
         .catch((error: unknown) => {
           if (!mounted.current) return;
+          setCompletingRedirect(false);
           setAuthMethod(null);
           setStatus("ready");
           setMessage(messageForSignInError(error));
@@ -221,6 +240,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
         // Google SSO unavailable (not configured / unreachable). Degrade quietly
         // to the email + password form instead of raising a red error on load.
         setGoogleAvailable(false);
+        setCompletingRedirect(false);
         setStatus("ready");
       });
     return () => {
@@ -268,8 +288,11 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       width: 340,
       state: safeNextPath(nextPath),
     });
-    window.setTimeout(() => setStatus("ready"), 0);
-  }, [googleClientId, handleCredential, nextPath, scriptReady]);
+    window.setTimeout(() => {
+      if (!mounted.current || completingRedirect) return;
+      setStatus("ready");
+    }, 0);
+  }, [completingRedirect, googleClientId, handleCredential, nextPath, scriptReady]);
 
   const isBusy = status === "loading" || status === "signing_in" || status === "sending_reset" || status === "redirecting";
   const showAuthProgress = status === "signing_in" || status === "redirecting";
@@ -289,6 +312,9 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       : authMethod === "google"
         ? "Signing you in. This can take a few seconds."
         : "Checking your account. This can take a few seconds.";
+  // While the Google credential is being exchanged there is nothing for the operator to do, so the
+  // sign-in controls stay out of the way rather than reading as "sign in again".
+  const showSignInControls = !completingRedirect;
 
   return (
     <div className="mt-8">
@@ -302,9 +328,11 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
           setStatus("ready");
         }}
       />
-      {googleAvailable ? (
-        <>
-          <div className="min-h-[66px] w-full" aria-live="polite">
+      {/* The progress card lives OUTSIDE the Google block: a credential exchange in flight must stay
+          visible even when the Google button itself is unavailable, or the screen goes blank. */}
+      <div className="min-h-[66px] w-full" aria-live="polite">
+        {googleAvailable && showSignInControls ? (
+          <>
             <div
               ref={buttonContainerRef}
               aria-hidden={status !== "ready"}
@@ -318,44 +346,44 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               </div>
             ) : null}
-            {showAuthProgress ? (
-              <div
-                className="flex min-h-[66px] w-full items-center gap-3 rounded-[10px] border px-4"
-                role="status"
-                style={{
-                  borderColor: "color-mix(in srgb, var(--brand) 44%, var(--line))",
-                  background: "color-mix(in srgb, var(--brand-soft) 58%, var(--card))",
-                  color: "var(--ink)",
-                  boxShadow: "0 0 0 3px color-mix(in srgb, var(--brand-soft) 52%, transparent)",
-                }}
-              >
-                <span
-                  className="grid h-9 w-9 place-items-center rounded-[9px]"
-                  style={{ background: "var(--card)", color: "var(--brand-d)" }}
-                >
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-extrabold">{authProgressTitle}</span>
-                  <span
-                    className="mt-0.5 block text-[12px] font-semibold leading-5"
-                    style={{ color: "var(--muted)" }}
-                  >
-                    {authProgressText}
-                  </span>
-                </span>
-              </div>
-            ) : null}
-          </div>
-          <div className="my-5 flex items-center gap-3" style={{ opacity: showAuthProgress ? 0.45 : 1 }}>
-            <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-            <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-              or
+          </>
+        ) : null}
+        {showAuthProgress ? (
+          <div
+            className="flex min-h-[66px] w-full items-center gap-3 rounded-[10px] border px-4"
+            role="status"
+            style={{
+              borderColor: "color-mix(in srgb, var(--brand) 44%, var(--line))",
+              background: "color-mix(in srgb, var(--brand-soft) 58%, var(--card))",
+              color: "var(--ink)",
+              boxShadow: "0 0 0 3px color-mix(in srgb, var(--brand-soft) 52%, transparent)",
+            }}
+          >
+            <span
+              className="grid h-9 w-9 place-items-center rounded-[9px]"
+              style={{ background: "var(--card)", color: "var(--brand-d)" }}
+            >
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             </span>
-            <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-extrabold">{authProgressTitle}</span>
+              <span className="mt-0.5 block text-[12px] font-semibold leading-5" style={{ color: "var(--muted)" }}>
+                {authProgressText}
+              </span>
+            </span>
           </div>
-        </>
+        ) : null}
+      </div>
+      {googleAvailable && showSignInControls ? (
+        <div className="my-5 flex items-center gap-3" style={{ opacity: showAuthProgress ? 0.45 : 1 }}>
+          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+          <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
+            or
+          </span>
+          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
+        </div>
       ) : null}
+      {showSignInControls ? (
       <form className="grid gap-3.5" onSubmit={handleEmailPasswordSubmit}>
         <label
           htmlFor="login-email"
@@ -408,6 +436,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
           {status === "signing_in" ? "Signing in…" : "Sign in"}
         </button>
       </form>
+      ) : null}
       <div className="mt-3 min-h-7">
         {message ? (
           <p
