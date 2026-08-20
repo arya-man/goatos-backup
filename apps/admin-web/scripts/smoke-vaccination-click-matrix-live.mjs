@@ -148,7 +148,8 @@ async function verifyShell(page) {
     ["Source Entry", "/procurement/source-entry"],
     ["Config", "/config"],
     ["Vaccination SOP", "/vaccination/sops"],
-    ["Herd Register", "/counts/herd"],
+    ["SOP Library", "/sops"],
+    ["Herd Analytics", "/counts/analytics"],
     ["Audit Log", "/operations/audit"],
     ["DLQ Center", "/operations/dlq"],
   ]) {

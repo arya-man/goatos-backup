@@ -24,6 +24,7 @@ import (
 type HerdRegisterService interface {
 	GetSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
+	GetHerdAnalytics(ctx context.Context, req domain.HerdAnalyticsQuery) (domain.HerdAnalytics, error)
 	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
 	SubmitMilkPreparation(ctx context.Context, req domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
 	ListMilkFeedingTasks(ctx context.Context, req domain.MilkFeedingQuery) (domain.MilkFeedingPage, error)
@@ -45,6 +46,7 @@ func NewHandler(service HerdRegisterService, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-register/summary", h.GetSummary)
 	mux.HandleFunc("GET /counts/breakdown", h.GetBreakdown)
+	mux.HandleFunc("GET /counts/herd-analytics", h.GetHerdAnalytics)
 	mux.HandleFunc("GET /counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("GET /app/counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("POST /app/counts/milk-preparation/submit", h.SubmitMilkPreparation)
@@ -374,6 +376,39 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpresponse.WriteJSON(w, http.StatusOK, breakdown)
+}
+
+// GetHerdAnalytics serves the Counts -> Herd Analytics read: the live census
+// composition beside month-by-month births, exits and applied pen movements.
+//
+// A present-but-invalid `months` is REJECTED rather than silently rewritten to
+// the default: a leader who asked for a specific history length must never be
+// shown a different one under the same label.
+func (h *Handler) GetHerdAnalytics(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+
+	fromDate, toDate, err := domain.ResolveHerdAnalyticsWindow(r.URL.Query().Get("from"), r.URL.Query().Get("to"), time.Now())
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	analytics, err := h.service.GetHerdAnalytics(r.Context(), domain.HerdAnalyticsQuery{
+		TenantID: tenantID,
+		ParkID:   nullableString(strings.TrimSpace(r.URL.Query().Get("park_id"))),
+		FromDate: fromDate,
+		ToDate:   toDate,
+	})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "counts herd analytics", err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, analytics)
 }
 
 const (

@@ -1186,8 +1186,28 @@
   .main .counts-breakdown-kpis .kpi .val{font-size:30px}
   .main .counts-breakdown-kpis .kpi .kpiic{position:absolute;top:14px;right:14px;width:34px;height:34px;padding:8px;border-radius:9px;background:var(--panel-2);color:var(--brand);box-sizing:content-box}
   /* Full-width distribution charts, one per row — not the mock's 340px masonry columns. */
+  /* Herd Analytics window filter row: the shared calendar plus the note pointing at
+     the top bar for park scope. Space BELOW it so the KPI cards do not sit flush against
+     the control, and the popover has room to open over the page rather than the cards. */
+  .main .ha-filter{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:12px}
+  .main .ha-filter-hint{margin:0}
+  @media(max-width:600px){
+    .main .ha-filter{gap:8px}
+    .main .ha-filter-hint{flex:1 1 100%}
+  }
+
+  /* Full-width chart stack, one card per row. Deliberately NOT the mock's `.charts` masonry,
+     whose 340px columns squeeze the WIDE SvgBars viewBox down to unreadable ~3px labels.
+     Both Counts read screens share this ONE rule so they cannot drift apart. */
   .main .counts-breakdown-charts{display:flex;flex-direction:column;gap:14px}
-  .main .counts-breakdown-charts .chartcard{width:100%}
+  /* Herd Analytics stacks five full-width cards, so they need more air between them than the
+     three-card breakdown does — at 14px they read as one long panel with rules across it.
+     The SAME value sits above the first card: its wrapper is a bare section rather than a
+     `.card` (the band heading is gone), so it inherits none of `.card`'s own 16px top margin
+     and "Breed mix" would otherwise butt straight up against the chart above it. */
+  .main .herd-analytics-charts{display:flex;flex-direction:column;gap:22px;margin-top:22px}
+  .main .counts-breakdown-charts .chartcard,
+  .main .herd-analytics-charts .chartcard{width:100%}
   /* SvgBars ships the same chart at two viewBox scales because an SVG scales its viewBox
      uniformly: one fixed box cannot stay readable at both widths (a 1100-wide box in a 330px
      card renders 20px rows at ~6px). Show whichever scale matches the container. */
@@ -2564,6 +2584,10 @@ select:disabled { opacity: .45; }
   .ffval{grid-column:2;grid-row:1;align-self:start;justify-self:end;margin-left:8px;background:linear-gradient(90deg,transparent,var(--panel-2) 22%)}
   .fftrack{grid-column:2;grid-row:2}
   .ffmeta{grid-column:2;grid-row:3;justify-content:space-between}
+  /* Touch targets. The segmented range/tab control is a 23px-tall pill on desktop, which is
+     right for a mouse and below the 40px minimum for a thumb. Raising it ONLY here keeps the
+     desktop control at the mock's compact size — the same rule the top-bar controls follow. */
+  .metricseg a{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
 }
 
 /* ============================================================================

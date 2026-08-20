@@ -375,9 +375,27 @@ history links. These dependencies must use current GoatOS contracts, canonical
 Postgres truth, generated clients, and the mock. They must not revive old
 dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
 import-review, or old Operations. The Counts sidebar shows exactly two leaves in
-this slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
+this slice — `Herd Analytics` (`/counts/analytics`) and `Counts Breakdown`
 (`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
 ADG`, or `Count reconciliation` leaves for mock fidelity.
+
+`Herd Register` (`/counts/herd`) is HIDDEN from the sidebar (maintainer decision
+2026-08-20), the same way `Feed Packing` is hidden under Feed: the page, its
+route and its compiled page contract are all untouched and the URL stays
+reachable, so deep links, tests and the live-smoke route list keep working —
+only the nav leaf is withheld. Restoring it is one commented line in
+`backend/internal/adminui/app/service.go`, and the path stays in
+`SUPPORTED_COUNTS_HREFS` for exactly that reason.
+
+`Herd Analytics` (`/counts/analytics`) was opened by maintainer decision
+(2026-08-20) as the Counts leadership read. It answers two questions on one
+screen: what the herd IS right now (breed, pen tag, sex, kid/adult, farm) and
+what CHANGED it month by month (births in, deaths and sales out, other exits,
+pen movements within). It reads `GET /counts/herd-analytics`, one canonical
+indexed SQL round trip under the 5k-50k envelope — not a projection table. Its
+composition population is byte-for-byte the one `/counts/breakdown` reports, so
+the two Counts screens can never disagree about the denominator, and every
+figure on the page is backend-owned: the renderer derives no count of its own.
 
 `Milk` is its own sidebar group (maintainer decision 2026-08-11), holding
 `Milk Preparation` (`/counts/milk-preparation`). It was moved out of the Counts
@@ -473,7 +491,8 @@ These are the only current implemented admin-web product routes:
 /vaccination/execution/sheds/[shedId]
 /procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
-/counts/herd               Herd Register for vaccination trigger closure
+/counts/herd               Herd Register for vaccination trigger closure (route live, nav leaf withheld)
+/counts/analytics          Herd Analytics: composition now, movement by month
 /counts/breakdown          Counts Breakdown census
 /counts/milk-preparation   Current milk preparation worklist
 /operations/audit          Admin / Data Ops Audit Log (business surface)
