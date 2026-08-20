@@ -1814,10 +1814,11 @@ func TestRecordShiftingEventKeepsAnExplicitlySuppliedSource(t *testing.T) {
 	}
 }
 
-// TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable covers an animal with no recorded
-// placement: there is no source to read, so the write leaves the source absent rather than storing
-// an invented or blank value. A mixed multi-animal origin is different: it is rejected below because
-// collapsing sibling partitions into a parent-shed source weakens the stale-movement guard.
+// TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable covers the degrading source ladder:
+// an animal with no recorded placement stores no source at all; a group drawn from DIFFERENT SHEDS
+// of one farm (allowed, maintainer decision 2026-08-20) stores the shared farm but no shed, never
+// an invented or blank value; and a group spanning FARMS is rejected outright with its own code,
+// because goats never move between parks.
 func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 	const otherGoatID = "33333333-3333-4333-8333-333333333334"
 	cases := []struct {
@@ -1826,6 +1827,11 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 		goatIDs    []string
 		body       map[string]any
 		wantStatus int
+		// Expected stored source on a 200 (nil = must be absent).
+		wantSourcePark *string
+		wantSourceShed *string
+		// Expected error code on a non-200.
+		wantCode string
 	}{
 		{
 			name: "animal has no recorded placement",
@@ -1836,19 +1842,41 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "two animals have no single origin",
+			// Maintainer decision 2026-08-20: gathering from several sheds of ONE farm is a valid
+			// movement. No single truthful "from" exists, so the event stores the shared farm and
+			// leaves the shed absent -- each animal's own location history carries its origin.
+			name: "two animals from different sheds of one farm store the farm and no shed",
 			facts: map[string]domain.GoatShiftingFact{
 				testGoatID: {
 					GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
-					ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest(testSourceShedID),
+					ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
 				},
 				otherGoatID: {
 					GoatID: otherGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
-					ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest("11111111-1111-4111-8111-111111111111"),
+					ParkID: strPtrTest(testParkID), ShedID: strPtrTest("11111111-1111-4111-8111-111111111111"),
+				},
+			},
+			goatIDs:        []string{testGoatID, otherGoatID},
+			wantStatus:     http.StatusOK,
+			wantSourcePark: strPtrTest(testParkID),
+		},
+		{
+			// Goats never move between parks (movement lock 2026-07-19), so a basket spanning
+			// farms is refused before anything is stored, with a code naming the actual problem.
+			name: "two animals on different farms are rejected",
+			facts: map[string]domain.GoatShiftingFact{
+				testGoatID: {
+					GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+					ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
+				},
+				otherGoatID: {
+					GoatID: otherGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+					ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest(testSourceShedID),
 				},
 			},
 			goatIDs:    []string{testGoatID, otherGoatID},
 			wantStatus: http.StatusBadRequest,
+			wantCode:   "mixed_source_parks",
 		},
 	}
 
@@ -1873,17 +1901,21 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 			}
 			if tc.wantStatus != http.StatusOK {
 				// The rejection must carry its own honest code: the operator's fix is one raise per
-				// source pen, which "missing_impacts" would never tell them.
+				// farm, which "missing_impacts" would never tell them.
 				var envelope identitydomain.ErrorEnvelope
 				decodeBody(t, res, &envelope)
-				if envelope.Code != "mixed_source_sheds" {
-					t.Fatalf("code=%q, want mixed_source_sheds", envelope.Code)
+				if envelope.Code != tc.wantCode {
+					t.Fatalf("code=%q, want %q", envelope.Code, tc.wantCode)
 				}
 				return
 			}
-			if repo.lastEvent.SourceParkID != nil || repo.lastEvent.SourceShedID != nil {
-				t.Fatalf("source = %v/%v, want both nil -- an unresolvable origin must stay absent, never a blank or invented stored fact",
-					repo.lastEvent.SourceParkID, repo.lastEvent.SourceShedID)
+			if !eqStrPtrTest(repo.lastEvent.SourceParkID, tc.wantSourcePark) {
+				t.Fatalf("source_park = %v, want %v -- an unresolvable origin must stay absent, never a blank or invented stored fact",
+					derefTest(repo.lastEvent.SourceParkID), derefTest(tc.wantSourcePark))
+			}
+			if !eqStrPtrTest(repo.lastEvent.SourceShedID, tc.wantSourceShed) {
+				t.Fatalf("source_shed = %v, want %v -- an unresolvable origin must stay absent, never a blank or invented stored fact",
+					derefTest(repo.lastEvent.SourceShedID), derefTest(tc.wantSourceShed))
 			}
 		})
 	}
@@ -2307,6 +2339,20 @@ func get(t *testing.T, mux *http.ServeMux, path string) *httptest.ResponseRecord
 }
 
 func strPtrTest(s string) *string { return &s }
+
+func eqStrPtrTest(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func derefTest(v *string) string {
+	if v == nil {
+		return "<nil>"
+	}
+	return *v
+}
 
 // TestNormalizeShiftingEventRequest_CrossParkMove verifies that normalizeShiftingEventRequest
 // rejects movements where source_park_id != destination_park_id.

@@ -573,13 +573,18 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	if sourceParkID == nil && sourceShedID == nil {
 		derivedPark, derivedShed, derivedPartition, err := h.shifting.DeriveShiftingSource(r.Context(), tenantID, normalized.GoatIDs)
 		switch {
+		case errors.Is(err, countsapp.ErrMixedSourceParks):
+			// A cross-FARM group is rejected with its own code (maintainer decision 2026-08-20:
+			// animals may come from different sheds/pens of ONE farm -- those degrade to a blank
+			// stored source below -- but goats never move between parks, so a group spanning
+			// farms can never be one movement).
+			h.writeError(w, r, http.StatusBadRequest, "mixed_source_parks",
+				"all animals in one shifting must be on the same farm; raise a separate shifting for each farm", err)
+			return
 		case errors.Is(err, countsapp.ErrImpactNotDerivable):
-			// A group with no single truthful origin (animals standing in different sheds, or in
-			// different partitions of one shed) is rejected with its OWN code, not the generic
-			// missing_impacts: one shifting moves one shed's animals (maintainer decision
-			// 2026-08-18), and the operator's fix is to raise one movement per source pen.
-			h.writeError(w, r, http.StatusBadRequest, "mixed_source_sheds",
-				"all animals in one shifting must currently stand in the same shed and pen; raise a separate shifting for each source pen", err)
+			// Only an empty animal set reaches this from the source derivation now, and that is
+			// already rejected earlier as missing_goat_ids; kept as defense for future callers.
+			h.writeCountsError(w, r, err)
 			return
 		case errors.Is(err, ports.ErrGoatNotFound):
 			// Nothing to read the source from. The no-impacts path still fails closed on this same

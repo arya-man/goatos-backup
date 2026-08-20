@@ -176,6 +176,7 @@
     <string name="counts_shed_unassigned">कोई शेड निर्धारित नहीं</string>
     <string name="counts_shifting_from">से</string>
     <string name="counts_shifting_to">तक</string>
+    <string name="counts_shifting_from_multiple">कई शेड</string>
     <string name="counts_more_fields">अधिक विवरण</string>
 
     <!-- Birth / Death workflow module -->

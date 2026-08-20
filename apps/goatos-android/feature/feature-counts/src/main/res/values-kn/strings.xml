@@ -176,6 +176,7 @@
     <string name="counts_shed_unassigned">ಯಾವುದೇ ಶೆಡ್ ನಿಗದಿಪಡಿಸಿಲ್ಲ</string>
     <string name="counts_shifting_from">ಇಂದ</string>
     <string name="counts_shifting_to">ಗೆ</string>
+    <string name="counts_shifting_from_multiple">ಹಲವು ಶೆಡ್‌ಗಳು</string>
     <string name="counts_more_fields">ಹೆಚ್ಚಿನ ವಿವರಗಳು</string>
 
     <!-- Birth / Death workflow module -->

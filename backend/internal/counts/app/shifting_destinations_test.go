@@ -382,14 +382,36 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 		}
 	})
 
-	t.Run("animals in different sheds have no single truthful source", func(t *testing.T) {
+	t.Run("animals in different sheds keep the shared farm and drop the shed", func(t *testing.T) {
+		// Maintainer decision 2026-08-20: mixed source sheds are a valid movement. The farm is
+		// still one truthful fact and is kept; the shed (and partition) degrade to absent.
+		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{
+			{GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p1"), ShedID: strPtr("s1"), ShedPartitionLabel: strPtr("1")},
+			{GoatID: destGoatIDB, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p1"), ShedID: strPtr("s2"), ShedPartitionLabel: strPtr("1")},
+		}}
+		parkID, shedID, partition, err := NewService(repo).DeriveShiftingSource(
+			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
+		if err != nil {
+			t.Fatalf("DeriveShiftingSource: %v", err)
+		}
+		if parkID == nil || *parkID != "p1" {
+			t.Fatalf("park = %v, want p1 (the farm is still shared and truthful)", parkID)
+		}
+		if shedID != nil || partition != nil {
+			t.Fatalf("shed/partition = %v/%v, want nil/nil -- mixed sheds have no single source to store", shedID, partition)
+		}
+	})
+
+	t.Run("animals on different farms are rejected outright", func(t *testing.T) {
+		// Goats never move between parks (movement lock 2026-07-19): a cross-farm basket is not
+		// a movement with a degraded source, it is not a movement at all.
 		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{
 			{GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p1"), ShedID: strPtr("s1")},
-			{GoatID: destGoatIDB, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p1"), ShedID: strPtr("s2")},
+			{GoatID: destGoatIDB, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p2"), ShedID: strPtr("s1")},
 		}}
 		if _, _, _, err := NewService(repo).DeriveShiftingSource(
-			context.Background(), destTenantID, []string{destGoatID, destGoatIDB}); !errors.Is(err, ErrImpactNotDerivable) {
-			t.Fatalf("err=%v, want ErrImpactNotDerivable (mismatched origins have no single source)", err)
+			context.Background(), destTenantID, []string{destGoatID, destGoatIDB}); !errors.Is(err, ErrMixedSourceParks) {
+			t.Fatalf("err=%v, want ErrMixedSourceParks", err)
 		}
 	})
 
@@ -462,12 +484,20 @@ func TestDeriveShiftingSourceCarriesTheOriginPartition(t *testing.T) {
 		}
 	})
 
-	t.Run("mixed partitions reject the parent-shed fallback", func(t *testing.T) {
+	t.Run("mixed partitions keep the shared shed and drop the partition", func(t *testing.T) {
+		// The shed is still one truthful fact ("they left Castro"); which pen is not, so the
+		// partition degrades to absent rather than one pen's label mislabeling the group.
 		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{fact(destGoatID, "1"), fact(destGoatIDB, "2")}}
-		_, _, _, err := NewService(repo).DeriveShiftingSource(
+		parkID, shedID, partition, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
-		if !errors.Is(err, ErrImpactNotDerivable) {
-			t.Fatalf("err = %v, want ErrImpactNotDerivable", err)
+		if err != nil {
+			t.Fatalf("DeriveShiftingSource: %v", err)
+		}
+		if parkID == nil || *parkID != srcParkID || shedID == nil || *shedID != srcShedID {
+			t.Fatalf("park/shed = %v/%v, want %s/%s", parkID, shedID, srcParkID, srcShedID)
+		}
+		if partition != nil {
+			t.Fatalf("partition = %v, want nil -- mixed pens have no single source partition", *partition)
 		}
 	})
 

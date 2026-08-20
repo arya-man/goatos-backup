@@ -354,9 +354,10 @@ class ShiftingViewModelEligibilityTest {
     }
 
     // -------------------------------------------------------------------------------------------
-    // The basket (maintainer decision 2026-08-18): one shifting carries MULTIPLE animals from ONE
-    // pen — added one by one via search/scan + tap, each removable — and submits one movement whose
-    // goat_ids is the whole basket.
+    // The basket (maintainer decisions 2026-08-18 and 2026-08-20): one shifting carries MULTIPLE
+    // animals from ONE FARM — any of its sheds/pens; the destination is the shared thing — added
+    // one by one via search/scan + tap, each removable — and submits one movement whose goat_ids
+    // is the whole basket.
     // -------------------------------------------------------------------------------------------
 
     @Test
@@ -397,7 +398,9 @@ class ShiftingViewModelEligibilityTest {
     }
 
     @Test
-    fun `an animal standing in a different pen is refused and the basket is unchanged`() = runTest(dispatcher) {
+    fun `an animal from a different shed of the same farm joins the basket`() = runTest(dispatcher) {
+        // Maintainer decision 2026-08-20 (relaxing the 2026-08-18 one-pen rule): one shifting may
+        // gather animals from several sheds/pens — the DESTINATION is the shared thing.
         val vm = newViewModel(
             listOf(
                 animal(lifecycle = "alive"),
@@ -419,17 +422,46 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
         vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID_B))
 
-        // Refused, with the fix named — mirroring the backend's mixed_source_sheds rejection —
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.selectedAnimals.map { it.goatId })
+        assertNull(vm.state.value.animalLookupMessage)
+    }
+
+    @Test
+    fun `an animal on a different farm is refused and the basket is unchanged`() = runTest(dispatcher) {
+        // Goats never move between parks (movement lock 2026-07-19), so a cross-farm add is
+        // refused with the fix named — mirroring the backend's mixed_source_parks rejection —
         // rather than queueing a write that is certain to fail in the outbox.
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(
+                    lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002",
+                    parkId = CPT_PARK_ID,
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID_B))
+
         assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
         assertEquals(
-            "This animal is in a different shed. All animals in one shifting must come from the same shed — submit this one, then raise another shifting for the other shed.",
+            "This animal is on a different farm. All animals in one shifting must be on the same farm — submit this one, then raise another shifting for the other farm.",
             vm.state.value.animalLookupMessage,
         )
     }
 
     @Test
-    fun `a same-shed different-partition animal is a different pen and is refused`() = runTest(dispatcher) {
+    fun `a same-shed different-partition animal joins the basket`() = runTest(dispatcher) {
+        // 2026-08-20: pens no longer gate the basket — Castro 1 and Castro 2 animals move together.
         val vm = newViewModel(
             listOf(
                 animal(lifecycle = "alive", partitionLabel = "1"),
@@ -450,7 +482,7 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
         vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID_B))
 
-        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.selectedAnimals.map { it.goatId })
     }
 
     @Test
@@ -527,7 +559,7 @@ class ShiftingViewModelEligibilityTest {
     }
 
     @Test
-    fun `a gun scan from a different pen is refused with the mixed-pen message`() = runTest(dispatcher) {
+    fun `a gun scan from a different shed of the same farm auto-adds`() = runTest(dispatcher) {
         val reader = FakeShiftingRfidReader()
         val vm = newViewModel(
             listOf(
@@ -547,10 +579,35 @@ class ShiftingViewModelEligibilityTest {
         reader.scan("CBE-ASSUMED-RFID-00002")
         advanceUntilIdle()
 
-        // Same pen guard as the tap path — the scan cannot smuggle a second shed into the basket.
+        // 2026-08-20: sheds do not gate the basket; the scan rhythm walks pen to pen.
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.selectedAnimals.map { it.goatId })
+    }
+
+    @Test
+    fun `a gun scan from a different farm is refused with the mixed-farm message`() = runTest(dispatcher) {
+        val reader = FakeShiftingRfidReader()
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive"),
+                animal(
+                    lifecycle = "alive", goatId = GOAT_ID_B, tag = "CBE-ASSUMED-RFID-00002",
+                    parkId = CPT_PARK_ID,
+                ),
+            ),
+            reader = reader,
+            filterByTag = true,
+        )
+        advanceUntilIdle()
+
+        reader.scan("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+        reader.scan("CBE-ASSUMED-RFID-00002")
+        advanceUntilIdle()
+
+        // Same farm guard as the tap path — a scan cannot smuggle a second park into the basket.
         assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
         assertEquals(
-            "This animal is in a different shed. All animals in one shifting must come from the same shed — submit this one, then raise another shifting for the other shed.",
+            "This animal is on a different farm. All animals in one shifting must be on the same farm — submit this one, then raise another shifting for the other farm.",
             vm.state.value.animalLookupMessage,
         )
     }
@@ -591,6 +648,25 @@ class ShiftingViewModelEligibilityTest {
 
         assertTrue(vm.state.value.selectedAnimals.isEmpty())
         assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.animalMatches.map { it.goatId })
+    }
+
+    /**
+     * The focused-field path: when the operator has the search field focused, the gun's
+     * keystrokes type into the editor (bypassing the wedge capture) and the screen turns the
+     * terminating Enter into [ShiftingEvent.LookupAnimalsAutoAdd]. The read must get the same
+     * auto-add as the capture path.
+     */
+    @Test
+    fun `a gun read typed into the focused field auto-adds via LookupAnimalsAutoAdd`() = runTest(dispatcher) {
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), filterByTag = true)
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimalsAutoAdd)
+        advanceUntilIdle()
+
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals("", vm.state.value.animalQuery)
     }
 
     @Test
@@ -662,6 +738,7 @@ class ShiftingViewModelEligibilityTest {
         partitionLabel: String? = null,
         goatId: String = GOAT_ID,
         tag: String = "CBE-ASSUMED-RFID-00001",
+        parkId: String = CBE_PARK_ID,
     ) = GoatSearchItemDto(
         goatId = goatId,
         displayId = "G-000325",
@@ -669,7 +746,7 @@ class ShiftingViewModelEligibilityTest {
         lifecycleStatus = lifecycle,
         locationPath = GoatLocationPathDto(
             operationalLocationDisplay = "Coimbatore / $shedName",
-            parkId = CBE_PARK_ID,
+            parkId = parkId,
             parkName = "Coimbatore",
             shedId = shedId,
             shedName = shedName,
