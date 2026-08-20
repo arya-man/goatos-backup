@@ -251,6 +251,43 @@ rename it to "Goats bought in as adults" — that was tried and rejected.
 | First wave (multi-select chips) | `first_wave` | given when settle-in ends |
 | Second wave, after · 28 days | `second_wave_after_days` | |
 | Goat / Sheep second wave (chips) | `goat_second_wave`, `sheep_second_wave` | |
+| **What we bought them for** · Breeding / Fattening | `management_stage` (see below) | selects which first-wave set applies |
+
+### Purpose — breeding vs fattening
+
+Source: Aryaman, 2026-08-20 — *"breeding and fattening vaccine will differ."*
+
+This is **not a new concept**; it already exists in the data. `goats.management_stage` carries it,
+and the seed defines the codes (`cmd/seed-vaccination-real/main.go:334-336`):
+`F2` = Fattening, `F2-Male`, `F2-Female`.
+
+Live counts in the staging clone (alive):
+
+```
+Non-Pregnant  800    breeding stock
+F2-Male       509    fattening
+F2-Female     204    fattening
+Buck           38    breeding
+Mother          5    breeding
+K1 / K2 / K3   67    kids
+ICU-Kid        26
+                     → 713 fattening, 843 breeding + kids
+```
+
+The engine already supports per-stage vaccine differences through
+`rule_dsl.eligibility.animal_stage` — the vaccine card's "every stage" selector is exactly that.
+What was missing is that **the arrival policy did not distinguish purpose**: warm-up, kid cutoff
+and first wave applied uniformly.
+
+The console now asks which purpose the first wave is being set for, and keeps a separate vaccine
+set per purpose. The rationale is operational, and belongs on screen: breeding stock stays for
+years and needs the full schedule; fattening animals are sold well before most repeats come
+round, so giving them long-interval vaccines wastes doses.
+
+Backend note: the wave fields themselves are **not read by generation today** (§ dead config).
+Splitting them by purpose does not change that. If waves are ever wired up, purpose must resolve
+through `management_stage` rather than a new column — the classification already exists and
+already drives eligibility.
 
 Wave chips are **multi-select, driven by the live vaccine list** — add a vaccine and it appears
 as a wave option. Changing them produces its own impact row.
