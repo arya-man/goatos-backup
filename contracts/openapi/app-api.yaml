@@ -26979,9 +26979,10 @@ components:
             (destination shed x breed x stage tag x age class x sex) from the animals' own canonical
             facts, summing head_count for animals that share a cohort. A MIXED group - multiple
             breeds or species, or one breed's differing stage/age/sex - derives one truthful row per
-            cohort; nothing is averaged and nothing is rejected for being mixed. All animals must
-            currently stand in one source shed and pen; a group spanning source pens is rejected
-            with 400 mixed_source_sheds (raise one movement per source pen). When impacts are
+            cohort; nothing is averaged and nothing is rejected for being mixed. Animals may come
+            from DIFFERENT sheds/pens of one farm; such a movement stores no single source location
+            (each animal's own location history carries its origin). A group spanning FARMS is
+            rejected with 400 mixed_source_parks, because goats never move between parks. When impacts are
             supplied explicitly, they are stored verbatim and no derivation runs. A derived impact
             never leaves pregnant/lactating/warmup non-zero; record those by supplying impacts
             explicitly.

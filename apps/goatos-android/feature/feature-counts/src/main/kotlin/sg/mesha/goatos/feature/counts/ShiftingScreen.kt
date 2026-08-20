@@ -25,6 +25,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,9 +60,10 @@ import sg.mesha.goatos.core.ui.operationalLocationLabel
  *     added animal renders as its own visible row with tag + current location and an explicit
  *     remove control, and the running count sits on the section title, so nothing is in the
  *     movement that the operator has not seen listed.
- *  2. **One source pen** — every animal in one shifting must currently stand in the SAME shed and
- *     pen. Adding an animal from a different pen is refused with a message naming the fix (raise a
- *     separate shifting); the backend enforces the same rule with `mixed_source_sheds`.
+ *  2. **One farm, any pens** — animals may come from DIFFERENT sheds/pens (maintainer decision
+ *     2026-08-20: the DESTINATION is the shared thing; each basket row names its own pen and the
+ *     FROM chip claims a pen only when all animals share one). Only a cross-FARM add is refused —
+ *     goats never move between parks — mirroring the backend's `mixed_source_parks`.
  *  3. **Destination** — the animals' current farm is selected automatically and read-only; the
  *     operator chooses only a destination shed inside that farm. Goats never shift between farms.
  *  4. **Priority** — High or Low (default).
@@ -289,6 +295,16 @@ sealed interface ShiftingEvent {
     data object LookupAnimals : ShiftingEvent
 
     /**
+     * A completed RFID-gun read that landed IN the focused search field. When the operator has
+     * focused the field, Android routes the reader's keystrokes into the editor before the
+     * activity-level wedge capture ever sees them — the tag types itself into the box and the
+     * trailing Enter arrives here. The screen intercepts that Enter and emits this so a gun read
+     * behaves identically whether or not the field happens to hold focus: look the tag up and add
+     * a single eligible match to the basket without a tap.
+     */
+    data object LookupAnimalsAutoAdd : ShiftingEvent
+
+    /**
      * ADDS the tapped match to the basket (no-op when it is already there). The ViewModel refuses
      * an add whose animal stands in a different pen than the basket, with a message naming the fix.
      */
@@ -360,6 +376,21 @@ fun ShiftingScreen(
                         onValueChange = { onEvent(ShiftingEvent.EditAnimalQuery(it)) },
                         label = stringResource(R.string.counts_field_animal_lookup),
                         supporting = stringResource(R.string.counts_hint_animal_lookup),
+                        // A gun read while THIS FIELD is focused bypasses the activity-level wedge
+                        // capture (the editor eats the keystrokes first), so its terminating
+                        // Enter/Tab is caught here and treated as a completed scan. onPreviewKeyEvent
+                        // sees the hardware key before the editor can consume it.
+                        modifier = Modifier.onPreviewKeyEvent { event ->
+                            val completes = event.key == Key.Enter ||
+                                event.key == Key.NumPadEnter ||
+                                event.key == Key.Tab
+                            if (completes && event.type == KeyEventType.KeyDown) {
+                                onEvent(ShiftingEvent.LookupAnimalsAutoAdd)
+                            }
+                            // Consume DOWN and UP alike so the key can never leak into the form
+                            // (Tab would move focus; Enter could trigger the focused control).
+                            completes
+                        },
                     )
                     CountsSubmitButton(
                         label = if (state.isLookingUpAnimals) {
@@ -404,10 +435,24 @@ fun ShiftingScreen(
                     )
                 }
                 item(key = "animal-hero") {
+                    // Animals may come from different sheds/pens (2026-08-20; the destination is
+                    // the shared thing), so the FROM chip claims a pen only when EVERY basket
+                    // animal shares it — otherwise it says so honestly instead of wearing the
+                    // first animal's pen. The farm is always shared (the ViewModel refuses a
+                    // cross-farm add), so the park half is safe to take from any animal.
+                    val first = state.selectedAnimals.first()
+                    val sharedPen = state.selectedAnimals.all {
+                        it.shedId == first.shedId &&
+                            it.partitionLabel?.trim().orEmpty() == first.partitionLabel?.trim().orEmpty()
+                    }
                     ShiftingRouteHero(
-                        // All basket animals share one pen (the ViewModel refuses a mixed add), so
-                        // the first animal's location IS the group's "from".
-                        from = state.selectedAnimals.first(),
+                        fromParkLabel = first.parkName,
+                        fromShedLabel = if (sharedPen) {
+                            operationalLocationLabel(first.shedName, first.partitionLabel)
+                        } else {
+                            stringResource(R.string.counts_shifting_from_multiple)
+                        },
+                        fromFallback = if (sharedPen) first.locationLabel else "",
                         toParkLabel = selectedParkName,
                         toShedLabel = selectedShedLabel,
                     )
@@ -601,6 +646,13 @@ internal fun BasketAnimalRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(animal.displayId, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
             Text(animal.tag, color = MeshaColors.Muted, fontSize = 11.sp)
+            // Each row names its own pen: a basket may gather animals from several pens
+            // (2026-08-20), so the row — not the route hero — is where an animal's origin lives.
+            val rowLocation = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                .ifBlank { animal.locationLabel }
+            if (rowLocation.isNotBlank()) {
+                Text(rowLocation, color = MeshaColors.Faint, fontSize = 11.sp)
+            }
         }
         IconButton(onClick = onRemove) {
             Icon(
@@ -621,7 +673,9 @@ internal fun BasketAnimalRow(
  */
 @Composable
 private fun ShiftingRouteHero(
-    from: ShiftingAnimalUi,
+    fromParkLabel: String,
+    fromShedLabel: String,
+    fromFallback: String,
     toParkLabel: String?,
     toShedLabel: String?,
 ) {
@@ -641,11 +695,11 @@ private fun ShiftingRouteHero(
             HeroLocationChip(
                 modifier = Modifier.weight(1f),
                 label = stringResource(R.string.counts_shifting_from),
-                parkLabel = from.parkName,
-                // The operational location — shed name plus partition when the animals' shed is
-                // partitioned (e.g. "Yashoda 2"), so a same-shed cross-partition move is visible.
-                shedLabel = operationalLocationLabel(from.shedName, from.partitionLabel),
-                fallback = from.locationLabel,
+                parkLabel = fromParkLabel,
+                // The shared operational location when every basket animal stands in one pen
+                // (e.g. "Yashoda 2"), or the honest multiple-sheds label when they do not.
+                shedLabel = fromShedLabel,
+                fallback = fromFallback,
                 accent = MeshaColors.Faint,
             )
             Icon(

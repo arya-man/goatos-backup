@@ -46,22 +46,26 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 // nothing backfilled the field afterwards, so the stored shifting_events row kept a blank source and
 // the movement lost its "from" half -- a movement you cannot read backwards is not an audit trail.
 //
-// MULTI-ANIMAL. A source is a single origin. When every named animal stands in the SAME park/shed
-// (the common "move this whole group out of one shed" case) that shared origin is the truthful
-// source and is returned. When the animals stand in DIFFERENT sheds there is no single truthful
-// answer, so rather than pick one and silently mislabel the rest this returns ErrImpactNotDerivable
-// and the caller leaves the source absent -- the per-goat "from" is still preserved on each animal's
-// location history by the relocation path.
+// MULTI-ANIMAL (maintainer decision 2026-08-20, relaxing the 2026-08-18 one-pen rule). One
+// shifting may gather animals from SEVERAL sheds/pens; the DESTINATION is the shared thing. The
+// derivation therefore degrades level by level instead of failing:
+//
+//   - PARK must be shared by every animal. A cross-farm group is not a movement at all (goats
+//     never move between parks -- the 2026-07-19 movement lock), so mixed parks return
+//     ErrMixedSourceParks and the write is rejected before anything is stored.
+//   - SHED is returned only when every animal shares it. Mixed sheds yield a nil shed (and nil
+//     partition): there is no single truthful "from", so the event stores none rather than
+//     mislabeling the group -- each animal's own location history still carries its real origin
+//     via the relocation path, and the feed projection already treats a NULL source as "no
+//     single shed to decrement" (its -heads branch is WHERE source_shed_id IS NOT NULL).
+//   - PARTITION is returned only when the shed is shared AND every animal shares the partition.
+//     A group drawn from Castro 1 AND Castro 2 keeps the shared shed but no partition.
 //
 // DEGRADES, DOES NOT INVENT. An animal with no recorded placement yields (nil, nil): the caller
 // leaves the source absent, exactly as it is today. Writing an empty string instead would turn
 // "unknown origin" into a stored fact, and it would violate the non-blank CHECKs on the column.
-// PARTITION. The origin is an OPERATIONAL location, so the source is park + shed + optional
-// partition. The partition is derived under exactly the same "one truthful origin" rule as the
-// shed: it is returned only when every named animal shares it. A group drawn from Castro 1 AND
-// Castro 2 has no single source partition, so the movement is rejected instead of being weakened
-// into a parent-shed source. Comparison goes through oploc.SamePartition so 'Part 3' and '3' are
-// one partition, and a non-partitioned shed (NULL/”/'whole') yields nil, never the 'whole' sentinel.
+// Partition comparison goes through oploc.SamePartition so 'Part 3' and '3' are one partition,
+// and a non-partitioned shed (NULL/''/'whole') yields nil, never the 'whole' sentinel.
 func (s *Service) DeriveShiftingSource(
 	ctx context.Context,
 	tenantID string,
@@ -85,19 +89,27 @@ func (s *Service) DeriveShiftingSource(
 		return nil, nil, nil, err
 	}
 
-	// All animals must share one origin park AND shed for it to be a truthful single source.
+	// One farm, always: a cross-park group is rejected outright, never degraded.
 	park := nonBlank(facts[0].ParkID)
+	for _, fact := range facts[1:] {
+		if !eqOptional(park, nonBlank(fact.ParkID)) {
+			return nil, nil, nil, ErrMixedSourceParks
+		}
+	}
+
+	// Shed and partition degrade to absent when not shared: no single truthful "from" exists,
+	// and each animal's own location history still carries its real origin.
 	shed := nonBlank(facts[0].ShedID)
 	for _, fact := range facts[1:] {
-		if !eqOptional(park, nonBlank(fact.ParkID)) || !eqOptional(shed, nonBlank(fact.ShedID)) {
-			return nil, nil, nil, ErrImpactNotDerivable
+		if !eqOptional(shed, nonBlank(fact.ShedID)) {
+			return park, nil, nil, nil
 		}
 	}
 
 	partition := partitionOrNil(facts[0].ShedPartitionLabel)
 	for _, fact := range facts[1:] {
 		if !oploc.SamePartition(derefOrBlank(partition), derefOrBlank(partitionOrNil(fact.ShedPartitionLabel))) {
-			return nil, nil, nil, ErrImpactNotDerivable
+			return park, shed, nil, nil
 		}
 	}
 	return park, shed, partition, nil

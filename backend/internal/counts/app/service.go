@@ -36,6 +36,13 @@ var (
 	// to describe. For two or more, guessing how the operator wanted the cohort split would invent
 	// business data, so the caller must state the impacts.
 	ErrImpactNotDerivable = errors.New("counts: impacts can only be derived for exactly one goat")
+
+	// ErrMixedSourceParks: the named animals stand on DIFFERENT FARMS. Unlike mixed source sheds --
+	// which are allowed (maintainer decision 2026-08-20: one shifting may gather animals from
+	// several pens; the DESTINATION is the shared thing, and the event then stores no single
+	// source) -- a cross-farm group can never be one movement, because goats never move between
+	// parks (movement lock 2026-07-19: leaving a park is a terminal exit, never a move).
+	ErrMixedSourceParks = errors.New("counts: animals in one shifting stand on different farms")
 )
 
 const (

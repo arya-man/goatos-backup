@@ -176,6 +176,7 @@
     <string name="counts_shed_unassigned">షెడ్ కేటాయించలేదు</string>
     <string name="counts_shifting_from">నుండి</string>
     <string name="counts_shifting_to">కు</string>
+    <string name="counts_shifting_from_multiple">అనేక షెడ్లు</string>
     <string name="counts_more_fields">మరిన్ని వివరాలు</string>
 
     <!-- Birth / Death workflow module -->
