@@ -64,7 +64,8 @@ live version and mutates the ones the user touched.
 > If the UI ever asks the user to re-enter an unchanged value, it is broken.
 
 ```
-live version ──copy all rules──▶ new draft ──user edits 1 field──▶ publish ──▶ retire previous
+live version ──copy all rules──▶ new draft ──user edits 1 field──▶ PUBLISH TXN
+                                                            { retire previous, publish draft }
 ```
 
 ### 3.2 The lifecycle the database enforces
