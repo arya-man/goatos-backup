@@ -148,7 +148,9 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
     const code = String(asObject(r.vaccine).code ?? r.row_id ?? "");
     const edited = byCode.get(code);
     if (!edited) return r;
-    r.schedule = edited.on ? applyEdits(Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [], edited) : [];
+    r.schedule = edited.on
+      ? applyEdits(Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [], edited, code)
+      : [];
     return r;
   });
 
@@ -174,12 +176,43 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   return doc;
 }
 
+/**
+ * A schedule rule for a dose the plan did not have before.
+ *
+ * Built from the row's own existing rules where there are any, so a new dose
+ * inherits this vaccine's dose amount, vial size, route and policies rather than
+ * this file inventing clinical values it has no business choosing. With nothing
+ * to copy, only the fields the editor genuinely knows are set.
+ */
+function newRule(
+  template: ScheduleRule | undefined,
+  code: string,
+  kind: "kid" | "drive" | "repeat",
+  offsetDays: number,
+  sequence: number,
+): ScheduleRule {
+  const base: Record<string, unknown> = template ? { ...(template as Record<string, unknown>) } : {};
+  base.dose_code = `${code.toLowerCase()}_${kind}_${sequence}`;
+  base.source_dose_code = base.dose_code;
+  base.sequence = sequence;
+  base.offset_days = offsetDays;
+  base.trigger_type =
+    kind === "kid" ? "birth_age" : kind === "drive" ? "manual_campaign" : "after_previous_completion";
+  base.repeat = kind === "repeat" ? "every_n_days" : "none";
+  base.catch_up = kind === "repeat" ? "next_cycle" : "immediate";
+  base.min_gap_days = kind === "repeat" ? offsetDays : 0;
+  return base as ScheduleRule;
+}
+
 /** Applies edited timings onto the row's existing rules, preserving every other key. */
-function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine): ScheduleRule[] {
+function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine, code: string): ScheduleRule[] {
   const kid = [...edited.kidDoses];
   const drive = [...edited.driveDoses];
+  const template = schedule[0];
+  const existingRepeat = schedule.find((r) => r.repeat && r.repeat !== "none");
+  let nextSequence = schedule.reduce((max, r) => Math.max(max, Number(r.sequence ?? 0)), 0);
 
-  return schedule.map((rule) => {
+  const kept = schedule.map((rule) => {
     const next: ScheduleRule = { ...rule };
     if (rule.repeat && rule.repeat !== "none") {
       if (edited.repeatDays !== null) {
@@ -200,6 +233,32 @@ function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine): ScheduleRu
     }
     return next;
   });
+
+  // Doses the editor added have no rule to update, so they are appended. The
+  // leftovers in `kid`/`drive` are exactly those: every existing rule shifted
+  // one off the front above.
+  const added: ScheduleRule[] = [];
+  for (const dose of kid) {
+    nextSequence += 1;
+    added.push(withWindow(newRule(template, code, "kid", dose.offsetDays, nextSequence), edited));
+  }
+  for (const dose of drive) {
+    nextSequence += 1;
+    added.push(withWindow(newRule(template, code, "drive", dose.offsetDays, nextSequence), edited));
+  }
+  if (edited.repeatDays !== null && !existingRepeat) {
+    nextSequence += 1;
+    added.push(withWindow(newRule(template, code, "repeat", edited.repeatDays, nextSequence), edited));
+  }
+
+  // A repeat that was removed in the editor must not survive in the document.
+  const surviving = edited.repeatDays === null ? kept.filter((r) => !r.repeat || r.repeat === "none") : kept;
+  return [...surviving, ...added];
+}
+
+function withWindow(rule: ScheduleRule, edited: EditorVaccine): ScheduleRule {
+  if (edited.maxLateDays === null) return rule;
+  return { ...rule, due_window_days: edited.maxLateDays, max_delay_days: edited.maxLateDays };
 }
 
 /**
