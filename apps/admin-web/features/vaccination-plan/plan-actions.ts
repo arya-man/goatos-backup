@@ -142,3 +142,18 @@ function nextVersionLabel(currentVersion: number | undefined): string {
   const next = Number.isFinite(currentVersion) ? Number(currentVersion) + 1 : 1;
   return `V${next}`;
 }
+
+/**
+ * Read one version's vaccine settings, for the read-only history sheet.
+ *
+ * Deliberately a server action rather than a page-load fetch: loading every
+ * earlier version's document up front would be an unbounded read that grows
+ * with the tenant's history, and the reader opens at most one.
+ */
+export async function readVersionSettings(
+  versionId: string,
+): Promise<{ ok: true; ruleDsl: unknown } | { ok: false; error: string }> {
+  const version = await getProtocolVersion(versionId);
+  if (!version.ok) return { ok: false, error: "Those settings could not be loaded." };
+  return { ok: true, ruleDsl: version.data.rule_dsl };
+}

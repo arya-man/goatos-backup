@@ -3613,5 +3613,28 @@ select:disabled { opacity: .45; }
   border-radius: 5px; padding: 1px 7px; border: 1px solid var(--brand); color: var(--brand-d); background: var(--brand-soft); }
 .vp .vst.draft { border-color: var(--warn); color: var(--warn); background: var(--warnx); }
 .vp tr.voff td { opacity: .5; }
-.vp .alert { margin: 12px 0 0; font-size: 13.5px; border-radius: 10px; padding: 11px 15px;
-  border: 1px solid var(--danger); background: var(--dangerx); color: var(--ink); }
+
+/* list screen + versions — remainder of the mock's own rules */
+.vp .backlink { font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; padding: 6px 0; margin-bottom: 6px; }
+.vp .backlink:hover { color: var(--brand-d); }
+.vp .verline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 600; font-size: 14.5px; }
+.vp .vbtn { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 11px; cursor: pointer; color: var(--ink); white-space: nowrap; background: none; }
+.vp .vbtn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-d); background: var(--brand-soft); }
+.vp .vbtn:disabled { opacity: .42; cursor: not-allowed; }
+.vp tr.vlive td { background: var(--brand-soft); }
+
+/* read-only "view settings" sheet */
+.vp-modal { position: fixed; inset: 0; z-index: 300; background: rgba(6,12,9,.62); display: grid; place-items: center; padding: 24px; }
+.vp-modal[hidden] { display: none; }
+.vp-sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--pop);
+  width: min(860px, 100%); max-height: 82vh; display: flex; flex-direction: column; overflow: hidden; }
+.vp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.vp-head h2 { font-size: 19px; font-weight: 700; letter-spacing: -.018em; margin-top: 3px; }
+.vp-body { padding: 18px 20px; overflow: auto; }
+.vp-lead { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.vp-lead b { color: var(--ink); }
+.vp-x { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; cursor: pointer;
+  color: var(--muted); font-size: 15px; flex: none; background: none; border: none; }
+.vp-x:hover { background: var(--panel-2); color: var(--ink); }
