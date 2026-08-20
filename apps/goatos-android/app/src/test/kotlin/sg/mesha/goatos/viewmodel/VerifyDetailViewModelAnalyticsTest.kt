@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -42,7 +43,9 @@ import sg.mesha.goatos.core.network.dto.VerificationMediaItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
+import sg.mesha.goatos.feature.verify.VerifyMeasurementInput
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 
@@ -97,8 +100,14 @@ class VerifyDetailViewModelAnalyticsTest {
         assertEquals(Triple("approved", "2026-07-29", false), repo.lastRefreshedScope)
     }
 
+    // THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20).
+    //
+    // This replaces `weight correction refresh waits for exact outbox success`, which guarded the
+    // standalone save. That save relabelled the item, bumping row_version, so the Approve pressed
+    // straight afterwards was version-fenced out and silently did nothing. There is no separate
+    // save any more: one press, one outbox row, value and verdict together.
     @Test
-    fun `weight correction refresh waits for exact outbox success`() = runTest(dispatcher) {
+    fun `approve carries the typed number on the same verdict`() = runTest(dispatcher) {
         val repo = FakeVerifyDetailRepository()
         val syncRepository = FakeVerifyDetailSyncRepository()
         val vm = VerifyDetailViewModel(
@@ -110,24 +119,43 @@ class VerifyDetailViewModelAnalyticsTest {
         )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
-        val refreshesBeforeCorrection = repo.refreshCount
 
         vm.onEvent(
-            VerifyDetailEvent.CorrectWeight(
+            VerifyDetailEvent.Approve(
                 itemId = "item-1",
-                observationId = "observation-1",
-                refType = "weighing_observation",
-                weightKg = 42.5,
+                measurement = VerifyMeasurementInput(value = 42.5, reason = "scale reads 42.5"),
             ),
         )
         advanceUntilIdle()
 
-        assertEquals(refreshesBeforeCorrection, repo.refreshCount)
+        val verdict = syncRepository.lastVerdict
+        assertEquals("approved", verdict?.decision)
+        assertEquals(42.5, verdict?.measurement?.value)
+        assertEquals("scale reads 42.5", verdict?.measurement?.reason)
+    }
 
-        syncRepository.emitCorrectionSuccess()
+    // A rejection sends the work back to be recorded again, so a number typed before she changed
+    // her mind must never reach the record that is about to be redone.
+    @Test
+    fun `reject never carries a number`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        assertEquals(refreshesBeforeCorrection + 1, repo.refreshCount)
+        vm.onEvent(VerifyDetailEvent.Reject(reason = "clip too dark to read", itemId = "item-1"))
+        advanceUntilIdle()
+
+        val verdict = syncRepository.lastVerdict
+        assertEquals("rejected", verdict?.decision)
+        assertNull(verdict?.measurement)
     }
 
     @Test
@@ -549,6 +577,12 @@ private class FakeVerifyDetailRepository : VerificationRepository {
         sg.mesha.goatos.core.common.AppResult.Ok(Unit)
 }
 
+/** One enqueued verdict, as the outbox saw it. */
+private data class RecordedVerdict(
+    val decision: String,
+    val measurement: VerificationVerdictMeasurementDto?,
+)
+
 private class FakeVerifyDetailSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private val correctionItem = MutableStateFlow<SyncQueueItem?>(null)
@@ -560,30 +594,30 @@ private class FakeVerifyDetailSyncRepository : SyncRepository {
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = AppResult.Ok("outbox-1")
+    /** What actually reached the outbox, so a test can assert on what the verdict DROPPED as well
+     *  as on what it carried. */
+    var lastVerdict: RecordedVerdict? = null
+        private set
+
+    override suspend fun enqueueVerificationVerdict(
+        itemId: String,
+        decision: String,
+        reason: String?,
+        rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto?,
+    ): AppResult<String> {
+        lastVerdict = RecordedVerdict(decision = decision, measurement = measurement)
+        return AppResult.Ok("outbox-1")
+    }
+
     override suspend fun enqueueWeighingWeightCorrection(
         observationId: String,
         refType: String,
         weightKg: Double,
         animalCount: Int?,
         reason: String?,
-    ): AppResult<String> = AppResult.Ok("weight-correction-1")
+    ): AppResult<String> = error("the standalone correction is not called any more; the approve carries the number")
 
-    fun emitCorrectionSuccess() {
-        correctionItem.value = SyncQueueItem(
-            id = "weight-correction-1",
-            opType = "WEIGHING_WEIGHT_CORRECTION",
-            idempotencyKey = "weight-key",
-            groupKey = "observation-1",
-            status = SyncItemStatus.SUCCEEDED,
-            attemptCount = 1,
-            maxAttempts = 3,
-            conflict = false,
-            createdAt = 1L,
-            updatedAt = 2L,
-            lastError = null,
-        )
-    }
     override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
@@ -618,7 +652,7 @@ private class FailingVerifyDetailSyncRepository(private val message: String) : S
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> =
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> =
         AppResult.Err(message)
 
     override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)

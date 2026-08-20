@@ -26,10 +26,19 @@ type Service struct {
 	media    ports.MediaResolver
 	registry *domain.Registry
 	now      func() time.Time
+	// measurementAppliers holds the producing module that owns the WRITE for each category whose
+	// approve can carry a number. See measurement.go.
+	measurementAppliers map[string]MeasurementApplier
 }
 
 func NewService(repo ports.Repository, media ports.MediaResolver) *Service {
-	return &Service{repo: repo, media: media, registry: domain.NewRegistry(), now: time.Now}
+	return &Service{
+		repo:                repo,
+		media:               media,
+		registry:            domain.NewRegistry(),
+		now:                 time.Now,
+		measurementAppliers: map[string]MeasurementApplier{},
+	}
 }
 
 // RegisterCategory adds one plug-and-play category entry (composition-time wiring; see
@@ -588,6 +597,15 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	// Reject/rework is deliberately NOT gated: when the proof is gone, sending the work back so the
 	// team records it again is the ONLY correct move left, and gating it would strand the verifier
 	// with an item she can neither approve nor return.
+	// A number is part of an APPROVE and nothing else. A reject sends the work back to be recorded
+	// again, so applying a reading to a record that is about to be redone would store a number
+	// nobody will use -- drop it here rather than let it reach a producer.
+	if in.Decision != domain.DecisionApproved {
+		in.Measurement = nil
+	}
+	if err := validateMeasurement(in.Measurement); err != nil {
+		return domain.Item{}, err
+	}
 	if in.Decision == domain.DecisionApproved {
 		itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
 		if err != nil {
@@ -595,6 +613,27 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 		}
 		if err := s.assertEvidenceApprovable(ctx, in.TenantID, itemForEvidence); err != nil {
 			return domain.Item{}, err
+		}
+		// Fence on the version SHE had on screen before anything is written. Applying her reading
+		// to a record someone else has already acted on is the failure this check exists to stop,
+		// and it must happen before the producer write, not after it.
+		if itemForEvidence.RowVersion != in.RowVersion {
+			return domain.Item{}, Conflict("row_version_conflict", "this item changed since it was loaded; refresh and try again")
+		}
+		applied, err := s.applyVerdictMeasurement(ctx, in, itemForEvidence)
+		if err != nil {
+			return domain.Item{}, err
+		}
+		// The producer's write relabels the item, which bumps row_version. The version she sent is
+		// now one behind through OUR write, not a competing verifier's, so the verdict carries the
+		// current one. Concurrency is still fenced: the verdict UPDATE also requires the item to be
+		// PENDING, so a verdict that landed in between still turns this into a conflict.
+		if applied {
+			current, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
+			if err != nil {
+				return domain.Item{}, mapRepoErr(err)
+			}
+			in.RowVersion = current.RowVersion
 		}
 	}
 	item, err := s.repo.RecordVerdict(ctx, in)

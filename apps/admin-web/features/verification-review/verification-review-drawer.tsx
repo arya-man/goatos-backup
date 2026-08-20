@@ -12,7 +12,7 @@ import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-c
 import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { correctWeightAction, recordVerificationVerdictAction, recordWastageMeasurementAction } from "./actions";
+import { recordVerificationVerdictAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
@@ -266,6 +266,24 @@ function VerificationReviewDrawerPanel({
   // own -- it also flipped Reject straight to type=submit, so the next click re-posted an empty
   // reason and bounced with the same error. Correct-by-construction beats a better error message.
   const [reason, setReason] = useState("");
+  // The measurement TEXT is state, not just DOM, for the same reason `reason` is: the Accept
+  // button's enabled-ness depends on it where the category requires a number, and a value read off
+  // an uncontrolled input cannot drive that. Kept as a STRING so blank ("she typed nothing") stays
+  // distinct from "0" (an empty trough, a real wastage reading).
+  //
+  // KEYED BY item_id, like mediaSelection above, because this panel is not remounted when the
+  // verifier steps to the next video. Plain state would carry one animal's weight onto the next
+  // animal's Accept -- a wrong number written to a record she never typed it for. Reading it back
+  // through the key resets it on every item switch without a setState-in-effect cascade.
+  const [measurement, setMeasurement] = useState<{ itemId: string; value: string }>({
+    itemId: item.item_id,
+    value: "",
+  });
+  const measurementValue = measurement.itemId === item.item_id ? measurement.value : "";
+  const setMeasurementValue = useCallback(
+    (value: string) => setMeasurement({ itemId: item.item_id, value }),
+    [item.item_id],
+  );
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const reasonReady = reason.trim().length > 0;
 
@@ -430,6 +448,14 @@ function VerificationReviewDrawerPanel({
   const correction = item.measurement_correction;
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
+  // Blank means she has typed nothing. It is NOT a zero: for wastage an empty trough is a real
+  // reading, so the two must stay distinguishable all the way to the server action.
+  const measurementEntered = measurementValue.trim() !== "";
+  // Feed wastage cannot be approved without a number -- the operator submits only a video, so the
+  // reading is born on this screen. The backend refuses it too (422 measurement_required); doing it
+  // here as well means she is told before she loses a round-trip. Weighing's flag is false, so a
+  // verifier who agrees with the operator's weight still approves in one press.
+  const measurementMissing = Boolean(correction?.required_for_approve) && !measurementEntered;
 
   return (
       <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
@@ -583,93 +609,80 @@ function VerificationReviewDrawerPanel({
             )}
           </div>
 
-          {/* THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17).
+          {/* THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20, replacing the
+              separate save forms of the 2026-08-17 weighing and 2026-08-18 wastage decisions).
 
-              Shown ONLY when the backend attaches measurement_correction to this item -- today
-              that is weighing, whose proof shows a number an operator typed. Every visible word
-              (heading, help, field labels, button) comes from that block; this component composes
-              none of it, and the head-count field appears only when the backend sent count_label,
-              which it does for a lump-sum shed proof and never for a single animal.
+              There used to be two sibling forms here, each with its own save button posting to its
+              producing module's route. Saving relabelled the item, which bumps row_version, so the
+              Accept she pressed next carried the version this page rendered with and the
+              version-fenced verdict matched nothing -- she pressed Accept and nothing happened.
 
-              Gated on the same record_verdict control as the verdict below: correcting the number
-              the evidence shows belongs to the person who judges the evidence.
+              So the field now sits INSIDE the verdict form: she types the number and presses
+              Accept once, and the backend applies the value and the verdict together, resolving
+              the producer route from the item's own source.
 
-              It is a SIBLING form, not part of the verdict form: the correction is its own act and
-              she may make it before deciding or after, including on an item she already approved.
-              That is also why it is not disabled by verdictSettled. */}
-          {/* THE VERIFIER'S FEED-WASTAGE MEASUREMENT (maintainer decision 2026-08-18).
-
-              The same measurement_correction block drives a DIFFERENT producer route here: a
-              feed_wastage item's number is born on this screen (the operator submits only a
-              video), and the write goes to the feed module's own measurement endpoint. Routed by
-              the block's ref_type — the one value that says which producer owns the record — so
-              the weighing form below cannot post a wastage value at a weighing observation.
-
-              min is 0, not 0.001: an empty trough is a real, good measurement, and zero must stay
-              enterable. No head-count and no reason field — the backend declares neither. */}
-          {mayReview && correction && correction.ref_type === "feed_wastage_completion" ? (
-            <form
-              action={recordWastageMeasurementAction}
+              Shown only when the backend attaches measurement_correction. Every visible word comes
+              from that block; this component composes none of it, and the head-count field appears
+              only when the backend sent count_label -- a lump-sum shed proof has one, a single
+              animal's proof does not. Gated on the same record_verdict control as the verdict:
+              correcting the number the evidence shows belongs to the person judging the evidence. */}
+          {mayReview && correction ? (
+            <div
               style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
             >
-              <input type="hidden" name="completion_id" value={correction.observation_id} />
-              <input type="hidden" name="return_to" value={returnTo} />
               <div>
                 <b>{correction.title}</b>
                 <div className="small muted">{correction.help}</div>
               </div>
               <label className="fld" style={{ marginBottom: 0 }}>
                 <span>{correction.value_label}</span>
-                {/* Deliberately NOT `required`: the rule is the server's, and the action tells her
-                    to enter a value rather than sending one she never typed. */}
-                <input type="number" name="wastage_kg" step="0.001" min="0" max="10000" inputMode="decimal" />
-              </label>
-              <div>
-                <button type="submit" className="btn">
-                  {correction.submit_label}
-                </button>
-              </div>
-            </form>
-          ) : null}
-
-          {mayReview && correction && correction.ref_type !== "feed_wastage_completion" ? (
-            <form
-              action={correctWeightAction}
-              style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
-            >
-              <input type="hidden" name="observation_id" value={correction.observation_id} />
-              <input type="hidden" name="ref_type" value={correction.ref_type} />
-              <input type="hidden" name="return_to" value={returnTo} />
-              <div>
-                <b>{correction.title}</b>
-                <div className="small muted">{correction.help}</div>
-              </div>
-              <label className="fld" style={{ marginBottom: 0 }}>
-                <span>{correction.value_label}</span>
-                {/* step matches the three decimals the column stores, and min matches the server's
-                    floor, so the browser refuses what the backend would refuse anyway. Left
-                    deliberately NOT `required`: the rule is the server's, and the action tells her
-                    to enter a weight rather than sending a 0 she never typed. */}
-                <input type="number" name="weight_kg" step="0.001" min="0.001" max="100000" inputMode="decimal" />
+                {/* min is 0, never 0.001: for wastage an empty trough is a real, good measurement
+                    and zero must stay enterable. Deliberately NOT `required` -- the field is
+                    optional for weighing, and where it IS required the Accept button below carries
+                    the rule, so she is never blocked by a browser message on a form she also uses
+                    to Reject. */}
+                <input
+                  form="verdict-form"
+                  type="number"
+                  name="measurement_value"
+                  step="0.001"
+                  min="0"
+                  max="100000"
+                  inputMode="decimal"
+                  value={measurementValue}
+                  onChange={(e) => setMeasurementValue(e.target.value)}
+                  disabled={verdictSettled}
+                />
               </label>
               {correction.count_label ? (
                 <label className="fld" style={{ marginBottom: 0 }}>
                   <span>{correction.count_label}</span>
                   {/* Blank means "leave the recorded count alone", which is the normal case -- she
                       is usually fixing a mistyped total, not a miscount. */}
-                  <input type="number" name="animal_count" step="1" min="1" max="100000" inputMode="numeric" />
+                  <input
+                    /* Uncontrolled, so it needs a key to be REMOUNTED on an item switch -- see
+                       measurement above: a head count left in the DOM would be sent with the next
+                       animal's Accept. */
+                    key={item.item_id}
+                    form="verdict-form"
+                    type="number"
+                    name="measurement_count"
+                    step="1"
+                    min="1"
+                    max="100000"
+                    inputMode="numeric"
+                    disabled={verdictSettled}
+                  />
                 </label>
               ) : null}
               <label className="fld" style={{ marginBottom: 0 }}>
                 <span>{text("verdict.reason_label")}</span>
-                <textarea name="reason" rows={2} />
+                <textarea key={item.item_id} form="verdict-form" name="measurement_reason" rows={2} disabled={verdictSettled} />
               </label>
-              <div>
-                <button type="submit" className="btn">
-                  {correction.submit_label}
-                </button>
-              </div>
-            </form>
+              {/* Named the same way the button below is: an Accept she cannot press needs to say
+                  why, or it reads as a broken screen. */}
+              {measurementMissing ? <div className="note">{text("verdict.disabled_measurement_required")}</div> : null}
+            </div>
           ) : null}
 
           {mayReview ? (
@@ -703,6 +716,9 @@ function VerificationReviewDrawerPanel({
                   {rejecting ? <div className="small muted">{text("verdict.reason_required")}</div> : null}
                   {verdictSettled ? <div className="note">{text("verdict.disabled_not_pending")}</div> : null}
                   {!hasEvidence ? <div className="note">{text("verdict.disabled_no_evidence")}</div> : null}
+                  {/* Reject stays available: she can always send an unreadable clip back, and it is
+                      the ONLY correct move when the number cannot be read at all. Only Accept is
+                      held. */}
             </form>
           ) : null}
 
@@ -772,8 +788,16 @@ function VerificationReviewDrawerPanel({
                 name="decision"
                 value="approved"
                 className="btn p"
-                disabled={verdictSettled || !hasEvidence}
-                title={!hasEvidence ? text("verdict.disabled_no_evidence") : verdictSettled ? text("verdict.disabled_not_pending") : undefined}
+                disabled={verdictSettled || !hasEvidence || measurementMissing}
+                title={
+                  !hasEvidence
+                    ? text("verdict.disabled_no_evidence")
+                    : verdictSettled
+                      ? text("verdict.disabled_not_pending")
+                      : measurementMissing
+                        ? text("verdict.disabled_measurement_required")
+                        : undefined
+                }
               >
                 Accept
               </button>

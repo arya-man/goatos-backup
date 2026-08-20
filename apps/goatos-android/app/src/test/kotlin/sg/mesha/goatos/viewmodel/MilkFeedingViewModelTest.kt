@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.counts.MilkFeedingEvent
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -646,6 +647,7 @@ private class FakeMilkFeedingSyncRepository : SyncRepository {
         decision: String,
         reason: String?,
         rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto?,
     ): AppResult<String> = error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")

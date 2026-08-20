@@ -1318,8 +1318,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"verdict.disabled_not_pending": "This action already has a verdict and cannot be reviewed again.",
 			"verdict.disabled_no_access":   "Recording a verdict is limited to the video verification team.",
 			"verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
-			"action.disabled_no_authority": "Acting on the source task is limited to the park head, director, or CEO.",
-			"verdict.note":                 "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
+			// THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). Shown where the
+			// reading is born on the verifier's screen — feed wastage, whose operator submits a
+			// video and no number at all. Reject stays available on purpose: a value that cannot
+			// be read off the clip is a rejection, never a guess.
+			"verdict.disabled_measurement_required": "Enter the weight you can read in the video, then accept. If it cannot be read, reject the video instead.",
+			"action.disabled_no_authority":          "Acting on the source task is limited to the park head, director, or CEO.",
+			"verdict.note":                          "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
 			// CEO/PC-Director oversight analytics section copy (permissions.VerificationOversee,
 			// same capability as the oversight_analytics/oversight_filters controls). Language is
 			// CEO-plain by design: "videos waiting for review", not internal jargon.

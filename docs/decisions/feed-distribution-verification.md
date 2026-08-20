@@ -431,10 +431,52 @@ What makes wastage different from its three siblings, and why each difference ex
   `verification.verdict`), REPLACES on re-entry, relabels the queue item with the value, and never
   changes the completion's status — the verdict owns the lifecycle. ZERO IS A VALID MEASUREMENT
   (an empty trough), so the range check is `>= 0`, deliberately unlike weighing's `> 0`.
-- **Recording is deliberately NOT a hard gate on approve.** Same shape as the weighing correction:
-  the two acts are separate routes, and coupling them server-side would require verification to
-  read a producer's table. The clients present the measurement control on the item; the working
-  rule is record-then-approve, and an unreadable value is a rejection.
+- **THE APPROVE CARRIES THE NUMBER, and for wastage it MUST — 2026-08-20, SUPERSEDING the
+  "recording is deliberately NOT a hard gate on approve" rule this bullet used to state.**
+
+  That rule made recording and approving two separate acts on two routes. Two things went wrong
+  with it, and both were reported from the field:
+
+  1. **The save broke the approve.** Recording the measurement relabels the verification item, and
+     the relabel is `row_version = row_version + 1`. The verdict UPDATE is version-fenced
+     (`AND row_version = $6`), so the Approve she pressed straight afterwards carried the version
+     her screen had loaded with, matched no row, and silently did nothing.
+  2. **Approving without recording completed a pen-day with no wastage at all.** The producer's
+     own `ErrWastageMeasurementRequired` fires in the verdict CONSUMER, after the verdict is
+     already durable, so it stranded the item mid-apply instead of telling her to enter the number.
+
+  The number now travels ON the verdict (`measurement` on
+  `POST /verification/items/{item_id}/verdict`). The old objection — that coupling them would make
+  verification read a producer's table — is answered by a seam, not by a read:
+  `verificationapp.MeasurementApplier`, registered per category at composition time exactly like
+  the enqueue/withdraw/relabel seams the producers already register. Verification still does not
+  know what the number MEANS; it holds the copy and the decision, and the producing module owns the
+  write. It calls the SAME `WastageMeasurementService` the standalone route calls, so the range
+  check, idempotency, audit row and relabel are one implementation.
+
+  Order inside one request: fence on the version she had on screen → apply the measurement through
+  the seam → re-read the item's row_version (it moved through OUR relabel, not a competing
+  verifier's) → record the verdict. Concurrency is still fenced, because the verdict UPDATE also
+  requires the item to be `pending`, so a verdict that landed in between is still a 409. A producer
+  that refuses the number stops the whole approve rather than leaving an approved item beside a
+  value that never landed. The measurement's idempotency key is the verdict's suffixed
+  `:measurement`, so a replayed approve re-applies the same reading.
+
+  `MeasurementCorrectionSpec.RequiredForApprove` is TRUE for wastage and FALSE for weighing, and it
+  is what holds Approve until a number exists — checked BEFORE the verdict, not after. An item
+  measured earlier through the standalone route (an installed APK still showing its own save
+  button) is still approvable: the applier is asked whether a value is already recorded. Both
+  producer routes stay served for exactly that reason; no current client calls them.
+
+  A REJECT never carries the number. Rejection sends the work back to be recorded again, so writing
+  a value onto a record about to be redone would store a number nobody will use.
+
+  **Proof:** `backend/internal/verification/app/verdict_measurement_test.go` — the save-then-approve
+  409 reproduced as the defect being replaced; one-act approve applies value + verdict and targets
+  the ITEM's own source; blank approve leaves the operator's weight alone; reject drops the value
+  before the verdict is stored; wastage refuses a number-less approve and accepts a recorded ZERO;
+  an already-measured pen still approves; a producer refusal stops the approve; a stale screen is
+  refused before anything is written. Each was mutation-tested when written.
 
 Lifecycle, idempotency, one-video-per-unit conflict (`409`), rework/re-submit, outbox event
 (`feed.wastage.completed`, emitted ONLY at approval, carrying `wastage_kg` only when recorded),

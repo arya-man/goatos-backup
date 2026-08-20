@@ -57,7 +57,25 @@ data class VerificationMeasurementCorrectionDto(
     @SerialName("help") val help: String = "",
     /** Label for the number itself, unit included. */
     @SerialName("value_label") val valueLabel: String = "",
+    /**
+     * Label for the separate save control that used to sit under the field. THAT CONTROL IS GONE
+     * (maintainer decision 2026-08-20): the verifier types the number and presses Approve, and the
+     * approve carries it. Kept so an older payload still decodes and so an installed build that
+     * still shows its own button keeps its copy. Nothing in this app renders it any more.
+     */
     @SerialName("submit_label") val submitLabel: String = "",
+    /**
+     * Keep Approve DISABLED until a number is entered.
+     *
+     * True for feed wastage, where the operator submits a video only and the reading is born on the
+     * verifier's screen -- approving without one completes a pen-day with no wastage recorded at
+     * all. False for weighing, where the operator already recorded a weight and a blank field means
+     * "his weight is right", the normal case, which stays a single tap.
+     *
+     * Defaults FALSE so an older payload decodes to the permissive behaviour rather than locking
+     * Approve on every measurable item.
+     */
+    @SerialName("required_for_approve") val requiredForApprove: Boolean = false,
     /**
      * Label for an accompanying whole-number field (a lump-sum shed proof's head count). Null or
      * blank means render the value field ALONE -- an individual animal's proof carries no count and
@@ -210,6 +228,41 @@ data class VerificationVerdictRequestDto(
     @SerialName("decision") val decision: String,
     @SerialName("reason") val reason: String? = null,
     @SerialName("row_version") val rowVersion: Int,
+    /**
+     * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). The reading the verifier
+     * took off the video, applied by the backend in the same act as the verdict.
+     *
+     * Null is the normal weighing case -- blank means the operator's recorded weight is right.
+     * Send it ONLY on an approve of an item whose `measurement_correction` is present; the backend
+     * drops it on a reject, because rejection sends the work back to be recorded again.
+     */
+    @SerialName("measurement") val measurement: VerificationVerdictMeasurementDto? = null,
+)
+
+/**
+ * The verifier's reading, carried by her approve.
+ *
+ * It names NO target. The record it lands on comes from the item's own source, resolved by the
+ * backend -- a client that could name its own target could aim one item's approve at another
+ * item's record.
+ */
+@Serializable
+data class VerificationVerdictMeasurementDto(
+    /**
+     * The number in the category's own unit (kg for weighing and wastage).
+     *
+     * ZERO IS VALID for wastage -- an empty trough is a real measurement -- so "she typed nothing"
+     * is carried by a NULL measurement block, never by a 0 in this field.
+     */
+    @SerialName("value") val value: Double,
+    /**
+     * The accompanying whole-number field, allowed only where the item's correction carries a
+     * count label (a lump-sum shed weigh's head count). Null leaves the recorded count alone,
+     * which is the normal case. Sending one where the item carries none is REFUSED by the backend
+     * rather than dropped, so it is omitted at the grain that cannot carry it.
+     */
+    @SerialName("count") val count: Int? = null,
+    @SerialName("reason") val reason: String? = null,
 )
 
 @Serializable

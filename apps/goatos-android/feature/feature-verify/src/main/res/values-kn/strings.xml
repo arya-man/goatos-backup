@@ -48,6 +48,7 @@
     <string name="verify_detail_photo_description">ಈ ಕೆಲಸದ ಫೋಟೋ ಪುರಾವೆ</string>
     <string name="verify_detail_recorded_answer">ದಾಖಲಿಸಲಾಗಿದೆ: %1$s</string>
     <string name="verify_detail_correction_reason_label">ಟಿಪ್ಪಣಿ (ಐಚ್ಛಿಕ)</string>
+    <string name="verify_detail_measurement_required">ವೀಡಿಯೊದಲ್ಲಿ ಕಾಣುವ ತೂಕವನ್ನು ನಮೂದಿಸಿ, ನಂತರ ಅನುಮೋದಿಸಿ. ಓದಲು ಸಾಧ್ಯವಾಗದಿದ್ದರೆ, ವೀಡಿಯೊವನ್ನು ತಿರಸ್ಕರಿಸಿ.</string>
     <string name="verify_detail_no_media">ಈ ಐಟಂಗೆ ಯಾವುದೇ ವೀಡಿಯೊ ಲಗತ್ತಿಸಿಲ್ಲ</string>
     <string name="verify_detail_approve">ಅನುಮೋದಿಸಿ</string>
     <string name="verify_detail_reject">ತಿರಸ್ಕರಿಸಿ</string>

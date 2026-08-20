@@ -10186,8 +10186,10 @@ export interface components {
             help: string;
             /** @description Label for the number itself, unit included. Rendered verbatim. */
             value_label: string;
-            /** @description Label for the submit control. Rendered verbatim. */
+            /** @description Label for the separate save control that used to sit under the field. THAT CONTROL IS GONE (maintainer decision 2026-08-20): the verifier types the number and presses Approve, and the approve carries it. Kept on the wire so an installed APK built before that decision still renders its own button against the producing module's route, which is also still served. Do not build a new client that reads it. */
             submit_label: string;
+            /** @description Keep Approve disabled until a number is entered. TRUE for feed wastage, where the operator submits a video only and the reading is born on the verifier's screen, so approving without one would complete a pen-day with no wastage recorded at all. FALSE for weighing, where the operator already recorded a weight and a blank field means "his weight is right" — the normal case, which stays a single tap. An item already measured through the producing module's own route is still approvable without a number. */
+            required_for_approve: boolean;
             /** @description Label for an accompanying whole-number field (a lump-sum shed proof's head count). PRESENT ONLY on the ref types that carry one — absent means render the value field alone. An individual animal's proof carries no count, and the write path refuses one. */
             count_label?: string;
         };
@@ -10357,6 +10359,16 @@ export interface components {
             /** @description Required (non-empty) when decision is rejected; 422 otherwise. */
             reason?: string;
             row_version: number;
+            measurement?: components["schemas"]["VerificationVerdictMeasurement"];
+        };
+        /** @description The number the verifier read off the video, carried BY the approve (maintainer decision 2026-08-20, replacing the separate save step). Send it ONLY on an item whose measurement_correction block is present. Absent is the normal weighing case: blank means the operator's recorded weight is right. IGNORED on a reject, because rejection sends the work back to be recorded again and a value written onto a record about to be redone is a number nobody will use. The record it lands on comes from the item's own source, never from this request. */
+        VerificationVerdictMeasurement: {
+            /** @description The reading in the category's own unit (kg for weighing and wastage). ZERO IS VALID for wastage — an empty trough is a real measurement — so omit the whole block rather than sending 0 to mean "not entered". */
+            value: number;
+            /** @description The accompanying whole-number field, allowed ONLY where the item's measurement_correction carries a count_label (a lump-sum shed weigh's head count). Omit to leave the recorded count alone. Sending one where the item carries none is refused rather than dropped. */
+            count?: number;
+            /** @description The verifier's optional note on why the recorded number was wrong. */
+            reason?: string;
         };
         VerificationVerdictResponse: {
             item: components["schemas"]["VerificationQueueItem"];
