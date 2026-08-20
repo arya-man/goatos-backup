@@ -1004,6 +1004,7 @@ type fakeProtocolRepo struct {
 	publishWithDerivedCalled    bool
 	publishedMatrixReplayCalled bool
 	publishCalls                int
+	discardCalls                int
 	createVersionCalled         bool
 	createRuleCalled            bool
 	createdRule                 domain.NewRule
@@ -1084,6 +1085,16 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 	f.version.Status = "published"
 	return nil
 }
+// DiscardVersion mirrors the real repository: only a draft may be removed, so a
+// test that discards a published version sees the same refusal production would.
+func (f *fakeProtocolRepo) DiscardVersion(context.Context, string, string) error {
+	if f.version.Status != "draft" {
+		return ports.ErrVersionNotDraft
+	}
+	f.discardCalls++
+	return nil
+}
+
 func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, capacity *domain.PublishedCapacity, _ string, _ ...string) error {
 	// Parity is verified in the same transaction as the publish: a mismatch rolls everything back, so
 	// on failure record no derived rules and leave the version draft.
