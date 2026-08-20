@@ -1,5 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
+
 import android.view.KeyEvent
 import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.CompletableDeferred
@@ -2558,6 +2560,7 @@ class WeighingViewModelTest {
             decision: String,
             reason: String?,
             rowVersion: Int,
+            measurement: VerificationVerdictMeasurementDto?,
         ): AppResult<String> = error("unused")
         override suspend fun enqueueCountsShifting(
             groupKey: String,

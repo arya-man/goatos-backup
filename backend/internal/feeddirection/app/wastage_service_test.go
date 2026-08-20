@@ -56,6 +56,10 @@ func (f *fakeWastageStore) RecordWastageMeasurement(context.Context, ports.Recor
 	return ports.RecordWastageMeasurementResult{}, nil
 }
 
+func (f *fakeWastageStore) WastageMeasurementRecorded(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
 // newWastageService wires a service whose park runs BOTH clocks, with the EXPERIMENT sheet
 // authorable: shed A carries a hand-authored experiment ration (so its pens are experiment pens),
 // shed B stays on the per-head grid. "Now" is pinned AFTER the experiment dispatch clock so the

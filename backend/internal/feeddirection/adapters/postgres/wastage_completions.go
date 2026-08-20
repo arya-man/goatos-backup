@@ -687,3 +687,24 @@ ON CONFLICT DO NOTHING`,
 	}
 	return nil
 }
+
+// WastageMeasurementRecorded reports whether a completion already carries a measured leftover
+// weight, for the approve gate. One primary-key read on (tenant_id, completion_id).
+//
+// A completion that does not exist answers ErrWastageCompletionNotFound rather than "no
+// measurement": the two mean different things to the verifier, and folding them together would
+// tell her to enter a number against a record that is not there.
+func (r *Repository) WastageMeasurementRecorded(ctx context.Context, tenantID, completionID string) (bool, error) {
+	var kg *float64
+	err := r.pool.QueryRow(ctx, `
+SELECT wastage_kg::float8
+FROM feed_wastage_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&kg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ports.ErrWastageCompletionNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("feeddirection: read wastage measurement flag: %w", err)
+	}
+	return kg != nil, nil
+}

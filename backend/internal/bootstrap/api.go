@@ -680,10 +680,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The correction is served by its own service and its own narrow store, NOT by
 	// weighingService: it is the verifier's act on one observation and must not be
 	// able to reach the planner/execution writes.
-	weighingHandler.WithWeightCorrector(
-		weighingapp.NewWeightCorrectionService(weighingRepo, log).
-			WithVerificationRelabeler(weighingVerificationBridge),
-	)
+	weighingWeightCorrections := weighingapp.NewWeightCorrectionService(weighingRepo, log).
+		WithVerificationRelabeler(weighingVerificationBridge)
+	weighingHandler.WithWeightCorrector(weighingWeightCorrections)
+	// THE APPROVE CARRIES THE WEIGHT (maintainer decision 2026-08-20). The same correction service,
+	// reached by verification when the verifier's approve carries a number, so she types it and
+	// presses Approve once instead of saving and then approving -- a pair whose save relabelled the
+	// item, bumped row_version, and fenced out the approve that followed. The standalone route above
+	// stays served for installed APKs that still show their own save button.
+	if err := verificationService.RegisterMeasurementApplier(
+		weighingdomain.VerificationCategoryWeighing,
+		weighingverificationbridge.NewMeasurementApplier(weighingWeightCorrections),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now
@@ -798,6 +809,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			Help:        "Enter the leftover feed weight you can see in the video. It replaces any wastage weight recorded here.",
 			ValueLabel:  "Measured wastage (kg)",
 			SubmitLabel: "Save wastage weight",
+			// The number is BORN here: the operator sends a video and nothing else, so approving
+			// without a reading would complete a pen-day with no wastage at all. An unreadable
+			// value is a rejection, never a guess.
+			RequiredForApprove: true,
 		},
 		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 		PageKey: "feed_wastage", PageLabel: "Feed Wastage", PageOrder: 4,
@@ -810,10 +825,20 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The measurement is served by its own small service and the SAME bridge's relabel seam, NOT by
 	// feedDirectionService: it is the verifier's act on one completion and must not be able to
 	// reach the generation/completion writes (same shape as the weighing weight correction).
-	feedDirectionHandler.WithWastageMeasurer(
-		feeddirectionapp.NewWastageMeasurementService(feedDirectionRepo, log).
-			WithVerificationRelabeler(feedWastageBridge),
-	)
+	feedWastageMeasurements := feeddirectionapp.NewWastageMeasurementService(feedDirectionRepo, log).
+		WithVerificationRelabeler(feedWastageBridge)
+	feedDirectionHandler.WithWastageMeasurer(feedWastageMeasurements)
+	// THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20), and for wastage it must:
+	// RequiredForApprove above refuses an approve that carries no reading and finds none already
+	// recorded, BEFORE the verdict -- rather than letting the verdict commit and having the
+	// consumer's ErrWastageMeasurementRequired strand the item mid-apply.
+	if err := verificationService.RegisterMeasurementApplier(
+		feeddirectiondomain.VerificationCategoryWastage,
+		feeddirectionverificationbridge.NewWastageMeasurementApplier(feedWastageMeasurements, feedDirectionRepo),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as

@@ -39,6 +39,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -830,6 +831,7 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         decision: String,
         reason: String?,
         rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto?,
     ): AppResult<String> = error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")

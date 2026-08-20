@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.VerificationLocationOptionDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 
 /**
  * Tests for VaccinationLeadershipVideosViewModel.
@@ -81,6 +82,7 @@ class VaccinationLeadershipVideosViewModelTest {
                 decision: String,
                 reason: String?,
                 rowVersion: Int,
+                measurement: VerificationVerdictMeasurementDto?,
             ): AppResult<String> = error("unused")
             override suspend fun enqueueVerificationBatchClose(batchId: String): AppResult<String> = AppResult.Ok("close-$batchId")
             override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)

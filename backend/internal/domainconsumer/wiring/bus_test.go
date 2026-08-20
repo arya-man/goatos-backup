@@ -89,6 +89,10 @@ func (f *fakeFeedStore) RecordWastageMeasurement(context.Context, feedports.Reco
 	return feedports.RecordWastageMeasurementResult{}, nil
 }
 
+func (f *fakeFeedStore) WastageMeasurementRecorded(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeFeedStore) MaterializeTransportTasks(context.Context, feedports.MaterializeTransportParams) (feedports.MaterializeTransportResult, error) {
 	return feedports.MaterializeTransportResult{}, nil
 }

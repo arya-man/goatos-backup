@@ -65,8 +65,22 @@ type MeasurementCorrectionSpec struct {
 	Help string
 	// ValueLabel names the number itself, unit included ("Corrected weight (kg)").
 	ValueLabel string
-	// SubmitLabel is the button ("Save corrected weight").
+	// SubmitLabel named the separate save button that used to sit under the field.
+	//
+	// THAT BUTTON IS GONE (maintainer decision 2026-08-20): the verifier types the number and
+	// presses Approve, and the approve carries it. The field is kept on the wire so an installed
+	// APK built before that decision still renders its own button against the producer route,
+	// which is also still served. No current client reads it; do not build a new one that does.
 	SubmitLabel string
+	// RequiredForApprove refuses an APPROVE that carries no number and finds none already
+	// recorded.
+	//
+	// True where the number is BORN on the verifier's screen: feed wastage ships the operator a
+	// video only, so approving without a reading would complete a pen-day with no wastage at all
+	// -- "an unreadable value is a rejection, never a guess". False where the producer already
+	// recorded a number and the verifier is correcting it: weighing's blank field means "the
+	// operator's weight is right", which is the normal case and must stay a single tap.
+	RequiredForApprove bool
 	// CountLabel names an accompanying whole-number field ("Goats on the scale"), and
 	// is rendered ONLY for the ref types in CountRefTypes. A lump-sum shed proof
 	// carries a head count that scales its average; a single animal's proof does not,

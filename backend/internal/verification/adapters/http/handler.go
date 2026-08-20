@@ -146,6 +146,10 @@ type measurementCorrectionResponse struct {
 	// CountLabel is present only on the ref types that carry an accompanying whole-number field
 	// (a lump-sum shed proof's head count). Absent means the client renders the value field alone.
 	CountLabel string `json:"count_label,omitempty"`
+	// RequiredForApprove tells the client to keep Approve disabled until a number is entered.
+	// True for feed wastage, where the operator sends a video only and the reading is born on the
+	// verifier's screen; false for weighing, where blank means the operator's weight is right.
+	RequiredForApprove bool `json:"required_for_approve"`
 }
 
 // toMeasurementCorrectionResponse resolves the category's declaration for one item, or nil when the
@@ -161,6 +165,8 @@ func toMeasurementCorrectionResponse(spec *domain.MeasurementCorrectionSpec, sou
 		Help:          spec.Help,
 		ValueLabel:    spec.ValueLabel,
 		SubmitLabel:   spec.SubmitLabel,
+
+		RequiredForApprove: spec.RequiredForApprove,
 	}
 	if spec.HasCountField(source.RefType) {
 		out.CountLabel = spec.CountLabel
@@ -472,6 +478,33 @@ type verdictRequest struct {
 	Decision   string `json:"decision"`
 	Reason     string `json:"reason"`
 	RowVersion int    `json:"row_version"`
+	// Measurement is the number the verifier read off the video, carried BY the approve
+	// (maintainer decision 2026-08-20). Absent is the normal weighing case -- blank keeps the
+	// operator's recorded weight. Ignored on a reject.
+	Measurement *verdictMeasurementRequest `json:"measurement,omitempty"`
+}
+
+// verdictMeasurementRequest carries the value ALONE. The record it lands on comes from the item's
+// own source, never from the client, so one item's approve can never be aimed at another's record.
+type verdictMeasurementRequest struct {
+	// Value is a pointer so an omitted field stays distinct from a real 0 -- zero wastage (an
+	// empty trough) is a valid reading, and coercing "she typed nothing" into it would record a
+	// measurement she never made.
+	Value  *float64 `json:"value"`
+	Count  *int     `json:"count,omitempty"`
+	Reason string   `json:"reason,omitempty"`
+}
+
+// toDomainMeasurement maps the wire block to the domain, or nil when the client sent no number.
+func (r *verdictRequest) toDomainMeasurement() *domain.VerdictMeasurement {
+	if r.Measurement == nil || r.Measurement.Value == nil {
+		return nil
+	}
+	return &domain.VerdictMeasurement{
+		Value:  *r.Measurement.Value,
+		Count:  r.Measurement.Count,
+		Reason: strings.TrimSpace(r.Measurement.Reason),
+	}
 }
 
 type verdictResponse struct {
@@ -508,6 +541,7 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		VerifierID:     actorID(r),
 		RowVersion:     body.RowVersion,
 		IdempotencyKey: idempotencyKey,
+		Measurement:    body.toDomainMeasurement(),
 	})
 	if err != nil {
 		h.respondError(w, r, err)
