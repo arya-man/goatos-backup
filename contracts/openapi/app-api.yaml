@@ -2601,6 +2601,32 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /protocols/versions/{version_id}/discard:
+    post:
+      tags:
+        - Protocol Config
+      operationId: discardProtocolVersion
+      summary: Discard a draft protocol version.
+      description: >-
+        Permanently deletes a DRAFT version and its rules. A published or retired
+        version can never be discarded -- it is part of the tenant's history -- and
+        that restriction is enforced in SQL, so it holds for every caller. A draft
+        has never reached the field, so nothing downstream references it.
+      parameters:
+        - $ref: "#/components/parameters/ProtocolVersionId"
+      responses:
+        "204":
+          description: Draft discarded.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /protocols/vaccination/impact-preview:
     post:
       tags:

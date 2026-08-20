@@ -50,6 +50,10 @@ type Repository interface {
 	// PublishVersion flips a draft version to published. Executable-contract checks are enforced
 	// by the app layer before calling this.
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
+	// DiscardVersion permanently deletes a DRAFT version and its rules. Implementations
+	// must refuse anything that is not a draft: a published or retired version is part of
+	// the tenant's history and no caller may remove it.
+	DiscardVersion(ctx context.Context, tenantID, versionID string) error
 
 	CreateRule(ctx context.Context, in domain.NewRule) (ruleID string, err error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error)

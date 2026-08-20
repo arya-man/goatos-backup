@@ -1222,6 +1222,15 @@ func arrayHasNonBlankString(v any) bool {
 // PublishVersion publishes a draft version after schema and executable-contract checks pass. The DB
 // also enforces the published-window EXCLUDE non-overlap; category capability
 // (CEO/COO protocol.publish.*) is enforced at the API/RBAC boundary.
+// DiscardVersion deletes a draft version and its rules.
+//
+// No executable-contract checks run here, unlike publish: a draft has never reached
+// the field, so nothing downstream references it and there is nothing to keep
+// consistent. The draft-only restriction lives in the repository's SQL.
+func (s *Service) DiscardVersion(ctx context.Context, tenantID, versionID string) error {
+	return s.repo.DiscardVersion(ctx, tenantID, versionID)
+}
+
 func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	return s.publishVersion(ctx, tenantID, versionID, publishedBy, "", idempotencyKey...)
 }

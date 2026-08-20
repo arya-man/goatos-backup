@@ -17,8 +17,10 @@
 
 import { revalidatePath } from "next/cache";
 
+import type { ProtocolConfigItem } from "@/lib/api/server";
 import {
   createProtocolVersion,
+  discardProtocolVersion,
   getProtocolVersion,
   listProtocolConfigs,
   publishProtocolVersion,
@@ -68,7 +70,7 @@ export async function startNewVersion(): Promise<PlanActionResult> {
   const created = await createProtocolVersion(live.protocol_id, {
     scope_type: live.scope_type ?? "tenant",
     scope_id: live.scope_id || undefined,
-    version_label: nextVersionLabel(live.version),
+    version_label: nextVersionLabel(configs.data.items ?? []),
     // Publishing is immediate: a future effective_from cannot be closed later,
     // because effective_to is immutable on a published row, which would leave a
     // window with no effective plan. See ADR "Open" item 2.
@@ -145,9 +147,22 @@ function today(): string {
   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString();
 }
 
-function nextVersionLabel(currentVersion: number | undefined): string {
-  const next = Number.isFinite(currentVersion) ? Number(currentVersion) + 1 : 1;
-  return `V${next}`;
+/**
+ * The next label a PERSON would say, which is not the next row number.
+ *
+ * `version` is the database's own counter and drifts away from the label: this
+ * tenant has version 1 and version 2 BOTH labelled "V1 Real Vaccination", so
+ * incrementing the counter produced "V3" for what is only the second plan
+ * anyone has ever seen. The label is what the CEO recognises, so the next one
+ * is derived from the labels themselves -- highest V-number in use, plus one.
+ */
+function nextVersionLabel(items: ProtocolConfigItem[]): string {
+  let highest = 0;
+  for (const item of items) {
+    const match = /^v\s*(\d+)/i.exec((item.version_label ?? "").trim());
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+  return `V${highest + 1}`;
 }
 
 /**
@@ -163,4 +178,18 @@ export async function readVersionSettings(
   const version = await getProtocolVersion(versionId);
   if (!version.ok) return { ok: false, error: "Those settings could not be loaded." };
   return { ok: true, ruleDsl: version.data.rule_dsl };
+}
+
+/**
+ * Discard a draft.
+ *
+ * Destroys unpublished authoring work, so the caller must confirm first. The
+ * backend refuses anything that is not a draft, so a published plan cannot be
+ * removed through this path even if a stale id reaches it.
+ */
+export async function discardDraft(draftVersionId: string): Promise<PlanActionResult> {
+  const discarded = await discardProtocolVersion(draftVersionId);
+  if (!discarded.ok) return failure("could not discard the draft", discarded.error);
+  revalidatePath(PLAN_ROUTE);
+  return { ok: true };
 }

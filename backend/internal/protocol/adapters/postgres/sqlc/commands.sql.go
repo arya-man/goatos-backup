@@ -178,6 +178,31 @@ func (q *Queries) CreateProtocolVersion(ctx context.Context, arg CreateProtocolV
 	return protocol_version_id, err
 }
 
+const discardProtocolVersion = `-- name: DiscardProtocolVersion :execrows
+DELETE FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+  AND status = 'draft'
+`
+
+type DiscardProtocolVersionParams struct {
+	TenantID          pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+}
+
+// Deletes a DRAFT version and, by cascade, its rules. The status predicate is the
+// safety property: a published or retired version can never be removed by this
+// statement, so history stays complete no matter what id is supplied. A draft has
+// never reached the field -- no obligation references it -- so deleting it destroys
+// only unpublished authoring work.
+func (q *Queries) DiscardProtocolVersion(ctx context.Context, arg DiscardProtocolVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, discardProtocolVersion, arg.TenantID, arg.ProtocolVersionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const publishProtocolVersion = `-- name: PublishProtocolVersion :execrows
 UPDATE protocol_versions
 SET status = 'published',
