@@ -10,6 +10,11 @@
     --ok:#7CCB45; --okx:rgba(124,203,69,.17); --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16);
     --info:#5B9BE8; --infox:rgba(91,155,232,.16); --purple:#A78BF5; --purplex:rgba(167,139,245,.16); --teal:#34C2A6; --tealx:rgba(52,194,166,.16);
     --amber:#E0A53A; --danger-tag-ink:#FFC9C6; --danger-badge-ink:#08130B; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36); --ring:rgba(124,203,69,.32);
+    /* Ink that sits ON a brand/status fill, and the popover shadow. Without
+       these, any `color: var(--on-brand)` silently inherits and a filled green
+       button renders its label in body text -- which is exactly what happened. */
+    --on-brand:#08130B; --on-status:#0B1A0E;
+    --pop:0 18px 46px -12px rgba(0,0,0,.85);
   }
   :root.light{
     --bg:#F4F7F2; --panel:#FFFFFF; --panel-2:#F1F5EF; --ink:#16201B; --muted:#5E6E64; --faint:#8A998F;
@@ -19,6 +24,8 @@
     --ok:#3F9A28; --okx:#ECF7E0; --warn:#B5791A; --warnx:#FBF1DE; --danger:#CC3D3D; --dangerx:#FBE6E6;
     --info:#2B66B8; --infox:#E5EFFB; --purple:#7A5BD1; --purplex:#EDE7FB; --teal:#13816F; --tealx:#DEF3EF;
     --amber:#C9871F; --danger-tag-ink:#8F1D1D; --danger-badge-ink:#FFFFFF; --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06); --ring:rgba(84,160,44,.26);
+    --on-brand:#FFFFFF; --on-status:#0B1A0E;
+    --pop:0 16px 44px -12px rgba(16,32,24,.28);
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--f);-webkit-font-smoothing:antialiased}

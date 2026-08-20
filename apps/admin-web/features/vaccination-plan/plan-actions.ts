@@ -133,9 +133,16 @@ export async function publishPlan(draftVersionId: string): Promise<PlanActionRes
   return { ok: true, versionId: draftVersionId };
 }
 
-/** ISO date in the tenant's operating calendar (India-only, per biztime). */
+/**
+ * Today as a full RFC 3339 timestamp.
+ *
+ * NOT a bare "YYYY-MM-DD". effective_from decodes into a Go time.Time, which
+ * rejects a date-only string -- the whole request then fails as "invalid_json",
+ * naming the body rather than the field, so this is worth stating outright.
+ */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString();
 }
 
 function nextVersionLabel(currentVersion: number | undefined): string {

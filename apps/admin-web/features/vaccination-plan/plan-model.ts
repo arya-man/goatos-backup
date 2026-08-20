@@ -122,3 +122,76 @@ function plural(n: number, unit: string): string {
   const rounded = Math.round(n);
   return rounded === 1 ? `${unit}` : `${rounded} ${unit}s`;
 }
+
+/**
+ * The vaccine catalog, and what each version changed.
+ *
+ * There is no vaccine catalog table with rows in it -- `vaccines` is empty in
+ * staging -- but the catalog is not therefore unknowable: it is the set of
+ * vaccines the farm has ever had in a plan, which is exactly the union across
+ * every version's document. That makes "6 of 7" a real number rather than an
+ * invented one, and it is how a vaccine that was dropped (Blue Tongue) can be
+ * shown as "not in this plan" instead of vanishing from the screen with no
+ * trace that it was ever there.
+ */
+export type PlanCatalogEntry = VaccineGroup & { inPlan: boolean };
+
+export function buildCatalog(liveGroups: VaccineGroup[], allGroups: VaccineGroup[][]): PlanCatalogEntry[] {
+  const inPlan = new Map(liveGroups.map((g) => [g.code, g]));
+  const seen = new Map<string, VaccineGroup>();
+  for (const groups of allGroups) {
+    for (const group of groups) if (!seen.has(group.code)) seen.set(group.code, group);
+  }
+  // Vaccines currently in the plan come first, in the plan's own order; the
+  // dropped ones follow. A reader scans the live plan far more often than the
+  // history, so the live rows must not be interleaved with retired ones.
+  const entries: PlanCatalogEntry[] = liveGroups.map((g) => ({ ...g, inPlan: true }));
+  for (const [code, group] of seen) {
+    if (!inPlan.has(code)) entries.push({ ...group, inPlan: false });
+  }
+  return entries;
+}
+
+/**
+ * One line saying what a version changed, against the version before it.
+ *
+ * Derived by comparing the two documents rather than read from a stored note:
+ * there is no change-note column, and a note a human typed could disagree with
+ * what the version actually says. A derived line cannot.
+ */
+export function describeChange(current: VaccineGroup[], previous: VaccineGroup[] | null): string {
+  if (!previous) return `First plan, with ${countLabel(current.length, "vaccine")}.`;
+  const before = new Set(previous.map((g) => g.code));
+  const after = new Set(current.map((g) => g.code));
+  const added = current.filter((g) => !before.has(g.code)).map((g) => g.name);
+  const removed = previous.filter((g) => !after.has(g.code)).map((g) => g.name);
+
+  const parts: string[] = [];
+  if (added.length > 0) parts.push(`Added ${added.join(", ")}`);
+  if (removed.length > 0) parts.push(`Dropped ${removed.join(", ")}`);
+  if (parts.length > 0) return `${parts.join(" · ")}.`;
+
+  // Same vaccines: the change was to timing, which is the common case and must
+  // not read as "nothing changed".
+  return scheduleDiffers(current, previous) ? "Timing changed." : "No change to the vaccines.";
+}
+
+function scheduleDiffers(a: VaccineGroup[], b: VaccineGroup[]): boolean {
+  return fingerprint(a) !== fingerprint(b);
+}
+
+function fingerprint(groups: VaccineGroup[]): string {
+  return groups
+    .map((g) =>
+      [...g.firstDoses, ...g.repeats]
+        .map((r) => `${r.dose_code}@${r.offset_days ?? ""}/${r.repeat ?? ""}`)
+        .sort()
+        .join(","),
+    )
+    .sort()
+    .join("|");
+}
+
+function countLabel(n: number, unit: string): string {
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
+}
