@@ -1,14 +1,21 @@
 /**
  * Reads the stored rule_dsl into the shape the console shows.
  *
- * The plan is stored as a flat `schedule` array of dose rules. A person does not
- * think in dose rules — they think in vaccines ("ET + TT", "FMD") and, inside
+ * The document's real structure is `matrix_rows`: one row per vaccine, carrying
+ * its name, class, disease and its own `schedule` of dose rules. A row whose
+ * schedule is EMPTY is a vaccine the farm knows about but has switched off --
+ * that is what makes "5 of 7" a fact rather than an estimate, and it is why a
+ * dropped vaccine stays on screen instead of vanishing.
+ *
+ * A person does not think in dose rules; they think in a vaccine and, inside
  * one, in first doses and repeats. This module is that translation and nothing
- * else: no defaults are invented here, so a field the farm never configured
- * renders as absent rather than as a plausible-looking guess.
+ * else: no defaults are invented, so a field the farm never configured reads as
+ * absent rather than as a plausible-looking guess.
  *
  * See docs/preventive-care-vaccination/design/MOCK-BEHAVIOUR-SPEC.md §4.
  */
+
+import { formatDays } from "./duration-field";
 
 export type ScheduleRule = {
   dose_code?: string;
@@ -16,73 +23,77 @@ export type ScheduleRule = {
   trigger_type?: string;
   offset_days?: number;
   due_window_days?: number;
+  max_delay_days?: number;
   repeat?: string;
   min_gap_days?: number;
 };
 
 export type VaccineGroup = {
-  /** Family code, e.g. "et_tt". Stable; used as the React key. */
+  /** Stable identity: the matrix row's vaccine code, e.g. "ET_TT". */
   code: string;
-  /** What the CEO calls it, e.g. "ET + TT". */
+  /** What the farm calls it, taken from the document, e.g. "ET+TT". */
   name: string;
+  /** "live" | "killed" — drives the spacing rules, shown as reference only. */
+  vaccineClass: string;
+  disease: string;
+  /** False when the row exists but carries no schedule: known, deliberately off. */
+  inPlan: boolean;
   firstDoses: ScheduleRule[];
   repeats: ScheduleRule[];
 };
 
-/** Suffixes that mark a rule's role inside its vaccine rather than its identity. */
-const ROLE_SUFFIX = /_(kid|adult|revac)(_[a-z0-9]+)?$/;
+type MatrixRow = {
+  row_id?: string;
+  vaccine?: { code?: string; name?: string; type?: string; disease?: string; priority?: number };
+  schedule?: ScheduleRule[];
+};
 
 /**
- * Acronyms are shouted, words are capitalised: "et_tt" -> "ET + TT",
- * "fmd" -> "FMD", "goat_pox" -> "Goat Pox".
+ * Every vaccine in the plan document, switched-on ones first.
  *
- * A code is treated as an acronym only when EVERY part is short. Deciding part
- * by part would shout the short word in a mixed code and print "Goat POX",
- * which is not what anyone on the farm calls it.
+ * Order matters: a reader scans the live plan far more often than the retired
+ * rows, so the ones in force must not be interleaved with the ones that are not.
  */
-export function vaccineName(code: string): string {
+export function readVaccines(ruleDsl: unknown): VaccineGroup[] {
+  const rows = readMatrixRows(ruleDsl);
+  if (rows.length === 0) return [];
+
+  const groups = rows.map((row) => {
+    const schedule = Array.isArray(row.schedule) ? row.schedule : [];
+    const code = row.vaccine?.code ?? row.row_id ?? "";
+    return {
+      code,
+      name: row.vaccine?.name?.trim() || prettyCode(code),
+      vaccineClass: row.vaccine?.type ?? "",
+      disease: row.vaccine?.disease ?? "",
+      inPlan: schedule.length > 0,
+      firstDoses: schedule.filter((r) => !r.repeat || r.repeat === "none"),
+      repeats: schedule.filter((r) => r.repeat && r.repeat !== "none"),
+    };
+  });
+
+  return [...groups.filter((g) => g.inPlan), ...groups.filter((g) => !g.inPlan)];
+}
+
+function readMatrixRows(ruleDsl: unknown): MatrixRow[] {
+  if (!ruleDsl || typeof ruleDsl !== "object") return [];
+  const rows = (ruleDsl as { matrix_rows?: unknown }).matrix_rows;
+  return Array.isArray(rows) ? (rows as MatrixRow[]) : [];
+}
+
+/** Only for a row with no name of its own: "GOAT_POX" -> "Goat Pox". */
+function prettyCode(code: string): string {
   const parts = code.split("_").filter(Boolean);
   if (parts.length === 0) return code;
-  const acronym = parts.every((p) => p.length <= 3);
-  if (acronym) {
-    // A multi-part acronym code is a combination vaccine given in one shot, and
-    // the farm says it that way, so join those with a plus rather than a space.
-    return parts.map((p) => p.toUpperCase()).join(" + ");
-  }
-  return parts.map((p) => p[0].toUpperCase() + p.slice(1)).join(" ");
-}
-
-export function groupSchedule(ruleDsl: unknown): VaccineGroup[] {
-  const schedule = readSchedule(ruleDsl);
-  const byCode = new Map<string, VaccineGroup>();
-
-  for (const rule of schedule) {
-    const dose = rule.dose_code;
-    if (!dose) continue;
-    const code = dose.replace(ROLE_SUFFIX, "") || dose;
-    let group = byCode.get(code);
-    if (!group) {
-      group = { code, name: vaccineName(code), firstDoses: [], repeats: [] };
-      byCode.set(code, group);
-    }
-    if (rule.repeat && rule.repeat !== "none") group.repeats.push(rule);
-    else group.firstDoses.push(rule);
-  }
-
-  return [...byCode.values()];
-}
-
-function readSchedule(ruleDsl: unknown): ScheduleRule[] {
-  if (!ruleDsl || typeof ruleDsl !== "object") return [];
-  const schedule = (ruleDsl as { schedule?: unknown }).schedule;
-  return Array.isArray(schedule) ? (schedule as ScheduleRule[]) : [];
+  if (parts.every((p) => p.length <= 3)) return parts.map((p) => p.toUpperCase()).join(" + ");
+  return parts.map((p) => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(" ");
 }
 
 /**
  * "2 from date of birth · 1 on a drive" — how the doses are TRIGGERED, not
  * their codes.
  *
- * Triggers are the CEO-facing distinction that actually matters: a birth_age
+ * The trigger is the distinction that actually matters to a reader: a birth_age
  * dose lands on its own from the animal's date of birth, a manual_campaign dose
  * waits for someone to start a drive.
  */
@@ -105,51 +116,14 @@ export function describeRepeats(rules: ScheduleRule[]): string {
 }
 
 /**
- * Days as the nearest whole unit a person actually says. 365 is "a year", not
- * "12 months"; 182 is "6 months"; 274 is "9 months". Anything that is not close
- * to a whole unit stays in days rather than being rounded into a lie.
- */
-export function humanDays(days: number | undefined): string {
-  if (!days || days <= 0) return "—";
-  if (days % 365 === 0) return plural(days / 365, "year");
-  const months = Math.round(days / 30.44);
-  if (months >= 1 && Math.abs(days - months * 30.44) <= 4) return plural(months, "month");
-  if (days % 7 === 0) return plural(days / 7, "week");
-  return plural(days, "day");
-}
-
-function plural(n: number, unit: string): string {
-  const rounded = Math.round(n);
-  return rounded === 1 ? `${unit}` : `${rounded} ${unit}s`;
-}
-
-/**
- * The vaccine catalog, and what each version changed.
+ * Days, in the unit a person says — re-exported so every surface agrees.
  *
- * There is no vaccine catalog table with rows in it -- `vaccines` is empty in
- * staging -- but the catalog is not therefore unknowable: it is the set of
- * vaccines the farm has ever had in a plan, which is exactly the union across
- * every version's document. That makes "6 of 7" a real number rather than an
- * invented one, and it is how a vaccine that was dropped (Blue Tongue) can be
- * shown as "not in this plan" instead of vanishing from the screen with no
- * trace that it was ever there.
+ * There is deliberately ONE implementation (duration-field.formatDays). When the
+ * summary said "6 months" and the editable chip said "26 weeks" for the same 182
+ * days, both were defensible and the pair was still a bug.
  */
-export type PlanCatalogEntry = VaccineGroup & { inPlan: boolean };
-
-export function buildCatalog(liveGroups: VaccineGroup[], allGroups: VaccineGroup[][]): PlanCatalogEntry[] {
-  const inPlan = new Map(liveGroups.map((g) => [g.code, g]));
-  const seen = new Map<string, VaccineGroup>();
-  for (const groups of allGroups) {
-    for (const group of groups) if (!seen.has(group.code)) seen.set(group.code, group);
-  }
-  // Vaccines currently in the plan come first, in the plan's own order; the
-  // dropped ones follow. A reader scans the live plan far more often than the
-  // history, so the live rows must not be interleaved with retired ones.
-  const entries: PlanCatalogEntry[] = liveGroups.map((g) => ({ ...g, inPlan: true }));
-  for (const [code, group] of seen) {
-    if (!inPlan.has(code)) entries.push({ ...group, inPlan: false });
-  }
-  return entries;
+export function humanDays(days: number | undefined | null): string {
+  return formatDays(days);
 }
 
 /**
@@ -160,38 +134,30 @@ export function buildCatalog(liveGroups: VaccineGroup[], allGroups: VaccineGroup
  * what the version actually says. A derived line cannot.
  */
 export function describeChange(current: VaccineGroup[], previous: VaccineGroup[] | null): string {
-  if (!previous) return `First plan, with ${countLabel(current.length, "vaccine")}.`;
-  const before = new Set(previous.map((g) => g.code));
-  const after = new Set(current.map((g) => g.code));
-  const added = current.filter((g) => !before.has(g.code)).map((g) => g.name);
-  const removed = previous.filter((g) => !after.has(g.code)).map((g) => g.name);
+  const onNow = current.filter((g) => g.inPlan);
+  if (!previous) return `First plan, with ${onNow.length} vaccine${onNow.length === 1 ? "" : "s"}.`;
+  const onBefore = previous.filter((g) => g.inPlan);
+  const before = new Set(onBefore.map((g) => g.code));
+  const after = new Set(onNow.map((g) => g.code));
+  const added = onNow.filter((g) => !before.has(g.code)).map((g) => g.name);
+  const removed = onBefore.filter((g) => !after.has(g.code)).map((g) => g.name);
 
   const parts: string[] = [];
   if (added.length > 0) parts.push(`Added ${added.join(", ")}`);
   if (removed.length > 0) parts.push(`Dropped ${removed.join(", ")}`);
   if (parts.length > 0) return `${parts.join(" · ")}.`;
 
-  // Same vaccines: the change was to timing, which is the common case and must
-  // not read as "nothing changed".
-  return scheduleDiffers(current, previous) ? "Timing changed." : "No change to the vaccines.";
-}
-
-function scheduleDiffers(a: VaccineGroup[], b: VaccineGroup[]): boolean {
-  return fingerprint(a) !== fingerprint(b);
+  return fingerprint(onNow) === fingerprint(onBefore) ? "No change to the vaccines." : "Timing changed.";
 }
 
 function fingerprint(groups: VaccineGroup[]): string {
   return groups
     .map((g) =>
       [...g.firstDoses, ...g.repeats]
-        .map((r) => `${r.dose_code}@${r.offset_days ?? ""}/${r.repeat ?? ""}`)
+        .map((r) => `${g.code}:${r.dose_code}@${r.offset_days ?? ""}/${r.repeat ?? ""}/${r.due_window_days ?? ""}`)
         .sort()
         .join(","),
     )
     .sort()
     .join("|");
-}
-
-function countLabel(n: number, unit: string): string {
-  return `${n} ${unit}${n === 1 ? "" : "s"}`;
 }
