@@ -65,6 +65,10 @@ type KidStageDueGoat struct {
 	ParkID          string
 	ShedID          string
 	PartitionLabel  *string
+	// ParkName/ShedName are the display names of the kid's CURRENT location, resolved here so the
+	// operator card and the prefilled basket render backend-owned labels, never ids.
+	ParkName        string
+	ShedName        string
 	ManagementStage string
 	// BornOn is the kid's date of birth (goats.dob, falling back to approx_dob) at DATE grain —
 	// the ladder is a business-day rule, so the birth's time of day never moves a cutoff.

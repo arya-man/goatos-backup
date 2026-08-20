@@ -67,6 +67,7 @@ import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
+import sg.mesha.goatos.core.network.dto.KidStageDueResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
@@ -608,6 +609,9 @@ interface AppApiService {
 
     @GET("app/counts/shifting/destinations")
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    @GET("app/counts/shifting/stage-due")
+    suspend fun getCountsShiftingStageDue(): KidStageDueResponseDto
 
     @GET("app/counts/breeds")
     suspend fun getAppCountsBreeds(): CountsBreedsResponseDto
@@ -1332,6 +1336,9 @@ class RetrofitAppApi(
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         service.getCountsShiftingDestinations()
+
+    override suspend fun getCountsShiftingStageDue(): KidStageDueResponseDto =
+        service.getCountsShiftingStageDue()
 
     override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto =
         service.getAppCountsBreeds()

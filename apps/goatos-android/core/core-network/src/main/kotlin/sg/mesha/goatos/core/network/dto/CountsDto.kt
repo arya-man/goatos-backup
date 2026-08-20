@@ -232,6 +232,46 @@ data class CountsShiftingDestinationsResponseDto(
 )
 
 /**
+ * `GET /app/counts/shifting/stage-due` — kids whose age has crossed a kid-stage ladder step
+ * (K0 -> K1 at 2 days, K1 -> K2 at 7; docs/decisions/kid-stage-age-ladder.md), grouped per
+ * (park, step) with the candidate destination pens. Backs the raise form's due card: the operator
+ * adds a group to the basket and picks the destination when the park has zero or several pens
+ * carrying the target tag (exactly one pen is normally auto-raised by the backend sweeper first).
+ */
+@Serializable
+data class KidStageDueResponseDto(
+    @SerialName("business_date") val businessDate: String = "",
+    @SerialName("groups") val groups: List<KidStageDueGroupDto> = emptyList(),
+)
+
+@Serializable
+data class KidStageDueGroupDto(
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("from_stage") val fromStage: String = "",
+    @SerialName("to_stage") val toStage: String = "",
+    /** Backend-composed card copy, rendered verbatim (golden frontend rule). */
+    @SerialName("title") val title: String = "",
+    @SerialName("goats") val goats: List<KidStageDueGoatDto> = emptyList(),
+    @SerialName("candidates") val candidates: List<CountsDestinationShedDto> = emptyList(),
+    @SerialName("auto_raise_pending") val autoRaisePending: Boolean = false,
+)
+
+@Serializable
+data class KidStageDueGoatDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("display_id") val displayId: String = "",
+    @SerialName("tag") val tag: String = "",
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("management_stage") val managementStage: String = "",
+    @SerialName("born_on") val bornOn: String = "",
+)
+
+/**
  * An operator-REPORTED movement of ONE animal between sheds. The backend records it with
  * `authorization_state=pending` / `verification_state=unverified`: a field operator reports a
  * movement, they never self-authorize it.

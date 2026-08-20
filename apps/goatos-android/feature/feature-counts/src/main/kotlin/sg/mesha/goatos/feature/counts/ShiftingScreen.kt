@@ -168,8 +168,24 @@ data class ShiftingParkUi(
     val sheds: List<ShiftingShedUi> = emptyList(),
 )
 
+/**
+ * One kid-stage due card (docs/decisions/kid-stage-age-ladder.md): kids whose age crossed a ladder
+ * step in a park where the system could not pick the destination itself (zero or several pens
+ * carry the target tag), so the operator adds them to the basket and selects any destination.
+ * [title] is backend-composed farm copy, rendered verbatim.
+ */
+@Immutable
+data class ShiftingDueGroupUi(
+    val key: String,
+    val title: String,
+    val goats: List<ShiftingAnimalUi>,
+)
+
 @Immutable
 data class ShiftingUiState(
+    // --- 0. kid-stage due cards (operator-select destination) ---------------------------------
+    val dueGroups: List<ShiftingDueGroupUi> = emptyList(),
+
     // --- 1. animal search + basket -----------------------------------------------------------
     val animalQuery: String = "",
     val animalMatches: List<ShiftingAnimalUi> = emptyList(),
@@ -313,6 +329,9 @@ sealed interface ShiftingEvent {
     /** Removes one animal from the basket — the explicit mis-tap correction. */
     data class RemoveAnimal(val goatId: String) : ShiftingEvent
 
+    /** Adds a kid-stage due group's kids to the basket; the operator then picks the destination. */
+    data class AddDueGroupToBasket(val key: String) : ShiftingEvent
+
     /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
     data class SelectDestinationShed(val shedId: String, val partitionLabel: String? = null) : ShiftingEvent
@@ -363,6 +382,16 @@ fun ShiftingScreen(
                 item(key = "recorded") {
                     CountsResultBanner(CountsWriteResultUi(CountsWriteStatus.SYNCED, message))
                 }
+            }
+
+            // --- 0. Kid-stage due cards: the ladder's groups the system could NOT auto-raise
+            // (zero or several candidate pens). One tap fills the basket; the operator selects
+            // the destination below like any other raise.
+            items(state.dueGroups, key = { "due-${it.key}" }) { group ->
+                KidStageDueCard(
+                    group = group,
+                    onAdd = { onEvent(ShiftingEvent.AddDueGroupToBasket(group.key)) },
+                )
             }
 
             // --- 1. Find the animals ----------------------------------------------------------
@@ -620,6 +649,38 @@ fun ShiftingScreen(
                 fontSize = 10.sp,
             )
         }
+    }
+}
+
+/**
+ * One kid-stage due card. The title is backend-composed copy rendered verbatim; the action fills
+ * the basket with the group's kids so the operator can pick a destination and raise.
+ */
+@Composable
+private fun KidStageDueCard(
+    group: ShiftingDueGroupUi,
+    onAdd: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(group.title, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+        Text(
+            text = stringResource(R.string.counts_shifting_due_hint),
+            color = MeshaColors.Muted,
+            fontSize = 11.sp,
+        )
+        CountsSubmitButton(
+            label = stringResource(R.string.counts_shifting_due_add),
+            enabled = true,
+            onClick = onAdd,
+        )
     }
 }
 

@@ -150,6 +150,9 @@ type GoatLifecycleValidator interface {
 type AppWriteHandler struct {
 	shifting  ShiftingEventRecorder
 	approvals ApprovalWorkflow
+	// kidStageLadder backs GET /app/counts/shifting/stage-due (the operator due card); nil until
+	// WithKidStageLadder wires it, and the route answers not_configured without it.
+	kidStageLadder *countsapp.KidStageLadderRaiser
 	validator GoatLifecycleValidator
 	// execution owns what happens AFTER a shifting is authorized: complete, cancel, and the
 	// operator's pending-execution queue. See shifting_execution_handler.go.
@@ -190,6 +193,7 @@ func RegisterAppWrites(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appBirthBreedsRoute, h.ListBirthBreeds)
 	mux.HandleFunc("GET "+appTemporaryTaggedGoatsRoute, h.ListTemporaryTaggedGoats)
 	mux.HandleFunc("POST "+appShiftingEventRoute, h.RecordShiftingEvent)
+	mux.HandleFunc("GET /app/counts/shifting/stage-due", h.ListKidStageDue)
 	mux.HandleFunc("POST "+appBirthEventRoute, h.RecordBirthEvent)
 	mux.HandleFunc("POST "+appDeathEventRoute, h.RecordDeathEvent)
 	mux.HandleFunc("POST "+appPromoteIdentifierRoute, h.PromoteTemporaryIdentifier)

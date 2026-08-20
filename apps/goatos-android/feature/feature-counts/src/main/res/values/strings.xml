@@ -83,6 +83,9 @@
     <string name="counts_shifting_to">TO</string>
     <!-- FROM chip when the basket gathers animals from more than one shed/pen: no single origin exists, so say so. -->
     <string name="counts_shifting_from_multiple">Multiple sheds</string>
+    <!-- Kid-stage due card: the title is backend copy; these two are the local hint + action. -->
+    <string name="counts_shifting_due_hint">Add them to this shifting, then choose the shed they should move to.</string>
+    <string name="counts_shifting_due_add">Add these kids</string>
     <string name="counts_priority_high">High</string>
     <string name="counts_priority_low">Low</string>
     <string name="counts_category_growth">Growth</string>

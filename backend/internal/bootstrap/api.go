@@ -519,6 +519,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil)
 	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
 		WithApprovalWorkflow(countsApprovalService, identityService).
+		// The kid stage ladder's due card (docs/decisions/kid-stage-age-ladder.md). Shares the
+		// plain counts repository: the raiser's reads are catalog + due-set only.
+		WithKidStageLadder(countsapp.NewKidStageLadderRaiser(
+			countspg.NewRepository(pool, cfg.Postgres.QueryTimeout), countsService, countsApprovalService)).
 		// Raiser and shed NAMES for the approvals queue, so neither the phone nor admin-web
 		// renders a UUID at an approver (golden frontend rule: the label is backend-owned).
 		WithApprovalNames(countsApprovalRepo).

@@ -177,6 +177,8 @@
     <string name="counts_shifting_from">ಇಂದ</string>
     <string name="counts_shifting_to">ಗೆ</string>
     <string name="counts_shifting_from_multiple">ಹಲವು ಶೆಡ್‌ಗಳು</string>
+    <string name="counts_shifting_due_hint">ಇವನ್ನು ಈ ಶಿಫ್ಟಿಂಗ್‌ಗೆ ಸೇರಿಸಿ, ನಂತರ ಅವು ಹೋಗಬೇಕಾದ ಶೆಡ್ ಆಯ್ಕೆಮಾಡಿ.</string>
+    <string name="counts_shifting_due_add">ಈ ಮರಿಗಳನ್ನು ಸೇರಿಸಿ</string>
     <string name="counts_more_fields">ಹೆಚ್ಚಿನ ವಿವರಗಳು</string>
 
     <!-- Birth / Death workflow module -->

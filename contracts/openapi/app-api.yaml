@@ -8217,6 +8217,36 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/counts/shifting/stage-due:
+    get:
+      tags:
+        - Counts
+      operationId: listAppCountsShiftingStageDue
+      summary: List kids whose age has crossed a kid-stage ladder step and are due to move.
+      description: >-
+        The kid stage ladder (K0 to K1 at 2 days of age, K1 to K2 at 7 days; business-day grain in
+        Asia/Kolkata, keyed on the kid's date of birth) normally AUTO-RAISES the shifting when the
+        kid's park has exactly one pen carrying the target tag. This read serves the operator card
+        for the rest: due kids grouped per (park, ladder step), each group carrying the candidate
+        destination pens. A group with zero or several candidates is the operator's to raise - the
+        card prefills the raise form's basket and the operator selects the destination. Kids
+        already named in an in-flight movement are excluded, so raising from the card and the
+        sweeper running concurrently can never double-move an animal. The group title is
+        backend-composed farm copy rendered verbatim. Gated on counts.write like the destinations
+        catalog: the card exists to start a raise, so its audience is the raise form's.
+      responses:
+        "200":
+          description: Due kid-stage groups for the caller's tenant, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KidStageDueResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/shifting-events:
     post:
       tags:
@@ -26774,6 +26804,78 @@ components:
         trace_id:
           type: string
 
+    KidStageDueResponse:
+      type: object
+      description: >-
+        Kids whose age has crossed a kid-stage ladder step, grouped per (park, step) with candidate
+        destination pens. Serves the operator due card on the shifting raise form.
+      required: [business_date, groups]
+      properties:
+        business_date:
+          type: string
+          description: The Asia/Kolkata business date the due sets were evaluated for.
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/KidStageDueGroup"
+    KidStageDueGroup:
+      type: object
+      required: [park_id, park_name, from_stage, to_stage, title, goats, candidates, auto_raise_pending]
+      properties:
+        park_id:
+          type: string
+        park_name:
+          type: string
+        from_stage:
+          type: string
+          description: The cohort tag the kids currently carry (K0 or K1).
+        to_stage:
+          type: string
+          description: The ladder step's target tag (K1 or K2).
+        title:
+          type: string
+          description: Backend-composed operator card copy, rendered verbatim.
+        goats:
+          type: array
+          items:
+            $ref: "#/components/schemas/KidStageDueGoat"
+        candidates:
+          type: array
+          description: >-
+            The park's pens whose resolved destination tag equals to_stage. Zero or several means
+            the operator selects the destination; exactly one means the sweeper normally raises it.
+          items:
+            $ref: "#/components/schemas/ShiftingDestinationShed"
+        auto_raise_pending:
+          type: boolean
+          description: True when exactly one candidate pen exists and the sweeper will raise it.
+    KidStageDueGoat:
+      type: object
+      required: [goat_id, display_id, tag, park_id, shed_id, park_name, shed_name, management_stage, born_on]
+      properties:
+        goat_id:
+          type: string
+        display_id:
+          type: string
+        tag:
+          type: string
+          description: The kid's display identifier (RFID, falling back to its temporary tag).
+        park_id:
+          type: string
+        shed_id:
+          type: string
+        park_name:
+          type: string
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          description: The kid's current pen within shed_id, when the shed is partitioned.
+        management_stage:
+          type: string
+        born_on:
+          type: string
+          description: Date of birth (YYYY-MM-DD).
     ShiftingDestinationsResponse:
       type: object
       additionalProperties: false

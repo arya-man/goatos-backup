@@ -42,6 +42,9 @@ import sg.mesha.goatos.core.network.dto.CountsDestinationShedDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.GoatLocationPathDto
+import sg.mesha.goatos.core.network.dto.KidStageDueGoatDto
+import sg.mesha.goatos.core.network.dto.KidStageDueGroupDto
+import sg.mesha.goatos.core.network.dto.KidStageDueResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -669,6 +672,49 @@ class ShiftingViewModelEligibilityTest {
         assertEquals("", vm.state.value.animalQuery)
     }
 
+    /**
+     * The kid-stage due card (docs/decisions/kid-stage-age-ladder.md): a group the backend could
+     * not auto-raise fills the basket on one tap; the operator picks the destination like any
+     * other raise. Groups the sweeper will raise itself (auto_raise_pending) are not shown.
+     */
+    @Test
+    fun `a due card fills the basket and pins the farm`() = runTest(dispatcher) {
+        val due = KidStageDueResponseDto(
+            businessDate = "2026-08-20",
+            groups = listOf(
+                KidStageDueGroupDto(
+                    parkId = CBE_PARK_ID, parkName = "Coimbatore",
+                    fromStage = "K0", toStage = "K1",
+                    title = "2 K0 kids in Coimbatore are due to move to K1",
+                    goats = listOf(
+                        KidStageDueGoatDto(goatId = GOAT_ID, displayId = "G-1", tag = "T-1", parkId = CBE_PARK_ID, shedId = CBE_SHED_ID, parkName = "Coimbatore", shedName = "Castro 1"),
+                        KidStageDueGoatDto(goatId = GOAT_ID_B, displayId = "G-2", tag = "T-2", parkId = CBE_PARK_ID, shedId = YASHODA_SHED_ID, parkName = "Coimbatore", shedName = "Yashoda"),
+                    ),
+                ),
+                // The sweeper's own group must NOT render as a card.
+                KidStageDueGroupDto(
+                    parkId = CPT_PARK_ID, parkName = "Channapatna",
+                    fromStage = "K1", toStage = "K2", title = "ignored",
+                    goats = listOf(KidStageDueGoatDto(goatId = "x", parkId = CPT_PARK_ID)),
+                    autoRaisePending = true,
+                ),
+            ),
+        )
+        val vm = newViewModel(emptyList(), dueGroups = due)
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.value.dueGroups.size)
+        val key = vm.state.value.dueGroups.single().key
+
+        vm.onEvent(ShiftingEvent.AddDueGroupToBasket(key))
+
+        // Both kids (from two different sheds — allowed since 2026-08-20) land in the basket, the
+        // farm is pinned, and the consumed card is gone.
+        assertEquals(listOf(GOAT_ID, GOAT_ID_B), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals(CBE_PARK_ID, vm.state.value.destinationParkId)
+        assertTrue(vm.state.value.dueGroups.isEmpty())
+    }
+
     @Test
     fun `rfid capture follows the screen's active state`() = runTest(dispatcher) {
         val reader = FakeShiftingRfidReader()
@@ -722,9 +768,10 @@ class ShiftingViewModelEligibilityTest {
         destinations: List<CountsDestinationParkDto>? = null,
         reader: FakeShiftingRfidReader = FakeShiftingRfidReader(),
         filterByTag: Boolean = false,
+        dueGroups: KidStageDueResponseDto = KidStageDueResponseDto(),
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
-        countsRepository = FakeShiftingCountsRepository(matches, destinations, filterByTag),
+        countsRepository = FakeShiftingCountsRepository(matches, destinations, filterByTag).also { it.dueGroups = dueGroups },
         analytics = NoopShiftingAnalytics(),
         crashReporter = NoopShiftingCrashReporter(),
         rfidReader = reader,
@@ -802,6 +849,9 @@ private class FakeShiftingCountsRepository(
     override suspend fun refreshShiftingDestinations(): Result<Unit> = Result.success(Unit)
     override suspend fun lookupAnimals(query: String, parkId: String?, shedId: String?): Result<List<GoatSearchItemDto>> =
         Result.success(if (filterByTag) matches.filter { it.animalIdentifier1 == query } else matches)
+
+    var dueGroups: KidStageDueResponseDto = KidStageDueResponseDto()
+    override suspend fun kidStageDue(): Result<KidStageDueResponseDto> = Result.success(dueGroups)
 }
 
 /** Test double for the keyboard-wedge reader: [scan] emits one completed tag read. */

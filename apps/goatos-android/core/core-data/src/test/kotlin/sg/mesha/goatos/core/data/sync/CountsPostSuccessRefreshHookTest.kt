@@ -106,6 +106,8 @@ class CountsPostSuccessRefreshHookTest {
             shedId: String?,
         ): Result<List<sg.mesha.goatos.core.network.dto.GoatSearchItemDto>> =
             Result.success(emptyList())
+        override suspend fun kidStageDue(): Result<sg.mesha.goatos.core.network.dto.KidStageDueResponseDto> =
+            Result.success(sg.mesha.goatos.core.network.dto.KidStageDueResponseDto())
     }
 
     private class RecordingCountsApprovalRepository : CountsApprovalRepository {
