@@ -2,7 +2,7 @@
 
 **Status:** proposed
 **Date:** 2026-08-20
-**Baseline:** `origin/main` @ `b6800387f`; staging data via a read-only clone of `goatos-stg`
+**Baseline:** `origin/main` @ `be23d7de5`; staging data via a read-only clone of `goatos-stg`
 **Reviewers:** maintainer; a second agent (Codex) independently verified and corrected an earlier
 draft of this argument. Both the correction and the surviving claim are recorded below.
 

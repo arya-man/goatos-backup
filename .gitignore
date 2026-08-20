@@ -183,3 +183,6 @@ backend/herd-signals-mqtt-bridge
 backend/herd-signals-udp-bridge
 backend/seed-herd-signals-oci
 backend/herd-signals-partition-maintenance
+
+# local E2E configuration — host addresses, key paths, credentials
+tools/e2e/e2e.env
