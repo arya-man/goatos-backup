@@ -584,7 +584,14 @@ details.ref[open] summary::before{content:"▾"}
             <button class="f" data-pp="trustPrior">${label(TRUST_OPTS,plan.trustPrior)} <span class="car">▾</span></button>.
           </div>
 
-          <div class="sec-label" style="margin-top:22px">First wave vaccines</div>
+          <div class="sec-label" style="margin-top:22px">What we bought them for</div>
+          <div class="seg" role="group" aria-label="Purpose">
+            <button class="segb" data-pu="breeding" aria-pressed="${plan.purpose==="breeding"}">Breeding &middot; 843</button>
+            <button class="segb" data-pu="fattening" aria-pressed="${plan.purpose==="fattening"}">Fattening &middot; 713</button>
+          </div>
+          <p class="hintline" style="margin:0 0 14px">Breeding stock stays for years, so it needs the full schedule. Fattening animals are sold well before most repeats come round — giving them the long-interval vaccines wastes doses.</p>
+
+          <div class="sec-label">First wave for ${plan.purpose==="breeding"?"breeding stock":"fattening animals"}</div>
           <div class="chips" id="wave1"></div>
 
           <div class="sec-label" style="margin-top:20px">Second wave, after</div>
@@ -824,7 +831,7 @@ function egLine(onTime,late){
 }
 const clone=o=>JSON.parse(JSON.stringify(o));
 let LIVE=clone(BASE),V=clone(BASE),cur="ettt",dirty=false,saved=false;
-let plan={scope:"company",species:"both",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28,firstWave:["ET + TT","PPR"],goatWave2:["Goat Pox"],sheepWave2:["Sheep Pox"]},planLive=clone(plan);
+let plan={scope:"company",species:"both",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28,purpose:"breeding",firstWave:["ET + TT","PPR"],fattenWave:["ET + TT"],goatWave2:["Goat Pox"],sheepWave2:["Sheep Pox"]},planLive=clone(plan);
 
 const $=s=>document.querySelector(s);
 const label=(o,v)=>{const h=o.find(x=>x[1]===v);return h?h[0]:String(v)};
@@ -1072,7 +1079,7 @@ function renderImpact(){
       1649,
       plan.proof==="animal"?["no","far more video to record and check"]:["on","much less video to record and check"]]);
   }
-  [["firstWave","First wave"],["goatWave2","Goat second wave"],["sheepWave2","Sheep second wave"]].forEach(([k,lbl])=>{
+  [["firstWave","First wave (breeding)"],["fattenWave","First wave (fattening)"],["goatWave2","Goat second wave"],["sheepWave2","Sheep second wave"]].forEach(([k,lbl])=>{
     if(JSON.stringify(plan[k])!==JSON.stringify(planLive[k]))
       rows.push(["Procurement holding",lbl+": "+(planLive[k].join(", ")||"none")+" \u2192 "+(plan[k].join(", ")||"none"),227,["no","arrival visits change"]]);
   });
@@ -1116,9 +1123,12 @@ function renderReady(){
     if(!changed){st.className="pill live";st.innerHTML='<span class="dot"></span>'+(long?"Matches the live plan":"Live")}
     else{st.className="pill";st.innerHTML='<span class="dot"></span>'+(long?"Draft \u00b7 not live yet":"Draft")}})}
 
+function wirePurpose(){
+  document.querySelectorAll("[data-pu]").forEach(b=>b.onclick=()=>{plan.purpose=b.dataset.pu;renderAll()});
+}
 function renderChips(){
   const names=V.filter(v=>v.on).map(v=>v.name);
-  [["wave1","firstWave"],["wave2g","goatWave2"],["wave2s","sheepWave2"]].forEach(([id,key])=>{
+  [["wave1",plan.purpose==="breeding"?"firstWave":"fattenWave"],["wave2g","goatWave2"],["wave2s","sheepWave2"]].forEach(([id,key])=>{
     const box=$("#"+id); if(!box)return;
     box.innerHTML=names.map(n=>`<button class="chip${plan[key].includes(n)?" on":""}" data-w="${key}" data-n="${n}">${n}</button>`).join("")
       || '<span class="hintline">No vaccines are switched on.</span>';
@@ -1229,7 +1239,7 @@ function renderProof(){
     ? "Every goat is still scanned individually — only the video changes. One clip covers the shed, up to five allowed."
     : "Every goat gets its own clip, so a round produces as many videos as there are goats — more to record, upload, and verify.";
 }
-function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderChips();renderImpact();renderReady();renderList();renderListActions();renderEditorHead()}
+function renderAll(){renderRail();renderDetail();renderProof();renderPlanCards();renderChips();wirePurpose();renderImpact();renderReady();renderList();renderListActions();renderEditorHead()}
 
 $("#saveBtn").onclick=()=>{dirty=false;saved=true;renderAll();
   const n=$("#savedNote");n.classList.add("show");setTimeout(()=>n.classList.remove("show"),1800)};
