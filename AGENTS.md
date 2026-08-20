@@ -1039,6 +1039,58 @@ Canonical source: `context/architecture/verifier-app-and-flow.md` → "Roles (tr
 alignment)"; pinned by `TestVerificationSeparationOfDuty` and
 `TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible`.
 
+Confirmed THE APPROVE CARRIES THE NUMBER rule (maintainer decision 2026-08-20, SUPERSEDING
+the separate-save-act half of the 2026-08-17 weighing weight-correction and 2026-08-18 feed
+wastage measurement decisions): where a verification item declares a measurement, the verifier
+types the value and presses **Approve ONCE**. There is **NO separate save button**, on the
+phone or in the admin-web drawer.
+
+**Why this is a lock and not a preference.** Recording the measurement RELABELS the
+verification item, and the relabel is `row_version = row_version + 1`. The verdict UPDATE is
+version-fenced (`AND row_version = $6`), so the Approve pressed straight after a save carried
+the version the screen had loaded with, matched no row, and SILENTLY DID NOTHING. Two acts for
+one judgement, the second broken by the first, with no error the verifier could see. Do not
+reintroduce a save button: it recreates the defect exactly.
+
+Four parts, each load-bearing:
+
+1. **The number rides the verdict.** `measurement` on
+   `POST /verification/items/{item_id}/verdict`. It names NO target — the record it lands on is
+   resolved from the ITEM's own source, because a client that could name its own target could
+   aim one item's approve at another item's record.
+2. **Verification still does not know what the number MEANS.** It reaches the write through
+   `verificationapp.MeasurementApplier`, registered per category at composition time exactly
+   like the enqueue/withdraw/relabel seams producers already register. Each applier forwards to
+   the SAME producer service its standalone route calls, so range checks, idempotency, audit and
+   relabel are ONE implementation. Do NOT make verification read a producer's table.
+3. **`RequiredForApprove` is TRUE for feed wastage and FALSE for weighing, and that asymmetry is
+   the rule, not an oversight.** Wastage's operator submits a VIDEO AND NO NUMBER, so the
+   reading is born on the verifier's screen and approving blank would complete a pen-day with no
+   wastage recorded at all — checked BEFORE the verdict, because the producer's own
+   `ErrWastageMeasurementRequired` fires in the CONSUMER, after the verdict is durable, and
+   strands the item mid-apply. Weighing's operator already recorded a weight, so blank means
+   "his weight is right" and MUST stay a single tap.
+4. **A REJECT never carries the number.** Rejection sends the work back to be recorded again, so
+   a value written onto a record about to be redone is a number nobody will use. Reject is also
+   never held on the measurement: a reading that cannot be taken off the clip is exactly the case
+   that must be sent back.
+
+Order inside one request: fence on the version she had on screen -> apply the measurement ->
+re-read `row_version` (it moved through OUR relabel, not a competing verifier's) -> record the
+verdict. Concurrency is still fenced, because the verdict UPDATE also requires the item to be
+`pending`. A producer that refuses the value stops the whole approve rather than leaving an
+approved item beside a number that never landed.
+
+Both producer routes (`.../weight-correction`, `.../wastage/{id}/measurement`) STAY SERVED for
+installed APKs that still show their own save button, and an item measured that way is still
+approvable — the applier is asked whether a value is already recorded. No current client calls
+them; do not build a new one that does.
+
+Canonical prose: `docs/decisions/feed-distribution-verification.md` -> "THE APPROVE CARRIES THE
+NUMBER". Pinned by `backend/internal/verification/app/verdict_measurement_test.go` (which keeps
+the save-then-approve 409 reproduced as the defect being replaced) and the Android
+`VerifyDetailViewModelAnalyticsTest` approve/reject pair; each was mutation-tested when written.
+
 Confirmed Approvals-on-mobile rule (maintainer decision 2026-08-05, SUPERSEDING the
 2026-07-21 decision that removed approvals from mobile and moved them to admin-web
 only): the birth/death/shifting approval queue is BACK on the phone, as its OWN

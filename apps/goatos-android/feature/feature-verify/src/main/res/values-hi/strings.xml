@@ -48,6 +48,7 @@
     <string name="verify_detail_photo_description">इस काम का फ़ोटो प्रमाण</string>
     <string name="verify_detail_recorded_answer">रिकॉर्ड किया गया: %1$s</string>
     <string name="verify_detail_correction_reason_label">नोट (वैकल्पिक)</string>
+    <string name="verify_detail_measurement_required">वीडियो में जो वज़न दिख रहा है वह दर्ज करें, फिर स्वीकार करें। अगर पढ़ा नहीं जा सकता, तो वीडियो अस्वीकार करें।</string>
     <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
     <string name="verify_detail_approve">स्वीकृत करें</string>
     <string name="verify_detail_reject">अस्वीकार करें</string>

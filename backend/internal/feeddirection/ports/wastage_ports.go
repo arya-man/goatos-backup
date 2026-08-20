@@ -164,6 +164,16 @@ type WastageCompletionStore interface {
 	// Idempotent and stale-guarded: a re-delivered verdict on a non-pending row is a no-op.
 	BounceWastageForRework(ctx context.Context, p BounceWastageParams) (bool, error)
 
+	// WastageMeasurementRecorded reports whether one completion already carries a measured leftover
+	// weight. One indexed primary-key read.
+	//
+	// It exists for the APPROVE GATE: feed wastage cannot be approved without a number, and an item
+	// measured earlier -- by an installed APK still using the separate save button -- must still be
+	// approvable. Distinct from ErrWastageMeasurementRequired, which fails closed in the consumer
+	// AFTER the verdict is already recorded and leaves the item stuck mid-apply; this answers
+	// BEFORE the verdict so the verifier is told to enter the number instead.
+	WastageMeasurementRecorded(ctx context.Context, tenantID, completionID string) (bool, error)
+
 	// RecordWastageMeasurement stores the verifier's measured leftover weight on the completion
 	// row, replacing any prior entry, in one transaction with its idempotency reservation and audit
 	// row. Refuses a completion that does not exist (ErrWastageCompletionNotFound) and a value out

@@ -48,6 +48,7 @@
     <string name="verify_detail_photo_description">ఈ పని యొక్క ఫోటో రుజువు</string>
     <string name="verify_detail_recorded_answer">రికార్డ్ చేయబడింది: %1$s</string>
     <string name="verify_detail_correction_reason_label">గమనిక (ఐచ్ఛికం)</string>
+    <string name="verify_detail_measurement_required">వీడియోలో కనిపించే బరువును నమోదు చేసి, ఆపై ఆమోదించండి. చదవలేకపోతే, వీడియోను తిరస్కరించండి.</string>
     <string name="verify_detail_no_media">ఈ అంశానికి వీడియో జోడించబడలేదు</string>
     <string name="verify_detail_approve">ఆమోదించండి</string>
     <string name="verify_detail_reject">తిరస్కరించండి</string>

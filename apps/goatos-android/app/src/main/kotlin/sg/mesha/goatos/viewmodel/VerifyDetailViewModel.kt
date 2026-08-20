@@ -35,10 +35,12 @@ import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
+import sg.mesha.goatos.feature.verify.VerifyMeasurementInput
 import sg.mesha.goatos.feature.verify.VerifyDetailEntryUiState
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
@@ -73,7 +75,7 @@ private data class VerifyDetailFlags(
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
 
 /** The weighing INDIVIDUAL capture grain (verification source ref_type). One animal, so it carries
- *  no head count and the backend refuses one -- see [VerifyDetailViewModel.correctWeight]. */
+ *  no head count and the backend refuses one, so the card never offers the field there. */
 private const val REF_TYPE_INDIVIDUAL_OBSERVATION = "weighing_observation"
 
 /** The feed-WASTAGE measurement grain (maintainer decision 2026-08-18). The same control renders,
@@ -299,10 +301,16 @@ class VerifyDetailViewModel @Inject constructor(
             VerifyDetailEvent.Close -> trackClosed()
             VerifyDetailEvent.Refresh -> refresh()
             is VerifyDetailEvent.Approve ->
-                submitVerdict(event.itemId ?: itemId, VerificationDecision.APPROVED, reason = null)
+                submitVerdict(
+                    event.itemId ?: itemId,
+                    VerificationDecision.APPROVED,
+                    reason = null,
+                    measurement = event.measurement,
+                )
             is VerifyDetailEvent.Reject ->
+                // No measurement: rejection sends the work back to be recorded again, so a number
+                // typed before she changed her mind must not land on a record about to be redone.
                 submitVerdict(event.itemId ?: itemId, VerificationDecision.REJECTED, reason = event.reason)
-            is VerifyDetailEvent.CorrectWeight -> correctWeight(event)
             is VerifyDetailEvent.VideoPlayback -> trackVideoPlayback(event)
             is VerifyDetailEvent.RejectDialogOpened -> AnalyticsFunnels.trackVerifyRejectDialogOpened(analytics, event.itemId)
             is VerifyDetailEvent.RejectDialogCancelled -> AnalyticsFunnels.trackVerifyRejectDialogCancelled(analytics, event.itemId)
@@ -382,111 +390,24 @@ class VerifyDetailViewModel @Inject constructor(
      * state, matching [SyncRepository.enqueueVerificationVerdict]'s own per-item_id outbox key.
      */
     /**
-     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17).
+     * The standalone weight-correction path that used to live here is DELETED.
      *
-     * Deliberately NOT modelled on [submitVerdict]: a correction is not a decision, so it does not
-     * arm awaitingBackendDecision, does not auto-close the screen, and does not wait for the item to
-     * leave the pending query -- the item stays exactly where it is and she goes on to decide it.
+     * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). Correcting and then
+     * approving was two acts for one judgement, and the correction relabelled the verification
+     * item -- which bumps row_version -- so the approve she pressed next carried the version the
+     * screen had loaded with and was fenced out with a conflict. Nothing happened, and she was told
+     * nothing. The value now travels on [submitVerdict], which is also one durable outbox row
+     * instead of two that can drain apart.
      *
-     * It rides the outbox like every other write, so a correction made in a shed with no signal is
-     * durable. The refresh afterwards is what brings back the RE-LABELLED item: the backend
-     * recomposes the subject label around the corrected weight, so once it lands she reads the
-     * number she just entered rather than the one she replaced.
+     * The producing modules' own correction routes stay served for installed builds that still
+     * show their own save button; this app no longer calls them.
      */
-    private fun correctWeight(event: VerifyDetailEvent.CorrectWeight) = viewModelScope.launch {
-        // THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18) shares the control
-        // but not the endpoint: it routes to the feed measurement route, where ZERO IS VALID (an
-        // empty trough is a real, good measurement) — so it branches BEFORE the weighing-only
-        // non-positive guard below, which would refuse the very value wastage exists to record.
-        if (event.refType == REF_TYPE_FEED_WASTAGE_COMPLETION) {
-            recordWastageMeasurement(event)
-            return@launch
-        }
-        // Belt-and-braces mirror of the card's own submit gate: a malformed event can never enqueue
-        // a non-positive weight, which the server would refuse anyway.
-        if (event.weightKg <= 0 || !event.weightKg.isFinite()) return@launch
-        // A head count is LUMP-SUM ONLY. The backend REFUSES one on an individual capture rather
-        // than ignoring it, so a stray count here would fail the whole correction -- drop it at the
-        // grain that cannot carry it instead of sending a request that cannot succeed.
-        val animalCount = event.animalCount
-            ?.takeIf { it > 0 && event.refType != REF_TYPE_INDIVIDUAL_OBSERVATION }
-
-        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
-        val result = syncRepo.enqueueWeighingWeightCorrection(
-            observationId = event.observationId,
-            refType = event.refType,
-            weightKg = event.weightKg,
-            animalCount = animalCount,
-            reason = event.reason,
-        )
-        when (result) {
-            is AppResult.Ok -> {
-                analytics.track(AnalyticsEventsVerification.WEIGHT_CORRECTION_SUBMITTED)
-                _flags.update { it.copy(isSubmitting = false) }
-                val item = syncRepo.observeItem(result.value).first { candidate ->
-                    candidate?.status == SyncItemStatus.SUCCEEDED || candidate?.isTerminalFailure == true
-                }
-                if (item?.status == SyncItemStatus.SUCCEEDED) {
-                    // Pull the re-labelled item only after the backend owns the correction.
-                    refresh()
-                } else if (item?.isTerminalFailure == true) {
-                    _flags.update {
-                        it.copy(errorMessage = item.lastError ?: "This weight correction did not go through.")
-                    }
-                }
-            }
-            is AppResult.Err -> {
-                runCatching {
-                    crashReporter.recordException(
-                        IllegalStateException(result.message),
-                        "weighing weight correction enqueue failed",
-                    )
-                }
-                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
-            }
-        }
-    }
-
-    /**
-     * Records the leftover weight the verifier reads off a feed-wastage video, in kg
-     * (maintainer decision 2026-08-18). Not a decision — like [correctWeight]'s weighing path it
-     * never arms awaitingBackendDecision and never auto-closes; she records the value and then
-     * decides on the ordinary verdict route. The `completion_id` is the item's own
-     * `measurement_correction.observation_id`, posted back verbatim.
-     *
-     * ZERO IS VALID and the range is 0..10000 kg — the card's own gate mirrors this, so the guard
-     * here only stops a malformed event. No head count (the write path has no field for one) and
-     * no reason (ditto). Rides the outbox with a value-bearing stable key so a double-tap is one
-     * write while 3 kg then 3.5 kg are two.
-     */
-    private suspend fun recordWastageMeasurement(event: VerifyDetailEvent.CorrectWeight) {
-        if (event.weightKg < 0 || event.weightKg > MAX_WASTAGE_KG || !event.weightKg.isFinite()) return
-        _flags.update { it.copy(isSubmitting = true, errorMessage = null) }
-        val result = syncRepo.enqueueFeedWastageMeasurement(
-            completionId = event.observationId,
-            wastageKg = event.weightKg,
-        )
-        when (result) {
-            is AppResult.Ok -> {
-                analytics.track(AnalyticsEventsVerification.WASTAGE_MEASUREMENT_SUBMITTED)
-                _flags.update { it.copy(isSubmitting = false) }
-                // Pull the re-labelled item back so the card shows the recorded value: the backend
-                // recomposes the subject label around the measurement and pushes it onto the item.
-                refresh()
-            }
-            is AppResult.Err -> {
-                runCatching {
-                    crashReporter.recordException(
-                        IllegalStateException(result.message),
-                        "feed wastage measurement enqueue failed",
-                    )
-                }
-                _flags.update { it.copy(isSubmitting = false, errorMessage = result.message) }
-            }
-        }
-    }
-
-    private fun submitVerdict(targetItemId: String, decision: String, reason: String?) = viewModelScope.launch {
+    private fun submitVerdict(
+        targetItemId: String,
+        decision: String,
+        reason: String?,
+        measurement: VerifyMeasurementInput? = null,
+    ) = viewModelScope.launch {
         // Belt-and-braces guard mirroring the reject dialog's own mandatory-reason validation —
         // a malformed event can never enqueue a reason-less reject.
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
@@ -505,6 +426,20 @@ class VerifyDetailViewModel @Inject constructor(
             decision = decision,
             reason = reason,
             rowVersion = rowVersion,
+            // THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). One durable outbox
+            // row for one judgement, so a shed with no signal queues one act rather than two that
+            // can drain apart -- and the approve can no longer be fenced out by the row_version
+            // bump its own earlier save caused. Guarded belt-and-braces: a malformed event can
+            // never enqueue a value the server would refuse as out of range.
+            measurement = measurement
+                ?.takeIf { it.value.isFinite() && it.value >= 0 }
+                ?.let {
+                    VerificationVerdictMeasurementDto(
+                        value = it.value,
+                        count = it.count?.takeIf { count -> count > 0 },
+                        reason = it.reason?.takeIf(String::isNotBlank),
+                    )
+                },
         )
         when (result) {
             is AppResult.Ok -> {
@@ -784,6 +719,10 @@ class VerifyDetailViewModel @Inject constructor(
                         countLabel = correction.countLabel?.takeIf { it.isNotBlank() },
                         allowZero = isWastage,
                         showReason = !isWastage,
+                        // Backend-declared. It is what holds Approve on a wastage item until she
+                        // enters a reading -- the operator sent a video and no number, so approving
+                        // blank would complete a pen-day with no wastage recorded at all.
+                        requiredForApprove = correction.requiredForApprove,
                     )
                 },
             media = media.map {

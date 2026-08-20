@@ -221,6 +221,31 @@ type Verdict struct {
 	VerifierID     string
 	RowVersion     int
 	IdempotencyKey string
+	// Measurement is the number she read off the video, carried BY the approve rather than saved
+	// by a second act (maintainer decision 2026-08-20, superseding the separate save step of the
+	// 2026-08-17 weighing and 2026-08-18 wastage decisions).
+	//
+	// Nil means "no number with this decision" -- the normal weighing case, where blank keeps the
+	// operator's recorded weight. It is IGNORED on a reject: rejection sends the work back to be
+	// recorded again, so writing a value onto a record that is about to be redone would store a
+	// number nobody will use.
+	Measurement *VerdictMeasurement
+}
+
+// VerdictMeasurement is the value applied to the producer's record as part of an approve.
+//
+// It carries no address: the target ref type and ref id come from the item's own Source, exactly
+// as MeasurementCorrection echoes them to the client. A client that could name its own target
+// could aim one item's approve at another item's record.
+type VerdictMeasurement struct {
+	// Value is the number in the category's own unit (kg for both weighing and wastage today).
+	// ZERO IS VALID for wastage -- an empty trough is a real reading.
+	Value float64
+	// Count is the accompanying whole-number field, present only on the ref types whose spec
+	// declares one (a lump-sum shed weigh's head count). Nil means leave the recorded count alone.
+	Count *int
+	// Reason is her optional note on why the recorded number was wrong.
+	Reason string
 }
 
 // CloseAction is the leadership authority transition applied only after verifier approval.

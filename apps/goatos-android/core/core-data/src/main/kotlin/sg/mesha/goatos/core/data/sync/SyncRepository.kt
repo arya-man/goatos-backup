@@ -33,6 +33,8 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
@@ -175,12 +177,19 @@ interface SyncRepository {
      *  (context/architecture/verifier-app-and-flow.md). [reason] is mandatory for
      *  `decision = "rejected"` — enforced by the caller (VerifyDetailViewModel) before this
      *  is ever called, mirrored server-side. [groupKey] is the verification item id so two
-     *  verdicts on the SAME item never race out of order; different items drain concurrently. */
+     *  verdicts on the SAME item never race out of order; different items drain concurrently.
+     *
+     *  [measurement] is THE NUMBER SHE READ OFF THE VIDEO (maintainer decision 2026-08-20),
+     *  travelling WITH the approve instead of as a second write. It rides this one durable outbox
+     *  row, so a shed with no signal queues one act rather than two that can drain apart — and the
+     *  approve can no longer be fenced out by the version bump its own earlier save caused. Null on
+     *  a reject and on the normal weighing approve, where blank keeps the operator's weight. */
     suspend fun enqueueVerificationVerdict(
         itemId: String,
         decision: String,
         reason: String?,
         rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto? = null,
     ): AppResult<String>
 
     /**
@@ -870,6 +879,7 @@ class DefaultSyncRepository(
         decision: String,
         reason: String?,
         rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto?,
     ): AppResult<String> {
         val idempotencyKey = "$itemId-verdict-${System.currentTimeMillis()}"
         return enqueue(
@@ -879,7 +889,14 @@ class DefaultSyncRepository(
             payloadJson = syncJson.encodeToString(
                 VerificationVerdictPayload(
                     itemId = itemId,
-                    request = VerificationVerdictRequestDto(decision = decision, reason = reason, rowVersion = rowVersion),
+                    request = VerificationVerdictRequestDto(
+                        decision = decision,
+                        reason = reason,
+                        rowVersion = rowVersion,
+                        // Only on an approve. The backend drops it on a reject anyway; not sending
+                        // it keeps the queued payload honest about what the act was.
+                        measurement = measurement.takeIf { decision == VerificationDecision.APPROVED },
+                    ),
                 ),
             ),
         )
