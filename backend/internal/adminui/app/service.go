@@ -123,11 +123,12 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),
 					// SOP SPLIT (maintainer decision 2026-08-18): the top-level Admin/Data Ops
 					// SOP Library (/sops) is RETIRED. Each module owns its SOP page as a
-					// module-surface: /vaccination/sops here, /counts/sops (Herd Operations SOP:
-					// birth / death / shifting), /feed/sops (distribution / packing / transport).
-					// The three routes are the recorded exceptions in check-ia-guard.mjs; /config
-					// remains the single generic authority screen and no command lens is nested.
-					navLeafDomain("vaccination-sops", "Vaccination SOP", "/vaccination/sops", "pc.vaccination", nil),
+					// The vaccination plan lives here, not under Admin / Data Ops: it is a
+					// vaccination-only authority screen and the person who owns the decision
+					// (CEO/COO) looks under Preventive Care. It absorbs the former
+					// /vaccination/sops surface -- proof method is now one field on the plan,
+					// so a separate SOP screen with a single record is no longer warranted.
+					navLeafDomain("vaccination-plan", "Vaccination plan", "/vaccination/plan", "pc.vaccination", nil),
 				},
 			},
 			{
@@ -260,7 +261,6 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "admin-data", Label: "Admin / Data Ops", Icon: "edit-3", DefaultOpen: true,
 				Leaves: []domain.NavigationItem{
-					navLeafDomain("config", "Config", "/config", "admin.config", map[string]string{"category": "vaccination"}),
 					navLeafDomain("audit-log", "Audit Log", "/operations/audit", "admin.audit", nil),
 					navLeafDomain("dlq-center", "DLQ Center", "/operations/dlq", "admin.audit", nil),
 					navLeafDomain("people", "People / HRMS", "/people", "admin.people", nil),
@@ -679,6 +679,13 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("activity-trail", "Activity trail", "/operations/audit", []string{"when", "operation", "operator", "action", "target", "result", "proof"}, "audit_row")}),
 		page("dlq-center", "/operations/dlq", "/operations/dlq", "DLQ Center", "System repair queue for backend events that failed after retries. Empty is healthy; this is not a vaccination worklist.", "authority-screen",
 			[]domain.TableContract{table("dlq-events", "Dead-letter events", "/operations/dlq", []string{"event", "topic", "attempts", "replays", "last_error", "updated"}, "dlq_id")}),
+		// The vaccination plan console. Preventive Care owns it, because the plan is
+		// vaccination-only and the CEO/COO who publishes it works out of PC. It replaces
+		// the generic /config screen for this category and absorbs /vaccination/sops.
+		page("vaccination-plan", "/vaccination/plan", "/vaccination/plan", "Vaccination plan", "One plan decides which animal gets which vaccine, and when.", "authority-screen",
+			[]domain.TableContract{
+				table("vaccination-plan-versions", "Versions", "/protocols?category=vaccination", []string{"version", "status", "in_force", "published", "changed"}, "protocol_version_id"),
+			}),
 		page("config", "/config", "/config", "Config — Protocol Rules", "Admin/Data Ops authority for governed protocol rules.", "authority-screen",
 			[]domain.TableContract{
 				table("protocol-rules", "Protocol rules", "/protocols", []string{"category", "version", "scope", "status", "effective", "linked_sop", "last_publisher", "actions"}, "protocol_id"),
@@ -4518,6 +4525,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.no_selection":            "Select a DLQ row to inspect payload and repair actions.",
 			"pager.fixed_reason":            "DLQ list is bounded to 100 rows by default and 500 rows maximum.",
 		}
+	case "vaccination-plan":
+		// Same authority copy as /config, re-crumbed for its new home and worded for the
+		// CEO rather than for the schema. See docs/.../MOCK-BEHAVIOUR-SPEC.md.
+		m := pageSpecificCopy("config")
+		m["crumb"] = "Preventive Care"
+		m["page.title"] = "Vaccination plan"
+		m["page.subtitle"] = "One plan decides which animal gets which vaccine, and when. Only you and the COO can publish it."
+		return m
 	case "config":
 		return map[string]string{
 			"crumb":                                                     "Admin / Data Ops",
@@ -5742,7 +5757,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	case "shed-execution":
 		return append(append(genericOptionGroups(), processIntegrityOptionGroups()...),
 			shedStatusOptionGroup(), capacityOptionGroup())
-	case "config":
+	case "config", "vaccination-plan":
 		return withGenericOptionGroups(configOptionGroups())
 	case "vaccination-sops", "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		return withGenericOptionGroups(sopOptionGroups())

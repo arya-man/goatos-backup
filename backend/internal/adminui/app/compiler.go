@@ -766,7 +766,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 		switch out[i].RouteID {
 		case "action-center", "vaccination", "shed-execution":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
-		case "config":
+		case "config", "vaccination-plan":
 			out[i].OptionGroups = compileConfigOptionGroups(out[i].OptionGroups, families)
 			out[i].Controls = compileConfigControls(out[i].Controls, input, out[i].Copy)
 		case "herd-register":
@@ -1442,7 +1442,7 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":
 		return []string{permissions.OperatorsViewAudit}
-	case "config":
+	case "config", "vaccination-plan":
 		return []string{permissions.ProtocolRead}
 	case "sop-library":
 		return []string{permissions.SOPRead}

@@ -3540,3 +3540,78 @@ select:disabled { opacity: .45; }
   }
   .herd-signals-page aside.drawer .dc{padding:13px 14px 20px}
 }
+/* ══════════════════════════════════════════════════════════════════════════
+   Preventive Care › Vaccination plan  (.vp)
+   Lifted verbatim from the approved mock:
+   docs/preventive-care-vaccination/design/vaccination-plan-console.mock.html
+   Namespaced under .vp because the mock redefines .card/.btn/.tag with its
+   own geometry and the app-wide versions must keep their current look.
+   Tokens are the shared ones — no new colours are introduced here.
+────────────────────────────────────────────────────────────────────────── */
+.vp { max-width: 1180px; padding: 20px 22px 34px; }
+.vp h1, .vp h2, .vp h3 { text-wrap: balance; margin: 0; }
+.vp .num { font-variant-numeric: tabular-nums; }
+
+.vp .head { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 16px; }
+.vp .head-top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.vp .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 6px; }
+.vp h1 { font-size: clamp(22px, 2.8vw, 30px); font-weight: 800; letter-spacing: -.022em; line-height: 1.13; }
+.vp .sub { color: var(--muted); font-size: 14px; margin: 7px 0 0; max-width: 62ch; }
+.vp .hactions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+.vp .pill { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 5px 13px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  border: 1px solid var(--warn); background: var(--warnx); color: var(--warn); }
+.vp .pill.live { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d); }
+.vp .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.vp .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); margin: 0 0 16px; overflow: hidden; }
+.vp .card.livecard { border-color: var(--brand); }
+.vp .card-h { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 14px;
+  align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.vp .card-h h2 { font-size: 19px; font-weight: 700; letter-spacing: -.018em; }
+.vp .card-h .s { color: var(--muted); font-size: 13px; margin: 4px 0 0; max-width: 66ch; }
+.vp .card-b { padding: 18px 20px; }
+
+.vp .livegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+.vp .livegrid > div { background: var(--panel-2); padding: 12px 14px; }
+.vp .k { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+.vp .lv { margin-top: 5px; font-weight: 600; font-size: 15px; }
+.vp .vby { display: block; font-size: 11.5px; color: var(--faint); font-variant-numeric: normal; }
+
+.vp .draftnudge { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  margin-top: 16px; border: 1px solid var(--warn); background: var(--warnx); border-radius: 10px;
+  padding: 12px 15px; font-size: 13.5px; }
+.vp .draftnudge b { color: var(--ink); }
+.vp .dn-l { color: var(--muted); }
+.vp .ab-spacer { flex: 1; min-width: 8px; }
+
+.vp .btn { font-weight: 600; font-size: 14px; border-radius: 9px; padding: 9px 18px;
+  border: 1px solid var(--brand); background: var(--brand); color: var(--on-brand);
+  cursor: pointer; transition: filter .12s; display: inline-flex; align-items: center; gap: 7px; }
+.vp .btn:hover:not(:disabled) { filter: brightness(1.07); }
+.vp .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.vp .btn.ghost:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-d); filter: none; }
+.vp .btn.sm { padding: 7px 14px; font-size: 13.5px; }
+.vp .btn:disabled { opacity: .42; cursor: not-allowed; }
+
+.vp .scroll { overflow-x: auto; margin-top: 14px; }
+.vp .tabl { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 520px; }
+.vp .tabl th { text-align: left; font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase;
+  color: var(--faint); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.vp .tabl td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.vp .tabl tr:last-child td { border-bottom: none; }
+.vp .tag { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 8px;
+  border: 1px solid var(--line); color: var(--faint); white-space: nowrap; }
+.vp .tag.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d); }
+.vp .tag.no { border-color: var(--warn); background: var(--warnx); color: var(--warn); }
+.vp .vst { margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  border-radius: 5px; padding: 1px 7px; border: 1px solid var(--brand); color: var(--brand-d); background: var(--brand-soft); }
+.vp .vst.draft { border-color: var(--warn); color: var(--warn); background: var(--warnx); }
+.vp tr.voff td { opacity: .5; }
+.vp .alert { margin: 12px 0 0; font-size: 13.5px; border-radius: 10px; padding: 11px 15px;
+  border: 1px solid var(--danger); background: var(--dangerx); color: var(--ink); }
