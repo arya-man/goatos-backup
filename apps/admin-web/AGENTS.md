@@ -212,7 +212,20 @@ Admin-web is built around the vaccination process-integrity slice:
   import/review surfaces. The Counts sidebar shows exactly two leaves in this
   slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
   (`/counts/breakdown`); do not show disabled `Tagging & identity`, `Weights &
-  ADG`, or `Count reconciliation` leaves for mock fidelity.
+  ADG`, or `Count reconciliation` leaves for mock fidelity. Herd Register’s leaf is currently
+  withheld (its route stays reachable), so the two visible leaves are `Herd Analytics`
+  (`/counts/analytics`) and `Counts Breakdown` (`/counts/breakdown`).
+- **Herd Analytics** (`/counts/analytics`) is the Counts leadership read, opened by maintainer
+  decision 2026-08-20. Two questions, one screen: what the herd IS right now (breed, pen tag,
+  sex, kid/adult, farm) and what CHANGED it month by month (births in, deaths and sales out,
+  other exits, pen movements within). One round trip to `GET /counts/herd-analytics`; the page
+  derives no count of its own and reads whole-window `totals` from the response rather than
+  re-summing `months`. Composition uses the same live population `/counts/breakdown` reports, so
+  the two Counts screens can never disagree about the denominator. Charts are the shared inline
+  SVG marks in `components/svg-series.tsx` + `components/svg-bars.tsx` — SERVER components,
+  `var(--*)` series colours, recharts still at zero importers. Composition cards are FULL WIDTH
+  (`.herd-analytics-charts`), never the mock’s 340px `.charts` masonry, which squeezes the wide
+  SvgBars viewBox down to unreadable labels.
 - **Counts Breakdown** (`/counts/breakdown`) is the census surface, reopened by
   explicit maintainer decision (2026-07-18). Live head counts grouped by
   farm x stage x breed x gender x shed, plus the mock's `.charts` /
@@ -584,7 +597,10 @@ Only these routes are current implemented product routes:
 /procurement/sales           Sales board — animal + manure sales overview, buyers, demand
                             pipeline, sale evidence, deals ledger, record-sale drawer
                             (backend "sales" page contract; sales.read / sales.write)
-/counts/herd                 Herd Register for vaccination trigger closure
+/counts/herd                 Herd Register for vaccination trigger closure (route live; its
+                             sidebar leaf is WITHHELD, maintainer decision 2026-08-20)
+/counts/analytics            Herd Analytics — composition now (breed / pen tag / sex / kid-adult /
+                             farm) beside month-by-month births, deaths, sales and pen movements
 /counts/breakdown            Counts Breakdown census (farm x stage x breed x gender x shed)
 /operations/audit            Admin / Data Ops Audit Log (business surface)
 /config
