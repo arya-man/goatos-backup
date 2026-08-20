@@ -77,8 +77,11 @@ Proven empirically in [`E2E-PUBLISH-SEMANTICS.md`](./E2E-PUBLISH-SEMANTICS.md) �
    cannot be set on retirement.
 3. **Rules attach to drafts only.** `ensure_protocol_child_version_is_draft()`.
 
-Therefore the publish sequence is: **create draft → attach rules → publish → retire previous.**
-In that order. Any other order hits a database error.
+Therefore the publish sequence is: **create draft → attach rules → publish transaction**, where
+the publish transaction *retires the previous version first and then publishes the draft*, in one
+atomic step (`retirePublishedVaccinationMatrixOverlapsTx`, `repository.go:908`). The retire must
+come first inside that transaction, because the exclusion constraint forbids two overlapping
+published versions. Attempting it in any other order hits a database error.
 
 ### 3.3 State machine
 

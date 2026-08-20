@@ -648,4 +648,3 @@ before it is configured, not after.
 
 Modelled in the design mock as a single combination row, `Z1 + Z3`, carrying the schedule above
 and flagged as needing real names. No vaccine matrix row has been added to the product.
-

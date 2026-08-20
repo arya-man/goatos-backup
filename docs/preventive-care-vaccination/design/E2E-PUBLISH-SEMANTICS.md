@@ -70,7 +70,7 @@ ERROR: protocol version … is published, not draft; published config is immutab
 `ensure_protocol_child_version_is_draft()`. So the real lifecycle is:
 
 ```
-create version as DRAFT  →  attach rules  →  flip to PUBLISHED  →  retire the previous one
+create version as DRAFT  →  attach rules  →  PUBLISH TRANSACTION { retire previous, publish draft }
 ```
 
 which is exactly what the redesigned console models with "Start a new version → edit → publish".
