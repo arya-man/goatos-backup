@@ -40,6 +40,15 @@ E2E_TEMPLATE_DB='x; DROP DATABASE goatos'  refuses "refuses injection"    "refus
 E2E_TEMPLATE_DB=goatos_base E2E_SOURCE_DB=goatos_base \
                                  refuses "refuses template == source"     "are the same database"             baseline
 
+echo "baseline: the SOURCE clone is allowlisted too"
+E2E_SOURCE_DB="x'); CREATE DATABASE injection_canary; --" \
+                                 refuses "refuses source injection"        "refusing to read from"             baseline
+E2E_SOURCE_DB='goatos"; DROP DATABASE goatos; --' \
+                                 refuses "refuses source quote-escape"     "refusing to read from"             baseline
+E2E_SOURCE_DB='some_other_db'    refuses "refuses an unrelated source"     "refusing to read from"             baseline
+E2E_SOURCE_DB='goatos prod'      refuses "refuses whitespace in source"    "refusing to read from"             baseline
+E2E_SOURCE_DB='GOATOS'           refuses "refuses uppercase source"        "refusing to read from"             baseline
+
 echo "credentials are required once a name is accepted"
 refuses "reset with a valid name still needs a password" "E2E_PG_PASSWORD is not set" reset goatos_e2e
 refuses "baseline with a valid template still needs one" "E2E_PG_PASSWORD is not set" baseline
