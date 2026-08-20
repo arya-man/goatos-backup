@@ -758,17 +758,9 @@ const BASE=[
   stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
   courses:{mv:[{age:28},{after:21}]},
   repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
- {id:"z1",code:"Z1",name:"Z1",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
-  blurb:"Killed, bacterial/toxoid. Same schedule as ET + TT. Real product name still needed.",
-  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,
-  courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
- {id:"z2",code:"Z2",name:"Z2",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
-  blurb:"Killed, bacterial/toxoid. Same schedule as ET + TT. Real product name still needed.",
-  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,
-  courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
- {id:"z3",code:"Z3",name:"Z3",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
-  blurb:"Killed, bacterial/toxoid. Same schedule as ET + TT. Real product name still needed.",
-  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,
+ {id:"z1z3",code:"Z1\nZ3",name:"Z1 + Z3",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1806,
+  blurb:"Given together as one combination, like ET + TT. Killed, bacterial/toxoid. Real product names still needed.",
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,combo:true,
   courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
  {id:"ppr",code:"PPR",name:"PPR",on:true,priority:2,type:"Single",dose:"1 ml",vial:"100 doses",herd:2033,
   blurb:"Peste des Petits Ruminants. One dose, then a repeat every 3 years.",
@@ -936,7 +928,7 @@ function renderDetail(){
     </div>
     <div class="card-b"${v.on?"":' style="opacity:.45;pointer-events:none"'}>
       ${v.unnamed?`<div class="unres"><span class="ux">?</span><div><b>Real name still needed.</b>
-        "${v.name}" is our shorthand, not what is printed on the bottle. Until the label name and maker are
+        ${v.combo?"Z1 and Z3 are given together as one combination — there is no Z2. Those are our shorthand, not what is printed on the bottles.":`"${v.name}" is our shorthand, not what is printed on the bottle.`} Until the label name and maker are
         recorded, a lot cannot be traced back to a manufacturer and a vial photo showing "${v.name}" proves nothing.
         The schedule below is the one the vet gave for it.</div></div>`:""}
       <div class="sec-label">Which animals get it</div>
