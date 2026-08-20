@@ -521,8 +521,7 @@ details.ref[open] summary::before{content:"▾"}
 
         <div class="scope">
           <div><div class="k">Applies to</div><div class="vv"><button class="f plain" data-bind="scope">Both parks <span class="car">▾</span></button></div></div>
-          <div><div class="k">Animals</div><div class="vv"><button class="f plain" data-bind="species">Goats <span class="car">▾</span></button></div></div>
-          <div><div class="k">Starts on</div><div class="vv"><button class="f plain" data-bind="startsOn">1 Sep 2026 <span class="car">▾</span></button></div></div>
+          <div><div class="k">Animals</div><div class="vv"><button class="f plain" data-bind="species">Goats and sheep <span class="car">▾</span></button></div></div>
           <div><div class="k">Replaces</div><div class="vv verline"><span>V3 · live since 12 Mar 2026</span></div></div>
         </div>
 
@@ -719,10 +718,9 @@ const LAPSE_OPTS=[["3 days",3],["1 week",7],["2 weeks",14],["3 weeks",21],["1 mo
 const ANCHOR_OPTS=[["the last dose the goat actually got","last_dose"],["the day it finished the first course","course_end"],["a fixed month every year","calendar"]];
 const STAGE_OPTS=[["every stage","all"],["kids only","kid"],["growers only","grower"],["adults only","adult"],["breeding females","breeder"]];
 const SEX_OPTS=[["both sexes","all"],["females only","female"],["males only","male"]];
-const SPP_OPTS=[["goats","both"],["goats only","goat"],["sheep only","sheep"]];
+const SPP_OPTS=[["goats and sheep","both"],["goats only","goat"],["sheep only","sheep"]];
 const BREED_OPTS=[["all breeds","all"],["Boer","boer"],["Sirohi","sirohi"],["Jamnapari","jamnapari"],["Dorper","dorper"]];
 const SCOPE_OPTS=[["Both parks","company"],["Coimbatore only","cbe"],["Channapatna only","cpt"]];
-const DATE_OPTS=[["1 Sep 2026","2026-09-01"],["1 Oct 2026","2026-10-01"],["1 Jan 2027","2027-01-01"],["Immediately","now"]];
 const WARM_OPTS=[["no wait",0],["3 days",3],["7 days",7],["14 days",14],["21 days",21]];
 const KIDW_OPTS=[["12 weeks",12],["16 weeks",16],["20 weeks",20]];
 const WAVE_OPTS=[["14 days",14],["21 days",21],["28 days",28],["35 days",35]];
@@ -760,12 +758,12 @@ const BASE=[
   stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,
   courses:{mv:[{age:112}]},
   repeat:{n:3,unit:"years",anchor:"last_dose"},guide:{n:3,unit:"years"}},
- {id:"gpox",code:"GP",name:"Goat Pox",on:true,priority:3,type:"Single",dose:"1 ml",vial:"25 doses",herd:1649,
+ {id:"gpox",code:"GP",name:"Goat Pox",on:true,priority:3,type:"Single",dose:"1 ml",vial:"25 doses",herd:804,
   blurb:"Goats only. One dose, then a repeat every year.",
   stage:"all",sex:"all",spp:"goat",breed:"all",maxLate:14,
   courses:{mv:[{age:112}]},
   repeat:{n:1,unit:"years",anchor:"last_dose"},guide:{n:1,unit:"years"}},
- {id:"spox",code:"SP",name:"Sheep Pox",on:true,priority:3,type:"Single",dose:"1 ml",vial:"100 doses",herd:715,
+ {id:"spox",code:"SP",name:"Sheep Pox",on:true,priority:3,type:"Single",dose:"1 ml",vial:"100 doses",herd:845,
   blurb:"Sheep only. One dose, then a repeat every year.",
   stage:"all",sex:"all",spp:"sheep",breed:"all",maxLate:14,
   courses:{mv:[{age:84}]},
@@ -826,7 +824,7 @@ function egLine(onTime,late){
 }
 const clone=o=>JSON.parse(JSON.stringify(o));
 let LIVE=clone(BASE),V=clone(BASE),cur="ettt",dirty=false,saved=false;
-let plan={scope:"company",species:"both",startsOn:"2026-09-01",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28,firstWave:["ET + TT","PPR"],goatWave2:["Goat Pox"],sheepWave2:["Sheep Pox"]},planLive=clone(plan);
+let plan={scope:"company",species:"both",proof:"animal",warmup:7,kidUntil:16,trustPrior:true,wave2:28,firstWave:["ET + TT","PPR"],goatWave2:["Goat Pox"],sheepWave2:["Sheep Pox"]},planLive=clone(plan);
 
 const $=s=>document.querySelector(s);
 const label=(o,v)=>{const h=o.find(x=>x[1]===v);return h?h[0]:String(v)};
@@ -1081,7 +1079,7 @@ function renderImpact(){
   [["warmup","Settling-in wait",WARM_OPTS],["kidUntil","Kid schedule limit",KIDW_OPTS],
     ["trustPrior","Seller's prior vaccinations",TRUST_OPTS],["wave2","Second catch-up visit",WAVE_OPTS]].forEach(([k,lbl,opts])=>{
     if(plan[k]!==planLive[k]) rows.push(["Bought-in adults",lbl+": "+label(opts,planLive[k])+" \u2192 "+label(opts,plan[k]),
-      715,["no","new arrivals catch up on different dates"]]);
+      1649,["no","new arrivals catch up on different dates"]]);
   });
   const covered=V.filter(v=>v.on).reduce((m,v)=>Math.max(m,v.herd),0);
   $("#impactCard").hidden = rows.length===0;
@@ -1240,7 +1238,7 @@ $("#resetBtn").onclick=()=>{if(confirm("Undo every change in this draft and go b
 
 document.querySelectorAll("[data-bind]").forEach(b=>{
   const key=b.dataset.bind;
-  const opts=key==="scope"?SCOPE_OPTS:key==="species"?SPP_OPTS.map(([l,v])=>[l[0].toUpperCase()+l.slice(1),v]):DATE_OPTS;
+  const opts=key==="scope"?SCOPE_OPTS:key==="species"?SPP_OPTS.map(([l,v])=>[l[0].toUpperCase()+l.slice(1),v]):SCOPE_OPTS;
   b.onclick=()=>openSelect(b,opts,plan[key],x=>{plan[key]=x;b.innerHTML=label(opts,x)+' <span class="car">▾</span>';touch()})});
 
 // sidebar group expand/collapse
