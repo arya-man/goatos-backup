@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 const testTenant = "00000000-0000-4000-8000-000000000001"
 
 type fakeRepo struct {
+	mu              sync.Mutex
 	items           map[string]domain.Item
 	byIdemKey       map[string]string
 	createCalls     int
@@ -36,6 +38,12 @@ type fakeRepo struct {
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{items: map[string]domain.Item{}, byIdemKey: map[string]string{}}
+}
+
+func (r *fakeRepo) WithVerdictLock(ctx context.Context, _ string, _ string, fn func(context.Context) error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return fn(ctx)
 }
 
 func (r *fakeRepo) CreateItem(_ context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {

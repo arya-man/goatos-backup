@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 )
@@ -27,6 +28,34 @@ type stubApplier struct {
 	recorded  bool
 	recordErr error
 	asked     int
+}
+
+type competingVerdictApplier struct {
+	*stubApplier
+	svc            *Service
+	item           domain.Item
+	competitorDone chan error
+}
+
+func (a *competingVerdictApplier) ApplyMeasurement(ctx context.Context, in MeasurementApply) error {
+	a.competitorDone = make(chan error, 1)
+	go func() {
+		_, err := a.svc.RecordVerdict(context.Background(), domain.Verdict{
+			TenantID: a.item.TenantID, ItemID: a.item.ItemID, Decision: domain.DecisionRejected,
+			Reason: "competing decision", VerifierID: testTenant, RowVersion: a.item.RowVersion,
+			IdempotencyKey: "competing-verdict-key",
+		})
+		a.competitorDone <- err
+	}()
+	select {
+	case err := <-a.competitorDone:
+		if err != nil {
+			return errors.New("competing verdict was not fenced during measurement: " + err.Error())
+		}
+		return errors.New("competing verdict was not fenced during measurement")
+	case <-time.After(25 * time.Millisecond):
+	}
+	return a.stubApplier.ApplyMeasurement(ctx, in)
 }
 
 func (s *stubApplier) ApplyMeasurement(_ context.Context, in MeasurementApply) error {
@@ -154,6 +183,33 @@ func TestApproveCarriesTheNumberInOneAct(t *testing.T) {
 	// from it because the two land in different modules' idempotency tables.
 	if applied.IdempotencyKey != "verdict-key-1:measurement" {
 		t.Fatalf("idempotency key = %q, want the verdict key suffixed", applied.IdempotencyKey)
+	}
+}
+
+func TestApproveMeasurementFencesCompetingVerdictUntilThePairLands(t *testing.T) {
+	svc, _, applier, item := newMeasurementService(t, weighingSpec())
+	racing := &competingVerdictApplier{stubApplier: applier, svc: svc, item: item}
+	svc.measurementAppliers[measurementCategory] = racing
+
+	decided, err := svc.RecordVerdict(context.Background(), domain.Verdict{
+		TenantID: testTenant, ItemID: item.ItemID, Decision: domain.DecisionApproved,
+		VerifierID: testTenant, RowVersion: item.RowVersion, IdempotencyKey: "verdict-key-1",
+		Measurement: &domain.VerdictMeasurement{Value: 41.5},
+	})
+	if err != nil {
+		t.Fatalf("RecordVerdict: %v", err)
+	}
+	if decided.Status != domain.StatusApproved {
+		t.Fatalf("status = %s, want approved", decided.Status)
+	}
+	select {
+	case err := <-racing.competitorDone:
+		var appErr *Error
+		if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 {
+			t.Fatalf("competing verdict err = %v, want 409 after the first verdict lands", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("competing verdict did not finish after the first verdict released the fence")
 	}
 }
 
