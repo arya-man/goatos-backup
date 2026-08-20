@@ -172,9 +172,9 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
                     a dash beside a date reads as a broken field rather than as
                     "nobody" — so the date stands alone instead. */}
                 <div className="lv">
-                  {live.published_by ? (
+                  {personName(live.published_by) ? (
                     <>
-                      {live.published_by}
+                      {personName(live.published_by)}
                       <span className="vby">{formatDate(live.published_at)}</span>
                     </>
                   ) : (
@@ -307,7 +307,9 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
                       </td>
                       <td className="num">
                         {formatDate(v.published_at)}
-                        {v.published_by ? <span className="vby">{v.published_by}</span> : null}
+                        {personName(v.published_by) ? (
+                          <span className="vby">{personName(v.published_by)}</span>
+                        ) : null}
                       </td>
                       <td>{changeNotes[v.protocol_version_id] ?? "—"}</td>
                       <td>
@@ -346,6 +348,22 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
 function appliesTo(live: ProtocolConfigItem): string {
   if (live.scope_type === "park") return live.scope_label || "One park";
   return "Both parks";
+}
+
+/**
+ * A publisher's name, or nothing.
+ *
+ * published_by holds a user id. There is no people lookup on this screen, and a
+ * raw UUID on a CEO's screen is worse than no name at all -- the spec forbids
+ * showing ids, and "90000000-0000-4000-..." tells the reader strictly less than
+ * the date already does.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function personName(value: string | undefined | null): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed || UUID_RE.test(trimmed)) return null;
+  return trimmed;
 }
 
 function formatDate(value: string | undefined | null): string {
