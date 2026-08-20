@@ -17,6 +17,9 @@ export type AdminWebPageContract = AppApiComponents["schemas"]["AdminWebPageCont
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
+export type HerdAnalyticsResponse = AppApiComponents["schemas"]["HerdAnalyticsResponse"];
+export type HerdAnalyticsSeriesPoint = AppApiComponents["schemas"]["HerdAnalyticsSeriesPoint"];
+export type HerdAnalyticsMonth = AppApiComponents["schemas"]["HerdAnalyticsMonth"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
 export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
@@ -592,6 +595,32 @@ export async function getCountsBreakdown(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CountsBreakdownResponse>("/counts/breakdown", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Counts Herd Analytics. ONE call serves the whole screen: the live composition series, the
+ * month-by-month flow series and the whole-window totals come back together, so the page never
+ * fans out one fetch per chart.
+ *
+ * `totals` is a WHOLE-WINDOW aggregate computed by the backend. It must be read from the
+ * response and never re-derived by summing `months` — the two would silently disagree the day
+ * the window and the returned months stop matching exactly.
+ */
+export async function getHerdAnalytics(params: {
+  park_id?: string;
+  /** Inclusive IST calendar-month bounds, "2026-03". Both or neither. */
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<HerdAnalyticsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HerdAnalyticsResponse>("/counts/herd-analytics", {
       cache: "no-store",
       query: compactQuery(params),
     }),

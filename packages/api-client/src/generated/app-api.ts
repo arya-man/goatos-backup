@@ -2813,6 +2813,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/counts/herd-analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Herd composition now, beside month-by-month births, exits and pen movements.
+         * @description The Counts leadership read. Composition series are the CURRENT live herd (canonical goats, merged identities excluded) — the same population `/counts/breakdown` reports, so the two screens cannot disagree about the denominator. Flow figures are counted off the canonical row that recorded each event: an animal's own origin columns for a birth, its own exit columns for a death/sale/other exit, and an APPLIED shifting event for a movement, dated the day the operator completed it. Buckets are `Asia/Kolkata` calendar months, never UTC and never a rolling day window, and a month with no activity is returned as an explicit zero rather than omitted. `totals` are whole-window rollups over exactly the requested days and must be read from the response, never re-derived from `months`. The `months` SERIES is bucketed by business month, so a window whose edge falls mid-month produces a partial first or last bucket.
+         */
+        get: operations["getHerdAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/counts/milk-preparation": {
         parameters: {
             query?: never;
@@ -9805,6 +9825,88 @@ export interface components {
             /** Format: date-time */
             projected_at: string;
         };
+        /** @description One composition bar. `key` is the raw stored value and is empty for an unassigned bucket; the client renders its own contract copy for that case rather than inventing a label here. */
+        HerdAnalyticsSeriesPoint: {
+            key: string;
+            label: string;
+            /** Format: int64 */
+            count: number;
+        };
+        /** @description One India-calendar month of herd movement. net_change is births minus every exit, so the flow figures and the net always reconcile without the client re-deriving one. */
+        HerdAnalyticsMonth: {
+            /** @description IST calendar month key, "2026-08". */
+            month: string;
+            /** @description Farm-readable month, "Aug 2026". */
+            label: string;
+            /** Format: int64 */
+            births: number;
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            sold: number;
+            /**
+             * Format: int64
+             * @description Culled, transferred or lost — carried so net_change reconciles honestly.
+             */
+            other_exits: number;
+            /**
+             * Format: int64
+             * @description Applied shifting events completed in this month.
+             */
+            movements: number;
+            /**
+             * Format: int64
+             * @description Head count those movements carried.
+             */
+            animals_moved: number;
+            /** Format: int64 */
+            net_change: number;
+        };
+        HerdAnalyticsTotals: {
+            /**
+             * Format: int64
+             * @description Census AS OF NOW, not a window figure.
+             */
+            live_animals: number;
+            /**
+             * Format: int64
+             * @description kids + adults always equals live_animals exactly; an animal with an unknown age band counts as an adult rather than falling out of both buckets.
+             */
+            kids: number;
+            /** Format: int64 */
+            adults: number;
+            /** Format: int64 */
+            births: number;
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            sold: number;
+            /** Format: int64 */
+            other_exits: number;
+            /** Format: int64 */
+            movements: number;
+            /** Format: int64 */
+            animals_moved: number;
+            /** Format: int64 */
+            net_change: number;
+        };
+        HerdAnalyticsResponse: {
+            /** Format: date */
+            window_from: string;
+            /** Format: date */
+            window_to: string;
+            totals: components["schemas"]["HerdAnalyticsTotals"];
+            months: components["schemas"]["HerdAnalyticsMonth"][];
+            breed: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** @description Management stage (the pen tag) read RAW, exactly as Counts Breakdown reports it. */
+            stage: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            sex: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** @description Two points, kid and adult, partitioning live_animals exactly. */
+            age_band: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            park: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** Format: date-time */
+            generated_at: string;
+        };
         MilkPreparationSession: {
             session_no: number;
             /** @description False for sessions not used by this cohort, such as K3 sessions 2 and 3. */
@@ -16573,6 +16675,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CountsBreakdownResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHerdAnalytics: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Live composition series plus the month-by-month flow series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdAnalyticsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

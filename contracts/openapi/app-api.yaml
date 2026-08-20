@@ -7437,6 +7437,70 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /counts/herd-analytics:
+    get:
+      tags:
+        - Counts
+      operationId: getHerdAnalytics
+      summary: Herd composition now, beside month-by-month births, exits and pen movements.
+      description: >-
+        The Counts leadership read. Composition series are the CURRENT live herd
+        (canonical goats, merged identities excluded) — the same population
+        `/counts/breakdown` reports, so the two screens cannot disagree about the
+        denominator. Flow figures are counted off the canonical row that recorded
+        each event: an animal's own origin columns for a birth, its own exit
+        columns for a death/sale/other exit, and an APPLIED shifting event for a
+        movement, dated the day the operator completed it. Buckets are
+        `Asia/Kolkata` calendar months, never UTC and never a rolling day window,
+        and a month with no activity is returned as an explicit zero rather than
+        omitted. `totals` are whole-window rollups over exactly the requested days
+        and must be read from the response, never re-derived from `months`. The
+        `months` SERIES is bucketed by business month, so a window whose edge falls
+        mid-month produces a partial first or last bucket.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: Filter by park location ID (top-bar scope). A movement matches on either end.
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: >-
+              Inclusive first IST business day of the flow window. Must be given together
+              with `to`.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: >-
+              Inclusive last IST business day. Omitting BOTH bounds selects the default
+              window — the first of the month eleven back through today, which opens on a
+              month boundary so the first chart column is a whole month. Anything else
+              invalid is rejected with 400, never rewritten: only one bound, a malformed
+              date, a reversed range, or a span wider than 1150 days.
+      responses:
+        "200":
+          description: Live composition series plus the month-by-month flow series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HerdAnalyticsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /counts/milk-preparation:
     get:
       tags:
@@ -25200,6 +25264,184 @@ components:
         facets:
           $ref: "#/components/schemas/CountsBreakdownFacets"
         projected_at:
+          type: string
+          format: date-time
+    HerdAnalyticsSeriesPoint:
+      type: object
+      additionalProperties: false
+      description: One composition bar. `key` is the raw stored value and is empty for an unassigned bucket; the client renders its own contract copy for that case rather than inventing a label here.
+      required:
+        - key
+        - label
+        - count
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    HerdAnalyticsMonth:
+      type: object
+      additionalProperties: false
+      description: One India-calendar month of herd movement. net_change is births minus every exit, so the flow figures and the net always reconcile without the client re-deriving one.
+      required:
+        - month
+        - label
+        - births
+        - deaths
+        - sold
+        - other_exits
+        - movements
+        - animals_moved
+        - net_change
+      properties:
+        month:
+          type: string
+          description: IST calendar month key, "2026-08".
+        label:
+          type: string
+          description: Farm-readable month, "Aug 2026".
+        births:
+          type: integer
+          format: int64
+          minimum: 0
+        deaths:
+          type: integer
+          format: int64
+          minimum: 0
+        sold:
+          type: integer
+          format: int64
+          minimum: 0
+        other_exits:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Culled, transferred or lost — carried so net_change reconciles honestly.
+        movements:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Applied shifting events completed in this month.
+        animals_moved:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Head count those movements carried.
+        net_change:
+          type: integer
+          format: int64
+    HerdAnalyticsTotals:
+      type: object
+      additionalProperties: false
+      required:
+        - live_animals
+        - kids
+        - adults
+        - births
+        - deaths
+        - sold
+        - other_exits
+        - movements
+        - animals_moved
+        - net_change
+      properties:
+        live_animals:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Census AS OF NOW, not a window figure.
+        kids:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            kids + adults always equals live_animals exactly; an animal with an unknown age
+            band counts as an adult rather than falling out of both buckets.
+        adults:
+          type: integer
+          format: int64
+          minimum: 0
+        births:
+          type: integer
+          format: int64
+          minimum: 0
+        deaths:
+          type: integer
+          format: int64
+          minimum: 0
+        sold:
+          type: integer
+          format: int64
+          minimum: 0
+        other_exits:
+          type: integer
+          format: int64
+          minimum: 0
+        movements:
+          type: integer
+          format: int64
+          minimum: 0
+        animals_moved:
+          type: integer
+          format: int64
+          minimum: 0
+        net_change:
+          type: integer
+          format: int64
+    HerdAnalyticsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - window_from
+        - window_to
+        - totals
+        - months
+        - breed
+        - stage
+        - sex
+        - age_band
+        - park
+        - generated_at
+      properties:
+        window_from:
+          type: string
+          format: date
+        window_to:
+          type: string
+          format: date
+        totals:
+          $ref: "#/components/schemas/HerdAnalyticsTotals"
+        months:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdAnalyticsMonth"
+        breed:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdAnalyticsSeriesPoint"
+        stage:
+          type: array
+          description: Management stage (the pen tag) read RAW, exactly as Counts Breakdown reports it.
+          items:
+            $ref: "#/components/schemas/HerdAnalyticsSeriesPoint"
+        sex:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdAnalyticsSeriesPoint"
+        age_band:
+          type: array
+          description: Two points, kid and adult, partitioning live_animals exactly.
+          items:
+            $ref: "#/components/schemas/HerdAnalyticsSeriesPoint"
+        park:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdAnalyticsSeriesPoint"
+        generated_at:
           type: string
           format: date-time
     MilkPreparationSession:

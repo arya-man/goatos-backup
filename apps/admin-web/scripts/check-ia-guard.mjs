@@ -170,8 +170,10 @@ const pageRoutes = new Set(pageFiles.map(normalizeRouteFromPage).filter(Boolean)
 const findings = [];
 
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
-// create new unsupported route trees. Counts has three real pages in this slice — Herd Register (the per-goat
-// register), Counts Breakdown (the farm x stage x breed x gender x shed census), and Milk Preparation
+// create new unsupported route trees. Counts has four real pages in this slice — Herd Register (the per-goat
+// register, whose left-bar leaf is withheld for now but whose route stays reachable), Herd Analytics (the
+// leadership read: live composition beside month-by-month births/exits/pen movements), Counts Breakdown
+// (the farm x stage x breed x gender x shed census), and Milk Preparation
 // (the current K1/K2/K3 preparation worklist). Every other broad Counts
 // label from the mock must still route into one of those or a top-level command lens.
 //
@@ -180,6 +182,7 @@ const findings = [];
 // Count reconciliation remain out of scope and must not be added here without that doc changing too.
 const SUPPORTED_COUNTS_HREFS = new Set([
   "/counts/herd",
+  "/counts/analytics",
   "/counts/breakdown",
   "/counts/milk-preparation",
   // Herd Operations SOP page — part of the SOP split (maintainer decision 2026-08-18, see
@@ -191,7 +194,8 @@ const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
 const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;
 if (existsSync(visibleIaFile)) {
-  const visibleIaText = stripComments(readFileSync(visibleIaFile, "utf8"));
+  const visibleIaRawText = readFileSync(visibleIaFile, "utf8");
+  const visibleIaText = stripComments(visibleIaRawText);
   if (visibleIaFile.endsWith(".go")) {
     const pageHrefs = pageHrefsFromGoSource(visibleIaText);
     const navItems = [
@@ -224,11 +228,30 @@ if (existsSync(visibleIaFile)) {
     const labels = countsLeaves.map((leaf) => leaf.label);
     const hrefs = countsLeaves.map((leaf) => leaf.href);
     const unsupportedCountsHrefs = hrefs.filter((href) => !SUPPORTED_COUNTS_HREFS.has(href));
-    if (!labels.includes("Herd register") && !labels.includes("Herd Register")) {
-      findings.push(
-        `${visibleIaFile} must include the real Counts -> Herd Register leaf. ` +
-          `Current Counts labels are [${labels.join(", ") || "none"}].`,
-      );
+    // Herd Register may be WITHHELD from the sidebar (maintainer decision 2026-08-20, recorded in
+    // context/frontend/current-admin-web-scope.md), the same way Feed Packing is. What must never
+    // happen is withholding turning into DELETING: the page route has to stay reachable, and the
+    // commented restore line has to stay in the nav so the next reader can see the leaf is
+    // deliberately parked rather than gone. Checking the raw text is the point — the stripped text
+    // this guard otherwise reads cannot see a commented line at all.
+    const herdRegisterLeafVisible = labels.includes("Herd register") || labels.includes("Herd Register");
+    if (!herdRegisterLeafVisible) {
+      if (!pageRoutes.has("/counts/herd")) {
+        findings.push(
+          `${visibleIaFile} withholds the Counts -> Herd Register leaf, but apps/admin-web no longer serves ` +
+            "/counts/herd. Hiding a leaf must keep its route reachable; deleting the route is a separate " +
+            "scope decision.",
+        );
+      }
+      if (!/navLeaf\("counts-herd",/.test(visibleIaRawText)) {
+        findings.push(
+          `${visibleIaFile} withholds the Counts -> Herd Register leaf without leaving its commented ` +
+            'navLeaf("counts-herd", ...) restore line in place. Keep it so the leaf reads as parked, not lost.',
+        );
+      }
+    }
+    if (labels.length === 0) {
+      findings.push(`${visibleIaFile} publishes an empty Counts sidebar group.`);
     }
     if (unsupportedCountsHrefs.length > 0) {
       findings.push(
