@@ -456,11 +456,11 @@ export async function ProtocolAdherencePage({
 
       <div className="note" style={{ marginTop: 14 }}>
 	        {copy(pageContract, "note.computation")}{" "}
-	        <Link href="/config?category=vaccination" className="lk">
+	        <Link href="/vaccination/plan" className="lk">
 	          {copy(pageContract, "action.open_config")}
 	        </Link>{" "}
 	        {copy(pageContract, "note.computation.joiner")}{" "}
-	        <Link href="/vaccination/sops" className="lk">
+	        <Link href="/vaccination/plan" className="lk">
 	          {copy(pageContract, "action.open_sops")}
 	        </Link>
 	        {copy(pageContract, "note.computation.tail")}

@@ -461,10 +461,10 @@ export async function VaccinationActionCenterPage({
 	                </Link>
 	              ) : (
 	                <>
-	                  <Link href="/config?category=vaccination" className="btn sm">
+	                  <Link href="/vaccination/plan" className="btn sm">
 	                    {copy(pageContract, "action.open_config")}
 	                  </Link>
-	                  <Link href="/vaccination/sops" className="btn sm">
+	                  <Link href="/vaccination/plan" className="btn sm">
 	                    {copy(pageContract, "action.open_sops")}
 	                  </Link>
 	                </>

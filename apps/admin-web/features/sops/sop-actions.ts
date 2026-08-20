@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-// The three module SOP pages (SOP split, maintainer decision 2026-08-18) all render /admin/sops
-// data, so every SOP mutation revalidates all of them.
-const SOP_PAGE_PATHS = ["/vaccination/sops", "/counts/sops", "/feed/sops"];
+// The module SOP pages (SOP split, maintainer decision 2026-08-18) all render /admin/sops
+// data, so every SOP mutation revalidates all of them. Vaccination is no longer among
+// them: its SOP surface was absorbed into Preventive Care / Vaccination plan, where the
+// proof method is one field on the plan rather than a separate document to author.
+const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops"];
 import {
   createSop,
   createSopVersion,

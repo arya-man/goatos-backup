@@ -249,11 +249,11 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
               {summary.config_or_sop_blockers} {copy(pageContract, summary.config_or_sop_blockers === 1 ? "alert.config_sop.singular" : "alert.config_sop.plural")} {copy(pageContract, "alert.config_sop.action_required")}
             </b>{" "}
             {copy(pageContract, "alert.config_sop.body_prefix")}{" "}
-            <Link href="/config?category=vaccination" className="lk">
+            <Link href="/vaccination/plan" className="lk">
               {copy(pageContract, "alert.config_sop.config_label")}
             </Link>{" "}
             {copy(pageContract, "alert.config_sop.joiner")}{" "}
-            <Link href="/vaccination/sops" className="lk">
+            <Link href="/vaccination/plan" className="lk">
               {copy(pageContract, "alert.config_sop.sops_label")}
             </Link>
             {copy(pageContract, "alert.config_sop.body_suffix")}

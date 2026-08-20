@@ -287,7 +287,6 @@ func routeLabels() []domain.RouteLabelRule {
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
 		// crumb resolves to the parent label.
 		{Pattern: "/vaccination/live-tracker", Label: "Live Drive Tracker", Match: "exact"},
-		{Pattern: "/vaccination/sops", Label: "Vaccination SOP", Match: "exact"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
@@ -703,10 +702,11 @@ func pages() []domain.PageContract {
 				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
 			}),
 		// SOP SPLIT (maintainer decision 2026-08-18): the /sops authority screen is retired;
-		// each module owns its SOP page as a module-surface. All three share the sop-library
-		// table contract over /admin/sops — the page scopes which SOP codes it lists.
-		page("vaccination-sops", "/vaccination/sops", "/vaccination/sops", "Vaccination SOP", "Vaccination SOP policy and form-builder surface.", "module-surface",
-			[]domain.TableContract{table("sop-library", "Vaccination SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// each remaining module owns its SOP page as a module-surface, sharing the
+		// sop-library table contract over /admin/sops — the page scopes which SOP codes it
+		// lists. Vaccination is NOT among them: its SOP surface was absorbed into
+		// Preventive Care / Vaccination plan, where the proof method is one field on the
+		// plan rather than a separate document to author.
 		page("counts-sops", "/counts/sops", "/counts/sops", "Herd Operations SOP", "Birth, death, and shifting SOP documents for the herd register.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Herd Operations SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("feed-sops", "/feed/sops", "/feed/sops", "Feed SOP", "Distribution, packing, and transport SOP documents for the feed chain.", "module-surface",
@@ -4945,7 +4945,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"disabled.write":                 "Your current role can view people but not add them.",
 			"tab.disabled_reason":            "This staffing view is coming soon.",
 		}
-	case "vaccination-sops", "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
+	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -5110,12 +5112,7 @@ func pageSpecificCopy(id string) map[string]string {
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
 		switch id {
-		case "vaccination-sops":
-			m["crumb"] = "Preventive Care (PC)"
-			m["filter.domain.current"] = "This page shows Vaccination SOPs"
-			m["modal.builder.domain_aria"] = "Domain — locked to Preventive Care (PC) / Vaccination"
-			m["modal.builder.domain_title"] = "Domain is locked to Preventive Care (PC) / Vaccination on this page"
-			m["modal.builder.domain_label"] = "Preventive Care (PC) / Vaccination"
+		// vaccination-sops was here. The page is gone; its copy went with it.
 		case "counts-sops":
 			m["crumb"] = "Counts"
 			m["filter.domain.current"] = "This page shows Herd Operations SOPs (birth, death, shifting)"
@@ -5759,7 +5756,9 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			shedStatusOptionGroup(), capacityOptionGroup())
 	case "config", "vaccination-plan":
 		return withGenericOptionGroups(configOptionGroups())
-	case "vaccination-sops", "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
+	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		return withGenericOptionGroups(sopOptionGroups())
 	case "action-center":
 		return withGenericOptionGroups([]domain.OptionGroup{
