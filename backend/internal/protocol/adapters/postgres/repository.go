@@ -580,6 +580,37 @@ func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID str
 	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, idempotencyKey...)
 }
 
+// DiscardVersion permanently deletes a DRAFT version and its rules.
+//
+// The SQL carries a status = 'draft' predicate, so this cannot remove a published or
+// retired version whatever id is passed: history stays complete by construction rather
+// than by the caller remembering to check. Zero rows affected therefore means either
+// "no such version" or "not a draft", and the two are distinguished by reading the row
+// back so the caller can say which one happened.
+func (r *Repository) DiscardVersion(ctx context.Context, tenantID, versionID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(versionID)
+	if err != nil {
+		return fmt.Errorf("protocol: version id: %w", err)
+	}
+	rows, err := r.queries.DiscardProtocolVersion(ctx, protocoldb.DiscardProtocolVersionParams{TenantID: tenant, ProtocolVersionID: vid})
+	if err != nil {
+		return fmt.Errorf("protocol: discard version: %w", err)
+	}
+	if rows == 0 {
+		if _, err := r.GetVersion(ctx, tenantID, versionID); err != nil {
+			return err
+		}
+		return ports.ErrVersionNotDraft
+	}
+	return nil
+}
+
 // PublishVersionWithCapacity publishes a draft version and, in the SAME transaction, upserts and
 // parity-checks its versioned vaccination capacity into vaccination_capacity_config. If the capacity
 // sync or parity check fails, the whole publish rolls back and the version stays draft.

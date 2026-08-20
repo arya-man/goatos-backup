@@ -2383,6 +2383,22 @@ export async function publishProtocolVersion(versionId: string, idempotencyKey =
   );
 }
 
+/**
+ * Discard a draft protocol version.
+ *
+ * No idempotency key: the endpoint takes no body, and a repeat on an
+ * already-deleted draft is a 404 rather than a conflict to reconcile.
+ */
+export async function discardProtocolVersion(versionId: string): Promise<ApiResult<Record<string, never>>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/protocols/versions/${encodeURIComponent(versionId)}/discard` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<Record<string, never>>(path, { method: "POST", cache: "no-store" }),
+  );
+}
+
 export async function getGoatVaccinationPassport(goatId: string): Promise<ApiResult<VaccinationPassport>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;

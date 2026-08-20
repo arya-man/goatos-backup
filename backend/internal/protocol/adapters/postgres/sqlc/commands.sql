@@ -48,3 +48,14 @@ SET status = 'published',
 WHERE tenant_id = @tenant_id
   AND protocol_version_id = @protocol_version_id
   AND status = 'draft';
+
+-- name: DiscardProtocolVersion :execrows
+-- Deletes a DRAFT version and, by cascade, its rules. The status predicate is the
+-- safety property: a published or retired version can never be removed by this
+-- statement, so history stays complete no matter what id is supplied. A draft has
+-- never reached the field -- no obligation references it -- so deleting it destroys
+-- only unpublished authoring work.
+DELETE FROM protocol_versions
+WHERE tenant_id = @tenant_id
+  AND protocol_version_id = @protocol_version_id
+  AND status = 'draft';

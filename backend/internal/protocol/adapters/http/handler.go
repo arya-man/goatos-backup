@@ -26,6 +26,7 @@ type ProtocolConfig interface {
 	AddRule(ctx context.Context, in domain.NewRule) (string, error)
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
+	DiscardVersion(ctx context.Context, tenantID, versionID string) error
 	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 	ListAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error)
 }
@@ -56,6 +57,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/versions/{version_id}/rules", h.AddRule)
 	mux.HandleFunc("GET /protocols/versions/{version_id}", h.GetVersion)
 	mux.HandleFunc("POST /protocols/versions/{version_id}/publish", h.PublishVersion)
+	mux.HandleFunc("POST /protocols/versions/{version_id}/discard", h.DiscardVersion)
 }
 
 type errorEnvelope struct {
@@ -375,6 +377,31 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- publish ----
+
+// DiscardVersion deletes a draft version and its rules.
+//
+// Only a draft can be discarded, and that is enforced in SQL rather than here, so a
+// published or retired version cannot be removed even by a caller that skips this
+// handler. There is no idempotency key: the operation is naturally idempotent in
+// effect, and a repeat on an already-deleted draft is a 404, which is the truth.
+func (h *Handler) DiscardVersion(w http.ResponseWriter, r *http.Request) {
+	err := h.config.DiscardVersion(r.Context(), tenantID(r), r.PathValue("version_id"))
+	if errors.Is(err, ports.ErrVersionNotDraft) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "version_not_draft", Message: "only draft protocol versions can be discarded; published versions are permanent", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "protocol version not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey, ok := h.idempotencyKey(w, r)

@@ -18,7 +18,7 @@ import { useCallback, useState, useTransition } from "react";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
-import { readVersionSettings, startNewVersion } from "./plan-actions";
+import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
 import {
   describeFirstDoses,
   describeRepeats,
@@ -41,6 +41,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetLoading, setSheetLoading] = useState(false);
   const [sheetError, setSheetError] = useState<string | null>(null);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   const live = versions.find((v) => v.status === "published");
   const inPlanCount = catalog.filter((v) => v.inPlan).length;
@@ -48,6 +49,15 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
   const earlier = versions
     .filter((v) => v.status === "retired")
     .sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
+
+  function onDiscard(draftVersionId: string) {
+    setError(null);
+    setConfirmingDiscard(false);
+    startTransition(async () => {
+      const result = await discardDraft(draftVersionId);
+      if (!result.ok) setError(result.error);
+    });
+  }
 
   function onStart() {
     setError(null);
@@ -210,22 +220,54 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
 
             {draft ? (
               <div className="draftnudge">
-                <span className="dn-l">
-                  <b>A draft is waiting.</b> {draft.version_label || `V${draft.version}`} — not live
-                  yet.
-                </span>
-                <span className="ab-spacer" />
-                <button
-                  className="btn ghost sm"
-                  type="button"
-                  disabled
-                  title="Discarding a draft is not built yet. Publishing a new version replaces it."
-                >
-                  Discard it
-                </button>
-                <a className="btn sm" href={draftHref}>
-                  Open the draft
-                </a>
+                {/* Discarding destroys work that cannot be recovered, so it asks
+                    first. The question is asked inline rather than through
+                    window.confirm: a native dialog is outside the design system,
+                    cannot be styled, and is dismissed by automation, so the
+                    destructive path would never be exercised by a test. */}
+                {confirmingDiscard ? (
+                  <>
+                    <span className="dn-l">
+                      <b>Discard {draft.version_label || `V${draft.version}`}?</b> The draft and
+                      everything in it is deleted. This cannot be undone.
+                    </span>
+                    <span className="ab-spacer" />
+                    <button
+                      className="btn ghost sm"
+                      type="button"
+                      onClick={() => setConfirmingDiscard(false)}
+                    >
+                      Keep it
+                    </button>
+                    <button
+                      className="btn sm"
+                      type="button"
+                      disabled={pending}
+                      onClick={() => onDiscard(draft.protocol_version_id)}
+                    >
+                      {pending ? "Discarding…" : "Yes, discard it"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="dn-l">
+                      <b>A draft is waiting.</b> {draft.version_label || `V${draft.version}`} — not
+                      live yet.
+                    </span>
+                    <span className="ab-spacer" />
+                    <button
+                      className="btn ghost sm"
+                      type="button"
+                      disabled={pending}
+                      onClick={() => setConfirmingDiscard(true)}
+                    >
+                      Discard it
+                    </button>
+                    <a className="btn sm" href={draftHref}>
+                      Open the draft
+                    </a>
+                  </>
+                )}
               </div>
             ) : null}
           </div>

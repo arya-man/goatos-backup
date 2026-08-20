@@ -1267,6 +1267,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/protocols/versions/{version_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard a draft protocol version.
+         * @description Permanently deletes a DRAFT version and its rules. A published or retired version can never be discarded -- it is part of the tenant's history -- and that restriction is enforced in SQL, so it holds for every caller. A draft has never reached the field, so nothing downstream references it.
+         */
+        post: operations["discardProtocolVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/protocols/vaccination/impact-preview": {
         parameters: {
             query?: never;
@@ -14730,6 +14750,31 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    discardProtocolVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Draft discarded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
