@@ -217,6 +217,13 @@ export function VaccinationPlanEditor(props: Props) {
             </div>
 
             <div className={current.on ? "card-b" : "card-b vp-off"}>
+              {current.on && current.kidDoses.length === 0 && current.driveDoses.length === 0 ? (
+                <p className="hintline" style={{ margin: "0 0 14px" }}>
+                  This vaccine is in the plan but has no doses yet. Add at least one below, or
+                  switch it off.
+                </p>
+              ) : null}
+
               {current.kidDoses.length > 0 ? (
                 <>
                   <div className="sec-label">
@@ -262,6 +269,30 @@ export function VaccinationPlanEditor(props: Props) {
                 </>
               ) : null}
 
+              {current.on ? (
+                <button
+                  className="addrow"
+                  type="button"
+                  onClick={() =>
+                    updateVaccine(current.code, (v) => ({
+                      ...v,
+                      kidDoses: [
+                        ...v.kidDoses,
+                        {
+                          // A new dose starts three weeks after the last one, the
+                          // minimum booster gap the safety rules enforce anyway.
+                          offsetDays: (v.kidDoses.at(-1)?.offsetDays ?? 0) + 21,
+                          triggerType: "birth_age",
+                          doseCode: `new-kid-${v.kidDoses.length + 1}`,
+                        },
+                      ],
+                    }))
+                  }
+                >
+                  + Add a dose from date of birth
+                </button>
+              ) : null}
+
               {current.driveDoses.length > 0 ? (
                 <>
                   <div className="sec-label" style={{ marginTop: 24 }}>
@@ -292,6 +323,17 @@ export function VaccinationPlanEditor(props: Props) {
                     </div>
                   ))}
                 </>
+              ) : null}
+
+              {current.maxLateDays === null && current.on ? (
+                <button
+                  className="addrow"
+                  type="button"
+                  style={{ marginTop: 14 }}
+                  onClick={() => updateVaccine(current.code, (v) => ({ ...v, maxLateDays: 7 }))}
+                >
+                  + Set how late a dose may be
+                </button>
               ) : null}
 
               {current.maxLateDays !== null ? (
@@ -353,7 +395,18 @@ export function VaccinationPlanEditor(props: Props) {
                   </div>
                 </div>
               ) : (
-                <p className="hintline">This vaccine does not repeat.</p>
+                <>
+                  <p className="hintline">This vaccine does not repeat.</p>
+                  {current.on ? (
+                    <button
+                      className="addrow"
+                      type="button"
+                      onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: 365 }))}
+                    >
+                      + Make it repeat
+                    </button>
+                  ) : null}
+                </>
               )}
             </div>
           </section>

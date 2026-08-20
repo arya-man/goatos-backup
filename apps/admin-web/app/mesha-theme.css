@@ -3791,3 +3791,9 @@ select:disabled { opacity: .45; }
   border-radius: 10px; padding: 13px 15px; font-size: 13.5px; color: var(--ink); line-height: 1.5; }
 .vp .spike .sx { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
   font-size: 12px; font-weight: 800; background: var(--warn); color: var(--bg); margin-top: 1px; }
+.vp .addrow { margin-top: 9px; border: 1px dashed var(--line); color: var(--muted); border-radius: 10px;
+  padding: 10px; width: 100%; font: inherit; font-size: 13.5px; cursor: pointer; background: none; }
+.vp .addrow:hover { border-color: var(--brand); color: var(--brand-d); }
+.vp .del { margin-left: auto; color: var(--faint); cursor: pointer; font-size: 17px; line-height: 1;
+  padding: 4px 8px; border-radius: 6px; background: none; border: none; }
+.vp .del:hover:not(:disabled) { background: var(--dangerx); color: var(--danger); }
