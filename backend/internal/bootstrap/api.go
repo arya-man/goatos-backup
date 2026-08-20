@@ -499,7 +499,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// countsApprovalRepo therefore carries the identity write seam (goat create / guarded critical-
 	// death exit / bulk relocate). identityService supplies the Prepare* validators, which validate
 	// a payload at submit time without applying it.
-	tasksWorkflowRepo := taskspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	// The identity seam lets the Record shed fallback step place a kid inside that action write's
+	// own transaction (tasks/adapters/postgres/newborn_placement.go). Without it the step would
+	// record an answer and leave the kid where it was.
+	tasksWorkflowRepo := taskspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
+		WithIdentityTxWriter(identityRepo)
 	healthRepo := healthpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	healthService := healthapp.NewService(healthRepo)
 	healthHandler := healthhttp.NewHandler(healthService, log)

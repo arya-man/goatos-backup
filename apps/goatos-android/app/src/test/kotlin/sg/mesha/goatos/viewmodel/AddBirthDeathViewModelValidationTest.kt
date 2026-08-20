@@ -331,7 +331,10 @@ class AddBirthDeathViewModelValidationTest {
 // --- Fakes -----------------------------------------------------------------------------------
 
 /** Captures the enqueued birth/death requests so a test can assert the exact wire payload. */
-private class RecordingAddSyncRepository : SyncRepository {
+// internal rather than private: AddBirthPlacementTest drives the same add-birth view-model with
+// different destination payloads and reuses these fakes instead of forking a second copy of the
+// whole CountsRepository surface, which would drift.
+internal class RecordingAddSyncRepository : SyncRepository {
     var lastBirth: CountsBirthEventRequestDto? = null
     var lastDeath: CountsDeathEventRequestDto? = null
 
@@ -385,7 +388,7 @@ private class RecordingAddSyncRepository : SyncRepository {
 }
 
 /** Mirrors Room: one park with one shed, one breed, one resolvable animal with a row_version. */
-private class FakeAddCountsRepository : CountsRepository {
+internal class FakeAddCountsRepository : CountsRepository {
     override fun observeHerdSummary(
         lifecycleStatus: String?,
         parkId: String?,
@@ -420,23 +423,30 @@ private class FakeAddCountsRepository : CountsRepository {
     override fun breakdownRows(query: CountsBreakdownQuery): Flow<PagingData<CountsBreakdownRowDto>> =
         flowOf(PagingData.empty())
 
+    /**
+     * Settable so a test can serve a park with one kid pen, several, or none. Defaults to the
+     * record_later shape (no birth_placement), which is exactly what a backend predating the
+     * newborn-placement contract returns.
+     */
+    var destinations: CountsShiftingDestinationsResponseDto = CountsShiftingDestinationsResponseDto(
+        parks = listOf(
+            CountsDestinationParkDto(
+                parkId = "11111111-1111-1111-1111-111111111111",
+                name = "North Park",
+                sheds = listOf(
+                    CountsDestinationShedDto(
+                        shedId = "33333333-3333-3333-3333-333333333333",
+                        name = "Shed A",
+                    ),
+                ),
+            ),
+        ),
+    )
+
     override fun observeShiftingDestinations(): Flow<Resource<CountsShiftingDestinationsResponseDto>> =
         MutableStateFlow(
             Resource(
-                data = CountsShiftingDestinationsResponseDto(
-                    parks = listOf(
-                        CountsDestinationParkDto(
-                            parkId = "11111111-1111-1111-1111-111111111111",
-                            name = "North Park",
-                            sheds = listOf(
-                                CountsDestinationShedDto(
-                                    shedId = "33333333-3333-3333-3333-333333333333",
-                                    name = "Shed A",
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
+                data = destinations,
             ),
         )
 
@@ -461,13 +471,13 @@ private class FakeAddCountsRepository : CountsRepository {
     )
 }
 
-private class NoopAddAnalyticsPort : AnalyticsPort {
+internal class NoopAddAnalyticsPort : AnalyticsPort {
     override fun track(event: String, props: Map<String, String>) {}
     override fun setUserProperty(name: String, value: String?) {}
     override fun setUserId(id: String?) {}
 }
 
-private class NoopAddCrashReporter : CrashReporter {
+internal class NoopAddCrashReporter : CrashReporter {
     override fun recordException(throwable: Throwable, message: String?) {}
     override fun log(message: String) {}
     override fun setCustomKey(key: String, value: String) {}

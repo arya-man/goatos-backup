@@ -26798,6 +26798,7 @@ components:
         - park_id
         - name
         - sheds
+        - birth_placement
       properties:
         park_id:
           description: The park's location id. This is what the UI labels a 'farm'.
@@ -26813,6 +26814,78 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ShiftingDestinationShed"
+        birth_placement:
+          $ref: "#/components/schemas/BirthPlacement"
+    BirthPlacement:
+      description: >-
+        Where a newborn recorded in THIS park may be placed (maintainer decision 2026-08-20).
+
+        The mode and the notice are backend-owned and are rendered verbatim. Clients must NOT
+        re-derive the mode by filtering the park's sheds on destination_stage: the mode also governs
+        whether the birth WRITE will accept a freely chosen pen, so a client that computed its own
+        answer could offer a pen the birth then refuses with 400 invalid_newborn_placement.
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - notice
+        - pens
+      properties:
+        mode:
+          description: >-
+            automatic - the park has exactly ONE kid pen; the form shows it read-only and the
+            operator does not choose.
+            choose - the park has SEVERAL kid pens; the picker offers only these.
+            record_later - the park has NO kid pen; the operator picks freely from the full shed
+            cascade and the kid's care steps carry "Record shed".
+          type: string
+          enum:
+            - automatic
+            - choose
+            - record_later
+        notice:
+          description: >-
+            Farm-worded copy shown above the placement field, rendered VERBATIM. Never blank - a
+            record_later park still owes the operator the reason its kid pen is not set.
+          type: string
+        pens:
+          description: >-
+            The park's kid pens. Exactly one entry in automatic mode, several in choose mode, and
+            EMPTY in record_later mode.
+          type: array
+          items:
+            $ref: "#/components/schemas/BirthPlacementPen"
+    BirthPlacementPen:
+      description: >-
+        One selectable newborn destination, carrying its whole operational location so the client
+        never re-derives a display string from shed_id + partition_label.
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - operational_location_display
+      properties:
+        shed_id:
+          description: The PARENT physical shed's location id, never a partition-bearing alias.
+          type: string
+          format: uuid
+        shed_name:
+          description: The physical shed's display name ('Yashoda', 'Godel 1').
+          type: string
+        partition_label:
+          description: >-
+            The pen's HUMAN label ('1', 'Part 3'), omitted for a genuinely non-partitioned shed.
+            Never the normalized matching key, and never the literal 'whole'.
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        operational_location_display:
+          description: >-
+            The backend-composed operator-facing label ('Yashoda 5', 'Godel 1 - Part 3'). Render this
+            verbatim; do not join shed_name and partition_label on the client.
+          type: string
     ShiftingDestinationShed:
       type: object
       additionalProperties: false
@@ -27596,6 +27669,13 @@ components:
         - dam_id
         - litter_size
         - evidence_refs
+        # park_id and shed_id are REQUIRED by the endpoint and always have been: park_id derives the
+        # provisional tag prefix (400 missing_park_id without it) and shed_id is the kid's placement
+        # (400 missing_shed_id). They were absent from this list while the handler rejected a request
+        # without them, so the schema promised a request the server refuses. Declared here so schema
+        # and implementation agree.
+        - park_id
+        - shed_id
       properties:
         animal_identifier_1:
           description: The permanent RFID. Provide this OR temporary_identifier, never both.
@@ -27641,6 +27721,18 @@ components:
           minLength: 1
           maxLength: 120
         shed_id:
+          description: >-
+            The pen the newborn is placed in. It must be one of the park's KID PENS - a pen whose
+            configured tag is K0 - whenever that park has at least one, and a request naming any
+            other pen is REJECTED with 400 invalid_newborn_placement rather than silently corrected
+            (maintainer decision 2026-08-20). The kid pens a park offers are published per park on
+            GET /app/counts/shifting/destinations as birth_placement.pens; resolve the placement
+            there rather than filtering the shed list on destination_stage.
+
+            A park with NO kid pen configured accepts any active pen of that park: a birth is never
+            lost over missing setup. The kid's care workflow then carries a "Record shed" step whose
+            completion places the animal and tags that pen for kids, so the park's next birth places
+            automatically.
           type: string
           format: uuid
         shed_code:

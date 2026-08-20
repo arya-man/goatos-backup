@@ -10546,6 +10546,36 @@ export interface components {
             name: string;
             /** @description The park's active sheds, ordered by name. Always present; a park with no active sheds returns an empty array rather than null, and is still listed. */
             sheds: components["schemas"]["ShiftingDestinationShed"][];
+            birth_placement: components["schemas"]["BirthPlacement"];
+        };
+        /**
+         * @description Where a newborn recorded in THIS park may be placed (maintainer decision 2026-08-20).
+         *     The mode and the notice are backend-owned and are rendered verbatim. Clients must NOT re-derive the mode by filtering the park's sheds on destination_stage: the mode also governs whether the birth WRITE will accept a freely chosen pen, so a client that computed its own answer could offer a pen the birth then refuses with 400 invalid_newborn_placement.
+         */
+        BirthPlacement: {
+            /**
+             * @description automatic - the park has exactly ONE kid pen; the form shows it read-only and the operator does not choose. choose - the park has SEVERAL kid pens; the picker offers only these. record_later - the park has NO kid pen; the operator picks freely from the full shed cascade and the kid's care steps carry "Record shed".
+             * @enum {string}
+             */
+            mode: "automatic" | "choose" | "record_later";
+            /** @description Farm-worded copy shown above the placement field, rendered VERBATIM. Never blank - a record_later park still owes the operator the reason its kid pen is not set. */
+            notice: string;
+            /** @description The park's kid pens. Exactly one entry in automatic mode, several in choose mode, and EMPTY in record_later mode. */
+            pens: components["schemas"]["BirthPlacementPen"][];
+        };
+        /** @description One selectable newborn destination, carrying its whole operational location so the client never re-derives a display string from shed_id + partition_label. */
+        BirthPlacementPen: {
+            /**
+             * Format: uuid
+             * @description The PARENT physical shed's location id, never a partition-bearing alias.
+             */
+            shed_id: string;
+            /** @description The physical shed's display name ('Yashoda', 'Godel 1'). */
+            shed_name: string;
+            /** @description The pen's HUMAN label ('1', 'Part 3'), omitted for a genuinely non-partitioned shed. Never the normalized matching key, and never the literal 'whole'. */
+            partition_label?: string | null;
+            /** @description The backend-composed operator-facing label ('Yashoda 5', 'Godel 1 - Part 3'). Render this verbatim; do not join shed_name and partition_label on the client. */
+            operational_location_display: string;
         };
         ShiftingDestinationShed: {
             /**
@@ -10914,10 +10944,14 @@ export interface components {
             farm_id?: string;
             farm_code?: string;
             /** Format: uuid */
-            park_id?: string;
+            park_id: string;
             park_code?: string;
-            /** Format: uuid */
-            shed_id?: string;
+            /**
+             * Format: uuid
+             * @description The pen the newborn is placed in. It must be one of the park's KID PENS - a pen whose configured tag is K0 - whenever that park has at least one, and a request naming any other pen is REJECTED with 400 invalid_newborn_placement rather than silently corrected (maintainer decision 2026-08-20). The kid pens a park offers are published per park on GET /app/counts/shifting/destinations as birth_placement.pens; resolve the placement there rather than filtering the shed list on destination_stage.
+             *     A park with NO kid pen configured accepts any active pen of that park: a birth is never lost over missing setup. The kid's care workflow then carries a "Record shed" step whose completion places the animal and tags that pen for kids, so the park's next birth places automatically.
+             */
+            shed_id: string;
             shed_code?: string;
             /** @description The pen within shed_id the newborn is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. OPTIONAL and additive: omitting it keeps the previous behaviour exactly (the animal is placed at shed level with no goat_shed_partitions row), so clients that predate this field continue to work unchanged. When present it is validated against the shed's real partitions and a mismatch is rejected rather than stored, and it is persisted in the SAME transaction as the goat insert. Never the literal string "whole" - that is a matching sentinel, not a pen. */
             partition_label?: string | null;
