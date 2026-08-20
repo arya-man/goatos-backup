@@ -65,7 +65,7 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 // leaves the source absent, exactly as it is today. Writing an empty string instead would turn
 // "unknown origin" into a stored fact, and it would violate the non-blank CHECKs on the column.
 // Partition comparison goes through oploc.SamePartition so 'Part 3' and '3' are one partition,
-// and a non-partitioned shed (NULL/''/'whole') yields nil, never the 'whole' sentinel.
+// and a non-partitioned shed (NULL/”/'whole') yields nil, never the 'whole' sentinel.
 func (s *Service) DeriveShiftingSource(
 	ctx context.Context,
 	tenantID string,
