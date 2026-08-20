@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
+import sg.mesha.goatos.feature.counts.BirthPlacementUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_BREEDING
@@ -644,4 +645,19 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
             destinationStageReason = it.destinationStageReason,
         )
     },
+    // Passed through verbatim: the pens are already filtered to this park's kid pens server-side,
+    // and each carries its own composed operational-location display. Re-deriving either here
+    // would be a second implementation of a backend-owned rule.
+    birthPlacement = BirthPlacementUi(
+        mode = birthPlacement.mode,
+        notice = birthPlacement.notice,
+        pens = birthPlacement.pens.map { pen ->
+            ShiftingShedUi(
+                shedId = pen.shedId,
+                name = pen.operationalLocationDisplay.ifBlank { pen.shedName },
+                partitionLabel = pen.partitionLabel,
+                operationalLocationDisplay = pen.operationalLocationDisplay,
+            )
+        },
+    ),
 )
