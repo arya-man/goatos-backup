@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.feature.submit.SubmitSnackbarMessage
 import sg.mesha.goatos.feature.submit.SyncState
@@ -390,6 +391,7 @@ class SubmitViewModelSubmitDeduplicationTest {
             decision: String,
             reason: String?,
             rowVersion: Int,
+            measurement: VerificationVerdictMeasurementDto?,
         ): AppResult<String> = error("unused")
 
         override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")

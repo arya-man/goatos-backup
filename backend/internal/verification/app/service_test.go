@@ -22,6 +22,9 @@ type fakeRepo struct {
 	seq             int
 	verdictErr      error
 	lastQueueParams ports.ListQueueParams
+	// lastVerdict is what actually reached the storage layer, so a test can assert on what the
+	// service DROPPED as well as on what it kept.
+	lastVerdict domain.Verdict
 
 	videoLogSheds     []domain.VideoLogShed
 	videoLogRows      []domain.VideoLogRow
@@ -203,6 +206,7 @@ func (r *fakeRepo) ListQueueFilterOptions(_ context.Context, params ports.ListQu
 }
 
 func (r *fakeRepo) RecordVerdict(_ context.Context, in domain.Verdict) (domain.Item, error) {
+	r.lastVerdict = in
 	if r.verdictErr != nil {
 		return domain.Item{}, r.verdictErr
 	}

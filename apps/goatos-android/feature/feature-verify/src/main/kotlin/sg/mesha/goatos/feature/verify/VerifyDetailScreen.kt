@@ -171,7 +171,18 @@ data class VerifyWeightCorrection(
     /** Says plainly that the value REPLACES the recorded one. Rendered, never paraphrased. */
     val help: String,
     val valueLabel: String,
+    /**
+     * Named the separate save button that used to sit under the field. THAT BUTTON IS GONE
+     * (maintainer decision 2026-08-20): she types the number and presses Approve, and the approve
+     * carries it. Kept on the state so the backend's copy still decodes; nothing renders it.
+     */
     val submitLabel: String,
+    /**
+     * Keep Approve DISABLED until she enters a number. True for feed wastage, where the operator
+     * submits a video only and the reading is born on this screen; false for weighing, where the
+     * operator already recorded a weight and blank means "his weight is right".
+     */
+    val requiredForApprove: Boolean = false,
     /**
      * Label for the head-count field. Null means render the weight field ALONE -- an individual
      * animal's proof carries no count and the backend REFUSES one, so showing the field there would
@@ -191,6 +202,33 @@ data class VerifyWeightCorrection(
      * collect words the write path silently drops.
      */
     val showReason: Boolean = true,
+)
+
+/**
+ * THE NUMBER SHE TYPED, travelling with her approve (maintainer decision 2026-08-20).
+ *
+ * It names NO target. The record it lands on is resolved by the backend from the item's own source,
+ * so this screen cannot aim one item's approve at another item's record.
+ */
+@Immutable
+data class VerifyMeasurementInput(
+    /** In the category's own unit (kg for weighing and wastage). Zero is valid for wastage. */
+    val value: Double,
+    /** Lump-sum only. Null leaves the recorded count alone, which is the normal case. */
+    val count: Int? = null,
+    val reason: String? = null,
+)
+
+/**
+ * An approve waiting on its confirmation dialog.
+ *
+ * The number is captured at the PRESS, not read back at confirm time: the dialog is rendered
+ * outside the card and has no way to see its fields.
+ */
+@Immutable
+private data class VerifyPendingApprove(
+    val itemId: String,
+    val measurement: VerifyMeasurementInput?,
 )
 
 @Immutable
@@ -303,25 +341,20 @@ sealed interface VerifyDetailEvent {
     /** [itemId] null targets the legacy single-entry group (`entries.first()`); a grouped shed
      *  screen always passes the tapped entry's own item id, so one animal's verdict never
      *  touches its shed-mates. */
-    data class Approve(val itemId: String? = null) : VerifyDetailEvent
+    /**
+     * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20).
+     *
+     * [measurement] is what she typed into the item's measurement field, or null -- the normal
+     * weighing case, where blank means the operator's recorded weight is right, and every category
+     * that declares no field at all.
+     */
+    data class Approve(
+        val itemId: String? = null,
+        val measurement: VerifyMeasurementInput? = null,
+    ) : VerifyDetailEvent
     /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise.
      *  [itemId] follows the same null-means-legacy-single-entry contract as [Approve]. */
     data class Reject(val reason: String, val itemId: String? = null) : VerifyDetailEvent
-    /**
-     * THE VERIFIER'S WEIGHT CORRECTION. [weightKg] is the number she typed; [animalCount] is
-     * LUMP-SUM ONLY and null means "leave the recorded count alone", which is the normal case.
-     *
-     * Deliberately separate from [Approve]/[Reject]: correcting the number is its own act, and she
-     * may do it before deciding or after.
-     */
-    data class CorrectWeight(
-        val itemId: String,
-        val observationId: String,
-        val refType: String,
-        val weightKg: Double,
-        val animalCount: Int? = null,
-        val reason: String? = null,
-    ) : VerifyDetailEvent
 
     data object Refresh : VerifyDetailEvent
     /** Dialog-lifecycle telemetry: the Compose dialogs below own their own open/dismiss state
@@ -367,7 +400,9 @@ fun VerifyDetailScreen(
     // a single screen-wide flag, or one animal's tap would surface a dialog whose confirm posts
     // the wrong verdict once entries re-sort after a refresh.
     var rejectDialogForItemId by remember { mutableStateOf<String?>(null) }
-    var approveDialogForItemId by remember { mutableStateOf<String?>(null) }
+    // Holds the item AND the number she typed, because the confirm dialog is rendered outside the
+    // card and cannot read the card's fields when it resolves.
+    var pendingApprove by remember { mutableStateOf<VerifyPendingApprove?>(null) }
     var activeProofSubject by rememberSaveable { mutableStateOf<String?>(null) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 
@@ -437,33 +472,20 @@ fun VerifyDetailScreen(
                             activeProofSubject = activeProofSubject,
                             onActiveProofSubjectChange = { activeProofSubject = it },
                             onPlayback = { onEvent(it) },
-                            onApprove = {
+                            onApprove = { measurement ->
                                 if (APPROVE_NEEDS_CONFIRMATION) {
-                                    approveDialogForItemId = entry.itemId
+                                    // The number is captured HERE, with the press, not read back
+                                    // when the dialog confirms: the dialog sits outside the card
+                                    // and cannot see its fields.
+                                    pendingApprove = VerifyPendingApprove(entry.itemId, measurement)
                                     onEvent(VerifyDetailEvent.ApproveDialogOpened(entry.itemId))
                                 } else {
-                                    onEvent(VerifyDetailEvent.Approve(entry.itemId))
+                                    onEvent(VerifyDetailEvent.Approve(entry.itemId, measurement))
                                 }
                             },
                             onReject = {
                                 rejectDialogForItemId = entry.itemId
                                 onEvent(VerifyDetailEvent.RejectDialogOpened(entry.itemId))
-                            },
-                            onCorrectWeight = { weightKg, animalCount, reason ->
-                                // The address comes from the backend's own block; this screen never
-                                // composes which record a correction targets.
-                                entry.weightCorrection?.let { correction ->
-                                    onEvent(
-                                        VerifyDetailEvent.CorrectWeight(
-                                            itemId = entry.itemId,
-                                            observationId = correction.observationId,
-                                            refType = correction.refType,
-                                            weightKg = weightKg,
-                                            animalCount = animalCount,
-                                            reason = reason,
-                                        ),
-                                    )
-                                }
                             },
                         )
                     }
@@ -500,16 +522,16 @@ fun VerifyDetailScreen(
         )
     }
 
-    approveDialogForItemId?.let { targetItemId ->
+    pendingApprove?.let { pending ->
         ApproveConfirmDialog(
             isSubmitting = state.isSubmitting,
             onConfirm = {
-                onEvent(VerifyDetailEvent.Approve(targetItemId))
+                onEvent(VerifyDetailEvent.Approve(pending.itemId, pending.measurement))
             },
             onDismiss = {
                 if (!state.isSubmitting) {
-                    approveDialogForItemId = null
-                    onEvent(VerifyDetailEvent.ApproveDialogCancelled(targetItemId))
+                    pendingApprove = null
+                    onEvent(VerifyDetailEvent.ApproveDialogCancelled(pending.itemId))
                 }
             },
         )
@@ -526,10 +548,46 @@ private fun VerifyEntryCard(
     activeProofSubject: String?,
     onActiveProofSubjectChange: (String?) -> Unit,
     onPlayback: (VerifyDetailEvent) -> Unit,
-    onApprove: () -> Unit,
+    onApprove: (VerifyMeasurementInput?) -> Unit,
     onReject: () -> Unit,
-    onCorrectWeight: (weightKg: Double, animalCount: Int?, reason: String?) -> Unit,
 ) {
+    // The typed number lives HERE rather than inside the measurement card, because the Approve
+    // button below has to read it -- that is the whole point of the 2026-08-20 decision. Keyed by
+    // observation id so stepping to another animal starts blank instead of carrying one animal's
+    // weight onto the next one's approve.
+    val correction = entry.weightCorrection
+    var valueText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+    var countText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+    var reasonText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+
+    // Blank is "she has not typed a number", NEVER a zero: for wastage an empty trough is a real
+    // reading, so coercing blank to 0 would record a measurement she never made.
+    val value = valueText.trim().toDoubleOrNull()
+    val trimmedCount = countText.trim()
+    val count = trimmedCount.toIntOrNull()
+    val countIsUsable = trimmedCount.isEmpty() || (count != null && count > 0)
+    // allowZero is the wastage case: an empty trough is a real, good reading. Weighing's write path
+    // refuses a non-positive weight, so a typed 0 there is held here rather than sent to be
+    // rejected. Blank is still blank in both -- "she has not typed" is never coerced into 0.
+    val valueIsUsable = value != null && value.isFinite() && (if (correction?.allowZero == true) value >= 0 else value > 0)
+    // Held only where the backend says the reading is born on this screen -- feed wastage. Weighing
+    // stays a single tap when she agrees with the operator's weight.
+    val measurementMissing = correction?.requiredForApprove == true && !valueIsUsable
+    val measurement = correction
+        ?.takeIf { valueIsUsable }
+        ?.let {
+            VerifyMeasurementInput(
+                // Not-null by valueIsUsable.
+                value = value ?: 0.0,
+                // Only where the backend offered the field; the write path refuses a count that
+                // the grain cannot carry, so it is dropped rather than sent to be rejected.
+                count = count.takeIf { correction.countLabel?.isNotBlank() == true },
+                // The wastage write path carries NO reason, so a note typed there would be
+                // collected and silently dropped. The field is not rendered for it either.
+                reason = reasonText.trim().ifBlank { null }.takeIf { correction.showReason },
+            )
+        }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
             Text(
@@ -598,20 +656,32 @@ private fun VerifyEntryCard(
         // today. It sits ABOVE the verdict row because the order matches the act: she watches the
         // video, fixes the number if it is wrong, then decides. Deliberately NOT hidden once a
         // verdict exists: she may correct before deciding or after, until the bucket closes.
-        entry.weightCorrection?.let { correction ->
-            WeightCorrectionCard(
-                correction = correction,
-                isSubmitting = entry.isSubmitting,
-                onSubmit = onCorrectWeight,
+        correction?.let { spec ->
+            MeasurementCard(
+                correction = spec,
+                valueText = valueText,
+                onValueChange = { valueText = it },
+                countText = countText,
+                onCountChange = { countText = it },
+                reasonText = reasonText,
+                onReasonChange = { reasonText = it },
+                countIsUsable = countIsUsable,
+                showRequiredHint = measurementMissing,
+                enabled = !entry.isSubmitting,
             )
         }
         if (!isCloseMode) {
             DecisionRow(
-                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting,
+                // A malformed count would be refused by the write path, so it holds Approve here
+                // rather than travelling to be rejected.
+                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting && !measurementMissing && countIsUsable,
+                // Reject is NEVER held on the number. A reading she cannot take off the clip is
+                // exactly the case that must be sent back, and blocking it would strand her with an
+                // item she can neither approve nor return.
                 rejectEnabled = entry.isRejectEnabled && !entry.isSubmitting,
                 unavailableReason = entry.decisionUnavailableReason,
                 isSubmitting = entry.isSubmitting,
-                onApprove = onApprove,
+                onApprove = { onApprove(measurement) },
                 onReject = onReject,
             )
         }
@@ -624,46 +694,35 @@ private fun VerifyEntryCard(
 }
 
 /**
- * THE VERIFIER'S WEIGHT CORRECTION card.
+ * THE MEASUREMENT CARD -- the number the verifier reads off the video.
  *
- * Every visible word comes from [correction], which the backend composed: heading, help, both field
- * labels and the button. The head-count field appears only when the backend sent a label for it --
- * a lump-sum shed proof has one, a single animal's proof does not, and the write path REFUSES a
- * count on the latter.
+ * IT HAS NO SAVE BUTTON (maintainer decision 2026-08-20). There used to be one, and pressing it
+ * relabelled the verification item, which bumps row_version -- so the Approve she pressed next
+ * carried the version the screen had loaded with, the version-fenced verdict matched nothing, and
+ * nothing happened. Two acts for one judgement, the second broken by the first. She now types the
+ * number and presses Approve, and the approve carries it.
  *
- * Submit stays disabled until the typed weight parses to a positive number, so the server's refusal
- * is unreachable from the UI rather than something she has to read and recover from. The fields are
- * cleared on a successful submit so the card cannot sit showing a value that has already been sent
- * as though it were still pending.
+ * Every visible word comes from [correction], which the backend composed: heading, help and both
+ * field labels. This card composes none of them, so the phone and the admin-web drawer cannot word
+ * the same control differently. The head-count field appears only when the backend sent a label for
+ * it -- a lump-sum shed proof has one, a single animal's proof does not, and the write path REFUSES
+ * a count on the latter.
+ *
+ * The state lives in the caller ([VerifyEntryCard]) because the Approve button has to read it.
  */
 @Composable
-private fun WeightCorrectionCard(
+private fun MeasurementCard(
     correction: VerifyWeightCorrection,
-    isSubmitting: Boolean,
-    onSubmit: (weightKg: Double, animalCount: Int?, reason: String?) -> Unit,
+    valueText: String,
+    onValueChange: (String) -> Unit,
+    countText: String,
+    onCountChange: (String) -> Unit,
+    reasonText: String,
+    onReasonChange: (String) -> Unit,
+    countIsUsable: Boolean,
+    showRequiredHint: Boolean,
+    enabled: Boolean,
 ) {
-    var weightText by rememberSaveable(correction.observationId) { mutableStateOf("") }
-    var countText by rememberSaveable(correction.observationId) { mutableStateOf("") }
-    var reasonText by rememberSaveable(correction.observationId) { mutableStateOf("") }
-
-    // Blank is "she has not typed a weight", never a zero: coercing blank to 0 would send a value
-    // she never entered and come back refused as out of range, blaming her for the client's bug.
-    val weightKg = weightText.trim().toDoubleOrNull()
-    // Blank count means "leave the recorded count alone" -- the normal case, since she is usually
-    // fixing a mistyped total rather than a miscount.
-    val trimmedCount = countText.trim()
-    val animalCount = trimmedCount.toIntOrNull()
-    val countIsUsable = trimmedCount.isEmpty() || (animalCount != null && animalCount > 0)
-    // Zero is a VALID typed measurement only where the control says so (feed wastage: an empty
-    // trough). The wastage route also bounds the value at 10000 kg, so the server's refusal stays
-    // unreachable from the UI in both directions.
-    val valueInRange = weightKg != null && if (correction.allowZero) {
-        weightKg >= 0 && weightKg <= MAX_MEASUREMENT_KG
-    } else {
-        weightKg > 0
-    }
-    val canSubmit = valueInRange && countIsUsable && !isSubmitting
-
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -679,19 +738,22 @@ private fun WeightCorrectionCard(
             modifier = Modifier.padding(top = 4.dp),
         )
         OutlinedTextField(
-            value = weightText,
-            onValueChange = { weightText = it },
+            value = valueText,
+            onValueChange = onValueChange,
             label = { Text(correction.valueLabel) },
             singleLine = true,
+            enabled = enabled,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         )
         correction.countLabel?.takeIf { it.isNotBlank() }?.let { countLabel ->
             OutlinedTextField(
                 value = countText,
-                onValueChange = { countText = it },
+                onValueChange = onCountChange,
                 label = { Text(countLabel) },
                 singleLine = true,
+                enabled = enabled,
+                isError = !countIsUsable,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
@@ -699,24 +761,22 @@ private fun WeightCorrectionCard(
         if (correction.showReason) {
             OutlinedTextField(
                 value = reasonText,
-                onValueChange = { reasonText = it },
+                onValueChange = onReasonChange,
                 label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
                 singleLine = false,
+                enabled = enabled,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
         }
-        Button(
-            onClick = {
-                val kg = weightKg ?: return@Button
-                onSubmit(kg, animalCount, reasonText.trim().ifBlank { null })
-                weightText = ""
-                countText = ""
-                reasonText = ""
-            },
-            enabled = canSubmit,
-            modifier = Modifier.padding(top = 10.dp),
-        ) {
-            Text(correction.submitLabel)
+        // An Approve she cannot press has to say why, or the screen reads as broken. Rejecting is
+        // still open to her, and is the right move when the number cannot be read at all.
+        if (showRequiredHint) {
+            Text(
+                text = stringResource(R.string.verify_detail_measurement_required),
+                color = MeshaColors.Muted,
+                style = MeshaType.cta,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }

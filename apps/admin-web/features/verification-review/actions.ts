@@ -4,9 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   assignSopTask,
-  correctWeighingObservationWeight,
   getSopTask,
-  recordFeedWastageMeasurement,
   recordVerificationVerdict,
   requestSopTaskRework,
   type VerificationDecision,
@@ -35,6 +33,27 @@ function withFeedback(url: URL, status: "success" | "error", code: string): stri
   return qs ? `${url.pathname}?${qs}` : url.pathname;
 }
 
+// readMeasurement pulls the verifier's reading out of the verdict form.
+//
+// A BLANK FIELD IS NOT A ZERO. Blank means she entered nothing -- the normal weighing case, where
+// the operator's recorded weight stands -- while 0 is a real reading for wastage (an empty trough).
+// Coercing one into the other would either record a weight she never typed or silently discard a
+// measurement she did.
+function readMeasurement(formData: FormData): { value: number; count?: number; reason?: string } | undefined {
+  const raw = String(formData.get("measurement_value") ?? "").trim();
+  if (raw === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  const countRaw = String(formData.get("measurement_count") ?? "").trim();
+  const count = countRaw === "" ? undefined : Number(countRaw);
+  const note = String(formData.get("measurement_reason") ?? "").trim();
+  return {
+    value,
+    ...(count !== undefined && Number.isInteger(count) && count > 0 ? { count } : {}),
+    ...(note ? { reason: note } : {}),
+  };
+}
+
 // recordVerificationVerdictAction is the VERIFIER's act: approve or reject the proof video itself.
 // It is the counterpart to the two authority actions below, which touch the source SOP task instead.
 //
@@ -48,6 +67,11 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   const decision = String(formData.get("decision") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim();
   const rowVersion = Number(formData.get("row_version") ?? "");
+  // THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). The measurement field lives
+  // INSIDE the verdict form now, so the verifier types the value she reads off the video and
+  // presses Accept once. It replaces the separate save form, whose save relabelled the item,
+  // bumped row_version, and left the Accept she pressed next fenced out with a 409.
+  const measurement = readMeasurement(formData);
 
   if (!itemId || (decision !== "approved" && decision !== "rejected")) {
     redirect(withFeedback(url, "error", !itemId ? "missing_item_handle" : "invalid_decision"));
@@ -74,6 +98,10 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
       // string on an approval is a value the contract does not ask for.
       ...(decision === "rejected" ? { reason } : {}),
       row_version: rowVersion,
+      // Only on an approve. A rejection sends the work back to be recorded again, so a value typed
+      // before she changed her mind must not land on a record about to be redone. The backend drops
+      // it too; sending it would just be a value the contract does not ask for.
+      ...(decision === "approved" && measurement ? { measurement } : {}),
     },
     idempotencyKey,
   );
@@ -105,109 +133,18 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   redirect(withFeedback(url, "success", decision === "approved" ? "verdict_approved" : "verdict_rejected"));
 }
 
-// correctWeightAction is the VERIFIER's weight correction (maintainer decision 2026-08-17): she
-// watches the proof video and replaces the number the operator typed. It is a separate act from her
-// verdict on purpose -- she may correct before deciding or after, including on an item she already
-// approved, until the bucket closes -- so it is its own form and its own action.
+// The two standalone measurement actions that used to live here -- correctWeightAction (weighing,
+// 2026-08-17) and recordWastageMeasurementAction (feed wastage, 2026-08-18) -- are DELETED.
 //
-// The observation id and ref type come from the item's backend-owned measurement_correction block,
-// which echoes source.ref_id/source.ref_type. This action never composes that address itself.
-export async function correctWeightAction(formData: FormData): Promise<void> {
-  const url = redirectTarget(formData);
-  const observationId = String(formData.get("observation_id") ?? "").trim();
-  const refType = String(formData.get("ref_type") ?? "").trim();
-  const reason = String(formData.get("reason") ?? "").trim();
-  const rawWeight = String(formData.get("weight_kg") ?? "").trim();
-  const rawCount = String(formData.get("animal_count") ?? "").trim();
-
-  if (!observationId || !refType) {
-    redirect(withFeedback(url, "error", "missing_item_handle"));
-  }
-  // A blank field is "she has not typed a weight", NOT a zero. Coercing blank to 0 here would send a
-  // value she never entered and come back as "out of range", blaming her for the client's bug.
-  if (!rawWeight) {
-    redirect(withFeedback(url, "error", "missing_weight"));
-  }
-  const weightKg = Number(rawWeight);
-  if (!Number.isFinite(weightKg)) {
-    redirect(withFeedback(url, "error", "weight_out_of_range"));
-  }
-
-  // The head count is LUMP-SUM ONLY and optional: blank means "leave the recorded count alone".
-  // It is omitted entirely rather than sent as 0 on an individual capture, where the backend
-  // refuses a head count outright.
-  let animalCount: number | undefined;
-  if (rawCount) {
-    const parsed = Number(rawCount);
-    if (!Number.isInteger(parsed) || parsed < 0) {
-      redirect(withFeedback(url, "error", "animal_count_out_of_range"));
-    }
-    animalCount = parsed;
-  }
-
-  // Derived, not random, so a double-click or a retried Server Action is ONE write. The weight is
-  // part of the key: correcting to 12 kg and then to 13 kg are two different acts and must not
-  // collide, while re-sending the SAME correction replays for free.
-  const idempotencyKey = `weighing-weight-correction-${observationId}-${weightKg}-${animalCount ?? "keep"}`;
-  const result = await correctWeighingObservationWeight(
-    observationId,
-    {
-      ref_type: refType as "weighing_observation" | "weighing_shed_observation",
-      weight_kg: weightKg,
-      ...(animalCount === undefined ? {} : { animal_count: animalCount }),
-      ...(reason ? { reason } : {}),
-    },
-    idempotencyKey,
-  );
-  revalidateVaccinationViews();
-  if (!result.ok) {
-    redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
-  }
-  redirect(withFeedback(url, "success", "weight_corrected"));
-}
-
-// recordWastageMeasurementAction is the VERIFIER's feed-wastage measurement (maintainer decision
-// 2026-08-18): she watches the pen's leftover-feed video and records the weight she can read in
-// it. Like the weight correction above it is a separate act from her verdict — she records the
-// value and then approves; a clip whose value she cannot read is rejected instead, and nothing is
-// recorded.
+// THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). Their save-then-approve pair was
+// two acts for one judgement, and the save relabelled the verification item, which bumps
+// row_version, so the Accept the verifier pressed next was fenced out with a 409 and silently did
+// nothing. The value now travels on recordVerificationVerdictAction above, and the backend applies
+// it and the verdict together.
 //
-// The completion id comes from the item's backend-owned measurement_correction block, which echoes
-// source.ref_id. This action never composes that address itself.
-export async function recordWastageMeasurementAction(formData: FormData): Promise<void> {
-  const url = redirectTarget(formData);
-  const completionId = String(formData.get("completion_id") ?? "").trim();
-  const rawWastage = String(formData.get("wastage_kg") ?? "").trim();
-
-  if (!completionId) {
-    redirect(withFeedback(url, "error", "missing_item_handle"));
-  }
-  // A blank field is "she has not typed a value", NOT a zero. Zero is a VALID measurement here (an
-  // empty trough), which is exactly why blank must never be coerced into it: sending 0 for a blank
-  // would record a measurement she never made.
-  if (!rawWastage) {
-    redirect(withFeedback(url, "error", "missing_wastage"));
-  }
-  const wastageKg = Number(rawWastage);
-  if (!Number.isFinite(wastageKg)) {
-    redirect(withFeedback(url, "error", "wastage_out_of_range"));
-  }
-
-  // Derived, not random, so a double-click or a retried Server Action is ONE write. The value is
-  // part of the key: recording 3 kg and then 3.5 kg are two different acts and must not collide,
-  // while re-sending the SAME value replays for free.
-  const idempotencyKey = `feed-wastage-measurement-${completionId}-${wastageKg}`;
-  const result = await recordFeedWastageMeasurement(
-    completionId,
-    { wastage_kg: wastageKg },
-    idempotencyKey,
-  );
-  revalidateVaccinationViews();
-  if (!result.ok) {
-    redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
-  }
-  redirect(withFeedback(url, "success", "wastage_recorded"));
-}
+// Deleted rather than left unwired: a server action nothing calls reads to the next author as a
+// path still in use. The producing modules' own routes stay served -- an installed APK built before
+// this decision still posts to them -- but nothing in admin-web does.
 
 // reworkVerificationItemAction requests SOP rework on the verification item's SOURCE task. The
 // verifier's rejected verdict is advisory; this is the authority's real act. Fetches the task's
