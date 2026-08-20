@@ -685,11 +685,6 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				table("vaccination-plan-versions", "Versions", "/protocols?category=vaccination", []string{"version", "status", "in_force", "published", "changed"}, "protocol_version_id"),
 			}),
-		page("config", "/config", "/config", "Config — Protocol Rules", "Admin/Data Ops authority for governed protocol rules.", "authority-screen",
-			[]domain.TableContract{
-				table("protocol-rules", "Protocol rules", "/protocols", []string{"category", "version", "scope", "status", "effective", "linked_sop", "last_publisher", "actions"}, "protocol_id"),
-				table("feed-config-evidence", "Feed Direction parameter evidence", "/protocols?category=feed_direction", []string{"source_table", "parameter_family", "validation_gate", "calculation_output"}, "feed_config_row"),
-			}),
 		// People/HRMS rewrite (maintainer request 2026-08-22): the default view is
 		// the ALL-PEOPLE directory (every member with park, department, and
 		// designation, plus the Add Person onboarding drawer); the former
@@ -4526,16 +4521,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"pager.fixed_reason":            "DLQ list is bounded to 100 rows by default and 500 rows maximum.",
 		}
 	case "vaccination-plan":
-		// Same authority copy as /config, re-crumbed for its new home and worded for the
-		// CEO rather than for the schema. See docs/.../MOCK-BEHAVIOUR-SPEC.md.
-		m := pageSpecificCopy("config")
-		m["crumb"] = "Preventive Care"
-		m["page.title"] = "Vaccination plan"
-		m["page.subtitle"] = "One plan decides which animal gets which vaccine, and when. Only you and the COO can publish it."
-		return m
-	case "config":
+		// This copy was inherited from the deleted /config screen and is now owned here.
+		// /config was removed because nothing used it: no page linked to it, the only
+		// protocol category that exists is vaccination, and Feed and Health each author
+		// their own config on their own screens.
 		return map[string]string{
-			"crumb":                                                     "Admin / Data Ops",
+			"crumb":       "Preventive Care",
+			"page.title":  "Vaccination plan",
+			"page.subtitle": "One plan decides which animal gets which vaccine, and when. Only you and the COO can publish it.",
 			"capacity.title":                                            "Operator animal capacity",
 			"capacity.note":                                             "How many unique animals one available operator can handle in one day",
 			"capacity.info.label":                                       "About operator capacity",
@@ -4868,7 +4861,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.label.rule_plural":                       "rules",
 			"modal.rule_editor.label.tenant":                            "tenant",
 			"modal.rule_editor.label.park_scope_prefix":                 "park:",
-		}
+				}
 	case "people":
 		// Backend-owned copy for the People/HRMS directory + Add Person drawer.
 		// The client renders these verbatim; per the golden rule it must not
@@ -5754,7 +5747,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	case "shed-execution":
 		return append(append(genericOptionGroups(), processIntegrityOptionGroups()...),
 			shedStatusOptionGroup(), capacityOptionGroup())
-	case "config", "vaccination-plan":
+	case "vaccination-plan":
 		return withGenericOptionGroups(configOptionGroups())
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.

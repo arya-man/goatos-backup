@@ -54,7 +54,9 @@ func TestConfigVaccineOptionGroupsMatchPublishTaxonomy(t *testing.T) {
 // can no longer offer (or reject) a taxonomy value the backend does not.
 func TestFrontendVaccineTaxonomyMatchesBackendOptionGroups(t *testing.T) {
 	// backend/internal/adminui/app -> repo root -> apps/admin-web/...
-	tsPath := filepath.Join("..", "..", "..", "..", "apps", "admin-web", "features", "config", "vaccine-taxonomy.ts")
+	// Moved with the Config screen's deletion: the taxonomy is shared vocabulary, not
+	// part of that screen, and now lives with the vaccination plan console that uses it.
+	tsPath := filepath.Join("..", "..", "..", "..", "apps", "admin-web", "features", "vaccination-plan", "vaccine-taxonomy.ts")
 	raw, err := os.ReadFile(tsPath)
 	if err != nil {
 		t.Fatalf("read %s: %v", tsPath, err)
