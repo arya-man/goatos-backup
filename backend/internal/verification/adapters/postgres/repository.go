@@ -5,6 +5,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +63,29 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 }
 
 var _ ports.Repository = (*Repository)(nil)
+
+func (r *Repository) WithVerdictLock(ctx context.Context, tenantID, itemID string, fn func(context.Context) error) error {
+	lockCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	conn, err := r.pool.Acquire(lockCtx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	key := verdictLockKey(tenantID, itemID)
+	if _, err := conn.Exec(lockCtx, "SELECT pg_advisory_lock($1)", key); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+	}()
+	return fn(ctx)
+}
+
+func verdictLockKey(tenantID, itemID string) int64 {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(tenantID) + ":" + strings.TrimSpace(itemID)))
+	return int64(binary.BigEndian.Uint64(sum[:8]))
+}
 
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
   source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs, context_rows,

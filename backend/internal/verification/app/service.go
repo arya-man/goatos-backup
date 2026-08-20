@@ -568,6 +568,12 @@ func labelMedia(media []domain.MediaItem, def domain.CategoryDefinition) {
 // REQUIRES a non-empty reason: 422 Unprocessable (syntactically valid, fails the business rule), also
 // enforced at the storage layer (verification_items_reject_reason_check).
 func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
+	return s.withVerdictLock(ctx, in.TenantID, in.ItemID, func(ctx context.Context) (domain.Item, error) {
+		return s.recordVerdict(ctx, in)
+	})
+}
+
+func (s *Service) recordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	in.ItemID = strings.TrimSpace(in.ItemID)
 	in.Decision = strings.TrimSpace(in.Decision)
@@ -644,6 +650,31 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 		s.autoCloseSubmissionWhenFullyApproved(ctx, in, item)
 	}
 	return item, nil
+}
+
+type verdictLocker interface {
+	WithVerdictLock(ctx context.Context, tenantID, itemID string, fn func(context.Context) error) error
+}
+
+func (s *Service) withVerdictLock(
+	ctx context.Context,
+	tenantID, itemID string,
+	fn func(context.Context) (domain.Item, error),
+) (domain.Item, error) {
+	locker, ok := s.repo.(verdictLocker)
+	if !ok {
+		return fn(ctx)
+	}
+	var out domain.Item
+	err := locker.WithVerdictLock(ctx, tenantID, itemID, func(ctx context.Context) error {
+		var err error
+		out, err = fn(ctx)
+		return err
+	})
+	if err != nil {
+		return domain.Item{}, err
+	}
+	return out, nil
 }
 
 // autoCloseSubmissionWhenFullyApproved closes the SHED as soon as its last animal is approved.

@@ -446,6 +446,7 @@ function VerificationReviewDrawerPanel({
   // The backend attaches this only to items carrying a number the verifier may correct, and owns
   // every word of the control. Absent -- every category but weighing today -- means no control.
   const correction = item.measurement_correction;
+  const measurementReasonSupported = correction?.ref_type !== "feed_wastage_completion";
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
   // Blank means she has typed nothing. It is NOT a zero: for wastage an empty trough is a real
@@ -675,10 +676,12 @@ function VerificationReviewDrawerPanel({
                   />
                 </label>
               ) : null}
-              <label className="fld" style={{ marginBottom: 0 }}>
-                <span>{text("verdict.reason_label")}</span>
-                <textarea key={item.item_id} form="verdict-form" name="measurement_reason" rows={2} disabled={verdictSettled} />
-              </label>
+              {measurementReasonSupported ? (
+                <label className="fld" style={{ marginBottom: 0 }}>
+                  <span>{text("verdict.reason_label")}</span>
+                  <textarea key={item.item_id} form="verdict-form" name="measurement_reason" rows={2} disabled={verdictSettled} />
+                </label>
+              ) : null}
               {/* Named the same way the button below is: an Accept she cannot press needs to say
                   why, or it reads as a broken screen. */}
               {measurementMissing ? <div className="note">{text("verdict.disabled_measurement_required")}</div> : null}

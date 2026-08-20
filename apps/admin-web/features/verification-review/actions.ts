@@ -39,18 +39,28 @@ function withFeedback(url: URL, status: "success" | "error", code: string): stri
 // the operator's recorded weight stands -- while 0 is a real reading for wastage (an empty trough).
 // Coercing one into the other would either record a weight she never typed or silently discard a
 // measurement she did.
-function readMeasurement(formData: FormData): { value: number; count?: number; reason?: string } | undefined {
+type MeasurementRead =
+  | { ok: true; measurement?: { value: number; count?: number; reason?: string } }
+  | { ok: false; code: "invalid_measurement" | "invalid_measurement_count" };
+
+function readMeasurement(formData: FormData): MeasurementRead {
   const raw = String(formData.get("measurement_value") ?? "").trim();
-  if (raw === "") return undefined;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0) return undefined;
   const countRaw = String(formData.get("measurement_count") ?? "").trim();
+  if (raw === "" && countRaw === "") return { ok: true };
+  const value = Number(raw);
+  if (raw === "" || !Number.isFinite(value) || value < 0) return { ok: false, code: "invalid_measurement" };
   const count = countRaw === "" ? undefined : Number(countRaw);
+  if (count !== undefined && (!Number.isInteger(count) || count < 1)) {
+    return { ok: false, code: "invalid_measurement_count" };
+  }
   const note = String(formData.get("measurement_reason") ?? "").trim();
   return {
-    value,
-    ...(count !== undefined && Number.isInteger(count) && count > 0 ? { count } : {}),
-    ...(note ? { reason: note } : {}),
+    ok: true,
+    measurement: {
+      value,
+      ...(count !== undefined ? { count } : {}),
+      ...(note ? { reason: note } : {}),
+    },
   };
 }
 
@@ -71,7 +81,7 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   // INSIDE the verdict form now, so the verifier types the value she reads off the video and
   // presses Accept once. It replaces the separate save form, whose save relabelled the item,
   // bumped row_version, and left the Accept she pressed next fenced out with a 409.
-  const measurement = readMeasurement(formData);
+  const measurementRead = readMeasurement(formData);
 
   if (!itemId || (decision !== "approved" && decision !== "rejected")) {
     redirect(withFeedback(url, "error", !itemId ? "missing_item_handle" : "invalid_decision"));
@@ -83,6 +93,9 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
   // operator from losing a page round-trip to learn it.
   if (decision === "rejected" && !reason) {
     redirect(withFeedback(url, "error", "missing_reason"));
+  }
+  if (!measurementRead.ok) {
+    redirect(withFeedback(url, "error", measurementRead.code));
   }
 
   // Idempotency identity for this verdict. Derived, not random, so a double-click or a retried
@@ -101,7 +114,7 @@ export async function recordVerificationVerdictAction(formData: FormData): Promi
       // Only on an approve. A rejection sends the work back to be recorded again, so a value typed
       // before she changed her mind must not land on a record about to be redone. The backend drops
       // it too; sending it would just be a value the contract does not ask for.
-      ...(decision === "approved" && measurement ? { measurement } : {}),
+      ...(decision === "approved" && measurementRead.measurement ? { measurement: measurementRead.measurement } : {}),
     },
     idempotencyKey,
   );
