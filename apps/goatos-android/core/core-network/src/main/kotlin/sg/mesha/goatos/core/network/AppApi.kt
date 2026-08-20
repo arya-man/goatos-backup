@@ -50,6 +50,7 @@ import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
+import sg.mesha.goatos.core.network.dto.KidStageDueResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
@@ -878,6 +879,13 @@ interface AppApi {
      * which is approximately never, so it is cached in Room and re-served offline.
      */
     suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto
+
+    /**
+     * GET /app/counts/shifting/stage-due — kids whose age has crossed a kid-stage ladder step,
+     * grouped per (park, step) with candidate destination pens. A LIVE work-due read (bounded by
+     * the farm's births per day, not herd size), fetched when the raise form opens.
+     */
+    suspend fun getCountsShiftingStageDue(): KidStageDueResponseDto
 
     /**
      * GET /app/counts/breeds — the breeds present on the live herd, backing the birth form's breed
@@ -1727,6 +1735,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getCountsShiftingDestinations(): CountsShiftingDestinationsResponseDto =
         CountsShiftingDestinationsResponseDto()
+
+    override suspend fun getCountsShiftingStageDue(): KidStageDueResponseDto = KidStageDueResponseDto()
 
     override suspend fun getAppCountsBreeds(): CountsBreedsResponseDto = CountsBreedsResponseDto()
 

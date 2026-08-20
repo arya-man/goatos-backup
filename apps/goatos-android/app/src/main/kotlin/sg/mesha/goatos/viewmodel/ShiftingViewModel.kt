@@ -35,6 +35,7 @@ import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_LOW
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
+import sg.mesha.goatos.feature.counts.ShiftingDueGroupUi
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
@@ -86,6 +87,7 @@ class ShiftingViewModel @Inject constructor(
         outboxItemId.value?.let(::observeOutboxItem)
         observeDestinations()
         refreshDestinations()
+        refreshKidStageDue()
         recomputeSubmitGate()
         // HOT device stream (RFID keyboard-wedge reader), same wiring as ScanViewModel: reads only
         // arrive while setRfidCaptureActive(true) — the shifting-add route enables capture on
@@ -121,6 +123,7 @@ class ShiftingViewModel @Inject constructor(
             ShiftingEvent.LookupAnimalsAutoAdd -> lookupAnimals(autoAdd = true)
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.RemoveAnimal -> onRemoveAnimal(event.goatId)
+            is ShiftingEvent.AddDueGroupToBasket -> onAddDueGroupToBasket(event.key)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
             is ShiftingEvent.SelectStageMode -> onSelectStageMode(event.stageMode)
@@ -406,6 +409,74 @@ class ShiftingViewModel @Inject constructor(
             } else {
                 current.copy(selectedAnimals = remaining)
             }
+        }
+        recomputeSubmitGate()
+    }
+
+    /**
+     * The kid-stage ladder's operator cards (docs/decisions/kid-stage-age-ladder.md): due groups
+     * the backend could NOT auto-raise because zero or several pens carry the target tag, so the
+     * operator selects the destination. A LIVE read on open — a cached due set would offer kids
+     * the sweeper or another operator already raised. A failed read leaves the form usable with
+     * no cards; the due work is still reachable through ordinary search.
+     */
+    private fun refreshKidStageDue() {
+        viewModelScope.launch {
+            countsRepository.kidStageDue()
+                .onSuccess { response ->
+                    val groups = response.groups
+                        .filterNot { it.autoRaisePending }
+                        .filter { it.goats.isNotEmpty() }
+                        .map { group ->
+                            ShiftingDueGroupUi(
+                                key = "${group.parkId}:${group.fromStage}:${group.toStage}",
+                                title = group.title,
+                                goats = group.goats.map { goat ->
+                                    ShiftingAnimalUi(
+                                        goatId = goat.goatId,
+                                        displayId = goat.displayId.ifBlank { goat.tag },
+                                        tag = goat.tag,
+                                        parkId = goat.parkId,
+                                        shedId = goat.shedId,
+                                        parkName = goat.parkName,
+                                        shedName = goat.shedName,
+                                        partitionLabel = goat.partitionLabel,
+                                        // The due read returns only ALIVE kids, and the submit
+                                        // gate checks lifecycle, so carry the fact explicitly.
+                                        lifecycleStatus = "alive",
+                                    )
+                                },
+                            )
+                        }
+                    _state.update { it.copy(dueGroups = groups) }
+                }
+                .onFailure { error ->
+                    crashReporter.recordException(error, "counts shifting kid-stage due fetch failed")
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_READ_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "shifting_kid_stage_due",
+                            AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
+                        ),
+                    )
+                }
+        }
+    }
+
+    /**
+     * Fills the basket with a due group's kids through the SAME per-animal add the tap and scan
+     * paths use, so the farm guard and duplicate handling can never be bypassed. The card is then
+     * removed from the list — its work is in the basket; the next form open re-reads what is due.
+     */
+    private fun onAddDueGroupToBasket(key: String) {
+        if (!beginEdit()) return
+        _state.update { current ->
+            val group = current.dueGroups.firstOrNull { it.key == key } ?: return@update current
+            var next = current
+            for (goat in group.goats) {
+                next = addAnimalToBasket(next, goat)
+            }
+            next.copy(dueGroups = current.dueGroups.filterNot { it.key == key })
         }
         recomputeSubmitGate()
     }

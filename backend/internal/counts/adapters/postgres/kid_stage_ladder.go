@@ -35,6 +35,8 @@ SELECT
     COALESCE(aid1.identifier_value, '') AS tag,
     g.park_id::text,
     g.shed_id::text,
+    COALESCE(park.name, '') AS park_name,
+    COALESCE(shed.name, '') AS shed_name,
     CASE
         WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
             THEN btrim(gsp.partition_label)
@@ -43,6 +45,8 @@ SELECT
     btrim(g.management_stage) AS management_stage,
     COALESCE(g.dob, g.approx_dob) AS born_on
 FROM goats g
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN goat_shed_partitions gsp
        ON gsp.tenant_id = g.tenant_id
       AND gsp.goat_id = g.goat_id
@@ -103,7 +107,7 @@ func (r *Repository) ListKidStageDueGoats(
 	for rows.Next() {
 		var goat domain.KidStageDueGoat
 		if err := rows.Scan(&goat.GoatID, &goat.DisplayID, &goat.Tag, &goat.ParkID, &goat.ShedID,
-			&goat.PartitionLabel, &goat.ManagementStage, &goat.BornOn); err != nil {
+			&goat.ParkName, &goat.ShedName, &goat.PartitionLabel, &goat.ManagementStage, &goat.BornOn); err != nil {
 			return nil, fmt.Errorf("counts: kid stage due goats scan: %w", err)
 		}
 		out = append(out, goat)

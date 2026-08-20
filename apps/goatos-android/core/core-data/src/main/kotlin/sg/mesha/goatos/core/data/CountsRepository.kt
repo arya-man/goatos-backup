@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownRowDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
+import sg.mesha.goatos.core.network.dto.KidStageDueResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 
@@ -191,6 +192,14 @@ interface CountsRepository {
      *
      * Bounded to one screen-page ([COUNTS_ANIMAL_LOOKUP_PAGE_SIZE]) like every other mobile fetch.
      */
+    /**
+     * Kids whose age has crossed a kid-stage ladder step (K0->K1 at 2 days, K1->K2 at 7), grouped
+     * per (park, step) with candidate destination pens — the raise form's due card. A LIVE
+     * work-due read fetched when the form opens; not cached, because a stale due set would offer
+     * kids the sweeper (or another operator) already raised.
+     */
+    suspend fun kidStageDue(): Result<KidStageDueResponseDto>
+
     suspend fun lookupAnimals(
         query: String,
         parkId: String? = null,
@@ -357,6 +366,9 @@ class DefaultCountsRepository(
 
     // A stale cached match would name an animal that has since exited or moved, and caching it
     // properly would mean an unbounded on-device whole-herd search index. See lookupAnimals' KDoc.
+    override suspend fun kidStageDue(): Result<KidStageDueResponseDto> = // offline-first-guard:ignore: live work-due read; a cached due set would offer already-raised kids
+        runCatching { api.getCountsShiftingStageDue() }
+
     override suspend fun lookupAnimals( // offline-first-guard:ignore: live tag->goat_id resolution, not a screen read model
         query: String,
         parkId: String?,

@@ -177,6 +177,8 @@
     <string name="counts_shifting_from">से</string>
     <string name="counts_shifting_to">तक</string>
     <string name="counts_shifting_from_multiple">कई शेड</string>
+    <string name="counts_shifting_due_hint">इन्हें इस शिफ्टिंग में जोड़ें, फिर वह शेड चुनें जहाँ इन्हें जाना है।</string>
+    <string name="counts_shifting_due_add">इन बच्चों को जोड़ें</string>
     <string name="counts_more_fields">अधिक विवरण</string>
 
     <!-- Birth / Death workflow module -->

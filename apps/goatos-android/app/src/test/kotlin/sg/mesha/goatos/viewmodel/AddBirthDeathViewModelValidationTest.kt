@@ -40,6 +40,7 @@ import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationShedDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatLocationPathDto
+import sg.mesha.goatos.core.network.dto.KidStageDueResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -459,6 +460,8 @@ private class FakeAddCountsRepository : CountsRepository {
             ),
         ),
     )
+
+    override suspend fun kidStageDue(): Result<KidStageDueResponseDto> = Result.success(KidStageDueResponseDto())
 }
 
 private class NoopAddAnalyticsPort : AnalyticsPort {
