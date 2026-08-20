@@ -263,10 +263,6 @@ tr.voff td{opacity:.5}
 .vlead{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.55}
 .vlead b{color:var(--ink)}
 /* ---- products under a vaccine ---- */
-.unres{display:flex;gap:11px;align-items:flex-start;margin-top:12px;border:1px dashed var(--warn);
-  background:var(--warnx);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:var(--ink)}
-.ux{flex:none;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:12px;
-  font-weight:800;background:var(--warn);color:var(--bg);margin-top:1px}
 /* ---- safety rules ---- */
 .ro{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
   border:1px solid var(--line);border-radius:6px;padding:2px 8px;vertical-align:middle;margin-left:8px;font-family:"Public Sans",sans-serif}
@@ -400,14 +396,10 @@ details.ref[open] summary::before{content:"▾"}
 .st-v::-webkit-outer-spin-button,.st-v::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .st-v[type=number]{-moz-appearance:textfield}
 .durrow{display:flex;gap:8px;align-items:stretch}
+.durnum{flex:1}
 .durrow .stepper{flex:1}
 .durrow input{flex:1;min-width:0;font:inherit;font-size:14.5px;padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);text-align:center;font-variant-numeric:tabular-nums}
 .durunit,.durrow select{flex:0 0 auto;font:inherit;font-size:14px;padding:9px 10px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink)}
-.qk.zero{width:100%;margin-top:8px}
-.pn-quick{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
-.qk{flex:1;min-width:34px;padding:6px 0;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);
-  color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums}
-.qk:hover{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
 .foot{margin-top:24px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line);padding-top:14px}
 </style>
 
@@ -761,7 +753,7 @@ const BASE=[
   repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
  {id:"z1z3",code:"Z1\nZ3",name:"Z1 + Z3",on:true,priority:0,type:"Booster",dose:"2 ml",vial:"100 doses",herd:1649,
   blurb:"Given together as one combination, like ET + TT. Killed, bacterial/toxoid. Real product names still needed.",
-  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,unnamed:true,combo:true,
+  stage:"all",sex:"all",spp:"both",breed:"all",maxLate:14,combo:true,
   courses:{mv:[{age:28},{after:21}]},repeat:{n:6,unit:"months",anchor:"last_dose"},guide:{n:6,unit:"months"}},
  {id:"ppr",code:"PPR",name:"PPR",on:true,priority:2,type:"Single",dose:"1 ml",vial:"100 doses",herd:1649,
   blurb:"Peste des Petits Ruminants. One dose, then a repeat every 3 years.",
@@ -888,31 +880,21 @@ function openDuration(a,days,cb,opts){
   opts=opts||{};
   if(popOwner===a){closePop();return}
   pop.innerHTML="";pop.removeAttribute("role");
-  let [n,u]=splitDur(days);
-  const presets=opts.presets||[7,14,21,28,84,182,365];
+  const [n0,u0]=splitDur(days);
+  const nums=Array.from({length:60},(_,i)=>i+1);
   const d=document.createElement("div");d.className="pop-num";
   d.innerHTML=`<span class="pn-l">${opts.title||"Set a length"}</span>
     <div class="durrow">
-      <div class="stepper">
-        <button type="button" class="st" data-s="-1" aria-label="Decrease">\u2212</button>
-        <input class="st-v" inputmode="numeric" value="${n}" aria-label="Amount">
-        <button type="button" class="st" data-s="1" aria-label="Increase">+</button>
-      </div>
+      <select class="durnum" aria-label="Amount">${nums.map(n=>
+        `<option${n===n0?" selected":""}>${n}</option>`).join("")}</select>
       <select class="durunit" aria-label="Unit">${DUR_UNITS.map(([lbl])=>
-        `<option${lbl===u?" selected":""}>${lbl}</option>`).join("")}</select>
-    </div>
-    ${opts.allowZero?`<button type="button" class="qk zero">no wait at all</button>`:""}
-    <div class="pn-quick">${presets.map(p=>`<button type="button" class="qk" data-q="${p}">${fmtDur(p)}</button>`).join("")}</div>`;
+        `<option${lbl===u0?" selected":""}>${lbl}</option>`).join("")}</select>
+    </div>`;
   pop.appendChild(d);
-  const inp=d.querySelector(".st-v"), sel=d.querySelector(".durunit");
-  const mult=()=>DUR_UNITS.find(x=>x[0]===sel.value)[1];
-  const emit=()=>{const v=Math.max(opts.allowZero?0:1,parseInt(inp.value,10)||0);inp.value=v;cb(v*mult())};
-  d.querySelectorAll(".st").forEach(b=>b.onclick=()=>{inp.value=Math.max(opts.allowZero?0:1,(parseInt(inp.value,10)||0)+ +b.dataset.s);emit()});
-  inp.oninput=emit; sel.onchange=emit;
-  inp.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();closePop()}};
-  d.querySelectorAll(".qk[data-q]").forEach(b=>b.onclick=()=>{closePop();cb(+b.dataset.q)});
-  const z=d.querySelector(".qk.zero"); if(z)z.onclick=()=>{closePop();cb(0)};
-  popOwner=a;place(a);inp.focus();inp.select();
+  const num=d.querySelector(".durnum"), sel=d.querySelector(".durunit");
+  const emit=()=>cb((+num.value)*DUR_UNITS.find(x=>x[0]===sel.value)[1]);
+  num.onchange=emit; sel.onchange=emit;
+  popOwner=a;place(a);num.focus();
 }
 function openNumber(a,title,val,min,max,cb){
   if(popOwner===a){closePop();return}
@@ -972,10 +954,6 @@ function renderDetail(){
         <button class="sws" id="vOn" role="switch" aria-checked="${v.on}" aria-label="Include ${v.name}"></button></span>
     </div>
     <div class="card-b"${v.on?"":' style="opacity:.45;pointer-events:none"'}>
-      ${v.unnamed?`<div class="unres"><span class="ux">?</span><div><b>Real name still needed.</b>
-        ${v.combo?"Z1 and Z3 are given together as one combination — there is no Z2. Those are our shorthand, not what is printed on the bottles.":`"${v.name}" is our shorthand, not what is printed on the bottle.`} Until the label name and maker are
-        recorded, a lot cannot be traced back to a manufacturer and a vial photo showing "${v.name}" proves nothing.
-        The schedule below is the one the vet gave for it.</div></div>`:""}
       <div class="sec-label">Which animals get it</div>
       <div class="whoq">Give to
         <button class="f" data-e="stage">${label(STAGE_OPTS,v.stage)} <span class="car">▾</span></button>
@@ -1016,8 +994,7 @@ function renderDetail(){
         <div class="sent" style="line-height:2.3">
           <span class="lead">Repeat</span>
           Do it again every
-          <button class="f" data-e="rn">${v.repeat.n} <span class="car">▾</span></button>
-          <button class="f" data-e="ru">${plural(v.repeat.n,v.repeat.unit)} <span class="car">▾</span></button>
+          <button class="f" data-e="rep">${v.repeat.n} ${plural(v.repeat.n,v.repeat.unit)} <span class="car">▾</span></button>
           after
           <button class="f" data-e="ra">${label(ANCHOR_OPTS,v.repeat.anchor)} <span class="car">▾</span></button>.
         </div>
@@ -1057,11 +1034,12 @@ function wireDetail(v){
       case "spp":return openSelect(b,SPP_OPTS,v.spp,x=>set("spp",x));
       case "sex":return openSelect(b,SEX_OPTS,v.sex,x=>set("sex",x));
       case "breed":return openSelect(b,BREED_OPTS,v.breed,x=>set("breed",x));
-      case "age":return openDuration(b,doses(v)[i].age,x=>{doses(v)[i].age=x;touch()},{title:"Give the first dose at",presets:[7,14,28,35,49,84,112,140]});
-      case "after":return openDuration(b,doses(v)[i].after,x=>{doses(v)[i].after=x;touch()},{title:"Booster, after the first dose",presets:[21,28,35,42,56]});
-      case "late":return openDuration(b,v.maxLate,x=>{v.maxLate=x;touch()},{title:"Can be given up to … late",presets:[7,14,21,30,60]});
-      case "rn":return openNumber(b,"Repeat every",v.repeat.n,1,999,x=>{v.repeat.n=x;touch()});
-      case "ru":return openSelect(b,UNIT_OPTS,v.repeat.unit,x=>{v.repeat.unit=x;touch()});
+      case "age":return openDuration(b,doses(v)[i].age,x=>{doses(v)[i].age=x;touch()},{title:"Give the first dose at"});
+      case "after":return openDuration(b,doses(v)[i].after,x=>{doses(v)[i].after=x;touch()},{title:"Booster, after the first dose"});
+      case "late":return openDuration(b,v.maxLate,x=>{v.maxLate=x;touch()},{title:"Can be given up to … late"});
+      case "rep":return openDuration(b,days(v.repeat),x=>{
+        const [n,u]=splitDur(x); v.repeat.n=n; v.repeat.unit=u; touch();
+      },{title:"Repeat every"});
       case "ra":return openSelect(b,ANCHOR_OPTS,v.repeat.anchor,x=>{v.repeat.anchor=x;touch()});
       case "proc":return openSelect(b,[["Vaccination drive · version 9","v9"],["Vaccination drive · version 8 (retired)","v8"],["Per-goat video QA · version 2","qa2"]],"v9",()=>touch());
     }}});
@@ -1162,9 +1140,9 @@ function renderPlanCards(){
       b.onclick=()=>openSelect(b,TRUST_OPTS,plan[k],x=>{plan[k]=x;touch()});
       return;
     }
-    const cfg={warmup:{title:"Settle in for",presets:[0,3,7,14,21],allowZero:true,days:true},
-               kidUntil:{title:"Treat as a kid until",presets:[84,112,140],weeks:true},
-               wave2:{title:"Second visit, after",presets:[14,21,28,35]}}[k];
+    const cfg={warmup:{title:"Settle in for",presets:[0,7,14,21],allowZero:true,maxDays:90},
+               kidUntil:{title:"Treat as a kid until",presets:[84,112,140],maxDays:365},
+               wave2:{title:"Second visit, after",presets:[14,21,28,35],maxDays:180}}[k];
     const asDays=k==="kidUntil"?plan[k]*7:plan[k];
     b.innerHTML=(k==="kidUntil"?fmtDur(plan[k]*7):fmtDur(plan[k]))+' <span class="car">\u25be</span>';
     b.onclick=()=>openDuration(b,asDays,x=>{plan[k]=k==="kidUntil"?Math.round(x/7):x;touch()},cfg);
