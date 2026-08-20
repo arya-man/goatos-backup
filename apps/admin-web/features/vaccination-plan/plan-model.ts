@@ -79,7 +79,8 @@ function readSchedule(ruleDsl: unknown): ScheduleRule[] {
 }
 
 /**
- * "2 as a kid · 2 as an adult" — how the doses are triggered, not their codes.
+ * "2 from date of birth · 1 on a drive" — how the doses are TRIGGERED, not
+ * their codes.
  *
  * Triggers are the CEO-facing distinction that actually matters: a birth_age
  * dose lands on its own from the animal's date of birth, a manual_campaign dose

@@ -14,12 +14,13 @@
  *   - no dead text: a card with nothing to say does not render
  */
 
-import { useState, useTransition } from "react";
+import { useCallback, useState, useTransition } from "react";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
-import { startNewVersion } from "./plan-actions";
-import { describeFirstDoses, describeRepeats, type VaccineGroup } from "./plan-model";
+import { readVersionSettings, startNewVersion } from "./plan-actions";
+import { describeFirstDoses, describeRepeats, groupSchedule, type VaccineGroup } from "./plan-model";
+import { VersionSheet, type VersionSheetData } from "./version-sheet";
 
 type Props = {
   versions: ProtocolConfigItem[];
@@ -30,6 +31,10 @@ type Props = {
 export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<VersionSheetData | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetError, setSheetError] = useState<string | null>(null);
 
   const live = versions.find((v) => v.status === "published");
   const draft = versions.find((v) => v.status === "draft");
@@ -45,12 +50,34 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
     });
   }
 
+  const openVersion = useCallback(async (version: ProtocolConfigItem) => {
+    setSheetOpen(true);
+    setSheetLoading(true);
+    setSheetError(null);
+    setSheet(null);
+    const result = await readVersionSettings(version.protocol_version_id);
+    setSheetLoading(false);
+    if (!result.ok) {
+      setSheetError(result.error);
+      return;
+    }
+    setSheet({
+      label: version.version_label || `V${version.version}`,
+      inForce: `${formatDate(version.effective_from)} – ${formatDate(version.effective_to)}`,
+      published: formatDate(version.published_at),
+      vaccines: groupSchedule(result.ruleDsl),
+    });
+  }, []);
+
   if (loadError) {
     return (
       <div className="vp">
         <section className="card">
           <div className="card-b">
-            <p className="alert">{loadError}</p>
+            <div className="alert">
+              <span className="ic">!</span>
+              <span>{loadError}</span>
+            </div>
           </div>
         </section>
       </div>
@@ -83,7 +110,12 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
             )}
           </div>
         </div>
-        {error ? <p className="alert">{error}</p> : null}
+        {error ? (
+          <div className="alert" style={{ marginTop: 16, marginBottom: 0 }}>
+            <span className="ic">!</span>
+            <span>{error}</span>
+          </div>
+        ) : null}
       </header>
 
       {live ? (
@@ -117,7 +149,7 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                 </div>
               </div>
               <div>
-                <div className="k">Published</div>
+                <div className="k">Published by</div>
                 {/* The publisher's name is shown only when the record has one.
                     Older rows were written by an import and have no author, and
                     a dash beside a date reads as a broken field rather than as
@@ -167,6 +199,14 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                   yet.
                 </span>
                 <span className="ab-spacer" />
+                <button
+                  className="btn ghost sm"
+                  type="button"
+                  disabled
+                  title="Discarding a draft is not built yet. Publishing a new version replaces it."
+                >
+                  Discard it
+                </button>
                 <a className="btn sm" href={draftHref}>
                   Open the draft
                 </a>
@@ -195,6 +235,7 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                     <th>Version</th>
                     <th>In force</th>
                     <th>Published</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -210,6 +251,11 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                         {formatDate(v.published_at)}
                         {v.published_by ? <span className="vby">{v.published_by}</span> : null}
                       </td>
+                      <td>
+                        <button className="vbtn" type="button" onClick={() => void openVersion(v)}>
+                          View settings
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -217,6 +263,15 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
             </div>
           </div>
         </section>
+      ) : null}
+
+      {sheetOpen ? (
+        <VersionSheet
+          data={sheet}
+          loading={sheetLoading}
+          error={sheetError}
+          onClose={() => setSheetOpen(false)}
+        />
       ) : null}
     </div>
   );
