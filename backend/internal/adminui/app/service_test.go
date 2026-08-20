@@ -488,7 +488,7 @@ func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	if len(parkChips.Options) != 1 || parkChips.Options[0].Key != "park-1" {
 		t.Fatalf("park display chips = %#v", parkChips.Options)
 	}
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 	ruleScopes := optionGroupByID(t, config.OptionGroups, "rule_scopes")
 	if len(ruleScopes.Options) != 2 || ruleScopes.Options[1].Key != "park:park-1" || !strings.Contains(ruleScopes.Options[1].Label, "P1") {
 		t.Fatalf("rule scopes were not DB compiled: %#v", ruleScopes.Options)
@@ -524,7 +524,7 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 
 	// rule_categories is a fixed visible vocabulary for this deploy: an empty DB must still expose
 	// vaccination and the reopened Feed Direction Config template category. Future categories stay hidden.
@@ -608,11 +608,11 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	item := navLeafByID(t, resp.Navigation.Groups, "config")
+	item := navLeafByID(t, resp.Navigation.Groups, "vaccination-plan")
 	if !item.Enabled {
 		t.Fatalf("config should remain visible to protocol.read users: %#v", item)
 	}
-	control := controlByID(t, pageByRouteID(t, resp.Pages, "config").Controls, "publish_protocol_version")
+	control := controlByID(t, pageByRouteID(t, resp.Pages, "vaccination-plan").Controls, "publish_protocol_version")
 	if control.Enabled {
 		t.Fatalf("publish control should be disabled without protocol.publish: %#v", control)
 	}
@@ -627,7 +627,7 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	publishControl := controlByID(t, pageByRouteID(t, publisher.Pages, "config").Controls, "publish_protocol_version")
+	publishControl := controlByID(t, pageByRouteID(t, publisher.Pages, "vaccination-plan").Controls, "publish_protocol_version")
 	if !publishControl.Enabled || publishControl.DisabledReason != "" {
 		t.Fatalf("publish control should be enabled for protocol.publish: %#v", publishControl)
 	}
@@ -641,7 +641,7 @@ func TestBootstrapConfigPublishesReopenedRuleAuthoringGroups(t *testing.T) {
 			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 
 	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
 	if got := optionKeys(feedItems); !got["reviewed_template_rows"] || !got["feed-1"] {
@@ -702,7 +702,7 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 	if actionCenter.Copy["empty.work_board"] != "No backend work for this scope." {
 		t.Fatalf("page copy was not config-overridden: %q", actionCenter.Copy["empty.work_board"])
 	}
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 	for _, blocked := range []struct {
 		group string
 		key   string
@@ -958,12 +958,12 @@ func (fakeUIConfigFamilies) LoadContractFamilies(ctx context.Context, tenantID s
 		{RouteID: "action-center", Key: "copy.empty.work_board", Value: "No backend work for this scope."},
 		{RouteID: "action-center", Key: "table.work-board.column.owner.label", Value: "Responsible"},
 		{RouteID: "action-center", Key: "option.park_display_chips.park-1.label", Value: "Wrong park label"},
-		{RouteID: "config", Key: "option.rule_scopes.park:park-1.label", Value: "Wrong park scope"},
-		{RouteID: "config", Key: "option.rule_breeds.DB Breed.label", Value: "Wrong breed"},
-		{RouteID: "config", Key: "option.schedule_sop_labels.sop-v1.label", Value: "Wrong SOP"},
-		{RouteID: "config", Key: "option.feed_items.feed-1.label", Value: "Wrong feed"},
-		{RouteID: "config", Key: "option.source_systems.manual_admin.label", Value: "Wrong source label"},
-		{RouteID: "config", Key: "option.source_systems.manual_admin.tone", Value: "ok"},
+		{RouteID: "vaccination-plan", Key: "option.rule_scopes.park:park-1.label", Value: "Wrong park scope"},
+		{RouteID: "vaccination-plan", Key: "option.rule_breeds.DB Breed.label", Value: "Wrong breed"},
+		{RouteID: "vaccination-plan", Key: "option.schedule_sop_labels.sop-v1.label", Value: "Wrong SOP"},
+		{RouteID: "vaccination-plan", Key: "option.feed_items.feed-1.label", Value: "Wrong feed"},
+		{RouteID: "vaccination-plan", Key: "option.source_systems.manual_admin.label", Value: "Wrong source label"},
+		{RouteID: "vaccination-plan", Key: "option.source_systems.manual_admin.tone", Value: "ok"},
 	}
 	families.RevisionInputs["admin-ui-config-values"] = "ui-config-rev-1"
 	return families, err

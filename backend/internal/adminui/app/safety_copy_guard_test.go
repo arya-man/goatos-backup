@@ -12,13 +12,13 @@ import (
 // TestSafetyRuleCopyMatchesEnforcedDefaults locks the read-only "Automatic safety
 // rules" copy shown in the vaccination Config UI to the constants the engine actually
 // enforces. The Config UI shows these values read-only, and the copy strings are
-// hand-written prose in pageSpecificCopy("config"); the enforced values live in the
+// hand-written prose in pageSpecificCopy("vaccination-plan"); the enforced values live in the
 // vaccination/obligation defaults. If someone changes an enforced default (e.g.
 // live-to-live 28 -> 21) without updating the UI sentence — or edits the sentence
 // without changing enforcement — this test fails. That guarantees the screen can never
 // display a number the engine does not actually enforce.
 func TestSafetyRuleCopyMatchesEnforcedDefaults(t *testing.T) {
-	copyMap := pageSpecificCopy("config")
+	copyMap := pageSpecificCopy("vaccination-plan")
 
 	cases := []struct {
 		key     string
