@@ -19,16 +19,22 @@ import { useCallback, useState, useTransition } from "react";
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
 import { readVersionSettings, startNewVersion } from "./plan-actions";
-import { describeFirstDoses, describeRepeats, groupSchedule, type VaccineGroup } from "./plan-model";
+import {
+  describeFirstDoses,
+  describeRepeats,
+  groupSchedule,
+  type PlanCatalogEntry,
+} from "./plan-model";
 import { VersionSheet, type VersionSheetData } from "./version-sheet";
 
 type Props = {
   versions: ProtocolConfigItem[];
-  liveVaccines: VaccineGroup[];
+  catalog: PlanCatalogEntry[];
+  changeNotes: Record<string, string>;
   loadError: string | null;
 };
 
-export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Props) {
+export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadError }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<VersionSheetData | null>(null);
@@ -37,6 +43,7 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
   const [sheetError, setSheetError] = useState<string | null>(null);
 
   const live = versions.find((v) => v.status === "published");
+  const inPlanCount = catalog.filter((v) => v.inPlan).length;
   const draft = versions.find((v) => v.status === "draft");
   const earlier = versions
     .filter((v) => v.status === "retired")
@@ -145,7 +152,8 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
               <div>
                 <div className="k">Vaccines in the plan</div>
                 <div className="lv">
-                  <span className="num">{liveVaccines.length}</span>
+                  <span className="num">{inPlanCount}</span> of{" "}
+                  <span className="num">{catalog.length}</span>
                 </div>
               </div>
               <div>
@@ -167,7 +175,7 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
               </div>
             </div>
 
-            {liveVaccines.length > 0 ? (
+            {catalog.length > 0 ? (
               <div className="scroll">
                 <table className="tabl">
                   <thead>
@@ -175,16 +183,24 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                       <th>Vaccine</th>
                       <th>First doses</th>
                       <th>Repeats</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
-                    {liveVaccines.map((v) => (
-                      <tr key={v.code}>
+                    {catalog.map((v) => (
+                      <tr className={v.inPlan ? undefined : "voff"} key={v.code}>
                         <td>
                           <b>{v.name}</b>
                         </td>
-                        <td>{describeFirstDoses(v.firstDoses)}</td>
-                        <td>{describeRepeats(v.repeats)}</td>
+                        <td>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</td>
+                        <td>{v.inPlan ? describeRepeats(v.repeats) : "—"}</td>
+                        <td>
+                          {v.inPlan ? (
+                            <span className="tag on">in the plan</span>
+                          ) : (
+                            <span className="tag">not in this plan</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -235,12 +251,13 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                     <th>Version</th>
                     <th>In force</th>
                     <th>Published</th>
+                    <th>What changed</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {earlier.map((v) => (
-                    <tr className="voff" key={v.protocol_version_id}>
+                    <tr key={v.protocol_version_id}>
                       <td>
                         <b>{v.version_label || `V${v.version}`}</b>
                       </td>
@@ -251,6 +268,7 @@ export function VaccinationPlanConsole({ versions, liveVaccines, loadError }: Pr
                         {formatDate(v.published_at)}
                         {v.published_by ? <span className="vby">{v.published_by}</span> : null}
                       </td>
+                      <td>{changeNotes[v.protocol_version_id] ?? "—"}</td>
                       <td>
                         <button className="vbtn" type="button" onClick={() => void openVersion(v)}>
                           View settings
