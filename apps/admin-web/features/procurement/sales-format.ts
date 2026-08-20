@@ -128,6 +128,15 @@ export function monthlyAnimalsTotal(month: MonthlyLike): number {
 }
 
 /**
+ * Rupees earned from LIVE animals in one month: sheep plus goats, manure excluded. Shown as the
+ * animals column's second figure so a head count carries the money it earned; it never drives the
+ * bar height, which stays the head count.
+ */
+export function monthlyAnimalRevenueTotal(month: MonthlyLike): number {
+  return month.sheep_revenue + month.goat_revenue;
+}
+
+/**
  * The market-check loss per kg: how far our landed cost sits ABOVE the market's quoted price.
  * Positive means we land dearer than the market sells. Null when either side is unrecorded — a
  * missing quote is not a zero-loss claim.
