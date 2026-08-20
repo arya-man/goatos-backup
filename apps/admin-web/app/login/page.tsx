@@ -27,9 +27,18 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
   const showLocalAuthRepair =
     shouldCheckLocalDashboard && localDashboardCheck !== null && localDashboardCheck.ok === false;
   const showGoogleLogin = !shouldCheckLocalDashboard;
-  const loginInstruction = showGoogleLogin
-    ? "Use Google SSO or email/password to continue."
-    : "Use the local dashboard shortcut on this machine.";
+  // Google's redirect sign-in lands back HERE with the credential waiting in a cookie, so this
+  // render is the tail of a sign-in, not a fresh one. Say so instead of showing the sign-in form
+  // again while Firebase and the session exchange finish.
+  const completingGoogleRedirect =
+    showGoogleLogin &&
+    firstSearchParam(sp.google_redirect) === "1" &&
+    firstSearchParam(sp.google_error) === undefined;
+  const loginInstruction = completingGoogleRedirect
+    ? "Google confirmed your account. Finishing sign-in — this takes a few seconds."
+    : showGoogleLogin
+      ? "Use Google SSO or email/password to continue."
+      : "Use the local dashboard shortcut on this machine.";
 
   return (
     <main className="login-shell">
@@ -59,13 +68,17 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
             <div className="crumb">
               Mesha <b>Admin</b>
             </div>
-            <h1 style={{ margin: "4px 0 0", fontSize: 26, letterSpacing: "-.4px" }}>Sign in</h1>
+            <h1 style={{ margin: "4px 0 0", fontSize: 26, letterSpacing: "-.4px" }}>
+              {completingGoogleRedirect ? "Signing you in" : "Sign in"}
+            </h1>
             <p className="muted" style={{ margin: "10px 0 0", fontSize: 13.5, lineHeight: 1.6 }}>
               {loginInstruction}
             </p>
 
             {showGoogleLogin ? <LoginSessionGuard nextPath={nextPath} /> : null}
-            {showGoogleLogin ? <GoogleLogin nextPath={nextPath} /> : null}
+            {showGoogleLogin ? (
+              <GoogleLogin nextPath={nextPath} completingGoogleRedirect={completingGoogleRedirect} />
+            ) : null}
 
             {showLocalDashboardShortcut ? (
               <Link

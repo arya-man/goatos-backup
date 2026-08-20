@@ -28,3 +28,17 @@ test("Google redirect callback returns to the public dashboard origin behind Clo
   assert.match(routeSource, /x-forwarded-host/);
   assert.doesNotMatch(routeSource, /new URL\(LOGIN_PATH,\s*request\.url\)/);
 });
+
+// The hop back from Google re-renders /login with the credential still to be exchanged. Without a
+// completing state that render reads as "you are back at the sign-in page" for the seconds Firebase
+// and the session exchange take, which is what operators report as being bounced to login.
+const loginPageSource = readFileSync(join(here, "../../app/login/page.tsx"), "utf8");
+
+test("the return hop from Google renders as a sign-in in progress, not a fresh sign-in form", () => {
+  assert.match(loginPageSource, /google_redirect\S*\)\s*===\s*"1"/);
+  assert.match(loginPageSource, /completingGoogleRedirect=\{completingGoogleRedirect\}/);
+  assert.match(loginSource, /completingGoogleRedirect \? "signing_in" : "loading"/);
+  // The sign-in controls stand down only while completing; a failed exchange must bring them back.
+  assert.match(loginSource, /const showSignInControls = !completingRedirect;/);
+  assert.match(loginSource, /setCompletingRedirect\(false\)/);
+});

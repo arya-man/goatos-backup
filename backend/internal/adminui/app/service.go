@@ -457,10 +457,15 @@ func pages() []domain.PageContract {
 		// them on screen in every shoulder-surfing context the register is used in.
 		page("vendors", "/procurement/vendors", "/procurement/vendors", "Vendors", "The procurement register: livestock agents and stockists, transport, feed, manure, labour, insurance and site trades.", "module-surface",
 			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
-		// The SALES module: animal and manure sales, demand pipelines and evidence panels. The one
-		// table is the deals ledger; the overview blocks render from GET /sales/overview.
+		// The SALES module: animal and manure sales, demand pipelines and evidence panels. The deals
+		// ledger is server-paged; the buyer board rides on GET /sales/overview and is paged in the
+		// renderer, so its contract declares the page size and no row click -- there is no buyer
+		// record to open, and a declared row click the page cannot honour would be a contract lie.
 		page("sales", "/procurement/sales", "/procurement/sales", "Sales", "Animal and manure sales across CBE and CPT — revenue, buyers, demand pipeline and weight evidence.", "module-surface",
-			[]domain.TableContract{tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100})}),
+			[]domain.TableContract{
+				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
+				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
+			}),
 		page("source-load", "/procurement/source-entry/loads/{load_id}", "/procurement/source-entry/loads/{load_id}", "Source load", "Full source-entry journey timeline, animal rows, decisions, and arrival gate.", "record-drilldown",
 			[]domain.TableContract{
 				table("load-goats", "Animals in load", "/procurement/source-entry/loads/{load_id}/goats", []string{"animal_ids", "selection", "current_stage", "source_entry", "ownership", "health", "warmup", "downstream"}, "load_goat"),
@@ -686,6 +691,13 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 
 // tableP is table() with an explicit page-size option set (the shed-wise list defaults to 25 with
 // 25/50/100 options, unlike the generic 5/10/25/50 board default).
+// withoutRowClick turns off a table's row-click rule. A board whose rows open nothing must not
+// advertise a drawer the renderer cannot open -- the contract is what the client trusts.
+func withoutRowClick(t domain.TableContract) domain.TableContract {
+	t.RowClick = domain.RowClickRule{Enabled: false, SummaryFields: []string{}, DetailFields: []string{}}
+	return t
+}
+
 func tableP(id, title, source string, cols []string, rowParam string, pageSizes []int) domain.TableContract {
 	t := table(id, title, source, cols, rowParam)
 	t.PageSizeOptions = pageSizes
@@ -2434,9 +2446,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.monthly_revenue.empty": "No closed sales in this view yet.",
 			"chart.monthly_animals.title": "Animals sold by month",
 			"chart.monthly_animals.value": "Animals",
+			"chart.monthly_animals.sub":   "Animal revenue",
 			"chart.monthly_animals.empty": "No animals sold in this view yet.",
 			"chart.monthly_manure.title":  "Manure sold by month",
 			"chart.monthly_manure.value":  "Manure (kg)",
+			"chart.monthly_manure.sub":    "Manure revenue",
 			"chart.monthly_manure.empty":  "No manure sales in this view yet.",
 			"chart.price_bands.title":     "Price per kg by breed",
 			"chart.price_bands.value":     "Price per kg",
@@ -2503,6 +2517,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.deals":            "No sales match this view.",
 			"empty.deals.unset":      "No sales recorded yet. Record the first sale to start the ledger.",
 			"summary.count":          "deals",
+			"summary.buyers":         "buyers",
 
 			// Filters.
 			"filter.farm":  "Farm",
