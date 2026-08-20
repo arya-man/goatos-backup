@@ -30,6 +30,10 @@ func (f *milkPreparationHandlerService) GetBreakdown(context.Context, domain.Cou
 	return domain.CountsBreakdown{}, nil
 }
 
+func (f *milkPreparationHandlerService) GetHerdAnalytics(context.Context, domain.HerdAnalyticsQuery) (domain.HerdAnalytics, error) {
+	return domain.HerdAnalytics{}, nil
+}
+
 func (f *milkPreparationHandlerService) GetMilkPreparation(_ context.Context, query domain.MilkPreparationQuery) (domain.MilkPreparationPage, error) {
 	f.query = query
 	return f.page, nil

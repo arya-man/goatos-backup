@@ -133,8 +133,17 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "counts", Label: "Counts", Icon: "bar-chart-3", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
-					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
+					// Herd Analytics is the Counts leadership read: what the herd IS
+					// (breed, pen tag, sex, kid/adult) beside what MOVED it (births in,
+					// deaths and sales out, pen movements within), month by month.
+					navLeaf("counts-herd-analytics", "Herd Analytics", "/counts/analytics", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+					// Herd Register is HIDDEN from admin-web for now (maintainer decision
+					// 2026-08-20), the same way Feed Packing is hidden above: the
+					// /counts/herd page route stays reachable and its page contract is
+					// still compiled, so a deep link and every existing test keep working
+					// — only the left-bar leaf is withheld. Uncomment to restore it.
+					// navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 				},
 			},
 			// Milk is its own vertical, split out of Counts here the same way it was split out of the
@@ -448,6 +457,10 @@ func pages() []domain.PageContract {
 			}),
 		page("herd-register", "/counts/herd", "/counts/herd", "Herd Register", "Counts entry point for goat registration/import and vaccination trigger proof.", "module-surface",
 			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
+		// Counts -> Herd Analytics. Composition of the live herd beside the flow that
+		// changed it. Every figure is backend-owned: the page derives no count of its own,
+		// and the flow table's columns come from this table contract.
+		page("herd-analytics", "/counts/analytics", "/counts/analytics", "Herd Analytics", "Herd composition by breed, pen tag, sex and age, beside month-by-month births, deaths and sales over a chosen window. Composition is the live herd right now; flow is counted off the canonical row that recorded each event.", "module-surface", nil),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
 			[]domain.TableContract{sortable(
 				// Every dimension sorts, including the count. Ordering applies to the PAGE the
@@ -2999,6 +3012,105 @@ func pageSpecificCopy(id string) map[string]string {
 			"growth_director.trust.rework":                 "Bounced by the verifier",
 			"growth_director.trust.rework.sub":             "left out of every gain number on this page",
 		}
+	// -------------------------------------------------------------------------------
+	// COUNTS -> HERD ANALYTICS. Two questions on one screen, and the copy has to keep
+	// them apart because they have different time grains:
+	//
+	//   COMPOSITION — what the herd IS, RIGHT NOW. Breed, pen tag, sex, kid/adult. The
+	//   same live population Counts Breakdown reports, so a reader can move between the
+	//   two screens without the denominator changing under them. It is NOT a window
+	//   figure and every caption says so.
+	//
+	//   FLOW — what CHANGED the herd, month by month. Births in, deaths and sales out,
+	//   pen movements within. Each figure is counted off the canonical row that recorded
+	//   the event, dated the day the farm did the thing: a birth on the kid's own date, an
+	//   exit on the exit date, a movement on the day the operator COMPLETED it rather than
+	//   the day it was raised or approved.
+	//
+	// NET CHANGE subtracts every exit, including culled/transferred/lost, which is why
+	// "Other exits" is a visible column rather than a silent remainder — a net that did not
+	// reconcile with the columns beside it would read as a bug in the arithmetic.
+	// -------------------------------------------------------------------------------
+	case "herd-analytics":
+		return map[string]string{
+			"crumb":        "Counts",
+			"banner.basis": "Composition is the live herd as it stands today. Births and exits are counted on the day the farm recorded them, across the window you choose.",
+
+			// The window filter is the SHARED calendar (components/date-range-picker.tsx),
+			// the same control the Verify board and the video log use — one calendar across
+			// the product rather than a third one that drifts. Its label set is therefore the
+			// same "filter.date.*" key shape those screens use.
+			//
+			// Park scope is deliberately NOT offered here: it lives in the top bar (Scope
+			// Chrome Rule) and the filter only carries it forward, so the hint says where to
+			// change it rather than leaving a reader hunting for a control that is not there.
+			"filter.date":                  "Window",
+			"filter.date.today":            "Today",
+			"filter.date.single":           "Single day",
+			"filter.date.range":            "Date range",
+			"filter.date.aria":             "Choose the dates of herd movement to show",
+			"filter.date.previous_month":   "Previous month",
+			"filter.date.next_month":       "Next month",
+			"filter.date.range_start_hint": "Pick the first day of the range.",
+			"filter.date.range_end_hint":   "Now pick the last day of the range.",
+			"filter.date.range_separator":  "to",
+			"filter.scope_readonly":        "Park scope is set in the top bar.",
+
+			"kpi.live.label":   "Animals in the herd",
+			"kpi.live.sub":     "Live animals today, across the selected scope",
+			"kpi.age.label":    "Kids · Adults",
+			"kpi.age.sub":      "Every live animal falls in exactly one of the two",
+			"kpi.births.label": "Births",
+			"kpi.births.sub":   "Kids born in the window",
+			"kpi.deaths.label": "Deaths",
+			"kpi.deaths.sub":   "Animals recorded dead in the window",
+			"kpi.sold.label":   "Sold",
+			"kpi.sold.sub":     "Animals sold in the window",
+			"kpi.net.label":    "Net herd change",
+			"kpi.net.sub":      "Births minus every exit — deaths, sales, culled, transferred and lost",
+
+			"section.mix.aria": "Herd composition charts",
+
+			"chart.flow.title":      "Births and exits by month",
+			"chart.flow.hint":       "One point per India calendar month. A birth counts on the kid's own date; an exit counts on the day the animal left the herd. A window that starts or ends mid-month leaves that month's point covering only the days inside it.",
+			"chart.movements.title": "Animals moved between pens",
+			"chart.movements.hint":  "Head count carried by shifts the operator completed that month — a shift raised or approved but not yet walked is not counted here.",
+			"chart.breed.title":     "Breed mix",
+			"chart.breed.hint":      "Live animals by breed, right now",
+			"chart.stage.title":     "Pen tag mix",
+			"chart.stage.hint":      "Live animals by the tag their pen carries, shown exactly as recorded — near-duplicate tags stay separate so a source-data gap remains visible",
+			"chart.age.title":       "Kids and adults",
+			"chart.age.hint":        "Age band follows the pen tag; an animal with no recorded age counts as an adult",
+			"chart.sex.title":       "Male and female",
+			"chart.sex.hint":        "Live animals by sex, right now",
+			"chart.park.title":      "Animals by farm",
+			"chart.park.hint":       "Where the live herd sits today",
+			"chart.empty":           "Nothing recorded in this scope yet.",
+			"chart.legend_aria":     "Chart series legend",
+			"chart.value_aria":      "animals",
+
+			"series.births":      "Births",
+			"series.deaths":      "Deaths",
+			"series.sold":        "Sold",
+			"series.other_exits": "Other exits",
+			"series.kids":        "Kids",
+			"series.adults":      "Adults",
+
+			"label.animals_noun":     "animals",
+			"label.kids":             "kids",
+			"label.adults":           "adults",
+			"label.unassigned_breed": "No breed",
+			"label.unassigned_stage": "No tag",
+			"label.unassigned_sex":   "Not recorded",
+			"label.unassigned_park":  "No farm",
+
+			"state.unavailable": "Herd analytics unavailable",
+			"section.kpi.aria":  "Herd headline figures",
+			"empty.title":       "Nothing recorded yet",
+			"empty.body":        "No live animals, and no births or exits in this scope and window. Figures appear as soon as the herd is registered and the field work is recorded.",
+			"error.title":       "Herd analytics is unavailable",
+			"error.body":        "The herd read failed. The Counts screens themselves are unaffected; try again shortly.",
+		}
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
@@ -5133,6 +5245,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(herdRegisterOptionGroups())
 	case "counts-breakdown":
 		return withGenericOptionGroups(countsBreakdownOptionGroups())
+	case "herd-analytics":
+		return withGenericOptionGroups(nil)
 	case "milk-preparation":
 		return withGenericOptionGroups(nil)
 	case "weighing-weights":
