@@ -143,12 +143,49 @@ data class ShiftingShedUi(
         get() = listOfNotNull(shedId, partitionLabel).joinToString("|")
 }
 
+/**
+ * Where a newborn recorded in one park may be placed (maintainer decision 2026-08-20).
+ *
+ * Backend-owned: [mode] and [notice] are rendered verbatim, and [pens] is already filtered to the
+ * park's kid pens. The form must not re-derive any of it from the shed list.
+ */
+@Immutable
+data class BirthPlacementUi(
+    val mode: String = MODE_RECORD_LATER,
+    val notice: String = "",
+    val pens: List<ShiftingShedUi> = emptyList(),
+) {
+    /** The park has exactly one kid pen: it is shown read-only and the operator does not choose. */
+    val isAutomatic: Boolean get() = mode == MODE_AUTOMATIC && pens.size == 1
+
+    /** The park has several kid pens: the picker offers only those. */
+    val isChoice: Boolean get() = mode == MODE_CHOOSE && pens.isNotEmpty()
+
+    /**
+     * No kid pen is set for this park, so the operator picks freely from the full cascade and the
+     * kid's care steps carry Record shed. This is also what an older cached payload decodes to,
+     * which is the safe fallback: the form behaves exactly as it did before this contract existed.
+     */
+    val isRecordLater: Boolean get() = !isAutomatic && !isChoice
+
+    /** The single kid pen in automatic mode, else null. */
+    val automaticPen: ShiftingShedUi? get() = pens.singleOrNull()?.takeIf { isAutomatic }
+
+    companion object {
+        const val MODE_AUTOMATIC = "automatic"
+        const val MODE_CHOOSE = "choose"
+        const val MODE_RECORD_LATER = "record_later"
+    }
+}
+
 /** One park a movement may target, with the sheds that belong to it. */
 @Immutable
 data class ShiftingParkUi(
     val parkId: String,
     val name: String,
     val sheds: List<ShiftingShedUi> = emptyList(),
+    /** Newborn placement for this park. Only the birth form reads it; shifting ignores it. */
+    val birthPlacement: BirthPlacementUi = BirthPlacementUi(),
 )
 
 @Immutable

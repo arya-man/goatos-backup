@@ -172,7 +172,7 @@ func TestColostrumFilterRejectsAwaitingVideo(t *testing.T) {
 // predicate and the generator from drifting apart.
 func TestColostrumLensPicksUpEveryFeedTheBirthTemplateGenerates(t *testing.T) {
 	birthAt := ist(5, 6, 0) // early morning: every birth-day slot is still ahead
-	template := TemplateBirthKidAt(birthAt)
+	template := TemplateBirthKidAt(birthAt, false)
 
 	actions := make([]WorkflowAction, 0, len(template.Actions))
 	for _, at := range template.Actions {

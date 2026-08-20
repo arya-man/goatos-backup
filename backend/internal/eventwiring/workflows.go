@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
@@ -19,7 +20,12 @@ import (
 // verification app service/category registry in the API process.
 func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *slog.Logger) *tasksapp.Service {
 	verificationRepo := verificationpg.NewRepository(pool, timeout)
-	return tasksapp.NewService(taskspg.NewRepository(pool, timeout), log).
+	// Same identity seam bootstrap/api.go wires, so a Record shed step completed against a durable
+	// consumer process places the kid exactly as one completed against the API does. A repository
+	// missing it would accept the answer and silently leave the animal in the wrong pen.
+	workflowRepo := taskspg.NewRepository(pool, timeout).
+		WithIdentityTxWriter(identitypg.NewRepository(pool, timeout))
+	return tasksapp.NewService(workflowRepo, log).
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationRepo))
 }
 

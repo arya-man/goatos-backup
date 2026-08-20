@@ -61,7 +61,11 @@ const val COUNTS_ANIMAL_LOOKUP_PAGE_SIZE = 20
 // the toggle would sit greyed out with no reason under it until the operator happened to refresh.
 // Changing the key discards those rows instead of quietly rendering them wrong; the catalog is
 // bounded config that re-fetches on the next screen open, so the cost is one request.
-private const val SHIFTING_DESTINATIONS_CACHE_KEY = "shifting-destinations-tag-v2"
+// Namespace bumped to -v3 when the per-park birth_placement contract was added. A payload cached by
+// the previous build carries no birth_placement, so it decodes to the record_later default and the
+// birth form would fall back to the full shed cascade in a park that actually HAS a kid pen --
+// offering pens the write now refuses. Bumping the key retires those rows instead of serving them.
+private const val SHIFTING_DESTINATIONS_CACHE_KEY = "shifting-destinations-birth-placement-v3"
 
 /**
  * Reserved cache key for the birth form's breed vocabulary inside the breakdown-meta blob table.

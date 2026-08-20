@@ -81,6 +81,18 @@ data class AddBirthUiState(
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
 
+    /** The selected park's newborn-placement contract; the record_later default before a park is picked. */
+    val birthPlacement: BirthPlacementUi
+        get() = destinationParks.firstOrNull { it.parkId == parkId }?.birthPlacement ?: BirthPlacementUi()
+
+    /**
+     * The pens the operator may actually choose from: this park's kid pens when it has any, and the
+     * full shed cascade only when it has none. Deriving the picker from ONE place keeps the options
+     * shown and the option resolved on selection from ever disagreeing.
+     */
+    val placementOptions: List<ShiftingShedUi>
+        get() = if (birthPlacement.isRecordLater) shedsForSelectedPark else birthPlacement.pens
+
     /** The composite dropdown key for the current selection; shed alone is not unique. */
     val shedOptionKey: String
         get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
@@ -217,25 +229,53 @@ fun AddBirthScreen(
                         onSelect = { onEvent(AddBirthEvent.SelectPark(it)) },
                         enabled = state.destinationParks.isNotEmpty(),
                     )
-                    val sheds = state.shedsForSelectedPark
-                    // Keyed on optionKey (shedId|partitionLabel), never shedId alone. The
-                    // destinations feed returns one row PER PARTITION, so a shed with 10 pens
-                    // appears 10 times under one shedId; matching on shedId resolved every one of
-                    // them to the first row, which meant the operator could pick "Godel 1 - 7" and
-                    // silently record "Godel 1 - 1".
-                    val selectedShed = sheds.firstOrNull { it.optionKey == state.shedOptionKey }
-                    CountsDropdownField(
-                        label = stringResource(R.string.counts_field_shed),
-                        selectedLabel = selectedShed?.displayLabel,
-                        placeholder = if (state.parkId.isBlank()) {
-                            stringResource(R.string.counts_select_farm_first)
-                        } else {
-                            stringResource(R.string.counts_select_shed)
-                        },
-                        options = sheds.map { CountsDropdownOption(it.optionKey, it.displayLabel) },
-                        onSelect = { onEvent(AddBirthEvent.SelectShed(it)) },
-                        enabled = sheds.isNotEmpty(),
-                    )
+                    // WHERE THE KID GOES IS RESOLVED, NOT BROWSED. A park with exactly one kid pen
+                    // places the kid there and shows it read-only; a park with several narrows the
+                    // picker to those pens; only a park with none falls back to the full cascade.
+                    // The options come from state.placementOptions so the list shown and the option
+                    // resolved on selection can never disagree.
+                    val placement = state.birthPlacement
+                    val automaticPen = placement.automaticPen
+                    if (automaticPen != null) {
+                        // Read-only, exactly like the locked DOB field above: the operator is being
+                        // told where the kid goes, not asked.
+                        CountsTextField(
+                            value = automaticPen.displayLabel,
+                            onValueChange = {},
+                            label = stringResource(R.string.counts_field_shed),
+                            readOnly = true,
+                        )
+                    } else {
+                        val sheds = state.placementOptions
+                        // Keyed on optionKey (shedId|partitionLabel), never shedId alone. The
+                        // destinations feed returns one row PER PARTITION, so a shed with 10 pens
+                        // appears 10 times under one shedId; matching on shedId resolved every one of
+                        // them to the first row, which meant the operator could pick "Godel 1 - 7" and
+                        // silently record "Godel 1 - 1".
+                        val selectedShed = sheds.firstOrNull { it.optionKey == state.shedOptionKey }
+                        CountsDropdownField(
+                            label = stringResource(R.string.counts_field_shed),
+                            selectedLabel = selectedShed?.displayLabel,
+                            placeholder = if (state.parkId.isBlank()) {
+                                stringResource(R.string.counts_select_farm_first)
+                            } else {
+                                stringResource(R.string.counts_select_shed)
+                            },
+                            options = sheds.map { CountsDropdownOption(it.optionKey, it.displayLabel) },
+                            onSelect = { onEvent(AddBirthEvent.SelectShed(it)) },
+                            enabled = sheds.isNotEmpty(),
+                        )
+                    }
+                    // Backend-composed copy, rendered VERBATIM: it explains where kids in this park
+                    // go, or why this park has no kid pen yet. Composing it here from a blank pen
+                    // list would tell the operator nothing about the reason.
+                    if (state.parkId.isNotBlank() && placement.notice.isNotBlank()) {
+                        Text(
+                            text = placement.notice,
+                            color = MeshaColors.Muted,
+                            style = MeshaType.cardSubtitle,
+                        )
+                    }
                     state.destinationsMessage?.let { message ->
                         Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                     }

@@ -982,6 +982,25 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, r, http.StatusBadRequest, "missing_park_id", "park_id is required", nil)
 		return
 	}
+	// NEWBORN PLACEMENT MUST RESOLVE TO A KID PEN (maintainer decision 2026-08-20).
+	//
+	// The birth form used to offer the FULL park -> shed -> pen cascade and this handler validated
+	// nothing about the shed at all -- it read park_id only, to derive the provisional tag prefix.
+	// A K0 kid could therefore be recorded into a Buck shed, an F2 pen or an ICU pen, and nothing
+	// downstream noticed, because the newborn's stage is pinned K0 regardless of where it lands.
+	//
+	// The rule lives in counts/domain.ResolveBirthPlacement and is resolved from the SAME catalog
+	// the form renders its options from, so the pens the operator is offered are byte-for-byte the
+	// pens this write accepts. A park with no kid pen configured accepts any pen (a birth is never
+	// lost over missing setup) and the kid's care workflow then carries the Record shed step.
+	//
+	// REJECTED, NEVER SILENTLY CORRECTED. Redirecting the kid to the right pen behind the
+	// operator's back would file the animal somewhere they never saw and never tell them.
+	if err := h.validateNewbornPlacement(r.Context(), tenantID, parkID, fields); err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+
 	prefix, err := h.validator.BirthProvisionalPrefix(r.Context(), tenantID, parkID)
 	if err != nil {
 		h.writeAppError(w, r, err)
@@ -1421,4 +1440,54 @@ func (h *AppWriteHandler) writeError(w http.ResponseWriter, r *http.Request, sta
 		TraceID:     appTraceID(r),
 		Retryable:   status >= http.StatusInternalServerError,
 	}, cause)
+}
+
+// validateNewbornPlacement enforces the kid-pen placement rule on the birth write path.
+//
+// It reads the destination catalog ONCE per birth. That read is a bounded configuration catalog
+// (two parks, ~154 sheds) that the repository already serves whole for the shifting form, so this
+// adds one indexed catalog round trip to a birth -- not a per-child or per-pen query, and never an
+// N+1: the litter fans out from this single validated body.
+//
+// A shed_id absent from the catalog is NOT re-litigated here. The catalog is built only from active
+// locations, and identity's create path already fails closed on an inactive or nonexistent shed
+// with its own ground-truth check (admin_goat_create: shed active, shed under park, pen belongs to
+// shed). Turning this into a second, looser copy of that guard is exactly the drift the single-rule
+// design avoids -- so an unknown shed falls through to identity, which refuses it.
+func (h *AppWriteHandler) validateNewbornPlacement(ctx context.Context, tenantID, parkID string, fields map[string]json.RawMessage) error {
+	var shedID string
+	if raw, present := fields["shed_id"]; !present || json.Unmarshal(raw, &shedID) != nil || strings.TrimSpace(shedID) == "" {
+		return identityapp.BadRequest("missing_shed_id", "shed_id is required")
+	}
+	shedID = strings.TrimSpace(shedID)
+	var partitionLabel *string
+	if raw, present := fields["partition_label"]; present {
+		var label string
+		if err := json.Unmarshal(raw, &label); err == nil {
+			if trimmed := strings.TrimSpace(label); trimmed != "" {
+				partitionLabel = &trimmed
+			}
+		}
+	}
+
+	catalog, err := h.shifting.ShiftingDestinations(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	// Resolved from the request's OWN park only. A kid pen in the other park is not this birth's
+	// placement, and passing one park's rows is what keeps the rule from ever reading across parks.
+	for _, park := range catalog.Parks {
+		if park.ParkID != parkID {
+			continue
+		}
+		placement := domain.ResolveBirthPlacement(park.Sheds)
+		if placement.AllowsPen(shedID, partitionLabel) {
+			return nil
+		}
+		return identityapp.BadRequest("invalid_newborn_placement",
+			"a newborn must be placed in this park's kid pen")
+	}
+	// The park is not in the catalog at all (no active park row). Identity's create path owns that
+	// failure; refusing here would duplicate it with a worse message.
+	return nil
 }
