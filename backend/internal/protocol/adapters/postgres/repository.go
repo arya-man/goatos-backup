@@ -397,6 +397,121 @@ WHERE tenant_id = $1
 	return id, nil
 }
 
+// ReplaceDraftVersion swaps one draft for another in a SINGLE transaction: the old draft and
+// its derived rules are removed, then the replacement is created.
+//
+// Saving an edited plan used to be two calls -- create the replacement, then discard the old
+// one -- which meant both drafts existed between them. That is exactly what one-draft-per-scope
+// forbids, so with the invariant enforced in the database every save would have been refused.
+// Doing it the other way round in two calls is worse: a failure after the discard destroys the
+// farm's draft. One transaction is the only ordering that is both allowed and safe -- nothing
+// observes two drafts, and a failure anywhere leaves the original untouched.
+func (r *Repository) ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(in.TenantID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	protocol, err := pgconv.UUID(in.ProtocolID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: protocol id: %w", err)
+	}
+	oldID, err := pgconv.UUID(replacesVersionID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: replaced version id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("protocol: begin replace draft: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	// The old draft goes first, so the replacement never has to coexist with it.
+	if _, err := qtx.DeleteDraftProtocolRules(ctx, protocoldb.DeleteDraftProtocolRulesParams{TenantID: tenant, ProtocolVersionID: oldID}); err != nil {
+		return "", fmt.Errorf("protocol: replace draft rules: %w", err)
+	}
+	if _, err := qtx.DeleteDraftProtocolTriggers(ctx, protocoldb.DeleteDraftProtocolTriggersParams{TenantID: tenant, ProtocolVersionID: oldID}); err != nil {
+		return "", fmt.Errorf("protocol: replace draft triggers: %w", err)
+	}
+	rows, err := qtx.DiscardProtocolVersion(ctx, protocoldb.DiscardProtocolVersionParams{TenantID: tenant, ProtocolVersionID: oldID})
+	if err != nil {
+		return "", fmt.Errorf("protocol: replace discard version: %w", err)
+	}
+	if rows == 0 {
+		// Refusing here rather than creating a second draft anyway: the row is either gone
+		// or already published, and both mean the edit was authored against something that
+		// no longer exists.
+		if _, err := r.GetVersion(ctx, in.TenantID, replacesVersionID); err != nil {
+			return "", err
+		}
+		return "", ports.ErrVersionNotDraft
+	}
+
+	scopeUUID := pgconv.NullableUUID(in.ScopeID)
+	if in.Version <= 0 {
+		lockKey := strings.Join([]string{in.TenantID, in.ProtocolID, strings.TrimSpace(in.ScopeType), optionalString(in.ScopeID)}, ":")
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
+			return "", fmt.Errorf("protocol: lock version allocator: %w", err)
+		}
+		if err := tx.QueryRow(ctx, `
+SELECT COALESCE(MAX(version), 0) + 1
+FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_id = $2
+  AND scope_type = $3
+  AND scope_id IS NOT DISTINCT FROM $4`, tenant, protocol, in.ScopeType, scopeUUID).Scan(&in.Version); err != nil {
+			return "", fmt.Errorf("protocol: allocate version number: %w", err)
+		}
+	}
+
+	id, err := qtx.CreateProtocolVersion(ctx, protocoldb.CreateProtocolVersionParams{
+		TenantID:      tenant,
+		ProtocolID:    protocol,
+		ScopeType:     in.ScopeType,
+		ScopeID:       scopeUUID,
+		Version:       in.Version,
+		VersionLabel:  in.VersionLabel,
+		Status:        in.Status,
+		EffectiveFrom: pgconv.Date(&in.EffectiveFrom),
+		EffectiveTo:   pgconv.Date(in.EffectiveTo),
+		RuleDsl:       pgconv.JSONB(in.RuleDsl),
+		ProofPolicy:   pgconv.JSONB(in.ProofPolicy),
+		SopVersionID:  pgconv.NullableUUID(in.SopVersionID),
+		DraftedBy:     pgconv.NullableUUID(in.DraftedBy),
+	})
+	if err != nil {
+		if isProtocolUniqueViolation(err, "protocol_versions_one_draft_per_scope_idx") {
+			// Another draft exists for this scope that is not the one being replaced.
+			return "", ports.ErrDraftAlreadyExists
+		}
+		return "", fmt.Errorf("protocol: replace create version: %w", err)
+	}
+	scopeID := optionalString(in.ScopeID)
+	if in.ScopeType == "tenant" {
+		scopeID = ""
+	}
+	if err := recordProtocolCreateAudit(ctx, tx, protocolVersionCreatedAction, in.TenantID, "protocol_version", id, in.ScopeType, scopeID, in.DraftedBy, map[string]any{
+		"protocol_id":    in.ProtocolID,
+		"scope_type":     in.ScopeType,
+		"scope_id":       optionalString(in.ScopeID),
+		"version":        in.Version,
+		"version_label":  in.VersionLabel,
+		"status":         in.Status,
+		"effective_from": in.EffectiveFrom.UTC().Format(time.RFC3339Nano),
+		"effective_to":   optionalTime(in.EffectiveTo),
+		"replaces":       replacesVersionID,
+	}, map[string]any{"idempotency_scope": "protocol.version.replace"}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("protocol: commit replace draft: %w", err)
+	}
+	return id, nil
+}
+
 // GetVersion fetches a version by id within a tenant.
 func (r *Repository) GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error) {
 	ctx, cancel := r.withTimeout(ctx)

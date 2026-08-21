@@ -31,6 +31,8 @@ type fakeConfig struct {
 	gotStagesTn   string
 	discardErr    error
 	discardedID   string
+	replacedID    string
+	replaceErr    error
 }
 
 func (f *fakeConfig) CreateDefinition(_ context.Context, in domain.NewDefinition) (string, error) {
@@ -54,6 +56,13 @@ func (f *fakeConfig) PublishVersion(context.Context, string, string, *string, ..
 func (f *fakeConfig) DiscardVersion(_ context.Context, _ string, versionID string) error {
 	f.discardedID = versionID
 	return f.discardErr
+}
+func (f *fakeConfig) ReplaceDraftVersion(_ context.Context, _ domain.NewVersion, replacesVersionID string) (string, error) {
+	f.replacedID = replacesVersionID
+	if f.replaceErr != nil {
+		return "", f.replaceErr
+	}
+	return "version-replacement", nil
 }
 func (f *fakeConfig) ListConfigs(_ context.Context, _ string, category string) ([]domain.ConfigListItem, error) {
 	f.gotListCat = category

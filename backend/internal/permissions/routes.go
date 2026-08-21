@@ -251,6 +251,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getProtocolVersion", Method: "GET", Pattern: "/protocols/versions/{version_id}", Permissions: []string{ProtocolRead}},
 	{OperationID: "publishProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/publish", Permissions: []string{ProtocolPublish}},
 	{OperationID: "discardProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/discard", Permissions: []string{ProtocolWrite}},
+	{OperationID: "replaceProtocolDraftVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/replace", Permissions: []string{ProtocolWrite}},
 	{OperationID: "vaccinationImpactPreview", Method: "POST", Pattern: "/protocols/vaccination/impact-preview", Permissions: []string{ProtocolRead}},
 	{OperationID: "runVaccinationManualCampaign", Method: "POST", Pattern: "/vaccination/manual-campaigns", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "listActionCenterObligations", Method: "GET", Pattern: "/action-center/obligations", Permissions: []string{ObligationRead}},

@@ -1227,6 +1227,12 @@ func arrayHasNonBlankString(v any) bool {
 // No executable-contract checks run here, unlike publish: a draft has never reached
 // the field, so nothing downstream references it and there is nothing to keep
 // consistent. The draft-only restriction lives in the repository's SQL.
+// ReplaceDraftVersion swaps one draft for another atomically. See the port for why the two
+// halves cannot be separate calls.
+func (s *Service) ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error) {
+	return s.repo.ReplaceDraftVersion(ctx, in, replacesVersionID)
+}
+
 func (s *Service) DiscardVersion(ctx context.Context, tenantID, versionID string) error {
 	return s.repo.DiscardVersion(ctx, tenantID, versionID)
 }

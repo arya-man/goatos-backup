@@ -27,6 +27,7 @@ type ProtocolConfig interface {
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
 	DiscardVersion(ctx context.Context, tenantID, versionID string) error
+	ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error)
 	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 	ListAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error)
 }
@@ -58,6 +59,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /protocols/versions/{version_id}", h.GetVersion)
 	mux.HandleFunc("POST /protocols/versions/{version_id}/publish", h.PublishVersion)
 	mux.HandleFunc("POST /protocols/versions/{version_id}/discard", h.DiscardVersion)
+	mux.HandleFunc("POST /protocols/versions/{version_id}/replace", h.ReplaceDraftVersion)
 }
 
 type errorEnvelope struct {
@@ -106,6 +108,8 @@ func (h *Handler) CreateDefinition(w http.ResponseWriter, r *http.Request) {
 // ---- create version (always draft) ----
 
 type createVersionRequest struct {
+	// Only the replace route reads this: the create route takes the protocol from its path.
+	ProtocolID    string          `json:"protocol_id"`
 	ScopeType     string          `json:"scope_type"`
 	ScopeID       *string         `json:"scope_id"`
 	Version       *int32          `json:"version"`
@@ -382,6 +386,57 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- publish ----
+
+// ReplaceDraftVersion swaps the named draft for the supplied one, atomically.
+//
+// Saving an edited plan is exactly this: the draft on screen becomes a new draft carrying the
+// edits, and the old row goes. Done as two calls it either creates a second draft -- which
+// one-draft-per-scope refuses -- or deletes the farm's work before knowing the replacement
+// will land.
+func (h *Handler) ReplaceDraftVersion(w http.ResponseWriter, r *http.Request) {
+	var req createVersionRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	replaces := strings.TrimSpace(r.PathValue("version_id"))
+	if replaces == "" || strings.TrimSpace(req.ProtocolID) == "" || strings.TrimSpace(req.ScopeType) == "" ||
+		req.EffectiveFrom.IsZero() || len(req.RuleDsl) == 0 {
+		h.badRequest(w, r, "missing_required_field", "protocol_id, scope_type, effective_from, and rule_dsl are required")
+		return
+	}
+	id, err := h.config.ReplaceDraftVersion(r.Context(), domain.NewVersion{
+		TenantID: tenantID(r), ProtocolID: req.ProtocolID,
+		ScopeType: req.ScopeType, ScopeID: req.ScopeID, VersionLabel: req.VersionLabel,
+		Status: "draft", EffectiveFrom: req.EffectiveFrom, EffectiveTo: req.EffectiveTo,
+		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
+		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r),
+	}, replaces)
+	if errors.Is(err, ports.ErrVersionNotDraft) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "version_not_draft", Message: "that version is not a draft and cannot be replaced", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrDraftAlreadyExists) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "draft_already_exists", Message: "this plan already has another draft; discard it before saving", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, app.ErrInvalidRuleDSL) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_rule_dsl", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "protocol version not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, map[string]string{"protocol_version_id": id})
+}
 
 // DiscardVersion deletes a draft version and its rules.
 //

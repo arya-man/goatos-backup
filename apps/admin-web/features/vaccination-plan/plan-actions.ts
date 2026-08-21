@@ -24,6 +24,7 @@ import { toRuleDsl } from "./editor-model";
 import {
   createProtocolVersion,
   discardProtocolVersion,
+  replaceProtocolDraftVersion,
   getProtocolVersion,
   listProtocolConfigs,
   publishProtocolVersion,
@@ -166,7 +167,14 @@ export async function saveDraftPlan(
     ? configs.data.items?.find((i) => i.protocol_version_id === draftVersionId)?.version_label
     : undefined;
 
-  const saved = await createProtocolVersion(existing.data.protocol_id, {
+  // ONE call, one transaction: the old draft goes and the replacement lands together.
+  //
+  // This used to create the replacement and then discard the old row. That means both
+  // drafts exist in between, which one-draft-per-plan now refuses in the database -- so
+  // every save would have failed with a conflict. Reversing the order in the client is no
+  // better: a failure after the discard leaves the farm with nothing.
+  const saved = await replaceProtocolDraftVersion(draftVersionId, {
+    protocol_id: existing.data.protocol_id,
     scope_type: existing.data.scope_type ?? "tenant",
     scope_id: existing.data.scope_id || undefined,
     version_label: label,
@@ -176,24 +184,6 @@ export async function saveDraftPlan(
     sop_version_id: existing.data.sop_version_id || undefined,
   });
   if (!saved.ok) return failure("could not save the draft", saved.error);
-
-  // The superseded draft must go: one draft at a time is the rule, and leaving
-  // the old row behind would break it for everything downstream -- the list
-  // renders the FIRST draft it finds, so the loser becomes work nobody can reach
-  // or discard.
-  //
-  // The save itself has already succeeded at this point, so a failure here is
-  // reported rather than thrown: the edit is safe, but the caller is told the
-  // tidy-up did not happen instead of being left with a silently broken rule.
-  const removed = await discardProtocolVersion(draftVersionId);
-  if (!removed.ok && !isNotFound(removed.error)) {
-    revalidatePath(PLAN_ROUTE);
-    return {
-      ok: false,
-      error:
-        "Your changes were saved, but the previous draft could not be removed. Reload the plan and discard the older draft before publishing.",
-    };
-  }
 
   revalidatePath(PLAN_ROUTE);
   return { ok: true, versionId: saved.data.protocol_version_id };
