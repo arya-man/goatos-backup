@@ -794,8 +794,10 @@ function StockCards({
           <p className="muted small">{fa(pageContract, "stock.hint")}</p>
           <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
             {active.map((item) => (
-              <div className="kpi card" key={item.feed_item_key}>
-                <div className="dl" title={item.feed_item_label}>{item.feed_item_label}</div>
+              <div className="kpi card" key={`${item.farm_label}|${item.feed_item_key}`}>
+                <div className="dl" title={`${item.farm_label} · ${item.feed_item_label}`}>
+                  {`${item.farm_label} · ${item.feed_item_label}`}
+                </div>
                 <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
                   {item.days_left === null || item.days_left === undefined
                     ? fa(pageContract, "stock.never_directed")
