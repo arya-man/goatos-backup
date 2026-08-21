@@ -421,7 +421,7 @@ SELECT gi.identifier_value
 FROM goats g
 JOIN goat_identifiers gi
   ON gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
- AND gi.identifier_type = 'rfid' AND gi.status = 'active'
+ AND gi.identifier_type = 'animal_identifier_1' AND gi.status = 'active'
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1::uuid
