@@ -45,6 +45,24 @@ type AdminUiConfigFamilyRevision struct {
 	Metadata    []byte
 }
 
+type AnalyticsAppEvent struct {
+	EventID         pgtype.UUID
+	TenantID        pgtype.UUID
+	ActorID         pgtype.UUID
+	DeviceID        string
+	EventName       string
+	Properties      []byte
+	ClientEventTime pgtype.Timestamptz
+	ReceivedAt      pgtype.Timestamptz
+	Flavor          string
+	AppVersionName  string
+	AppVersionCode  pgtype.Int4
+	RequestID       string
+	TraceID         string
+	ClientInfo      []byte
+	ClientEventID   pgtype.Text
+}
+
 type AnalyticsCrashDaily struct {
 	TenantID             pgtype.UUID
 	EventDate            pgtype.Date
@@ -1236,6 +1254,32 @@ type FeedPackingCompletion struct {
 	PartitionKey    pgtype.Text
 }
 
+type FeedPurchase struct {
+	FeedPurchaseID     pgtype.UUID
+	TenantID           pgtype.UUID
+	ParkID             pgtype.UUID
+	FarmLabel          string
+	FeedItemLabel      string
+	FeedItemKey        pgtype.Text
+	BatchNo            int32
+	PurchaseDate       pgtype.Date
+	QuantityKg         pgtype.Numeric
+	FeedCost           pgtype.Numeric
+	TransportCost      pgtype.Numeric
+	LoadingCost        pgtype.Numeric
+	UnloadingCost      pgtype.Numeric
+	TotalCost          pgtype.Numeric
+	PerKgCost          pgtype.Numeric
+	ConsumedAtImportKg pgtype.Numeric
+	DepletesFrom       pgtype.Date
+	Vendor             string
+	PaymentReleased    pgtype.Numeric
+	PaymentStatus      string
+	SourceRef          string
+	ImportedAt         pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+}
+
 type FeedRationGroup struct {
 	RationGroupID    pgtype.UUID
 	TenantID         pgtype.UUID
@@ -1370,6 +1414,30 @@ type FeedTransportTask struct {
 	PartitionLabel   string
 }
 
+type FeedWastageCompletion struct {
+	CompletionID      pgtype.UUID
+	TenantID          pgtype.UUID
+	ParkID            pgtype.UUID
+	ShedID            pgtype.UUID
+	PartitionLabel    pgtype.Text
+	PartitionKey      pgtype.Text
+	TargetDate        pgtype.Date
+	Workflow          string
+	Status            string
+	WastageProofRef   pgtype.Text
+	VerifiedBy        pgtype.UUID
+	VerifiedAt        pgtype.Timestamptz
+	ReworkReason      pgtype.Text
+	CompletedBy       pgtype.UUID
+	IdempotencyKey    string
+	WastageKg         pgtype.Numeric
+	WastageRecordedBy pgtype.UUID
+	WastageRecordedAt pgtype.Timestamptz
+	RowVersion        int32
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type Goat struct {
 	GoatID             pgtype.UUID
 	TenantID           pgtype.UUID
@@ -1405,6 +1473,8 @@ type Goat struct {
 	BreedingDate       pgtype.Date
 	LastDeliveryDate   pgtype.Date
 	TimeOfBirth        pgtype.Time
+	MilkCohort         pgtype.Text
+	K3MilkStartedOn    pgtype.Date
 }
 
 type GoatBirth struct {
@@ -1510,6 +1580,27 @@ type GoatOwnership struct {
 	DecisionID   pgtype.UUID
 	CreatedAt    pgtype.Timestamptz
 	CreatedBy    pgtype.UUID
+}
+
+type GoatSaleAllocation struct {
+	AllocationID   pgtype.UUID
+	TenantID       pgtype.UUID
+	GoatID         pgtype.UUID
+	SalesDealID    pgtype.UUID
+	ParkID         pgtype.UUID
+	ShedID         pgtype.UUID
+	PartitionLabel pgtype.Text
+	TagNumber      pgtype.Text
+	Status         string
+	AllocatedAt    pgtype.Timestamptz
+	AllocatedBy    pgtype.UUID
+	ReleasedAt     pgtype.Timestamptz
+	ReleasedBy     pgtype.UUID
+	ReleaseReason  pgtype.Text
+	IdempotencyKey string
+	RowVersion     int32
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type GoatShedPartition struct {
@@ -2193,29 +2284,34 @@ type ObligationGoatShiftWatermark struct {
 }
 
 type ObligationInstance struct {
-	ObligationID           pgtype.UUID
-	TenantID               pgtype.UUID
-	ProtocolVersionID      pgtype.UUID
-	RuleID                 pgtype.UUID
-	BatchID                pgtype.UUID
-	TargetType             string
-	TargetID               pgtype.UUID
-	ScopeType              string
-	ScopeID                pgtype.UUID
-	DueAt                  pgtype.Timestamptz
-	WindowStart            pgtype.Timestamptz
-	WindowEnd              pgtype.Timestamptz
-	Status                 string
-	SopTaskID              pgtype.UUID
-	IdempotencyKey         string
-	GeneratedByTriggerID   pgtype.UUID
-	Sequence               int32
-	CompletedAt            pgtype.Timestamptz
-	CreatedAt              pgtype.Timestamptz
-	UpdatedAt              pgtype.Timestamptz
-	RowVersion             int32
-	BatchingHoldCount      pgtype.Int4
-	FirstBatchingHoldUntil pgtype.Timestamptz
+	ObligationID                  pgtype.UUID
+	TenantID                      pgtype.UUID
+	ProtocolVersionID             pgtype.UUID
+	RuleID                        pgtype.UUID
+	BatchID                       pgtype.UUID
+	TargetType                    string
+	TargetID                      pgtype.UUID
+	ScopeType                     string
+	ScopeID                       pgtype.UUID
+	DueAt                         pgtype.Timestamptz
+	WindowStart                   pgtype.Timestamptz
+	WindowEnd                     pgtype.Timestamptz
+	Status                        string
+	SopTaskID                     pgtype.UUID
+	IdempotencyKey                string
+	GeneratedByTriggerID          pgtype.UUID
+	Sequence                      int32
+	CompletedAt                   pgtype.Timestamptz
+	CreatedAt                     pgtype.Timestamptz
+	UpdatedAt                     pgtype.Timestamptz
+	RowVersion                    int32
+	BatchingHoldCount             pgtype.Int4
+	FirstBatchingHoldUntil        pgtype.Timestamptz
+	RepeatCycleSource             pgtype.Text
+	RepeatCycleSourceRef          pgtype.Text
+	RepeatCycleAnchorObligationID pgtype.UUID
+	RepeatCycleAnchorAt           pgtype.Timestamptz
+	RepeatCycleDueAt              pgtype.Timestamptz
 }
 
 type ObligationOperatorConfigReplanWatermark struct {
@@ -2449,6 +2545,50 @@ type ProcurementSourceHealthCheck struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
+type ProcurementVendor struct {
+	VendorID          pgtype.UUID
+	TenantID          pgtype.UUID
+	RecordType        string
+	BusinessName      string
+	ContactPersonName pgtype.Text
+	PhoneNumber       pgtype.Text
+	Breed             pgtype.Text
+	Feed              pgtype.Text
+	Status            string
+	FilteredStock     pgtype.Int4
+	PricePerGoat      pgtype.Numeric
+	ReadyToFiltered   pgtype.Text
+	EtaAfterOrderDays pgtype.Int4
+	Details           pgtype.Text
+	State             string
+	City              pgtype.Text
+	BankName          pgtype.Text
+	AccountNo         pgtype.Text
+	IfscCode          pgtype.Text
+	UpiID             pgtype.Text
+	PanNumber         pgtype.Text
+	Comments          pgtype.Text
+	PartyID           pgtype.UUID
+	SourceRow         pgtype.Int4
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	CreatedBy         pgtype.UUID
+	UpdatedBy         pgtype.UUID
+	RowVersion        int64
+	SearchText        pgtype.Text
+}
+
+type ProcurementVendorCatalog struct {
+	TenantID  pgtype.UUID
+	Kind      string
+	Value     string
+	Label     string
+	SortOrder int32
+	IsActive  bool
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type ProofArtifact struct {
 	ProofID            pgtype.UUID
 	TenantID           pgtype.UUID
@@ -2590,6 +2730,102 @@ type ReminderCadenceProgress struct {
 	UpdatedAt     pgtype.Timestamptz
 }
 
+type SalesBuyerLead struct {
+	ID            pgtype.UUID
+	TenantID      pgtype.UUID
+	RecordedDate  pgtype.Date
+	Farm          pgtype.Text
+	SourceSalesID pgtype.Int4
+	SourceRowNo   pgtype.Int4
+	BuyerName     string
+	BuyerPlace    pgtype.Text
+	AnimalType    pgtype.Text
+	Breed         pgtype.Text
+	CallStatus    pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type SalesDeal struct {
+	ID               pgtype.UUID
+	TenantID         pgtype.UUID
+	SaleDate         pgtype.Date
+	Farm             string
+	SourceSalesID    pgtype.Int4
+	SourcePurchaseID pgtype.Int4
+	SourceRowNo      pgtype.Int4
+	BuyerName        string
+	BuyerPlace       pgtype.Text
+	ProductType      string
+	Breed            string
+	AnimalCount      pgtype.Numeric
+	MaleCount        pgtype.Numeric
+	FemaleCount      pgtype.Numeric
+	TotalWeightKg    pgtype.Numeric
+	AdvanceAmount    pgtype.Numeric
+	SalesValue       pgtype.Numeric
+	Status           string
+	Feedback         pgtype.Text
+	Comments         pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type SalesFpoLead struct {
+	ID          pgtype.UUID
+	TenantID    pgtype.UUID
+	SourceRowNo pgtype.Int4
+	FpoName     string
+	Crops       pgtype.Text
+	District    pgtype.Text
+	Taluk       pgtype.Text
+	State       pgtype.Text
+	CallStatus  pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type SalesMarketBenchmark struct {
+	ID               pgtype.UUID
+	TenantID         pgtype.UUID
+	SourceRowNo      pgtype.Int4
+	Market           pgtype.Text
+	Category         pgtype.Text
+	Breed            string
+	Source           pgtype.Text
+	ExFarmRate       pgtype.Text
+	TransportRate    pgtype.Text
+	LandingCostPerKg pgtype.Numeric
+	MarketPricePerKg pgtype.Numeric
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type SalesSoldAnimalTag struct {
+	ID            pgtype.UUID
+	TenantID      pgtype.UUID
+	SourceRowNo   pgtype.Int4
+	AnimalLabel   string
+	TagNumber     pgtype.Text
+	WeightKg      pgtype.Numeric
+	Farm          pgtype.Text
+	SourceSalesID pgtype.Int4
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type SalesWeightAudit struct {
+	ID            pgtype.UUID
+	TenantID      pgtype.UUID
+	SourceRowNo   pgtype.Int4
+	VideoWeightKg pgtype.Numeric
+	BookWeightKg  pgtype.Numeric
+	FarmBorn      bool
+	TagNumber     pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type SeedRun struct {
 	SeedRunID  pgtype.UUID
 	TenantID   pgtype.UUID
@@ -2623,6 +2859,7 @@ type ShedPartition struct {
 	Source          string
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	AnimalStageID   pgtype.UUID
 }
 
 type ShedProfile struct {
@@ -2687,6 +2924,7 @@ type ShiftingEvent struct {
 	RaiseComment                 pgtype.Text
 	DestinationPartitionLabel    pgtype.Text
 	SourcePartitionLabel         pgtype.Text
+	AdoptPenTag                  pgtype.Text
 }
 
 type ShiftingEventImpact struct {
@@ -3341,27 +3579,31 @@ type WeighingIdempotencyRecord struct {
 }
 
 type WeighingObservation struct {
-	ObservationID         pgtype.UUID
-	TenantID              pgtype.UUID
-	CampaignID            pgtype.UUID
-	CampaignShedID        pgtype.UUID
-	ScannedIdentifier     string
-	WeightKg              pgtype.Numeric
-	ProofArtifactID       pgtype.UUID
-	ExpectedLocationID    pgtype.UUID
-	ExpectedLocationLabel pgtype.Text
-	ActualLocationID      pgtype.UUID
-	ActualLocationLabel   pgtype.Text
-	RecordedBy            pgtype.UUID
-	AcceptedAt            pgtype.Timestamptz
-	IdempotencyKey        string
-	CreatedAt             pgtype.Timestamptz
-	VerificationStatus    string
-	VerifiedBy            pgtype.UUID
-	VerifiedAt            pgtype.Timestamptz
-	ReworkReason          pgtype.Text
-	SubmittedAt           pgtype.Timestamptz
-	ReworkNotifiedAt      pgtype.Timestamptz
+	ObservationID          pgtype.UUID
+	TenantID               pgtype.UUID
+	CampaignID             pgtype.UUID
+	CampaignShedID         pgtype.UUID
+	ScannedIdentifier      string
+	WeightKg               pgtype.Numeric
+	ProofArtifactID        pgtype.UUID
+	ExpectedLocationID     pgtype.UUID
+	ExpectedLocationLabel  pgtype.Text
+	ActualLocationID       pgtype.UUID
+	ActualLocationLabel    pgtype.Text
+	RecordedBy             pgtype.UUID
+	AcceptedAt             pgtype.Timestamptz
+	IdempotencyKey         string
+	CreatedAt              pgtype.Timestamptz
+	VerificationStatus     string
+	VerifiedBy             pgtype.UUID
+	VerifiedAt             pgtype.Timestamptz
+	ReworkReason           pgtype.Text
+	SubmittedAt            pgtype.Timestamptz
+	ReworkNotifiedAt       pgtype.Timestamptz
+	OperatorWeightKg       pgtype.Numeric
+	WeightCorrectedBy      pgtype.UUID
+	WeightCorrectedAt      pgtype.Timestamptz
+	WeightCorrectionReason pgtype.Text
 }
 
 type WeighingRepairBatchProgress struct {
@@ -3385,23 +3627,28 @@ type WeighingShedLoadTag struct {
 }
 
 type WeighingShedObservation struct {
-	ShedObservationID  pgtype.UUID
-	TenantID           pgtype.UUID
-	CampaignID         pgtype.UUID
-	CampaignShedID     pgtype.UUID
-	WeightKg           pgtype.Numeric
-	AverageWeightKg    pgtype.Numeric
-	AnimalCount        int32
-	ProofArtifactID    pgtype.UUID
-	RecordedBy         pgtype.UUID
-	AcceptedAt         pgtype.Timestamptz
-	IdempotencyKey     string
-	CreatedAt          pgtype.Timestamptz
-	VerificationStatus string
-	VerifiedBy         pgtype.UUID
-	VerifiedAt         pgtype.Timestamptz
-	ReworkReason       pgtype.Text
-	WithdrawnAt        pgtype.Timestamptz
+	ShedObservationID      pgtype.UUID
+	TenantID               pgtype.UUID
+	CampaignID             pgtype.UUID
+	CampaignShedID         pgtype.UUID
+	WeightKg               pgtype.Numeric
+	AverageWeightKg        pgtype.Numeric
+	AnimalCount            int32
+	ProofArtifactID        pgtype.UUID
+	RecordedBy             pgtype.UUID
+	AcceptedAt             pgtype.Timestamptz
+	IdempotencyKey         string
+	CreatedAt              pgtype.Timestamptz
+	VerificationStatus     string
+	VerifiedBy             pgtype.UUID
+	VerifiedAt             pgtype.Timestamptz
+	ReworkReason           pgtype.Text
+	WithdrawnAt            pgtype.Timestamptz
+	OperatorWeightKg       pgtype.Numeric
+	OperatorAnimalCount    pgtype.Int4
+	WeightCorrectedBy      pgtype.UUID
+	WeightCorrectedAt      pgtype.Timestamptz
+	WeightCorrectionReason pgtype.Text
 }
 
 type WeighingShedObservationProof struct {

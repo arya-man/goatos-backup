@@ -150,11 +150,16 @@ const insertObligationInstance = `-- name: InsertObligationInstance :one
 INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
-  idempotency_key, generated_by_trigger_id, "sequence"
+  idempotency_key, generated_by_trigger_id, "sequence",
+  repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
+  repeat_cycle_anchor_at, repeat_cycle_due_at
 ) SELECT
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11, $12,
-  $13, $14, $15
+  $13, $14, $15,
+  $16, $17,
+  $18, $19,
+  $20
 WHERE NOT EXISTS (
   SELECT 1
   FROM obligation_instances existing
@@ -163,9 +168,29 @@ WHERE NOT EXISTS (
     AND existing.rule_id = $3
     AND existing.target_type = $5
     AND existing.target_id = $6
-    AND existing."sequence" = $15
-    AND existing.due_at = $9
-    AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+    AND (
+      -- NON-REPEAT: unchanged, deliberately byte-for-byte. This is the generic obligation
+      -- insert; a broad rewrite would change behaviour for every caller of it.
+      (
+        $17::text IS NULL
+        AND existing."sequence" = $15
+        AND existing.due_at = $9
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+      )
+      OR
+      -- REPEAT: deduped by the administration that CAUSED it, never by its due date. A
+      -- repeat's due date moves with the previous dose, which is exactly how the same
+      -- cycle came to be minted twice a day apart.
+      --
+      -- 'missed' is absent on purpose: a missed successor is closed history, so it must
+      -- free its source for the next pass to mint new work rather than block it forever.
+      (
+        $17::text IS NOT NULL
+        AND existing.repeat_cycle_source = $16::text
+        AND existing.repeat_cycle_source_ref = $17::text
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      )
+    )
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET scope_type = EXCLUDED.scope_type,
@@ -190,21 +215,26 @@ RETURNING obligation_id::text AS obligation_id
 `
 
 type InsertObligationInstanceParams struct {
-	TenantID             pgtype.UUID
-	ProtocolVersionID    pgtype.UUID
-	RuleID               pgtype.UUID
-	BatchID              pgtype.UUID
-	TargetType           string
-	TargetID             pgtype.UUID
-	ScopeType            string
-	ScopeID              pgtype.UUID
-	DueAt                pgtype.Timestamptz
-	WindowStart          pgtype.Timestamptz
-	WindowEnd            pgtype.Timestamptz
-	Status               string
-	IdempotencyKey       string
-	GeneratedByTriggerID pgtype.UUID
-	Sequence             int32
+	TenantID                      pgtype.UUID
+	ProtocolVersionID             pgtype.UUID
+	RuleID                        pgtype.UUID
+	BatchID                       pgtype.UUID
+	TargetType                    string
+	TargetID                      pgtype.UUID
+	ScopeType                     string
+	ScopeID                       pgtype.UUID
+	DueAt                         pgtype.Timestamptz
+	WindowStart                   pgtype.Timestamptz
+	WindowEnd                     pgtype.Timestamptz
+	Status                        string
+	IdempotencyKey                string
+	GeneratedByTriggerID          pgtype.UUID
+	Sequence                      int32
+	RepeatCycleSource             pgtype.Text
+	RepeatCycleSourceRef          pgtype.Text
+	RepeatCycleAnchorObligationID pgtype.UUID
+	RepeatCycleAnchorAt           pgtype.Timestamptz
+	RepeatCycleDueAt              pgtype.Timestamptz
 }
 
 // Deterministic idempotency_key makes generation a no-op on replay (returns no row on conflict).
@@ -228,6 +258,11 @@ func (q *Queries) InsertObligationInstance(ctx context.Context, arg InsertObliga
 		arg.IdempotencyKey,
 		arg.GeneratedByTriggerID,
 		arg.Sequence,
+		arg.RepeatCycleSource,
+		arg.RepeatCycleSourceRef,
+		arg.RepeatCycleAnchorObligationID,
+		arg.RepeatCycleAnchorAt,
+		arg.RepeatCycleDueAt,
 	)
 	var obligation_id string
 	err := row.Scan(&obligation_id)
