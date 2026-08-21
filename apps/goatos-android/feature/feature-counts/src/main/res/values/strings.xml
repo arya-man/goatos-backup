@@ -74,7 +74,7 @@
     <string name="counts_shifting_previous_actions_count">%1$d shifting actions</string>
     <string name="counts_shifting_previous_actions_empty">No shifting actions from previous days.</string>
     <string name="counts_shifting_title">Record shifting</string>
-    <string name="counts_shifting_subtitle">Move one animal to another shed</string>
+    <string name="counts_shifting_subtitle">Move animals to another shed</string>
     <string name="counts_submit_shifting">Create Shifting</string>
     <string name="counts_shifting_pending_note">Movements you record are submitted for review — they are not authorised on the phone.</string>
     <string name="counts_shifting_from">FROM</string>
@@ -120,7 +120,7 @@
     <string name="counts_group_identity">IDENTITY</string>
     <string name="counts_group_dates">DATES</string>
     <string name="counts_group_placement">PLACEMENT</string>
-    <string name="counts_group_animal">ANIMAL</string>
+    <string name="counts_group_animal">ANIMALS</string>
     <string name="counts_group_account_of_death">ACCOUNT OF DEATH</string>
     <string name="counts_group_recording_death_for">RECORDING DEATH FOR</string>
     <string name="counts_group_to">MOVE TO</string>
@@ -174,7 +174,7 @@
     <string name="counts_field_animal_lookup">Scan or type the RFID</string>
     <string name="counts_select_farm">Select a farm</string>
     <string name="counts_select_farm_first">Select a farm first</string>
-    <string name="counts_select_animal_first">Select an animal first</string>
+    <string name="counts_select_animal_first">Add an animal first</string>
     <string name="counts_shifting_farm_locked">Automatically selected from the animal’s current location</string>
     <string name="counts_select_shed">Select a shed</string>
     <string name="counts_select_breed">Select a breed</string>
@@ -194,7 +194,7 @@
     <!-- Hints -->
     <string name="counts_hint_dob">Cannot be a future date.</string>
     <string name="counts_hint_reason">Between 3 and 500 characters.</string>
-    <string name="counts_hint_animal_lookup">Tap the Bluetooth button to scan the tag, or type the number. Approving this movement relocates exactly the animal you select here.</string>
+    <string name="counts_hint_animal_lookup">Tap the Bluetooth button to scan each tag, or type the number. Keep scanning to add more animals — you confirm the full list before it is recorded.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
     <string name="counts_more_fields">More details</string>
 
