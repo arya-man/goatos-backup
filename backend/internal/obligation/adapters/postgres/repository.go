@@ -353,6 +353,11 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil // already generated for this idempotency key
 	}
+	if isRepeatCycleConflict(err) {
+		// A concurrent writer got there first, or this cause already has an open
+		// successor under a different idempotency key. Either way the cycle exists.
+		return "", false, nil
+	}
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: insert instance: %w", err)
 	}
@@ -422,6 +427,9 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 		RepeatCycleAnchorAt:           repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.AnchorAt }),
 		RepeatCycleDueAt:              repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.DueAt }),
 	})
+	if isRepeatCycleConflict(err) {
+		return "", false, nil
+	}
 	applied := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, lookupErr := qtx.GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
@@ -6273,8 +6281,29 @@ func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID s
 // repeatText, repeatUUID and repeatTime map an optional RepeatCycleSource onto the nullable
 // columns. Nil stays NULL, which is what keeps the two partial unique indexes -- and the
 // repeat branch of the insert's duplicate guard -- inert for every non-repeat obligation.
+// repeatCycleIndexes are the partial unique indexes that enforce one OPEN successor per
+// cause. A row they reject is a row some other writer already created for that same cause,
+// which is the outcome we wanted -- so it is a no-op, never an error.
+var repeatCycleIndexes = []string{
+	"obligation_repeat_cycle_open_anchor_unique_idx",
+	"obligation_repeat_cycle_open_source_unique_idx",
+}
+
+func isRepeatCycleConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	for _, idx := range repeatCycleIndexes {
+		if pgErr.ConstraintName == idx {
+			return true
+		}
+	}
+	return false
+}
+
 func repeatText(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource) string) pgtype.Text {
-	if rc == nil {
+	if !rc.Valid() {
 		return pgtype.Text{}
 	}
 	value := strings.TrimSpace(pick(*rc))
@@ -6292,7 +6321,7 @@ func repeatUUID(rc *domain.RepeatCycleSource) pgtype.UUID {
 }
 
 func repeatTime(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource) *time.Time) pgtype.Timestamptz {
-	if rc == nil {
+	if !rc.Valid() {
 		return pgtype.Timestamptz{}
 	}
 	return pgconv.NullableTimestamptz(pick(*rc))

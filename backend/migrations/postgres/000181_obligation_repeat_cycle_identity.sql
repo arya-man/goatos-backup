@@ -39,8 +39,15 @@ RESET lock_timeout;
 -- new work. Had missed stayed inside, the first missed dose would have held that anchor
 -- permanently and the animal would silently stop being scheduled -- the exact failure this
 -- design exists to prevent, reintroduced through its own predicate.
+--
+-- rule_id is part of the key because one administration can legitimately cause work under
+-- more than one rule: a combo vaccine drives its own revac rule and a shared-component rule
+-- from the same dose. Keyed on the anchor alone, the second rule's successor would be
+-- rejected outright -- and, since the insert guard is itself rule-scoped, rejected as a hard
+-- error rather than an idempotent skip. One open successor per (cause, rule) is the real
+-- invariant.
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS obligation_repeat_cycle_open_anchor_unique_idx
-  ON obligation_instances (tenant_id, repeat_cycle_anchor_obligation_id)
+  ON obligation_instances (tenant_id, rule_id, repeat_cycle_anchor_obligation_id)
   WHERE repeat_cycle_anchor_obligation_id IS NOT NULL
     AND status IN ('scheduled', 'due', 'in_progress', 'deferred');
 
