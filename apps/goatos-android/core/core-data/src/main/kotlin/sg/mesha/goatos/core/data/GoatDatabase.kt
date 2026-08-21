@@ -53,6 +53,14 @@ import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheEntity
 import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.PcCareAnimalRowDao
+import sg.mesha.goatos.core.data.cache.PcCareAnimalRowEntity
+import sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.PcCareTaskItemDao
+import sg.mesha.goatos.core.data.cache.PcCareTaskItemEntity
+import sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportItemDao
 import sg.mesha.goatos.core.data.cache.FeedTransportItemEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyDao
@@ -269,8 +277,12 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         VaccinationAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
+        PcCareTaskItemEntity::class,
+        PcCareTaskRemoteKeyEntity::class,
+        PcCareTaskDetailCacheEntity::class,
+        PcCareAnimalRowEntity::class,
     ],
-    version = 48,
+    version = 49,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -361,6 +373,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // decision 2026-08-18) — the per-EXPERIMENT-pen leftover-feed worklist as a summary-envelope
     // blob + normalized paged rows + per-scope remote keys, the same offline-first shape as the
     // Direction and Packing trios.
+    // v49 (see [MIGRATION_48_49]) adds the four PC Care read/write-model tables (module pc_care,
+    // maintainer decision 2026-08-21): the paged operator worklist rows + their per-scope remote
+    // keys (the Wastage trio shape minus the summary envelope), the task-detail JSON blob cache,
+    // and the durable per-(task, tag) scanned-animal rows behind the scan screen's duplicate
+    // check, sync status, and peer slot visibility.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -433,4 +450,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun weighingPlannerCatalogDao(): WeighingPlannerCatalogDao
     abstract fun weighingPlannerRemoteKeyDao(): WeighingPlannerRemoteKeyDao
     abstract fun weighingTransitionEpochDao(): WeighingTransitionEpochDao
+    abstract fun pcCareTaskItemDao(): PcCareTaskItemDao
+    abstract fun pcCareTaskRemoteKeyDao(): PcCareTaskRemoteKeyDao
+    abstract fun pcCareTaskDetailCacheDao(): PcCareTaskDetailCacheDao
+    abstract fun pcCareAnimalRowDao(): PcCareAnimalRowDao
 }

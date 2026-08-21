@@ -18,6 +18,8 @@ import (
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	pccareports "github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	weighingports "github.com/vgoats/goatos/backend/internal/weighing/ports"
@@ -46,6 +48,13 @@ type WeighingVerdictStore interface {
 	weighingports.VerificationVerdictStore
 }
 
+// PCCareVerdictStore is satisfied by *pccarepg.Repository — the pc_care_tasks verdict half
+// (ApplyVerifiedTask / BounceTaskForRework).
+type PCCareVerdictStore interface {
+	ApplyVerifiedTask(ctx context.Context, p pccareports.ApplyVerifiedTaskParams) (bool, error)
+	BounceTaskForRework(ctx context.Context, p pccareports.BounceTaskParams) (bool, error)
+}
+
 // RegisterVerificationAppliers subscribes the shifting, feed-distribution, and feed-packing appliers to
 // the generic verification verdict events on `bus`. Each handler filters strictly on
 // source.module + source.ref_type (counts/shifting_event, feed/feed_distribution_completion,
@@ -58,6 +67,7 @@ func RegisterVerificationAppliers(
 	milkPreparation countsports.MilkPreparationCompletionStore,
 	weighing WeighingVerdictStore,
 	weighingAck weighingapp.VerificationApplyAcker,
+	pcCare PCCareVerdictStore,
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
@@ -70,6 +80,10 @@ func RegisterVerificationAppliers(
 	// outbox relay, and the Pub/Sub consumer cannot drift apart — the exact incident this package
 	// exists to prevent.
 	feeddirectionapp.NewFeedWastageVerificationHandler(feed, log).Register(bus)
+	// PC Care (maintainer decision 2026-08-21): the pc_care module's applier, filtered to
+	// pc_care/pc_care_task. Registered HERE, in the one shared list, so the API bus, the outbox
+	// relay, and the Pub/Sub consumer cannot drift apart.
+	pccareapp.NewPCCareVerificationHandler(pcCare, log).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is

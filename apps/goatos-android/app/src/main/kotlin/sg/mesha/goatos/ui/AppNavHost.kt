@@ -25,6 +25,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.navigation.NavController
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -76,6 +77,11 @@ import sg.mesha.goatos.feature.feed.FeedWastageCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedWastageCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedWastageEvent
 import sg.mesha.goatos.feature.feed.FeedWastageScreen
+import sg.mesha.goatos.feature.pccare.PcCareMonitorScreen
+import sg.mesha.goatos.feature.pccare.PcCarePlanWizardScreen
+import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
+import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
+import sg.mesha.goatos.feature.pccare.PcCareWorklistScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -169,6 +175,9 @@ import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
+import sg.mesha.goatos.viewmodel.PcCarePlanViewModel
+import sg.mesha.goatos.viewmodel.PcCareTaskViewModel
+import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -401,6 +410,53 @@ object Routes {
     // worklist. The backend's nav item carries this href verbatim ({key:"feed_wastage",
     // href:"/feed/wastage"}), so registering the route is what makes the tab work.
     const val FEED_WASTAGE = "/feed/wastage"
+
+    // PC Care module bar (backend module `pc_care`, maintainer decision 2026-08-21). The four
+    // category worklists are L0 roots matching the backend-composed nav hrefs VERBATIM
+    // (bootstrap_copy.go), plus the CEO planner tab. Category keys are the backend's category
+    // vocabulary (backend/internal/pccare/domain).
+    const val PC_DEWORMING = "/pc/deworming"
+    const val PC_TICKS = "/pc/ticks"
+    const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
+    const val PC_HAIR_TRIMMING = "/pc/hair-trimming"
+    const val PC_TASK_ID_ARG = "task_id"
+    const val PC_TASK_CATEGORY_ARG = "category"
+    const val PC_TASK_TITLE_ARG = "title"
+
+    // The L1 task drill: one PC Care task's scan/capture/submit screen. A distinct hosted
+    // destination with Up/Back and NO root chrome (Android navigation-stack invariant) — never a
+    // prefix reuse of the L0 tabs above.
+    const val PC_TASK_MONITOR_ARG = "monitor"
+
+    /** SavedStateHandle key: the plan wizard hands its planned date back to the monitor list. */
+    const val PC_CARE_CREATED_DATE_KEY = "pc_care_created_date"
+    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}&$PC_TASK_MONITOR_ARG={$PC_TASK_MONITOR_ARG}"
+
+    const val PC_TAG_KEY_ARG = "tag_key"
+    const val PC_TAG_VERBATIM_ARG = "tag_verbatim"
+
+    /** The roster drill: one animal's clearly-labeled video cards (Feed completion-screen shape). */
+    const val PC_ANIMAL = "/pc/animal/{$PC_TASK_ID_ARG}/{$PC_TAG_KEY_ARG}" +
+        "?$PC_TAG_VERBATIM_ARG={$PC_TAG_VERBATIM_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcAnimalRoute(taskId: String, tagKey: String, tagVerbatim: String, title: String): String =
+        "/pc/animal/${Uri.encode(taskId)}/${Uri.encode(tagKey)}" +
+            "?$PC_TAG_VERBATIM_ARG=${Uri.encode(tagVerbatim)}" +
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+
+    fun pcTaskRoute(taskId: String, category: String, title: String, monitor: Boolean = false): String =
+        "/pc/task/${Uri.encode(taskId)}" +
+            "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}" +
+            "&$PC_TASK_MONITOR_ARG=${if (monitor) "1" else ""}"
+
+    // The L1 plan-wizard drill (maintainer feedback 2026-08-21): "Plan a care task" opens as its
+    // own hosted destination with Up/Back and NO root chrome, launched from a category tab's plan
+    // action. The category is fixed by the launching tab — the wizard never asks for it again.
+    const val PC_PLAN = "/pc/plan/{$PC_TASK_CATEGORY_ARG}?$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcPlanRoute(category: String, title: String): String =
+        "/pc/plan/${Uri.encode(category)}?$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
     const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
     // [lifecycleStatus] is the task's backend-owned status AT THE MOMENT the row was tapped — only a
     // FIRST-PAINT hint for FeedTransportCaptureViewModel; see its ARG_LIFECYCLE_STATUS kdoc.
@@ -1003,6 +1059,8 @@ fun AppNavHost(
     showProtocolAdherenceCard: Boolean = false,
     canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
+    canExecutePcCare: Boolean = false,
+    canPlanPcCare: Boolean = false,
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -2779,6 +2837,149 @@ fun AppNavHost(
             }
         }
 
+        // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------
+        // Four L0 category tabs — THE bar (the Feed shape, maintainer feedback 2026-08-21).
+        // Each route binds its category constant + backend tab label. What a tab renders is the
+        // backend's `pc_care_execute` capability: an executor gets the scan worklist, everyone
+        // else the read-only monitor list with the plan wizard offered on `pc_care_plan`.
+        // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
+        // header and the bottom-bar tab read identically.
+        pcCareCategoryComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController, canExecutePcCare, canPlanPcCare)
+
+        // The L1 plan-wizard drill: category fixed by the launching tab, steps day → farm →
+        // pen → people → review, hosted with Up/Back and no root chrome.
+        composable(
+            route = Routes.PC_PLAN,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_CATEGORY_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { entry ->
+            val category = entry.arguments?.getString(Routes.PC_TASK_CATEGORY_ARG).orEmpty()
+            val title = entry.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
+            val vm: PcCarePlanViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bindWizard(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.createdTaskId) {
+                if (state.createdTaskId.isNotBlank()) {
+                    // Hand the planned date back to the monitor face so it can jump there and
+                    // show the new task immediately.
+                    navController.previousBackStackEntry?.savedStateHandle
+                        ?.set(Routes.PC_CARE_CREATED_DATE_KEY, state.selectedDate)
+                    navController.popBackStack()
+                }
+            }
+            PcCarePlanWizardScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.CloseCreate -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // The L1 task drill: scan + per-animal slot capture + whole-task submit. The composable
+        // is wrapped in CaptureAccessGate + BindVideoCaptureSource so the LIVE in-app camera works
+        // exactly like the weighing scan screen.
+        composable(
+            route = Routes.PC_TASK,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TASK_CATEGORY_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_MONITOR_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: PcCareTaskViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Hardware reader capture only while this capture screen is active.
+            DisposableEffect(vm) {
+                vm.setCaptureActive(true)
+                onDispose { vm.setCaptureActive(false) }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                PcCareTaskScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
+                                navController.navigate(Routes.RFID) { launchSingleTop = true }
+                            // Roster mode: a tap opens the animal's own capture drill with the
+                            // video set as clearly-labeled cards (Feed completion-screen shape).
+                            is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RosterTapped -> {
+                                val taskId = it.arguments?.getString(Routes.PC_TASK_ID_ARG).orEmpty()
+                                val title = it.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
+                                // The verbatim tag comes from whichever list carried the tap —
+                                // the pen roster (roster mode) or the scanned-animal list
+                                // (scan-and-record mode).
+                                val verbatim = state.rosterRows
+                                    .firstOrNull { row -> row.key == event.tagKey }?.tagLabel
+                                    ?: state.animals.firstOrNull { row -> row.key == event.tagKey }?.tagLabel
+                                    ?: event.tagKey
+                                navController.navigate(
+                                    Routes.pcAnimalRoute(taskId, event.tagKey, verbatim, title),
+                                ) { launchSingleTop = true }
+                            }
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
+        // The roster drill (L2 under the task): ONE animal's video cards. Entering records the
+        // tag into the task (the tap IS the free-flow scan); each card records its own clip
+        // through the same proof outbox pipeline.
+        composable(
+            route = Routes.PC_ANIMAL,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TAG_KEY_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TAG_VERBATIM_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: PcCareTaskViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                sg.mesha.goatos.feature.pccare.PcCareAnimalScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
         // The approver's queue -- the whole of the APPROVALS module (maintainer decision
         // 2026-08-05, superseding the 2026-07-21 removal). The backend gates the module on
         // counts.approve_access, so a principal without that authority never receives it and
@@ -3141,6 +3342,14 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_COLOSTRUM,
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
+    // PC Care roots (maintainer decision 2026-08-21): the four backend-composed category tabs
+    // ARE the module bar (the Feed shape) — there is no fifth planner tab. Each is an L0
+    // bottom-bar destination exactly like its siblings; what a tab renders is decided by the
+    // backend pc_care_execute / pc_care_plan capability flags, never by a role string.
+    Routes.PC_DEWORMING,
+    Routes.PC_TICKS,
+    Routes.PC_HOOF_TRIMMING,
+    Routes.PC_HAIR_TRIMMING,
 )
 
 /**
@@ -3204,6 +3413,106 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
         "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
         "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}"
+
+/**
+ * One PC Care category worklist tab (module pc_care). The four L0 tab routes share this
+ * registration: each binds its category constant + backend tab label to its own
+ * [PcCareWorklistViewModel] instance (VMs are scoped per NavBackStackEntry, so the tabs never
+ * share state), and a card tap pushes the hosted task drill carrying the same category + title.
+ */
+private fun NavGraphBuilder.pcCareCategoryComposable(
+    route: String,
+    category: String,
+    title: String,
+    navController: NavHostController,
+    canExecutePcCare: Boolean,
+    canPlanPcCare: Boolean,
+) {
+    composable(route) { entry ->
+        if (canExecutePcCare) {
+            // Executor face: the scan worklist for tasks assigned to this person.
+            val vm: PcCareWorklistViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCareWorklistScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        PcCareWorklistEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PcCareWorklistEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.pcTaskRoute(event.taskId, category, title)) {
+                                launchSingleTop = true
+                            }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        } else {
+            // Monitor face (CEO / PC Director oversight): the read-only task list for this
+            // category, with the plan wizard offered only on the backend's pc_care_plan flag.
+            val vm: PcCarePlanViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bindMonitor(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            // A finished plan wizard hands back the planned date: jump the monitor to that day
+            // and refetch, so the just-created task is on screen the moment the wizard closes.
+            val createdDate by entry.savedStateHandle
+                .getStateFlow(Routes.PC_CARE_CREATED_DATE_KEY, "")
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(createdDate) {
+                if (createdDate.isNotBlank()) {
+                    runCatching { java.time.LocalDate.parse(createdDate) }.getOrNull()?.let { date ->
+                        vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.SelectMonitorDate(date))
+                    }
+                    entry.savedStateHandle[Routes.PC_CARE_CREATED_DATE_KEY] = ""
+                    vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh)
+                    rows.refresh()
+                }
+            }
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCareMonitorScreen(
+                state = state,
+                rows = rows,
+                planEnabled = canPlanPcCare,
+                onPlanTask = {
+                    navController.navigate(Routes.pcPlanRoute(category, title)) { launchSingleTop = true }
+                },
+                // Oversight drill: any card opens the task READ-ONLY — animals, video states,
+                // and status, with no scan/record/submit controls (monitor=1 locks the screen).
+                onOpenTask = { card ->
+                    navController.navigate(
+                        Routes.pcTaskRoute(card.taskId, card.category, title, monitor = true),
+                    ) { launchSingleTop = true }
+                },
+                onEvent = { event ->
+                    when (event) {
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+    }
+}
 
 private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 

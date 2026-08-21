@@ -4798,6 +4798,379 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "422": { description: Camera video proof is missing, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } } }
+  /app/pc-care/planner/catalog:
+    get:
+      tags: [PC Care]
+      operationId: appPCCarePlannerCatalog
+      summary: PC Care planner vocabulary (parks, assignable operators, categories).
+      description: >-
+        PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal /
+        hoof trimming / hair trimming module. The catalog is the park-grain create-wizard
+        vocabulary: every park the planner may pick, the assignable operator roster, and the
+        module's backend-owned category vocabulary. Planning is CEO-only (pc_care.plan, the
+        weighing.plan precedent).
+      responses:
+        "200":
+          description: The planner vocabulary, filtered to the caller's authorized parks.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCarePlannerCatalog" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/planner/parks/{park_id}/sheds:
+    get:
+      tags: [PC Care]
+      operationId: appPCCarePlannerParkSheds
+      summary: One keyset page of a park's pens for the PC Care create wizard.
+      description: >-
+        Pens come from the shed_partitions CATALOG (an undivided shed is one whole-shed row), each
+        decorated with any existing live task for the chosen category+date so the wizard greys a
+        taken pen instead of letting the create collide.
+      parameters:
+        - in: path
+          name: park_id
+          required: true
+          schema: { type: string, format: uuid }
+        - name: category
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/PCCareCategory" }
+        - name: date
+          in: query
+          required: true
+          description: The planned business date (Asia/Kolkata).
+          schema: { type: string, format: date }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        "200":
+          description: One page of pens.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCarePlannerSheds" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks:
+    get:
+      tags: [PC Care]
+      operationId: appListPCCareTasks
+      summary: Flat PC Care task list for plan/monitor/oversee holders.
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: The due business date (Asia/Kolkata).
+          schema: { type: string, format: date }
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: category
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/PCCareCategory" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        "200":
+          description: One bounded page of tasks.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTaskPage" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [PC Care]
+      operationId: appCreatePCCareTask
+      summary: Plan one PC Care task (CEO-only).
+      description: >-
+        Creates ONE task per (category, pen, planned business date) with one or MORE assigned
+        operators — multi-operator by design, deliberately unlike weighing's
+        one-operator-per-bucket. A live task already covering that pen-day answers 409
+        task_already_planned.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareCreateTaskRequest" } } }
+      responses:
+        "200":
+          description: The planned task.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTask" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: >-
+            A live task already covers this pen, category and date (task_already_planned) or the
+            idempotency key was reused with a different request.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "422":
+          description: Unknown category, no assignees, or a pen outside the shed's partition catalog.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/cancel:
+    post:
+      tags: [PC Care]
+      operationId: appCancelPCCareTask
+      summary: Cancel an unsubmitted PC Care task (CEO-only).
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The task is canceled (idempotent — an already-terminal task is a no-op).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                required: [status]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/worklist:
+    get:
+      tags: [PC Care]
+      operationId: appPCCareWorklist
+      summary: The operator's assigned PC Care tasks for one category tab and one day.
+      parameters:
+        - name: category
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/PCCareCategory" }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+      responses:
+        "200":
+          description: One bounded page of the caller's assigned tasks.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTaskPage" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}:
+    get:
+      tags: [PC Care]
+      operationId: appGetPCCareTask
+      summary: One PC Care task with its backend-owned expected slot contract.
+      description: >-
+        expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for
+        deworming/ticks removal; before/during/after for the trimming categories). capture_mode is
+        the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the
+        recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the
+        pen roster and the screen walks the animal's slots). Clients branch on both verbatim and
+        never hardcode a category-to-slot or category-to-mode map.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The task.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTask" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/roster:
+    get:
+      tags: [PC Care]
+      operationId: appPCCareTaskRoster
+      summary: The roster-pick tap list — RFIDs of animals currently in the task's pen.
+      description: >-
+        Read-only, for capture_mode roster_pick (the trimming categories). Lists the active RFIDs
+        of alive animals resident in the task's shed, narrowed to the task's pen when it has a
+        partition. Tapping one records a normal free-flow scan; this list never gates what a scan
+        may store. Keyset-paged on identifier value.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: One page of the pen's resident RFIDs.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTaskRoster" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/captures:
+    get:
+      tags: [PC Care]
+      operationId: appPCCareTaskCaptures
+      summary: The peer-visibility poll — scanned animals and their slot states, by any assignee.
+      description: >-
+        Read-only. It is what lets several assigned phones split one task's videos: each slot
+        carries who captured it ("Captured by X") so peers see each other's work. Keyset-paged
+        over one task's animal rows.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: One page of scanned animals with slot attribution.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareCapturesResponse" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/animals:
+    post:
+      tags: [PC Care]
+      operationId: appScanPCCareAnimal
+      summary: Scan one RFID into the task (verbatim, free-flow).
+      description: >-
+        The tag is stored VERBATIM — no herd lookup. The ONE business rule is that a tag cannot be
+        scanned twice into the same task (409 duplicate_scan). Only an ASSIGNEE of the task may
+        scan (403 task_not_assigned); a locked task answers 409 task_locked.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareScanRequest" } } }
+      responses:
+        "200":
+          description: The durable scan row.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareScanResponse" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409":
+          description: Already scanned in this task (duplicate_scan) or the task is locked (task_locked).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}:
+    put:
+      tags: [PC Care]
+      operationId: appRegisterPCCareSlotProof
+      summary: Attach one slot's live-camera video to one scanned animal.
+      description: >-
+        slot is one of the task category's expected_slots field keys. Any ASSIGNEE may fill any
+        slot on any scanned animal; pre-submit a re-record REPLACES the slot's clip (the phone
+        retires the old clip only after the new one is uploaded). The proof must be a completed,
+        tenant-owned, in-app-camera VIDEO.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: animal_row_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: slot
+          required: true
+          schema: { type: string, enum: [video, before_video, during_video, after_video] }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PCCareSlotProofRequest" } } }
+      responses:
+        "200":
+          description: The slot's video reference is recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                required: [status]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409":
+          description: The task is locked (task_locked).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "422":
+          description: >-
+            The slot does not belong to this category (invalid_slot) or the proof could not be
+            verified (invalid_proof / proof_required).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/submit:
+    post:
+      tags: [PC Care]
+      operationId: appSubmitPCCareTask
+      summary: Submit the whole task for verifier review (any assignee).
+      description: >-
+        Refused until every scanned animal carries its full slot set (422 proof_incomplete) and
+        while no animal is scanned (422 no_animals). On success the task flips to
+        pending_verification, locks for every assignee, and ONE verification item carries every
+        animal's clips. Verifier approve completes the task; reject returns it for rework.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The submit outcome (idempotent — a resend echoes the current state).
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareSubmitResponse" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "422":
+          description: >-
+            Some animals still miss required videos (proof_incomplete) or none are scanned
+            (no_animals).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "500": { $ref: "#/components/responses/ServerError" }
   /feed-config/ration-rates:
     get:
       tags:
@@ -13124,6 +13497,222 @@ components:
         completed_pens:
           type: integer
           description: Verifier-approved pens.
+    PCCareCategory:
+      type: string
+      description: A PC Care work category (maintainer decision 2026-08-21).
+      enum: [deworming, ticks_removal, hoof_trimming, hair_trimming]
+    PCCareSlot:
+      type: object
+      description: >-
+        One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The
+        min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a
+        client-enforced cap.
+      properties:
+        field_key: { type: string, enum: [video, before_video, during_video, after_video] }
+        label: { type: string }
+        description:
+          type: string
+          description: Backend-owned farm copy saying what this video must show, rendered verbatim.
+        min_duration_hint_seconds: { type: integer }
+      required: [field_key, label]
+    PCCareTask:
+      type: object
+      properties:
+        task_id: { type: string, format: uuid }
+        category: { $ref: "#/components/schemas/PCCareCategory" }
+        park_id: { type: string, format: uuid }
+        park_label: { type: string }
+        shed_id: { type: string, format: uuid }
+        shed_label: { type: string }
+        partition_label: { type: string }
+        operational_location_display:
+          type: string
+          description: Backend-composed pen display ("Castro - 2"), rendered verbatim.
+        planned_business_date: { type: string, format: date }
+        due_business_date: { type: string, format: date }
+        work_state: { type: string, enum: [scheduled, delayed, completed, closed, canceled] }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        rework_reason:
+          type: string
+          description: The verifier's rejection sentence, rendered verbatim (backend-owned copy).
+        row_version: { type: integer }
+        submitted_at: { type: string, format: date-time }
+        assignee_user_ids:
+          type: array
+          items: { type: string, format: uuid }
+        assignee_names:
+          type: array
+          items: { type: string }
+        animal_count: { type: integer }
+        capture_mode:
+          type: string
+          enum: [scan_record, roster_pick]
+          description: >-
+            Backend-owned capture flow for this task's category. scan_record — scanning a tag
+            opens the video recorder immediately. roster_pick — the screen lists the pen's
+            resident RFIDs (GET .../roster) and tapping one records that animal.
+        expected_slots:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareSlot" }
+      required:
+        - task_id
+        - category
+        - park_id
+        - park_label
+        - shed_id
+        - shed_label
+        - operational_location_display
+        - planned_business_date
+        - due_business_date
+        - work_state
+        - status
+        - row_version
+        - assignee_user_ids
+        - assignee_names
+        - animal_count
+        - capture_mode
+        - expected_slots
+    PCCareTaskRoster:
+      type: object
+      description: >-
+        One keyset page of the RFIDs of animals currently resident in a task's pen — the
+        roster-pick capture mode's tap list. Identifiers are verbatim; the list never gates a
+        scan.
+      properties:
+        identifiers:
+          type: array
+          items: { type: string }
+        next_cursor: { type: string }
+      required: [identifiers]
+    PCCareTaskPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareTask" }
+        has_more: { type: boolean }
+      required: [items, has_more]
+    PCCareAnimalSlot:
+      type: object
+      properties:
+        field_key: { type: string }
+        proof_ref: { type: string }
+        captured_by: { type: string, format: uuid }
+        captured_by_name: { type: string }
+        captured_at: { type: string, format: date-time }
+      required: [field_key]
+    PCCareAnimalRow:
+      type: object
+      properties:
+        animal_row_id: { type: string, format: uuid }
+        scanned_identifier: { type: string }
+        scanned_by: { type: string, format: uuid }
+        scanned_by_name: { type: string }
+        scanned_at: { type: string, format: date-time }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareAnimalSlot" }
+      required: [animal_row_id, scanned_identifier, scanned_at, slots]
+    PCCareCapturesResponse:
+      type: object
+      properties:
+        animals:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareAnimalRow" }
+        next_cursor: { type: string }
+      required: [animals]
+    PCCarePlannerCatalog:
+      type: object
+      properties:
+        parks:
+          type: array
+          items:
+            type: object
+            properties:
+              park_id: { type: string, format: uuid }
+              park_label: { type: string }
+            required: [park_id, park_label]
+        operators:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id: { type: string, format: uuid }
+              display_name: { type: string }
+              park_ids:
+                type: array
+                description: Empty means every park (a cross-park director).
+                items: { type: string, format: uuid }
+            required: [user_id, display_name, park_ids]
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { $ref: "#/components/schemas/PCCareCategory" }
+              label: { type: string }
+            required: [key, label]
+      required: [parks, operators, categories]
+    PCCarePlannerSheds:
+      type: object
+      properties:
+        sheds:
+          type: array
+          items:
+            type: object
+            properties:
+              shed_id: { type: string, format: uuid }
+              shed_label: { type: string }
+              partition_label: { type: string }
+              operational_location_display:
+                type: string
+                description: Backend-composed pen display, rendered verbatim.
+              existing_task_id:
+                type: string
+                description: Non-empty when a live task already covers this pen for the chosen category+date.
+            required: [shed_id, shed_label, operational_location_display]
+        next_cursor: { type: string }
+      required: [sheds]
+    PCCareCreateTaskRequest:
+      type: object
+      properties:
+        category: { $ref: "#/components/schemas/PCCareCategory" }
+        park_id: { type: string, format: uuid }
+        shed_id: { type: string, format: uuid }
+        partition_label: { type: string }
+        planned_business_date: { type: string, format: date }
+        assignee_user_ids:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+      required: [category, park_id, shed_id, planned_business_date, assignee_user_ids]
+    PCCareScanRequest:
+      type: object
+      properties:
+        scanned_identifier:
+          type: string
+          description: The tag exactly as scanned. Stored verbatim; never resolved against the herd.
+      required: [scanned_identifier]
+    PCCareScanResponse:
+      type: object
+      properties:
+        animal_row_id: { type: string, format: uuid }
+      required: [animal_row_id]
+    PCCareSlotProofRequest:
+      type: object
+      properties:
+        proof_ref:
+          type: string
+          description: The server proof id from the /app/proofs pipeline (completed, in-app-camera video).
+      required: [proof_ref]
+    PCCareSubmitResponse:
+      type: object
+      properties:
+        task_id: { type: string, format: uuid }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        row_version: { type: integer }
+        animal_count: { type: integer }
+      required: [task_id, status, row_version, animal_count]
     FeedWastageWorklistPage:
       type: object
       additionalProperties: false

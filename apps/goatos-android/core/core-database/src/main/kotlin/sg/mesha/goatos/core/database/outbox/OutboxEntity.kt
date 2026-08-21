@@ -201,6 +201,39 @@ enum class OutboxOpType {
      * so two submit attempts for the same shed drain strictly oldest-first.
      */
     WEIGHING_SCOPE_SUBMIT,
+
+    /**
+     * PC Care RFID scan (`POST /app/pc-care/tasks/{task_id}/animals`, module pc_care, maintainer
+     * decision 2026-08-21): one tag scanned into a care task, stored VERBATIM server-side. Its
+     * caller derives a STABLE per-(task, normalized-tag) idempotency key (never a timestamp), so a
+     * double-tap or a server-committed-but-client-unrecorded retry replays for free. A `409
+     * duplicate_scan` — another phone already scanned this tag — is TERMINAL: the dispatch marks
+     * the durable Room animal row DUPLICATE and the row is never re-enqueued under a new key.
+     * Scans drain on their own per-task group so they never queue behind a video upload.
+     */
+    PC_CARE_SCAN_ADD,
+
+    /**
+     * PC Care slot proof registration
+     * (`PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}`): attaches one
+     * slot's live-camera video to one scanned animal. The video rides by REFERENCE to its coupled
+     * PROOF_UPLOAD row on the SAME task group, which drains first (mirroring
+     * [FEED_PACKING_COMPLETE]'s completion-references-upload coupling); the dispatcher resolves
+     * the uploaded server proof id. The server animal_row_id may be unknown at enqueue time (the
+     * scan may still be syncing) and is re-resolved from the Room animal row at dispatch — still
+     * blank means a plain retryable wait, never a terminal failure.
+     */
+    PC_CARE_SLOT_REGISTER,
+
+    /**
+     * PC Care task submit (`POST /app/pc-care/tasks/{task_id}/submit`): submits the WHOLE task —
+     * refused until every scanned animal carries its full slot set. It shares the task group with
+     * the PROOF_UPLOAD and [PC_CARE_SLOT_REGISTER] rows, so every proof resolves server-side
+     * before the submit drains. Its caller derives a STABLE per-(task, row_version) idempotency
+     * key, so a retry re-enqueues the SAME verification item instead of submitting twice, while a
+     * post-rework re-submit (bumped row_version) is a genuinely new act under a new key.
+     */
+    PC_CARE_TASK_SUBMIT,
 }
 
 /**

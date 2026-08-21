@@ -356,9 +356,65 @@ class GoatDatabaseUpgradeCrashTest {
             //     an omitted CREATE would still compile and still pass every fresh-install test —
             //     only reopening a real old file like this one catches it.
             assertWeighingLeadershipTablesRoundTrip(upgraded, base = 140L)
+
+            // 14. The four v49 PC CARE tables (MIGRATION_48_49). Same MOB-007 proof: a write+read
+            //     round-trip on each proves the migrated table matches its @Entity shape.
+            assertPcCareTablesRoundTrip(upgraded, base = 160L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the four PC Care tables so a missing/mismatched CREATE in MIGRATION_48_49
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
+    private suspend fun assertPcCareTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.pcCareTaskItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.PcCareTaskItemEntity(
+                    queryKey = "pc",
+                    grainKey = "task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.pcCareTaskItemDao().countForQuery("pc"))
+
+        upgraded.pcCareTaskRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyEntity(
+                queryKey = "pc",
+                nextOffset = 20,
+                endReached = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals(20, upgraded.pcCareTaskRemoteKeyDao().get("pc")?.nextOffset)
+
+        upgraded.pcCareTaskDetailCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheEntity(
+                cacheKey = "task-1",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(base + 2, upgraded.pcCareTaskDetailCacheDao().observe("task-1").first()?.updatedAt)
+
+        upgraded.pcCareAnimalRowDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.PcCareAnimalRowEntity(
+                    taskId = "task-1",
+                    normalizedTag = "tag-1",
+                    tagVerbatim = "TAG-1",
+                    animalRowId = "",
+                    scannedByName = "",
+                    scanSyncStatus = "PENDING",
+                    serverSlotsJson = "",
+                    updatedAt = base + 3,
+                ),
+            ),
+        )
+        assertEquals("TAG-1", upgraded.pcCareAnimalRowDao().getByTag("task-1", "tag-1")?.tagVerbatim)
     }
 
     /** Round-trips all six Feed read-model tables so a missing/mismatched CREATE in MIGRATION_16_17
@@ -1078,7 +1134,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
             MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41,
             MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
-            MIGRATION_46_47, MIGRATION_47_48,
+            MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

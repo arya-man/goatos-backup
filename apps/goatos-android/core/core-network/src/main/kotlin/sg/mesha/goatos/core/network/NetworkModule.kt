@@ -50,6 +50,17 @@ import sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
 import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
+import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -703,6 +714,92 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: FeedWastageMeasurementRequestDto,
     ): FeedWastageMeasurementResponseDto
+
+
+    // ------------------------------------------------------------------
+    // PC Care (module pc_care, maintainer decision 2026-08-21)
+    // ------------------------------------------------------------------
+
+    @GET("app/pc-care/worklist")
+    suspend fun getPcCareWorklist(
+        @Query("category") category: String,
+        @Query("date") date: String,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): PcCareTaskPageDto
+
+    @GET("app/pc-care/tasks")
+    suspend fun getPcCareTasks(
+        @Query("date") date: String,
+        @Query("park_id") parkId: String?,
+        @Query("category") category: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): PcCareTaskPageDto
+
+    @GET("app/pc-care/tasks/{task_id}")
+    suspend fun getPcCareTask(
+        @Path("task_id") taskId: String,
+    ): PcCareTaskDto
+
+    @GET("app/pc-care/tasks/{task_id}/captures")
+    suspend fun getPcCareTaskCaptures(
+        @Path("task_id") taskId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCareCapturesDto
+
+    @GET("app/pc-care/tasks/{task_id}/roster")
+    suspend fun getPcCareTaskRoster(
+        @Path("task_id") taskId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCareTaskRosterDto
+
+    @POST("app/pc-care/tasks/{task_id}/animals")
+    suspend fun scanPcCareAnimal(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto
+
+    @PUT("app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}")
+    suspend fun registerPcCareSlotProof(
+        @Path("task_id") taskId: String,
+        @Path("animal_row_id") animalRowId: String,
+        @Path("slot") slot: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareSlotProofRequestDto,
+    ): Unit
+
+    @POST("app/pc-care/tasks/{task_id}/submit")
+    suspend fun submitPcCareTask(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): PcCareSubmitResponseDto
+
+    @GET("app/pc-care/planner/catalog")
+    suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto
+
+    @GET("app/pc-care/planner/parks/{park_id}/sheds")
+    suspend fun getPcCarePlannerParkSheds(
+        @Path("park_id") parkId: String,
+        @Query("category") category: String,
+        @Query("date") date: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCarePlannerShedsDto
+
+    @POST("app/pc-care/tasks")
+    suspend fun createPcCareTask(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto
+
+    @POST("app/pc-care/tasks/{task_id}/cancel")
+    suspend fun cancelPcCareTask(
+        @Path("task_id") taskId: String,
+    ): Unit
 
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
@@ -1426,6 +1523,73 @@ class RetrofitAppApi(
         offset: Int?,
     ): FeedPackingWorklistPageDto =
         service.getFeedPackingWorklist(parkId, targetDate, shedId, partitionLabel, session, workflow, status, limit, offset)
+
+
+    override suspend fun getPcCareWorklist(
+        category: String,
+        date: String,
+        limit: Int?,
+        offset: Int?,
+    ): PcCareTaskPageDto = service.getPcCareWorklist(category, date, limit, offset)
+
+    override suspend fun getPcCareTasks(
+        date: String,
+        parkId: String?,
+        category: String?,
+        limit: Int?,
+        offset: Int?,
+    ): PcCareTaskPageDto = service.getPcCareTasks(date, parkId, category, limit, offset)
+
+    override suspend fun getPcCareTask(taskId: String): PcCareTaskDto = service.getPcCareTask(taskId)
+
+    override suspend fun getPcCareTaskCaptures(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareCapturesDto = service.getPcCareTaskCaptures(taskId, cursor, limit)
+
+    override suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareTaskRosterDto = service.getPcCareTaskRoster(taskId, cursor, limit)
+
+    override suspend fun scanPcCareAnimal(
+        taskId: String,
+        idempotencyKey: String,
+        request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto = service.scanPcCareAnimal(taskId, idempotencyKey, request)
+
+    override suspend fun registerPcCareSlotProof(
+        taskId: String,
+        animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = service.registerPcCareSlotProof(taskId, animalRowId, slot, idempotencyKey, request)
+
+    override suspend fun submitPcCareTask(
+        taskId: String,
+        idempotencyKey: String,
+    ): PcCareSubmitResponseDto = service.submitPcCareTask(taskId, idempotencyKey)
+
+    override suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto =
+        service.getPcCarePlannerCatalog()
+
+    override suspend fun getPcCarePlannerParkSheds(
+        parkId: String,
+        category: String,
+        date: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCarePlannerShedsDto = service.getPcCarePlannerParkSheds(parkId, category, date, cursor, limit)
+
+    override suspend fun createPcCareTask(
+        idempotencyKey: String,
+        request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto = service.createPcCareTask(idempotencyKey, request)
+
+    override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,
