@@ -376,3 +376,161 @@ func TestDirectedAnalyticsWindowSplitPageBoundary(t *testing.T) {
 		}
 	}
 }
+
+// The Stock tab's per-farm Mesha-concentrate table: purchases at their
+// (farm, item, batch) natural key, consumption from LOCKED sheets only, and
+// output STRINGS asserted on a real DB round trip (operational-location rule 9).
+func TestStockFarmItemsMeshaTablePerFarm(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	insertPurchase := func(farm, label string, batch int64, date, qty string, parkID *string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-08-10', 'Navaladi', 'Paid')`,
+			fdiTenant, parkID, farm, label, batch, date, qty); err != nil {
+			t.Fatalf("insert purchase %s/%s#%d: %v", farm, label, batch, err)
+		}
+	}
+	park := fdiPark
+	// Two loads of one Mesha item at one farm: first-purchase must read the
+	// older date while last-load carries the newer batch's details.
+	insertPurchase("CBE", "Mesha Kids Goat Concentrate", 298, "2026-06-20", "1550.000", &park)
+	insertPurchase("CBE", "Mesha Kids Goat Concentrate", 330, "2026-08-08", "1150.000", &park)
+	// A Mesha item purchased but NEVER directed: directed columns stay empty.
+	insertPurchase("CBE", "Mesha Adult Concentrate Sheep", 331, "2026-08-08", "400.000", &park)
+	// A NON-Mesha item: must not appear in the table at all.
+	insertPurchase("CBE", "Concentrate", 328, "2026-08-01", "3000.000", &park)
+	// A farm the importer could not resolve to a park: row still serves, bare.
+	insertPurchase("XYZ", "Mesha Kids Goat Concentrate", 5, "2026-08-01", "10.000", nil)
+
+	issuedAt := time.Date(2026, 8, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+	persistDay := func(feedDay, fingerprint string, qty string) {
+		t.Helper()
+		cells := []domain.StoredCell{{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Mesha Kids Goat Concentrate", FeedItemKey: "mesha_kids_goat_concentrate",
+			QuantityKg: kg(qty), SessionTotalKg: qty,
+		}}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fingerprint,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + feedDay + ":stockfarm",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", feedDay, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay,
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", feedDay, lock.Outcome, err)
+		}
+	}
+	// Two locked days: 20 kg then 22 kg -> avg 21.0, consumption from the first.
+	persistDay("2026-08-11", "fp-sf-1", "20.000")
+	persistDay("2026-08-12", "fp-sf-2", "22.000")
+	// An ISSUED (unlocked) earlier day must not move the consumption start.
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-10", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-sf-0",
+		IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":2026-08-10:stockfarm",
+		GeneratedBy:    "test", Cells: []domain.StoredCell{{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Mesha Kids Goat Concentrate", FeedItemKey: "mesha_kids_goat_concentrate",
+			QuantityKg: kg("99.000"), SessionTotalKg: "99.000",
+		}},
+	}); err != nil {
+		t.Fatalf("persist issued day: %v", err)
+	}
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	if len(got.FarmItems) != 3 {
+		t.Fatalf("want 3 farm rows (Mesha only, non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
+	}
+	// Ordered by feed item then farm.
+	sheep := got.FarmItems[0]
+	if sheep.FeedItemLabel != "Mesha Adult Concentrate Sheep" || sheep.FarmLabel != "CBE" {
+		t.Fatalf("row 0: %+v", sheep)
+	}
+	if sheep.FirstDirectedDay != "" || sheep.AvgDailyKg != "" {
+		t.Errorf("never-directed item must serve empty consumption fields, got %q / %q", sheep.FirstDirectedDay, sheep.AvgDailyKg)
+	}
+	kids := got.FarmItems[1]
+	if kids.FeedItemLabel != "Mesha Kids Goat Concentrate" || kids.FarmLabel != "CBE" {
+		t.Fatalf("row 1: %+v", kids)
+	}
+	if kids.FirstPurchaseDate != "2026-06-20" {
+		t.Errorf("first purchase: want 2026-06-20, got %q", kids.FirstPurchaseDate)
+	}
+	if kids.FirstDirectedDay != "2026-08-11" {
+		t.Errorf("consumption from locked sheets only: want 2026-08-11, got %q", kids.FirstDirectedDay)
+	}
+	if kids.AvgDailyKg != "21.0" {
+		t.Errorf("avg over locked days: want 21.0, got %q", kids.AvgDailyKg)
+	}
+	if kids.LastLoadBatchNo != 330 || kids.LastLoadDate != "2026-08-08" ||
+		kids.LastLoadQuantityKg != "1150.0" || kids.LastLoadPerKgCost != "41.53" ||
+		kids.LastLoadVendor != "Navaladi" || kids.LastLoadPaymentStatus != "Paid" {
+		t.Errorf("last load details: %+v", kids)
+	}
+	orphan := got.FarmItems[2]
+	if orphan.FarmLabel != "XYZ" || orphan.FirstDirectedDay != "" {
+		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
+	}
+
+	// OneToMany: two loads of the same (farm, item) collapsed to ONE row above —
+	// re-assert the collapse survives a third load on the SAME purchase date
+	// (batch_no alone must break the tie for last-load).
+	t.Run("OneToManyLoadsSameDateTieBreaksOnBatch", func(t *testing.T) {
+		insertPurchase("CBE", "Mesha Kids Goat Concentrate", 340, "2026-08-08", "50.000", &park)
+		again, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+		if err != nil {
+			t.Fatalf("StockAnalytics: %v", err)
+		}
+		if len(again.FarmItems) != 3 {
+			t.Fatalf("a third load must not add a row: %+v", again.FarmItems)
+		}
+		if again.FarmItems[1].LastLoadBatchNo != 340 {
+			t.Errorf("same-date tie must break on batch_no: %+v", again.FarmItems[1])
+		}
+	})
+
+	// PageBoundary/window independence: the farm table is a whole-ledger
+	// aggregate — the page's expenditure date window must not move it.
+	t.Run("PageBoundaryFreeWindowIndependence", func(t *testing.T) {
+		day := time.Date(2026, 8, 12, 0, 0, 0, 0, biztime.DefaultLocation())
+		narrow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+		if err != nil {
+			t.Fatalf("StockAnalytics narrow: %v", err)
+		}
+		if len(narrow.FarmItems) != 3 || narrow.FarmItems[1].FirstDirectedDay != "2026-08-11" {
+			t.Errorf("date window must not change the farm table: %+v", narrow.FarmItems)
+		}
+	})
+
+	// ParkScope: a caller scoped to another park sees neither this park's
+	// purchases nor the park-less XYZ farm row.
+	t.Run("ParkScopeFilterExcludesOtherParksAndParklessFarms", func(t *testing.T) {
+		other := uuid.New()
+		scoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{other}})
+		if err != nil {
+			t.Fatalf("StockAnalytics scoped: %v", err)
+		}
+		if len(scoped.FarmItems) != 0 {
+			t.Errorf("foreign park scope must serve zero farm rows, got %+v", scoped.FarmItems)
+		}
+	})
+}

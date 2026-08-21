@@ -261,10 +261,26 @@ type spendSummaryDTO struct {
 	ThisYear    string `json:"this_year"`
 }
 
+type stockFarmItemDTO struct {
+	FarmLabel             string `json:"farm_label"`
+	FeedItemLabel         string `json:"feed_item_label"`
+	FeedItemKey           string `json:"feed_item_key"`
+	FirstPurchaseDate     string `json:"first_purchase_date"`
+	FirstDirectedDay      string `json:"first_directed_day"`
+	AvgDailyKg            string `json:"avg_daily_kg"`
+	LastLoadBatchNo       int64  `json:"last_load_batch_no"`
+	LastLoadDate          string `json:"last_load_date"`
+	LastLoadQuantityKg    string `json:"last_load_quantity_kg"`
+	LastLoadPerKgCost     string `json:"last_load_per_kg_cost"`
+	LastLoadVendor        string `json:"last_load_vendor"`
+	LastLoadPaymentStatus string `json:"last_load_payment_status"`
+}
+
 type stockAnalyticsDTO struct {
 	DateFrom    string              `json:"date_from"`
 	DateTo      string              `json:"date_to"`
 	Items       []stockItemDTO      `json:"items"`
+	FarmItems   []stockFarmItemDTO  `json:"farm_items"`
 	Expenditure []expenditureDayDTO `json:"expenditure"`
 	Spend       spendSummaryDTO     `json:"spend"`
 }
@@ -285,10 +301,14 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 		DateFrom:    from.Format("2006-01-02"),
 		DateTo:      to.Format("2006-01-02"),
 		Items:       make([]stockItemDTO, 0, len(result.Items)),
+		FarmItems:   make([]stockFarmItemDTO, 0, len(result.FarmItems)),
 		Expenditure: make([]expenditureDayDTO, 0, len(result.Expenditure)),
 	}
 	for _, it := range result.Items {
 		dto.Items = append(dto.Items, stockItemDTO(it))
+	}
+	for _, fi := range result.FarmItems {
+		dto.FarmItems = append(dto.FarmItems, stockFarmItemDTO(fi))
 	}
 	for _, d := range result.Expenditure {
 		dto.Expenditure = append(dto.Expenditure, expenditureDayDTO(d))

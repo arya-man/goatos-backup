@@ -595,6 +595,78 @@ SELECT
   COALESCE(round(SUM(spend), 0), 0)::text
 FROM priced`
 
+// Per-farm Mesha-concentrate purchase/consumption table (Stock tab).
+//
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to the four MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations); join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, no side left unaggregated; pagination=none — four items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded four-item aggregate over the
+// small purchase ledger and locked sheets, canonical-indexed-SQL default.
+const stockFarmItemsSQL = `
+WITH loads AS (
+    SELECT farm_label, feed_item_key,
+           MAX(feed_item_label) AS feed_item_label,
+           MIN(park_id::text)   AS park_id_text,
+           MIN(purchase_date)   AS first_purchase
+    FROM feed_purchases
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND feed_item_key = ANY ($3::text[])
+    GROUP BY farm_label, feed_item_key
+),
+last_load AS (
+    SELECT DISTINCT ON (farm_label, feed_item_key)
+           farm_label, feed_item_key,
+           batch_no, purchase_date, quantity_kg,
+           COALESCE(per_kg_cost, total_cost / NULLIF(quantity_kg, 0)) AS per_kg_cost,
+           vendor, payment_status
+    FROM feed_purchases
+    WHERE tenant_id = $1
+      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND feed_item_key = ANY ($3::text[])
+    ORDER BY farm_label, feed_item_key, purchase_date DESC, batch_no DESC
+),
+locked_cells AS (
+    SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.state = 'locked'
+      AND r.feed_item_key = ANY ($3::text[])
+    GROUP BY i.park_id, r.feed_item_key, i.feed_day
+),
+directed AS (
+    SELECT park_id, feed_item_key,
+           MIN(feed_day)                  AS first_directed_day,
+           AVG(kg) FILTER (WHERE rn <= 7) AS recent_avg_kg
+    FROM (
+        SELECT park_id, feed_item_key, feed_day, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
+        FROM locked_cells
+    ) ranked
+    GROUP BY park_id, feed_item_key
+)
+SELECT l.farm_label,
+       l.feed_item_label,
+       l.feed_item_key,
+       l.first_purchase::text,
+       COALESCE(d.first_directed_day::text, '')      AS first_directed_day,
+       COALESCE(round(d.recent_avg_kg, 1)::text, '') AS avg_daily_kg,
+       ll.batch_no,
+       ll.purchase_date::text,
+       round(ll.quantity_kg, 1)::text                AS last_quantity_kg,
+       COALESCE(round(ll.per_kg_cost, 2)::text, '')  AS last_per_kg_cost,
+       ll.vendor,
+       ll.payment_status
+FROM loads l
+JOIN last_load ll USING (farm_label, feed_item_key)
+LEFT JOIN directed d
+  ON l.park_id_text IS NOT NULL
+ AND d.park_id = l.park_id_text::uuid
+ AND d.feed_item_key = l.feed_item_key
+ORDER BY l.feed_item_label, l.farm_label`
+
 // StockAnalytics serves the stock cards and the expenditure series.
 func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -622,6 +694,28 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 	if err := itemRows.Err(); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock rows: %w", err)
+	}
+
+	out.FarmItems = []domain.StockFarmItem{}
+	farmRows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys)
+	if err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm items: %w", err)
+	}
+	defer farmRows.Close()
+	for farmRows.Next() {
+		var fi domain.StockFarmItem
+		if err := farmRows.Scan(
+			&fi.FarmLabel, &fi.FeedItemLabel, &fi.FeedItemKey,
+			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg,
+			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
+			&fi.LastLoadPerKgCost, &fi.LastLoadVendor, &fi.LastLoadPaymentStatus,
+		); err != nil {
+			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm scan: %w", err)
+		}
+		out.FarmItems = append(out.FarmItems, fi)
+	}
+	if err := farmRows.Err(); err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm rows: %w", err)
 	}
 
 	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))

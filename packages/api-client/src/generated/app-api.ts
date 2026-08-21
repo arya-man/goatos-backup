@@ -4664,6 +4664,30 @@ export interface components {
             latest_batch_no: number;
             low_stock: boolean;
         };
+        /** @description One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table. Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21). Consumption figures come from LOCKED GoatOS feed sheets, so a bootstrapped item's first_directed_day is the ledger cutoff, not the sheet era before it. */
+        FeedAnalyticsStockFarmItem: {
+            farm_label: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /**
+             * Format: date
+             * @description Earliest load's purchase date for this farm.
+             */
+            first_purchase_date: string;
+            /** @description First locked feed day the item was directed at this farm; empty when never directed. */
+            first_directed_day: string;
+            /** @description Average directed kg over the farm's 7 most recent locked feed days for the item (same semantics as the stock card, scoped to the farm); empty when never directed. */
+            avg_daily_kg: string;
+            /** Format: int64 */
+            last_load_batch_no: number;
+            /** Format: date */
+            last_load_date: string;
+            last_load_quantity_kg: string;
+            /** @description Landed cost per kg of the last load; empty when the ledger row carries no cost. */
+            last_load_per_kg_cost: string;
+            last_load_vendor: string;
+            last_load_payment_status: string;
+        };
         FeedAnalyticsExpenditureDay: {
             /** Format: date */
             feed_day: string;
@@ -4687,6 +4711,8 @@ export interface components {
             /** Format: date */
             date_to: string;
             items: components["schemas"]["FeedAnalyticsStockItem"][];
+            /** @description Per-farm Mesha-concentrate purchase/consumption rows, ordered by feed item then farm. */
+            farm_items: components["schemas"]["FeedAnalyticsStockFarmItem"][];
             expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
             spend: components["schemas"]["FeedAnalyticsSpendSummary"];
         };
