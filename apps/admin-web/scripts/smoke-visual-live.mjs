@@ -42,8 +42,7 @@ let baselineUpdated = 0;
 // typo (or a selection that matches nothing) fails immediately, not after an unrelated network lookup.
 const KNOWN_ROUTE_NAMES = [
   "login", "control-tower", "action-center", "calendar", "protocol-adherence", "workflows",
-  "vaccination", "vaccination-schedule", "vaccination-execution", "procurement-source-entry", "procurement-sales", "config", "sops",
-  "sops-builder", "counts-herd", "counts-analytics", "counts-breakdown", "counts-milk-preparation", "operations-audit", "operations-dlq",
+  "vaccination", "vaccination-schedule", "vaccination-execution", "procurement-source-entry", "procurement-sales", "vaccination-plan", "counts-herd", "counts-analytics", "counts-breakdown", "counts-milk-preparation", "operations-audit", "operations-dlq",
   "goat-passport", "procurement-load-detail",
 ];
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
@@ -90,9 +89,9 @@ const routes = [
   { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
   { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
   { name: "procurement-sales", path: "/procurement/sales?scope_mode=company" },
-  { name: "config", path: "/config?scope_mode=company&category=vaccination" },
-  { name: "sops", path: "/vaccination/sops?scope_mode=company" },
-  { name: "sops-builder", path: "/vaccination/sops?compose=1&scope_mode=company" },
+  { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
+  { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
+  { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },
   { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
   { name: "counts-analytics", path: "/counts/analytics?scope_mode=company" },
   { name: "counts-breakdown", path: "/counts/breakdown?scope_mode=company" },
@@ -130,8 +129,8 @@ const pagerMinimums = new Map([
   ["vaccination", 1],
   ["vaccination-execution", 1],
   ["procurement-source-entry", 1],
-  ["config", 1],
-  ["sops", 1],
+  ["vaccination-plan", 1],
+  ["counts-sops", 1],
   ["counts-herd", 1],
   ["operations-audit", 2],
 ]);

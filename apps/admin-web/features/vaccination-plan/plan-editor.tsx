@@ -13,6 +13,7 @@
  */
 
 import { useRouter } from "next/navigation";
+import { ArrowLeft, Check } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
@@ -139,7 +140,7 @@ export function VaccinationPlanEditor(props: Props) {
   return (
     <div className="vp">
       <a className="backlink" href="/vaccination/plan">
-        ← Vaccination plan
+        <ArrowLeft size={14} aria-hidden /> Vaccination plan
       </a>
 
       <header className="head">
@@ -676,7 +677,7 @@ function SafetyCard({ plan }: { plan: EditorPlan }) {
         <ul className="safety">
           {lines.map((line) => (
             <li key={line}>
-              <span className="sy">✓</span>
+              <span className="sy"><Check size={10} aria-hidden /></span>
               {line}
             </li>
           ))}

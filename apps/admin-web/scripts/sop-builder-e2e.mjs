@@ -1,4 +1,4 @@
-// Comprehensive E2E for the full-page SOP form builder (/vaccination/sops?compose=1).
+// Comprehensive E2E for the full-page SOP form builder (/counts/sops?compose=1).
 // Exercises every field type, every control/button, validation permutations, the interactive preview,
 // save -> dry-run -> publish, library appearance, and the edit round-trip. Prints a PASS/FAIL table and
 // exits non-zero if anything fails. Run: node scripts/sop-builder-e2e.mjs  (needs :3300 + :8080 up).
@@ -19,7 +19,7 @@ async function check(name, fn) {
 const q = (i) => page.locator(".qcard").nth(i);
 const typeSel = (i) => q(i).locator(".qtype select");
 const gotoBuilder = async (suffix = "") => {
-  await page.goto(`${base}/vaccination/sops?compose=1&scope_mode=company${suffix}`, { waitUntil: "networkidle", timeout: 30000 });
+  await page.goto(`${base}/counts/sops?compose=1&scope_mode=company${suffix}`, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForSelector(".qcard", { timeout: 15000 });
 };
 const setName = (v) => page.locator(".buildermain input").first().fill(v);

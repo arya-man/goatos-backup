@@ -10,6 +10,7 @@
  * value rather than two competing sources of truth.
  */
 
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const DAYS_PER = { days: 1, weeks: 7, months: 30, years: 365 } as const;
@@ -107,7 +108,7 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
         aria-haspopup="dialog"
         disabled={disabled}
       >
-        {formatDays(days)} <span className="car">▾</span>
+        {formatDays(days)} <ChevronDown className="car" size={11} aria-hidden />
       </button>
       {open ? (
         <span className="pop pop-num" role="dialog" aria-label={title}>

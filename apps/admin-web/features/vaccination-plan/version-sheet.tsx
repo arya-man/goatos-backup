@@ -13,6 +13,7 @@
  * what a plan said.
  */
 
+import { X } from "lucide-react";
 import { useEffect } from "react";
 
 import { describeFirstDoses, describeRepeats, type VaccineGroup } from "./plan-model";
@@ -61,7 +62,10 @@ export function VersionSheet({ data, loading, error, onClose }: Props) {
             <h2>{data?.label ?? "Version settings"}</h2>
           </div>
           <button className="vp-x" onClick={onClose} type="button" aria-label="Close">
-            ✕
+            {/* lucide, not a dingbat: check-mock-fidelity.mjs rejects emoji glyphs
+                because the mock uses real icons and a dingbat renders differently
+                on every platform. */}
+            <X size={15} aria-hidden />
           </button>
         </div>
         <div className="vp-body">
