@@ -176,6 +176,10 @@ func (s *Service) compile(ctx context.Context, input BootstrapInput, families Re
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
+	} else if isProcurementDirectorLensPrincipal(input) {
+		// The procurement-director Procurement + Feed workspace (maintainer decision
+		// 2026-08-21) — same narrowing layer as the verifier lens above.
+		resp = applyProcurementDirectorLens(resp)
 	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes
@@ -1300,6 +1304,9 @@ func highestRole(roles []string) string {
 		permissions.RoleCEOInternal,
 		permissions.RolePCDirector,
 		permissions.RoleGrowthDirector,
+		// Above feed_director so the current holder — who carries BOTH keys — is chipped as the
+		// Procurement Director he was appointed as (maintainer decision 2026-08-21).
+		permissions.RoleProcurementDirector,
 		permissions.RoleFeedDirector,
 		permissions.RoleHealthDirector,
 		permissions.RoleParkHead,
@@ -1331,6 +1338,8 @@ func roleLensForRole(role string) domain.RoleLensContract {
 		return domain.RoleLensContract{ID: "growth-director", Name: "Growth Director", AuditShort: "Growth Dir", Scope: "weighing · all parks", Description: "Weighing governance view"}
 	case permissions.RoleFeedDirector:
 		return domain.RoleLensContract{ID: "feed-director", Name: "Feed Director", AuditShort: "Feed Dir", Scope: "feed · all parks", Description: "Feed governance view"}
+	case permissions.RoleProcurementDirector:
+		return domain.RoleLensContract{ID: "procurement-director", Name: "Procurement Director", AuditShort: "Proc Dir", Scope: "procurement + feed · all parks", Description: "Procurement governance view"}
 	case permissions.RoleHealthDirector:
 		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health · all parks", Description: "Health / counts governance view"}
 	case permissions.RoleParkHead:
@@ -1364,6 +1373,8 @@ func roleInitials(role string) string {
 		return "GD"
 	case permissions.RoleFeedDirector:
 		return "FD"
+	case permissions.RoleProcurementDirector:
+		return "PD"
 	case permissions.RoleHealthDirector:
 		return "HD"
 	case permissions.RoleParkHead:

@@ -77,6 +77,26 @@ var perPersonGrants = []personGrant{
 			permissions.RoleOperator,
 		},
 	},
+	{
+		// Hemant Singh — Feed Director, additionally made the Procurement Director (maintainer
+		// decision 2026-08-21). He KEEPS feed_director: his phone access, the Feed proof
+		// notification routing, and the feed-chain write authority all ride on that role, and the
+		// maintainer's instruction was to change nothing on the app side. procurement_director is
+		// admin-web-only (no AppBootstrap) and layers the Procurement + Feed web workspace on top
+		// (backend/internal/adminui/app/procurement_director_lens.go).
+		//
+		// His feed_director grant itself was a manual STG seed
+		// (workforce_members.metadata source "stg_feed_director_manual_seed_2026_08_10"), so it is
+		// listed here explicitly the way Dinakar's operator grant is — this file states his whole
+		// authority rather than half of it. No committed Firebase UID: his user_id resolves from
+		// his EXISTING bound roster row ("Hemant"), the same path Dinakar uses.
+		email:             "hemant@vgoats.com",
+		rosterDisplayName: "Hemant",
+		roles: []string{
+			permissions.RoleFeedDirector,
+			permissions.RoleProcurementDirector,
+		},
+	},
 }
 
 // personGrant is one named individual's extra roles, granted alongside whatever job role the
