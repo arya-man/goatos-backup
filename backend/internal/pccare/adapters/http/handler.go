@@ -77,6 +77,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 type slotDTO struct {
 	FieldKey string `json:"field_key"`
 	Label    string `json:"label"`
+	// Description is backend-owned farm copy saying what this video must show.
+	Description string `json:"description,omitempty"`
 	// MinDurationHintSeconds is recorder-chrome guidance, never a client-enforced cap.
 	MinDurationHintSeconds int `json:"min_duration_hint_seconds,omitempty"`
 }
@@ -115,7 +117,7 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 	slots := domain.SlotsForCategory(t.Category)
 	slotDTOs := make([]slotDTO, 0, len(slots))
 	for _, s := range slots {
-		slotDTOs = append(slotDTOs, slotDTO{FieldKey: s.FieldKey, Label: s.Label, MinDurationHintSeconds: s.MinDurationHintSeconds})
+		slotDTOs = append(slotDTOs, slotDTO{FieldKey: s.FieldKey, Label: s.Label, Description: s.Description, MinDurationHintSeconds: s.MinDurationHintSeconds})
 	}
 	assigneeIDs := t.AssigneeUserIDs
 	if assigneeIDs == nil {

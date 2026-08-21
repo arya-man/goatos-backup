@@ -80,6 +80,11 @@ class PcCareTaskViewModel @Inject constructor(
     private val taskId: String = savedStateHandle.get<String>(ARG_TASK_ID).orEmpty()
     private val categoryTitle: String = savedStateHandle.get<String>(ARG_TITLE).orEmpty()
 
+    // Set only on the per-animal capture drill (roster mode): the animal this screen is focused
+    // on. The FIRST entry records the tag into the task — the tap IS the free-flow scan.
+    private val focusTagKey: String = savedStateHandle.get<String>(ARG_TAG_KEY).orEmpty()
+    private val focusTagVerbatim: String = savedStateHandle.get<String>(ARG_TAG_VERBATIM).orEmpty()
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private data class LocalBits(
@@ -135,6 +140,15 @@ class PcCareTaskViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { repository.observeRoster(taskId).collect { latestRoster = it } }
+        // Per-animal capture drill: entering the screen records the tag into the task (the SAME
+        // free-flow scan write; a tag already present is a Duplicate no-op).
+        if (focusTagVerbatim.isNotBlank()) {
+            viewModelScope.launch {
+                if (!isLifecycleLocked(latestDetail)) {
+                    repository.recordScan(taskId, focusTagVerbatim)
+                }
+            }
+        }
         viewModelScope.launch {
             repository.observeTaskDetail(taskId)
                 .map { it?.status.orEmpty() }
@@ -198,7 +212,9 @@ class PcCareTaskViewModel @Inject constructor(
             PcCareTaskEvent.ConfirmSubmit -> confirmSubmit()
             PcCareTaskEvent.DismissSubmitConfirmation ->
                 local.update { it.copy(showSubmitConfirmation = false) }
-            is PcCareTaskEvent.RosterTapped -> onRosterTapped(event.tagKey)
+            // Handled by the host: navigates to the per-animal capture drill (Feed Direction's
+            // completion-screen shape — the three videos as clearly labeled options).
+            is PcCareTaskEvent.RosterTapped -> Unit
             PcCareTaskEvent.Refresh -> refresh()
             // Handled by the host (navigates to the reader pairing screen).
             PcCareTaskEvent.ReconnectReader -> Unit
@@ -253,47 +269,6 @@ class PcCareTaskViewModel @Inject constructor(
         onRecordSlot(normalizePcCareTag(tagVerbatim), slotFieldKey, tagVerbatimFallback = tagVerbatim)
     }
 
-    /**
-     * Roster mode: a tap on a pen-roster row records that animal's NEXT missing clip (the
-     * trimming triple walks before → while → after). A tag not yet in the task is scanned in
-     * first (the SAME free-flow scan write), then the recorder opens.
-     */
-    private fun onRosterTapped(tagKey: String) {
-        val detail = latestDetail ?: return
-        if (isLifecycleLocked(detail)) return
-        if (local.value.capturingSlotKey != null) {
-            local.update { it.copy(message = "Finish the current video first.") }
-            return
-        }
-        val animal = latestAnimals.firstOrNull { it.normalizedTag == tagKey }
-        val slotFieldKey = pcCareNextRosterSlot(
-            expectedSlots = detail.expectedSlots,
-            animal = animal,
-            animalProofs = latestProofs.filter { it.fieldKey.substringBefore(':') == tagKey },
-            json = json,
-        ) ?: return
-        if (animal != null) {
-            onRecordSlot(tagKey, slotFieldKey)
-            return
-        }
-        // The tap IS the scan: record the tag into the task, then open the recorder.
-        val verbatim = latestRoster.firstOrNull { normalizePcCareTag(it) == tagKey } ?: tagKey
-        viewModelScope.launch {
-            when (val outcome = repository.recordScan(taskId, verbatim)) {
-                is PcCareScanOutcome.Queued, is PcCareScanOutcome.Duplicate -> {
-                    analytics.track(AnalyticsEvents.PC_CARE_SCAN_ACCEPTED)
-                    onRecordSlot(tagKey, slotFieldKey, tagVerbatimFallback = verbatim)
-                }
-                is PcCareScanOutcome.Failed -> {
-                    analytics.track(
-                        AnalyticsEvents.PC_CARE_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to outcome.reason.take(MAX_REASON_CHARS)),
-                    )
-                    local.update { it.copy(message = "Couldn't add this animal. Try again.") }
-                }
-            }
-        }
-    }
 
     private fun showScanNotice(text: String) {
         val nonce = local.value.scanNoticeNonce + 1
@@ -519,7 +494,36 @@ class PcCareTaskViewModel @Inject constructor(
             emptyList()
         }
         val evaluation = pcCareEvaluateSubmit(expectedSlots, animals, proofs, json)
+        // Per-animal drill focus: the scanned row's live chips, or a fresh all-empty card set
+        // while the entry scan is still landing in Room.
+        val focusAnimal = if (focusTagKey.isNotBlank()) {
+            pcCareBuildAnimalUis(
+                expectedSlots,
+                animals.filter { it.normalizedTag == focusTagKey },
+                proofs,
+                bits.capturingSlotKey,
+                json,
+            ).firstOrNull() ?: PcCareAnimalUi(
+                key = focusTagKey,
+                tagLabel = focusTagVerbatim.ifBlank { focusTagKey },
+                scannedByLine = "",
+                slots = expectedSlots.map { slot ->
+                    PcCareSlotChipUi(
+                        fieldKey = slot.fieldKey,
+                        label = slot.label,
+                        description = slot.description,
+                        state = PcCareSlotState.EMPTY,
+                        statusLabel = "",
+                        hintLabel = pcCareSlotHintLabel(slot.minDurationHintSeconds),
+                        canRecord = true,
+                    )
+                },
+            )
+        } else {
+            null
+        }
         return PcCareTaskUiState(
+            focusAnimal = focusAnimal,
             title = categoryTitle.ifBlank { detail?.category.orEmpty() },
             locationDisplay = detail?.let { it.operationalLocationDisplay.ifBlank { it.shedLabel } }.orEmpty(),
             parkLabel = detail?.parkLabel.orEmpty(),
@@ -584,6 +588,8 @@ class PcCareTaskViewModel @Inject constructor(
         const val ARG_TASK_ID = "task_id"
         const val ARG_CATEGORY = "category"
         const val ARG_TITLE = "title"
+        const val ARG_TAG_KEY = "tag_key"
+        const val ARG_TAG_VERBATIM = "tag_verbatim"
 
         private const val SCAN_NOTICE_DISMISS_MS = 4_000L
         private const val MAX_REASON_CHARS = 96
@@ -644,6 +650,7 @@ internal fun pcCareSlotChip(
         return PcCareSlotChipUi(
             fieldKey = slot.fieldKey,
             label = slot.label,
+            description = slot.description,
             state = PcCareSlotState.WORKING,
             statusLabel = "Recording…",
             hintLabel = hint,
@@ -660,6 +667,7 @@ internal fun pcCareSlotChip(
             ProofProcessingStatus.UPLOADED -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
+                description = slot.description,
                 state = PcCareSlotState.SYNCED,
                 statusLabel = "Video sent",
                 hintLabel = hint,
@@ -668,6 +676,7 @@ internal fun pcCareSlotChip(
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
+                description = slot.description,
                 state = PcCareSlotState.FAILED,
                 statusLabel = "Record again",
                 hintLabel = hint,
@@ -676,6 +685,7 @@ internal fun pcCareSlotChip(
             else -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
+                description = slot.description,
                 state = if (localRow.syncStatus == CaptureSyncStatus.FAILED) PcCareSlotState.FAILED else PcCareSlotState.WORKING,
                 statusLabel = localRow.processingStatus.operatorLabel,
                 hintLabel = hint,
@@ -688,6 +698,7 @@ internal fun pcCareSlotChip(
         return PcCareSlotChipUi(
             fieldKey = slot.fieldKey,
             label = slot.label,
+            description = slot.description,
             state = PcCareSlotState.PEER,
             statusLabel = if (serverSlot.capturedByName.isNotBlank()) {
                 "Captured by ${serverSlot.capturedByName}"
@@ -701,6 +712,7 @@ internal fun pcCareSlotChip(
     return PcCareSlotChipUi(
         fieldKey = slot.fieldKey,
         label = slot.label,
+        description = slot.description,
         state = PcCareSlotState.EMPTY,
         statusLabel = "",
         hintLabel = hint,
@@ -738,28 +750,6 @@ internal fun pcCareBuildAnimalUis(
 /** True when this chip's clip is durably in (this phone synced, or a peer's attribution). */
 private fun pcCareChipDone(chip: PcCareSlotChipUi): Boolean =
     chip.state == PcCareSlotState.SYNCED || chip.state == PcCareSlotState.PEER
-
-/**
- * The slot a roster tap records next for one animal: the first expected slot that is neither
- * durably captured nor mid-pipeline (slot ORDER is the backend contract's order — before, while,
- * after for the trimming categories). Every slot settled → the FIRST slot, so a sent-back task
- * can re-record. An animal not yet scanned starts at the first slot.
- */
-internal fun pcCareNextRosterSlot(
-    expectedSlots: List<PcCareSlotDto>,
-    animal: PcCareAnimalRowEntity?,
-    animalProofs: List<ProofCaptureRow>,
-    json: Json,
-): String? {
-    val first = expectedSlots.firstOrNull()?.fieldKey ?: return null
-    if (animal == null) return first
-    val serverSlots = decodeServerSlots(json, animal.serverSlotsJson)
-    val next = expectedSlots.firstOrNull { slot ->
-        val chip = pcCareSlotChip(slot, animal.normalizedTag, animalProofs, serverSlots, capturingSlotKey = null)
-        !pcCareChipDone(chip) && chip.state != PcCareSlotState.WORKING
-    }
-    return next?.fieldKey ?: first
-}
 
 /**
  * Derives the roster-tap rows: one per pen-roster RFID, in roster order, each summarizing the

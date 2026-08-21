@@ -19,6 +19,8 @@ data class PcCareSlotDto(
     @SerialName("field_key") val fieldKey: String,
     /** Backend-owned farm copy, rendered verbatim ("Before trimming"). */
     @SerialName("label") val label: String,
+    /** Backend-owned farm copy saying what this video must show, rendered verbatim. */
+    @SerialName("description") val description: String = "",
     /** Recorder-chrome GUIDANCE (the ~10 s "while trimming" clip), never a client-enforced cap. */
     @SerialName("min_duration_hint_seconds") val minDurationHintSeconds: Int = 0,
 )
