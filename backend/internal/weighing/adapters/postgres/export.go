@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // ProofURLResolver turns a proof artifact id into a clickable, playable URL: a time-limited
@@ -121,10 +123,27 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 	return nil
 }
 
-// ExportCSV streams the leadership-visible weighing window across authorized parks.
-// Pending verification is exported as data, not filtered out; the verdict travels in its own
-// column so CEO can see today's unverified work instead of receiving an empty file.
-func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error {
+// ExportCSV streams the leadership-visible weighing window across authorized parks,
+// optionally narrowed to selected shed locations.
+//
+// Column shape follows the operations "Weight check" sheet the maintainer reconciles
+// against (maintainer request 2026-08-21), minus its video-link column: date | rfid |
+// rfid_2 | old_id | old_id_suffix | breed | gender | shed | type | count | operator |
+// approval | verified_weight_kg. `old_id_suffix` is structurally blank — the sheet
+// keeps the column and leaves it empty, and the file must line up cell-for-cell.
+//
+// Pending verification is exported as data, not filtered out; the verdict travels in
+// the `approval` column (approved / rejected / pending, the sheet's own words) so CEO
+// can see today's unverified work instead of receiving an empty file. The weight
+// column is the CURRENT weight: a verifier correction REPLACES weight_kg (migration
+// 000172), so this is the verified figure whenever one exists.
+//
+// The rfid_2 / old_id / breed / gender cells come from exportGoatIdentities in
+// weight_demographics.go — the ONE weighing file the free-flow guard permits to
+// resolve a scanned tag — fetched as ONE bounded map before streaming, never per row.
+// A tag that resolves to nothing exports blank cells and is still COUNTED, never
+// dropped: free-flow capture stays untouched.
+func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
@@ -133,29 +152,31 @@ func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []s
 
 	if err := csvWriter.Write([]string{
 		"date",
-		"type",
-		"park",
-		"rfid_1",
+		"rfid",
 		"rfid_2",
-		"display_id",
+		"old_id",
+		"old_id_suffix",
 		"breed",
 		"gender",
 		"shed",
-		"weight_kg",
-		"total_weight_kg",
-		"average_weight_kg",
-		"animal_count",
-		"video_verification_status",
-		"video_verified_at",
-		"proof_reference_type",
-		"proof_reference",
-		"proof_video_url",
-		"proof_url_note",
+		"type",
+		"count",
+		"operator",
+		"approval",
+		"verified_weight_kg",
 	}); err != nil {
 		return err
 	}
 	if len(parkIDs) == 0 {
 		return nil
+	}
+	if shedLocationIDs == nil {
+		shedLocationIDs = []string{}
+	}
+
+	identities, err := r.exportGoatIdentities(ctx, tenantID, parkIDs, shedLocationIDs, periodStart, periodEnd)
+	if err != nil {
+		return err
 	}
 
 	rows, err := r.pool.Query(ctx, `
@@ -163,29 +184,29 @@ WITH individual AS (
   SELECT
     (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date,
     'individual'::text AS weighing_type,
-    COALESCE(p.name, '') AS park,
-    o.scanned_identifier AS rfid_1,
-    ''::text AS rfid_2,
-    o.scanned_identifier AS display_id,
-    ''::text AS breed,
-    ''::text AS gender,
-    cs.display_name AS shed,
-    o.weight_kg::float8 AS weight_kg,
-    NULL::float8 AS total_weight_kg,
-    NULL::float8 AS average_weight_kg,
+    o.scanned_identifier AS rfid,
+    cs.display_name AS shed_label,
+    COALESCE(cs.partition_label, '') AS partition_label,
     NULL::int AS animal_count,
-    COALESCE(NULLIF(o.verification_status, ''), 'pending') AS video_verification_status,
-    o.verified_at,
-    COALESCE(pa.proof_id::text, '') AS proof_ids,
-    COALESCE(pa.storage_provider, '') AS proof_providers,
-    COALESCE(pa.object_key, '') AS proof_object_keys
+    COALESCE(op.display_name, '') AS operator,
+    COALESCE(NULLIF(o.verification_status, ''), 'pending') AS verification_status,
+    o.weight_kg::float8 AS weight_kg
   FROM weighing_observations o
   JOIN weighing_campaign_sheds cs ON cs.tenant_id=o.tenant_id AND cs.campaign_shed_id=o.campaign_shed_id
   JOIN weighing_campaigns c ON c.tenant_id=o.tenant_id AND c.campaign_id=o.campaign_id
-  LEFT JOIN locations p ON p.tenant_id=o.tenant_id AND p.location_id=c.park_id
-  LEFT JOIN proof_artifacts pa ON pa.tenant_id=o.tenant_id AND pa.proof_id=o.proof_artifact_id
+  -- LATERAL LIMIT 1 so a person with more than one roster row can never multiply an
+  -- observation row; newest row wins deterministically. workforce_members is one of
+  -- the allowlisted ORG tables — this names the person, it gates nothing.
+  LEFT JOIN LATERAL (
+    SELECT wm.display_name
+    FROM workforce_members wm
+    WHERE wm.tenant_id = o.tenant_id AND wm.user_id = o.recorded_by
+    ORDER BY wm.updated_at DESC
+    LIMIT 1
+  ) op ON true
   WHERE o.tenant_id=$1::uuid
     AND c.park_id = ANY($2::uuid[])
+    AND (cardinality($5::uuid[]) = 0 OR cs.location_id = ANY($5::uuid[]))
     AND o.accepted_at >= $3::timestamptz
     AND o.accepted_at < $4::timestamptz
 ),
@@ -193,95 +214,103 @@ lumpsum AS (
   SELECT
     (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date,
     'lumpsum'::text AS weighing_type,
-    COALESCE(p.name, '') AS park,
-    ''::text AS rfid_1,
-    ''::text AS rfid_2,
-    ''::text AS display_id,
-    ''::text AS breed,
-    ''::text AS gender,
-    cs.display_name AS shed,
-    NULL::float8 AS weight_kg,
-    so.weight_kg::float8 AS total_weight_kg,
-    so.average_weight_kg::float8 AS average_weight_kg,
+    ''::text AS rfid,
+    cs.display_name AS shed_label,
+    COALESCE(cs.partition_label, '') AS partition_label,
     so.animal_count::int AS animal_count,
-    COALESCE(NULLIF(so.verification_status, ''), 'pending') AS video_verification_status,
-    so.verified_at,
-    COALESCE(proofs.proof_ids, '') AS proof_ids,
-    COALESCE(proofs.proof_providers, '') AS proof_providers,
-    COALESCE(proofs.proof_object_keys, '') AS proof_object_keys
+    COALESCE(op.display_name, '') AS operator,
+    COALESCE(NULLIF(so.verification_status, ''), 'pending') AS verification_status,
+    so.weight_kg::float8 AS weight_kg
   FROM weighing_shed_observations so
   JOIN weighing_campaign_sheds cs ON cs.tenant_id=so.tenant_id AND cs.campaign_shed_id=so.campaign_shed_id
   JOIN weighing_campaigns c ON c.tenant_id=so.tenant_id AND c.campaign_id=so.campaign_id
-  LEFT JOIN locations p ON p.tenant_id=so.tenant_id AND p.location_id=c.park_id
   LEFT JOIN LATERAL (
-    SELECT
-      string_agg(pa.proof_id::text, chr(31) ORDER BY wsp.proof_position) AS proof_ids,
-      string_agg(pa.storage_provider, chr(31) ORDER BY wsp.proof_position) AS proof_providers,
-      string_agg(pa.object_key, chr(31) ORDER BY wsp.proof_position) AS proof_object_keys
-    FROM weighing_shed_observation_proofs wsp
-    JOIN proof_artifacts pa ON pa.tenant_id=wsp.tenant_id AND pa.proof_id=wsp.proof_artifact_id
-    WHERE wsp.tenant_id=so.tenant_id AND wsp.shed_observation_id=so.shed_observation_id
-  ) proofs ON true
+    SELECT wm.display_name
+    FROM workforce_members wm
+    WHERE wm.tenant_id = so.tenant_id AND wm.user_id = so.recorded_by
+    ORDER BY wm.updated_at DESC
+    LIMIT 1
+  ) op ON true
   WHERE so.tenant_id=$1::uuid
     AND c.park_id = ANY($2::uuid[])
+    AND (cardinality($5::uuid[]) = 0 OR cs.location_id = ANY($5::uuid[]))
     AND so.accepted_at >= $3::timestamptz
     AND so.accepted_at < $4::timestamptz
     AND so.withdrawn_at IS NULL
 )
-SELECT business_date::text, weighing_type, park, rfid_1, rfid_2, display_id, breed, gender, shed,
-       weight_kg, total_weight_kg, average_weight_kg, animal_count,
-       video_verification_status, COALESCE(verified_at::text, ''),
-       proof_ids, proof_providers, proof_object_keys
+SELECT business_date::text, weighing_type, rfid, shed_label, partition_label,
+       animal_count, operator, verification_status, weight_kg
 FROM (
   SELECT * FROM individual
   UNION ALL
   SELECT * FROM lumpsum
 ) exported
-ORDER BY business_date DESC, park ASC, shed ASC, weighing_type ASC, display_id ASC
-`, tenantID, parkIDs, periodStart, periodEnd)
+ORDER BY business_date DESC, shed_label ASC, partition_label ASC, weighing_type ASC, rfid ASC
+`, tenantID, parkIDs, periodStart, periodEnd, shedLocationIDs)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var date, kind, park, rfid1, rfid2, displayID, breed, gender, shed, status, verifiedAt string
-		var proofIDs, proofProviders, proofObjectKeys string
-		var weightKg, totalWeightKg, averageWeightKg *float64
+		var date, kind, rfid, shedLabel, partitionLabel, operator, status string
+		var weightKg *float64
 		var animalCount *int
 		if err := rows.Scan(
-			&date, &kind, &park, &rfid1, &rfid2, &displayID, &breed, &gender, &shed,
-			&weightKg, &totalWeightKg, &averageWeightKg, &animalCount, &status, &verifiedAt,
-			&proofIDs, &proofProviders, &proofObjectKeys,
+			&date, &kind, &rfid, &shedLabel, &partitionLabel,
+			&animalCount, &operator, &status, &weightKg,
 		); err != nil {
 			return err
 		}
-		proofRefTypes, proofRefs, proofURLs, proofURLNotes := r.proofVideoColumns(ctx, tenantID, proofIDs, proofProviders, proofObjectKeys)
+		identity := identities[strings.ToLower(strings.TrimSpace(rfid))]
 		if err := csvWriter.Write([]string{
 			date,
+			csvText(rfid),
+			csvText(identity.SecondTag),
+			csvText(identity.DisplayID),
+			"", // old_id_suffix — kept blank by sheet convention
+			csvText(identity.Breed),
+			csvText(identity.Sex),
+			csvText(exportShedDisplay(shedLabel, partitionLabel)),
 			kind,
-			csvText(park),
-			csvText(rfid1),
-			csvText(rfid2),
-			csvText(displayID),
-			csvText(breed),
-			csvText(gender),
-			csvText(shed),
-			formatOptionalFloat(weightKg),
-			formatOptionalFloat(totalWeightKg),
-			formatOptionalFloat(averageWeightKg),
 			formatOptionalInt(animalCount),
-			status,
-			verifiedAt,
-			csvText(proofRefTypes),
-			csvText(proofRefs),
-			csvText(proofURLs),
-			csvText(proofURLNotes),
+			csvText(operator),
+			exportApprovalLabel(status),
+			formatOptionalFloat(weightKg),
 		}); err != nil {
 			return err
 		}
 	}
 	return rows.Err()
+}
+
+// exportApprovalLabel maps the stored verification status to the sheet's own approval
+// words: verified → approved, rework → rejected, anything else (including blank and
+// the stored literal 'pending') → pending.
+func exportApprovalLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "verified":
+		return "approved"
+	case "rework", "rejected":
+		return "rejected"
+	default:
+		return "pending"
+	}
+}
+
+// exportShedDisplay composes the shed cell exactly the way the Weights screen does
+// (shed_weights.go): the bucket's planning label plus its partition through the
+// canonical oploc composer, with the same doubling guard — a partitioned bucket is
+// routinely NAMED for the pen it covers ("Castro 2"), and appending the partition
+// again would print "Castro 2 2".
+func exportShedDisplay(shedLabel, partitionLabel string) string {
+	if partitionLabel != "" && strings.HasSuffix(shedLabel, partitionLabel) {
+		return shedLabel
+	}
+	return (oploc.OperationalLocation{
+		ShedName:       shedLabel,
+		PartitionLabel: partitionLabel,
+	}).Display()
 }
 
 type shedInfo struct {

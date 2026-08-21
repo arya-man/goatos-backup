@@ -48,7 +48,7 @@ type Service interface {
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error)
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
-	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate string, writer io.Writer) error
+	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error
 }
 
 type Handler struct {
@@ -939,7 +939,8 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="weighing-export.csv"`)
 
 	counting := &countingResponseWriter{ResponseWriter: w}
-	if err := h.service.ExportCSV(ctx, a, r.URL.Query().Get("from"), r.URL.Query().Get("to"), counting); err != nil {
+	query := r.URL.Query()
+	if err := h.service.ExportCSV(ctx, a, query.Get("from"), query.Get("to"), query.Get("park_id"), query["shed_id"], counting); err != nil {
 		if counting.written > 0 {
 			h.log.Error("export csv failed mid-stream", "bytes_written", counting.written, "error", err)
 			return

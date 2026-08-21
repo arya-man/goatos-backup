@@ -24,7 +24,7 @@ type Service struct {
 }
 
 type exportReader interface {
-	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
+	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -1672,9 +1672,13 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 	return s.repo.ExportCampaignCSV(ctx, actor.TenantID, campaignID, writer)
 }
 
-// ExportCSV exports the current leadership weighing window as CSV.
+// ExportCSV exports the selected leadership weighing window as CSV.
 // The default is 36 inclusive business dates: today plus the previous 35 days.
-func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate string, writer io.Writer) error {
+// The Weights page's download drawer sends an explicit range; anything up to a
+// year is served, because the export exists to reconcile past periods. parkID
+// optionally narrows to one authorized park; shedLocationIDs optionally narrow
+// to selected shed locations within that scope.
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return ports.ErrForbidden
 	}
@@ -1688,11 +1692,23 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if err != nil {
 		return ports.ErrInvalidArgument
 	}
-	if from.After(to) || to.Sub(from) > 35*24*time.Hour {
+	if from.After(to) || to.Sub(from) > 366*24*time.Hour {
 		return ports.ErrInvalidArgument
 	}
 
-	parkIDs, err := s.resolveMonitorParkScope(ctx, actor, "")
+	sheds := make([]string, 0, len(shedLocationIDs))
+	for _, shedID := range shedLocationIDs {
+		shedID = strings.TrimSpace(shedID)
+		if shedID == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(shedID) {
+			return ports.ErrInvalidArgument
+		}
+		sheds = append(sheds, shedID)
+	}
+
+	parkIDs, err := s.resolveMonitorParkScope(ctx, actor, strings.TrimSpace(parkID))
 	if err != nil {
 		return err
 	}
@@ -1700,7 +1716,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if !ok {
 		return ports.ErrNotFound
 	}
-	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, from, to.AddDate(0, 0, 1), writer)
+	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, sheds, from, to.AddDate(0, 0, 1), writer)
 }
 
 func exportBusinessDateOrDefault(value string, fallback time.Time) (time.Time, error) {
