@@ -1299,6 +1299,23 @@ func (r *Repository) insertReworkObligationForMissed(
 		return "", fmt.Errorf("obligation: rework trigger id: %w", err)
 	}
 
+	// The rework row is the SAME cycle as the missed one -- same cause, new date -- so it
+	// inherits the missed row's repeat-cycle metadata. Without this it would be born with
+	// due-date identity, invisible to both partial indexes and to the repeat branch of the
+	// insert guard, and the next generation pass would compute the anchored row for that same
+	// cycle and land it beside the rework row. That is the duplicate this design removes,
+	// reachable through the ordinary reschedule path.
+	missedID, err := pgconv.UUID(missedObligationID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework missed obligation id: %w", err)
+	}
+	inherited, err := qtx.GetObligationRepeatCycle(ctx, obligationdb.GetObligationRepeatCycleParams{
+		TenantID: tenant, ObligationID: missedID,
+	})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("obligation: read missed repeat cycle: %w", err)
+	}
+
 	newIdempotencyKey := "rescheduled_missed:" + missedObligationID + ":" + dueAt.UTC().Format(time.RFC3339Nano)
 	newID, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
 		TenantID:             tenant,
@@ -1316,6 +1333,13 @@ func (r *Repository) insertReworkObligationForMissed(
 		IdempotencyKey:       newIdempotencyKey,
 		GeneratedByTriggerID: trigger,
 		Sequence:             sequence,
+
+		RepeatCycleSource:             inherited.RepeatCycleSource,
+		RepeatCycleSourceRef:          inherited.RepeatCycleSourceRef,
+		RepeatCycleAnchorObligationID: inherited.RepeatCycleAnchorObligationID,
+		RepeatCycleAnchorAt:           inherited.RepeatCycleAnchorAt,
+		// The rework row's own due date, not the missed row's.
+		RepeatCycleDueAt: pgconv.Timestamptz(dueAt),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Convergent no-op (P2 fix): InsertObligationInstance's "WHERE NOT EXISTS" dedup guard (or,

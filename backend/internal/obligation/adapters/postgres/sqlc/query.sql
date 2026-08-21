@@ -213,3 +213,11 @@ LIMIT 1;
 SELECT status, COALESCE(result_type, '')::text AS result_type, COALESCE(result_id::text, '')::text AS result_id
 FROM idempotency_keys
 WHERE idempotency_key = @idempotency_key;
+
+-- name: GetObligationRepeatCycle :one
+-- Reads one row's repeat-cycle metadata so work derived from it -- a rework row for a missed
+-- dose, say -- can inherit the same cause rather than being born with due-date identity.
+SELECT repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
+       repeat_cycle_anchor_at, repeat_cycle_due_at
+FROM obligation_instances
+WHERE tenant_id = @tenant_id AND obligation_id = @obligation_id;

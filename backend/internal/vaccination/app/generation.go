@@ -2768,23 +2768,15 @@ func generationResultFromRun(run domain.GenerationRun) domain.GenerateResult {
 // vaccine, given when, as which dose -- and never the derived due date, because the due
 // date is precisely what moves when a newer administration lands.
 func historyRepeatCycle(admin domain.RecentVaccineAdministration) *obldomain.RepeatCycleSource {
-	code := strings.TrimSpace(admin.VaccineCode)
-	if code == "" || admin.AdministeredAt.IsZero() {
+	ref := obldomain.RepeatCycleRef(admin.VaccineCode, admin.AdministeredAt, admin.Sequence)
+	if ref == "" {
 		return nil
 	}
 	at := admin.AdministeredAt
 	return &obldomain.RepeatCycleSource{
-		Source: obldomain.RepeatCycleSourceTrustedHistory,
-		SourceRef: strings.Join([]string{
-			strings.ToLower(code),
-			// Truncated to the second. RFC3339 keeps fractional seconds when they are
-			// non-zero, and the repair job -- which has to compute a byte-identical
-			// reference for the same administration -- formats from SQL, which does not.
-			// A stored microsecond would make the two disagree and the duplicate return.
-			at.UTC().Truncate(time.Second).Format(time.RFC3339),
-			strconv.Itoa(int(admin.Sequence)),
-		}, "|"),
-		AnchorAt: &at,
+		Source:    obldomain.RepeatCycleSourceTrustedHistory,
+		SourceRef: ref,
+		AnchorAt:  &at,
 	}
 }
 

@@ -145,6 +145,41 @@ func (q *Queries) GetObligationByIdempotencyKey(ctx context.Context, arg GetObli
 	return i, err
 }
 
+const getObligationRepeatCycle = `-- name: GetObligationRepeatCycle :one
+SELECT repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
+       repeat_cycle_anchor_at, repeat_cycle_due_at
+FROM obligation_instances
+WHERE tenant_id = $1 AND obligation_id = $2
+`
+
+type GetObligationRepeatCycleParams struct {
+	TenantID     pgtype.UUID
+	ObligationID pgtype.UUID
+}
+
+type GetObligationRepeatCycleRow struct {
+	RepeatCycleSource             pgtype.Text
+	RepeatCycleSourceRef          pgtype.Text
+	RepeatCycleAnchorObligationID pgtype.UUID
+	RepeatCycleAnchorAt           pgtype.Timestamptz
+	RepeatCycleDueAt              pgtype.Timestamptz
+}
+
+// Reads one row's repeat-cycle metadata so work derived from it -- a rework row for a missed
+// dose, say -- can inherit the same cause rather than being born with due-date identity.
+func (q *Queries) GetObligationRepeatCycle(ctx context.Context, arg GetObligationRepeatCycleParams) (GetObligationRepeatCycleRow, error) {
+	row := q.db.QueryRow(ctx, getObligationRepeatCycle, arg.TenantID, arg.ObligationID)
+	var i GetObligationRepeatCycleRow
+	err := row.Scan(
+		&i.RepeatCycleSource,
+		&i.RepeatCycleSourceRef,
+		&i.RepeatCycleAnchorObligationID,
+		&i.RepeatCycleAnchorAt,
+		&i.RepeatCycleDueAt,
+	)
+	return i, err
+}
+
 const getOpenObligationByLogicalKey = `-- name: GetOpenObligationByLogicalKey :one
 SELECT obligation_id::text AS obligation_id, status, due_at, row_version
 FROM obligation_instances
