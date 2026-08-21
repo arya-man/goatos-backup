@@ -100,6 +100,49 @@ class OutboxSubmitLaneMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `a migrated Submit is left replay-safe, not fingerprinted to its old lane`() {
+        // requestFingerprint is computed over (opType, groupKey, payload). Moving the row to a
+        // new lane while leaving the old fingerprint in place means the next idempotent
+        // re-enqueue or recovery of this same pending Submit computes a DIFFERENT fingerprint
+        // and is rejected as a conflict -- stranding a submission the operator already made.
+        val db = openV3()
+        db.execSQL(
+            "INSERT INTO outbox (id, opType, groupKey, idempotencyKey, payloadJson, status, attemptCount, " +
+                "maxAttempts, conflict, createdAt, updatedAt, nextAttemptAt, requestFingerprint) " +
+                "VALUES ('submit-1','SHED_SUBMIT','shed-9|part 2','key-1','{\"task_id\":\"task-77\"}','QUEUED',0,5,0,0,0,0,?)",
+            arrayOf("fingerprint-of-the-OLD-lane"),
+        )
+
+        OUTBOX_MIGRATION_3_4.migrate(db)
+
+        assertEquals("task-77|2", groupKeyOf(db, "submit-1"))
+        val fingerprint = db.query("SELECT requestFingerprint FROM outbox WHERE id = 'submit-1'").use {
+            it.moveToFirst(); it.getString(0)
+        }
+        assertEquals("the stale fingerprint must not survive the lane change", "", fingerprint)
+        db.close()
+    }
+
+    @Test
+    fun `a row it does not move keeps its fingerprint`() {
+        val db = openV3()
+        db.execSQL(
+            "INSERT INTO outbox (id, opType, groupKey, idempotencyKey, payloadJson, status, attemptCount, " +
+                "maxAttempts, conflict, createdAt, updatedAt, nextAttemptAt, requestFingerprint) " +
+                "VALUES ('already','SHED_SUBMIT','task-77|2','key-2','{\"task_id\":\"task-77\"}','QUEUED',0,5,0,0,0,0,?)",
+            arrayOf("still-valid"),
+        )
+
+        OUTBOX_MIGRATION_3_4.migrate(db)
+
+        val fingerprint = db.query("SELECT requestFingerprint FROM outbox WHERE id = 'already'").use {
+            it.moveToFirst(); it.getString(0)
+        }
+        assertEquals("clearing a fingerprint the lane change did not invalidate would be gratuitous", "still-valid", fingerprint)
+        db.close()
+    }
+
     private companion object {
         const val DB = "outbox-lane-migration-test.db"
     }

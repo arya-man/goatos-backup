@@ -278,6 +278,31 @@ class VaccinationOutboxConvergenceTest {
     }
 
     @Test
+    fun `a Submit is held across passes when a same-millisecond scan is backed off`() = runBlocking {
+        // The tie-break that matters is in the ELIGIBILITY predicate, and it only shows up on
+        // a LATER drain: within one pass the engine already stops a group after a failure, so
+        // a single-pass test proves that instead and would pass with the tie-break removed.
+        //
+        // Here the scan is already FAILED with its retry still in the future, exactly as a
+        // second pass would find it. With a strict createdAt comparison the Submit written in
+        // the same millisecond is not considered "after" it, so it becomes eligible and closes
+        // the shed with that animal unsent.
+        val store = FakeOutboxStore()
+        val lane = vaccinationSessionGroupKey("task-77", "whole")
+        store.insert(
+            scanRow("scan-tied", lane, "TAG-1", createdAt = 5L)
+                .copy(status = OutboxStatus.FAILED.name, attemptCount = 1, nextAttemptAt = 10_000L),
+        )
+        store.insert(submitRow("submit-tied", lane, createdAt = 5L))
+
+        val api = ScriptedAppApi().apply { submitAppTaskFn = { _, _, _ -> okSubmission() } }
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 1_000L }).drainOnce()
+
+        assertEquals("the Submit must wait behind a backed-off scan from the same tick", 0, api.submitCalls.size)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("submit-tied")!!.status)
+    }
+
+    @Test
     fun `a different shed's Submit is not held back by shed A's failing scan`() = runBlocking {
         // The other half of the same rule: hold-back is per shed, not global. One
         // shed stuck offline must not stop a second operator finishing theirs.

@@ -78,7 +78,22 @@ val OUTBOX_MIGRATION_3_4: Migration = object : Migration(3, 4) {
             val partition = groupKey.substringAfterLast('|', "")
             val nextKey = "$taskId|${normalizeOutboxPartition(partition)}"
             if (nextKey == groupKey) continue
-            db.execSQL("UPDATE outbox SET groupKey = ? WHERE id = ?", arrayOf(nextKey, id))
+            // requestFingerprint is computed over (opType, groupKey, payload). Moving the row
+            // to a new lane without clearing it leaves a fingerprint that no longer matches
+            // what the app would compute, so the next idempotent re-enqueue or recovery of
+            // this same pending Submit is read as a DIFFERENT request and rejected as a
+            // conflict -- stranding a submission the operator already made.
+            //
+            // Cleared to '' rather than recomputed: that is the same legacy sentinel
+            // OUTBOX_MIGRATION_2_3 leaves on pre-existing rows, and core-data already falls
+            // back to comparing op/group/payload for it. Recomputing here would mean
+            // restating the canonical fingerprint (SHA-256 over a NUL-joined envelope, with
+            // op-specific payload canonicalisation) inside core-database, which cannot see
+            // it -- a second place to drift, for no gain.
+            db.execSQL(
+                "UPDATE outbox SET groupKey = ?, requestFingerprint = '' WHERE id = ?",
+                arrayOf(nextKey, id),
+            )
         }
     }
 }
