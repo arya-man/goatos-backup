@@ -491,6 +491,36 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
 	}
 
+	// Stock cards are PER FARM: the same item bought at two farms must never
+	// collapse into one combined balance (maintainer decision 2026-08-21).
+	t.Run("StockCardsAreParkScopedNeverCombined", func(t *testing.T) {
+		var kidsCards []domain.StockItem
+		for _, it := range got.Items {
+			if it.FeedItemKey == "mesha_kids_goat_concentrate" {
+				kidsCards = append(kidsCards, it)
+			}
+		}
+		if len(kidsCards) != 2 {
+			t.Fatalf("want one card per farm (CBE + XYZ), got %d: %+v", len(kidsCards), kidsCards)
+		}
+		byFarm := map[string]domain.StockItem{}
+		for _, it := range kidsCards {
+			byFarm[it.FarmLabel] = it
+		}
+		cbe, xyz := byFarm["CBE"], byFarm["XYZ"]
+		// CBE: 1550+1150 purchased, 42 kg locked-directed -> 2658.0 in store.
+		if cbe.BalanceKg != "2658.0" || cbe.AvgDailyKg != "21.0" {
+			t.Errorf("CBE card must hold only CBE's store: %+v", cbe)
+		}
+		// XYZ resolves to no park: its 10 kg stays whole, no burn rate.
+		if xyz.BalanceKg != "10.000" && xyz.BalanceKg != "10.0" {
+			t.Errorf("XYZ card: %+v", xyz)
+		}
+		if xyz.AvgDailyKg != "" || xyz.DaysLeft != nil {
+			t.Errorf("park-less farm has no directed burn rate: %+v", xyz)
+		}
+	})
+
 	// OneToMany: two loads of the same (farm, item) collapsed to ONE row above —
 	// re-assert the collapse survives a third load on the SAME purchase date
 	// (batch_no alone must break the tie for last-load).
