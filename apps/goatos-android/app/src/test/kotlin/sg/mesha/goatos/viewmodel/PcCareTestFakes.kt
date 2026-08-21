@@ -93,6 +93,10 @@ internal class FakePcCareRepository : PcCareRepository {
     var failNextSubmit = false
 
     override fun worklistRows(query: PcCareWorklistQuery) = flowOf<androidx.paging.PagingData<PcCareTaskDto>>()
+    val invalidatedWorklistQueries = mutableListOf<PcCareWorklistQuery>()
+    override suspend fun invalidateWorklist(query: PcCareWorklistQuery) {
+        invalidatedWorklistQueries += query
+    }
 
     override fun observeTaskDetail(taskId: String): Flow<PcCareTaskDto?> = detailFlow
 

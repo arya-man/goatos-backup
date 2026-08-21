@@ -105,6 +105,14 @@ interface PcCareRepository {
     /** The paged operator worklist, a Room PagingSource filled by a RemoteMediator. */
     fun worklistRows(query: PcCareWorklistQuery): Flow<PagingData<PcCareTaskDto>>
 
+    /**
+     * Drops the freshness marker for one worklist query so the NEXT pager for it refetches from
+     * the network instead of TTL-skipping. Called on an explicit refresh (sync icon, resume) and
+     * after a local write that changes the list (plan-create, cancel) — a just-created task must
+     * appear without waiting out the cache TTL. Cached rows keep serving until fresh rows land.
+     */
+    suspend fun invalidateWorklist(query: PcCareWorklistQuery)
+
     /** Room-first task detail; null while nothing is cached yet (corrupt/expired rows quarantine). */
     fun observeTaskDetail(taskId: String): Flow<PcCareTaskDto?>
 
@@ -203,6 +211,12 @@ class DefaultPcCareRepository(
         ).flow
             .map { page -> page.map { entity -> json.decodeFromString<PcCareTaskDto>(entity.dtoJson) } }
             .flowOn(Dispatchers.Default)
+    }
+
+    override suspend fun invalidateWorklist(query: PcCareWorklistQuery) {
+        // Deleting the remote key makes the next mediator initialize() LAUNCH_INITIAL_REFRESH;
+        // the item rows are left in place so the screen keeps rendering until fresh rows land.
+        database.pcCareTaskRemoteKeyDao().delete(query.roomKey())
     }
 
     override fun observeTaskDetail(taskId: String): Flow<PcCareTaskDto?> =

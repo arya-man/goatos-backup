@@ -153,7 +153,20 @@ class PcCarePlanViewModel @Inject constructor(
 
     private fun refresh() {
         loadCatalog()
-        monitorSelection.value = monitorSelection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+        viewModelScope.launch {
+            // Drop the freshness marker FIRST so the re-created pager refetches instead of
+            // TTL-skipping — an explicit refresh means "show me the server's list now".
+            val sel = monitorSelection.value
+            if (sel.category.isNotBlank() && sel.date.isNotBlank()) {
+                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
+                runCatching {
+                    repository.invalidateWorklist(
+                        PcCareWorklistQuery(category = sel.category, date = sel.date, monitor = true),
+                    )
+                }
+            }
+            monitorSelection.value = monitorSelection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+        }
     }
 
     private fun selectMonitorDate(date: LocalDate) {
@@ -363,6 +376,18 @@ class PcCarePlanViewModel @Inject constructor(
                     AnalyticsEvents.PC_CARE_PLAN_TASK_CREATED,
                     mapOf(AnalyticsEvents.Params.KIND to current.selectedCategoryKey),
                 )
+                // The monitor list for the planned day must show this task immediately: drop its
+                // cache marker so the next pager load refetches instead of TTL-skipping.
+                // exception:exempt local cache-marker delete; the create itself already succeeded
+                runCatching {
+                    repository.invalidateWorklist(
+                        PcCareWorklistQuery(
+                            category = current.selectedCategoryKey,
+                            date = current.selectedDate,
+                            monitor = true,
+                        ),
+                    )
+                }
                 _state.update {
                     it.copy(
                         creating = false,
