@@ -32,6 +32,11 @@ const BASELINE = VIEW_H - 18;
 
 const nf = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
 
+// Left padding sized to the widest tick label so a five-digit kg figure never
+// runs off the viewBox edge (the "2,327.4" top-left clip). ~5.6px per character
+// at fontSize 9, plus the 5px gap the tick text keeps from the plot edge.
+const padForTicks = (max: number) => Math.max(PAD_X, Math.ceil(nf(max).length * 5.6) + 10);
+
 export type StackedDay = {
   key: string;
   /** Tooltip label for the day, resolved by the caller. */
@@ -67,7 +72,8 @@ export function StackedColumns({
   }
   const totals = days.map((d) => d.segments.reduce((a, b) => a + b, 0));
   const max = Math.max(1, ...totals);
-  const slot = (VIEW_W - 2 * PAD_X) / days.length;
+  const padX = padForTicks(max);
+  const slot = (VIEW_W - padX - PAD_X) / days.length;
   const barW = Math.max(2, Math.min(14, slot - 3));
   return (
     <svg
@@ -79,7 +85,7 @@ export function StackedColumns({
       {[0.25, 0.5, 0.75, 1].map((f) => (
         <line
           key={f}
-          x1={PAD_X}
+          x1={padX}
           x2={VIEW_W - 6}
           y1={BASELINE - (BASELINE - PAD_TOP) * f}
           y2={BASELINE - (BASELINE - PAD_TOP) * f}
@@ -90,7 +96,7 @@ export function StackedColumns({
       {[0.5, 1].map((f) => (
         <text
           key={f}
-          x={PAD_X - 5}
+          x={padX - 5}
           y={BASELINE - (BASELINE - PAD_TOP) * f + 3}
           fontSize="9"
           textAnchor="end"
@@ -99,9 +105,9 @@ export function StackedColumns({
           {nf(max * f)}
         </text>
       ))}
-      <line x1={PAD_X} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
+      <line x1={padX} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
       {days.map((d, i) => {
-        const x = PAD_X + i * slot + (slot - barW) / 2;
+        const x = padX + i * slot + (slot - barW) / 2;
         let y = BASELINE;
         // Composed server-side from contract copy; surfaced instantly by the
         // ChartHover client wrapper via the hit strip below (native SVG <title>
@@ -130,7 +136,7 @@ export function StackedColumns({
               );
             })}
             <rect
-              x={PAD_X + i * slot}
+              x={padX + i * slot}
               y={PAD_TOP}
               width={slot}
               height={BASELINE - PAD_TOP}
@@ -140,6 +146,12 @@ export function StackedColumns({
           </g>
         );
       })}
+      <text x={padX} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
+        {days[0].label}
+      </text>
+      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
+        {days[days.length - 1].label}
+      </text>
     </svg>
   );
 }
@@ -174,7 +186,8 @@ export function SeriesLines({
     );
   }
   const max = Math.max(1, ...values);
-  const stepX = (VIEW_W - 2 * PAD_X) / Math.max(1, dayLabels.length - 1);
+  const padX = padForTicks(max);
+  const stepX = (VIEW_W - padX - PAD_X) / Math.max(1, dayLabels.length - 1);
   const yOf = (v: number) => BASELINE - ((BASELINE - PAD_TOP) * v) / max;
   return (
     <svg
@@ -186,7 +199,7 @@ export function SeriesLines({
       {[0.25, 0.5, 0.75, 1].map((f) => (
         <line
           key={f}
-          x1={PAD_X}
+          x1={padX}
           x2={VIEW_W - 6}
           y1={BASELINE - (BASELINE - PAD_TOP) * f}
           y2={BASELINE - (BASELINE - PAD_TOP) * f}
@@ -197,7 +210,7 @@ export function SeriesLines({
       {[0.5, 1].map((f) => (
         <text
           key={f}
-          x={PAD_X - 5}
+          x={padX - 5}
           y={BASELINE - (BASELINE - PAD_TOP) * f + 3}
           fontSize="9"
           textAnchor="end"
@@ -206,7 +219,7 @@ export function SeriesLines({
           {nf(max * f)}
         </text>
       ))}
-      <line x1={PAD_X} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
+      <line x1={padX} x2={VIEW_W - 6} y1={BASELINE} y2={BASELINE} stroke="var(--line)" strokeWidth="1" />
       {series.map((s) => {
         const segments: string[] = [];
         let current: string[] = [];
@@ -216,7 +229,7 @@ export function SeriesLines({
             current = [];
             return;
           }
-          current.push(`${current.length === 0 ? "M" : "L"}${(PAD_X + i * stepX).toFixed(1)} ${yOf(p).toFixed(1)}`);
+          current.push(`${current.length === 0 ? "M" : "L"}${(padX + i * stepX).toFixed(1)} ${yOf(p).toFixed(1)}`);
         });
         if (current.length > 0) segments.push(current.join(" "));
         const lastIdx: number = s.points.reduce<number>((acc, p, i) => (p === null ? acc : i), -1);
@@ -228,7 +241,7 @@ export function SeriesLines({
             ))}
             {lastVal !== null && lastIdx >= 0 ? (
               <circle
-                cx={PAD_X + lastIdx * stepX}
+                cx={padX + lastIdx * stepX}
                 cy={yOf(lastVal)}
                 r="3.5"
                 fill={s.colorVar}
@@ -247,7 +260,7 @@ export function SeriesLines({
         return (
           <rect
             key={day}
-            x={PAD_X + i * stepX - stepX / 2}
+            x={padX + i * stepX - stepX / 2}
             y={PAD_TOP}
             width={stepX}
             height={BASELINE - PAD_TOP}
@@ -256,7 +269,7 @@ export function SeriesLines({
           />
         );
       })}
-      <text x={PAD_X} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
+      <text x={padX} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
         {dayLabels[0]}
       </text>
       <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
