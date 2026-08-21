@@ -817,6 +817,25 @@ function StockCards({
     (item) => item.days_left !== null && item.days_left !== undefined,
   );
   const farmItems = stock?.farm_items ?? [];
+  const totalFarmItems = farmItems.reduce(
+    (acc, row) => ({
+      expected: acc.expected + num(row.expected_stock_kg),
+      ledger: acc.ledger + num(row.ledger_stock_kg),
+      variance: acc.variance + num(row.stock_variance_kg),
+      avg: acc.avg + num(row.avg_daily_kg),
+      mismatch: acc.mismatch + (row.stock_check_status === "mismatch" ? 1 : 0),
+      unavailable: acc.unavailable + (row.stock_check_status === "unavailable" ? 1 : 0),
+    }),
+    { expected: 0, ledger: 0, variance: 0, avg: 0, mismatch: 0, unavailable: 0 },
+  );
+  const totalStatus =
+    totalFarmItems.mismatch > 0
+      ? "mismatch"
+      : totalFarmItems.unavailable > 0
+        ? "unavailable"
+        : farmItems.length > 0
+          ? "ok"
+          : "unavailable";
   return (
     <>
       {!stock || active.length === 0 ? (
@@ -858,8 +877,8 @@ function StockCards({
             <p className="muted small">{fa(pageContract, "stock.farms.empty")}</p>
           </div>
         ) : (
-          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
-            <table className="tbl">
+          <div className="tablewrap feed-stock-tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
+            <table className="tbl feed-stock-table">
               <thead>
                 <tr>
                   <th>{fa(pageContract, "stock.farms.col.item")}</th>
@@ -867,7 +886,39 @@ function StockCards({
                   <th>{fa(pageContract, "stock.farms.col.first_purchase")}</th>
                   <th>{fa(pageContract, "stock.farms.col.directed_since")}</th>
                   <th>{fa(pageContract, "stock.farms.col.last_load")}</th>
-                  <th>{fa(pageContract, "stock.farms.col.avg")}</th>
+                  <th>
+                    <span className="feed-stock-check-head">
+                      {fa(pageContract, "stock.farms.col.avg")}
+                      <span className="feed-stock-info" tabIndex={0} aria-label="How average per day is calculated">
+                        i
+                        <span className="feed-stock-info-pop" role="tooltip">
+                          Avg / Day is the average kg from the latest 3 locked feed days for this farm and item. The top card days-left uses Ledger stock divided by this same average.
+                        </span>
+                      </span>
+                    </span>
+                  </th>
+                  <th>
+                    <span className="feed-stock-check-head">
+                      {fa(pageContract, "stock.farms.col.stock")}
+                      <span className="feed-stock-info" tabIndex={0} aria-label="How stock is calculated">
+                        i
+                        <span className="feed-stock-info-pop" role="tooltip">
+                          Ledger = purchased kg minus consumed-at-import kg, minus locked directed kg from the purchase depletion date onward.
+                        </span>
+                      </span>
+                    </span>
+                  </th>
+                  <th>
+                    <span className="feed-stock-check-head">
+                      {fa(pageContract, "stock.farms.col.check")}
+                      <span className="feed-stock-info" tabIndex={0} aria-label="How stock check is calculated">
+                        i
+                        <span className="feed-stock-info-pop" role="tooltip">
+                          Expected = latest load kg minus days since consumption started multiplied by the latest 3 locked feed days average. Negative expected means the load should already be short. Ledger = purchase stock left in Mesha after import consumed kg and locked depletion. Arrow shows ledger compared with expected: up means extra, down means short.
+                        </span>
+                      </span>
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -878,7 +929,7 @@ function StockCards({
                     <td>{fmtDate(row.first_purchase_date)}</td>
                     <td>{row.first_directed_day === "" ? fa(pageContract, "stock.never_directed") : fmtDate(row.first_directed_day)}</td>
                     <td>
-                      <div>
+                      <div className="feed-stock-load">
                         {[
                           `${fa(pageContract, "stock.farms.batch")} ${row.last_load_batch_no}`,
                           fmtDate(row.last_load_date),
@@ -894,8 +945,34 @@ function StockCards({
                         ? "—"
                         : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
                     </td>
+                    <td>
+                      <div className="feed-stock-qty">{`${fa(pageContract, "stock.farms.expected")} ${nf(num(row.expected_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
+                      <div className="muted small">{`${fa(pageContract, "stock.farms.ledger")} ${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
+                    </td>
+                    <td>
+                      <StockCheckTag row={row} pageContract={pageContract} />
+                    </td>
                   </tr>
                 ))}
+                  <tr>
+                    <td><strong>{fa(pageContract, "stock.farms.total")}</strong></td>
+                  <td><strong>{fa(pageContract, "stock.farms.all")}</strong></td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td><strong>{`${nf(totalFarmItems.avg)} ${fa(pageContract, "unit.kg")}`}</strong></td>
+                  <td>
+                    <div className="feed-stock-qty"><strong>{`${fa(pageContract, "stock.farms.expected")} ${nf(totalFarmItems.expected)} ${fa(pageContract, "unit.kg")}`}</strong></div>
+                    <div className="muted small">{`${fa(pageContract, "stock.farms.ledger")} ${nf(totalFarmItems.ledger)} ${fa(pageContract, "unit.kg")}`}</div>
+                  </td>
+                  <td>
+                    <StockCheckSummaryTag
+                      status={totalStatus}
+                      variance={totalFarmItems.variance}
+                      pageContract={pageContract}
+                    />
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -903,4 +980,44 @@ function StockCards({
       </section>
     </>
   );
+}
+
+function StockCheckTag({
+  row,
+  pageContract,
+}: {
+  row: FeedAnalyticsStockResponse["farm_items"][number];
+  pageContract: AdminUiPageContract;
+}) {
+  return (
+    <StockCheckSummaryTag
+      status={row.stock_check_status}
+      variance={num(row.stock_variance_kg)}
+      pageContract={pageContract}
+    />
+  );
+}
+
+function StockCheckSummaryTag({
+  status,
+  variance,
+  pageContract,
+}: {
+  status: string;
+  variance: number;
+  pageContract: AdminUiPageContract;
+}) {
+  const className = status === "ok" ? "tag t-ok" : status === "unavailable" ? "tag" : "tag t-dng";
+  if (status === "mismatch") {
+    const direction = variance >= 0 ? "↑" : "↓";
+    const varianceClassName = variance >= 0 ? "tag t-ok" : className;
+    return (
+      <span className={`${varianceClassName} feed-stock-check-tag`}>
+        <span aria-hidden="true">{direction}</span>
+        <span>{`${nf(Math.abs(variance))} ${fa(pageContract, "unit.kg")}`}</span>
+      </span>
+    );
+  }
+  const label = status === "ok" ? fa(pageContract, "stock.farms.ok") : fa(pageContract, "stock.farms.unavailable");
+  return <span className={className}>{label}</span>;
 }
