@@ -21,8 +21,19 @@ export const SERIES_VARS = [
   "var(--purple)",
   "var(--teal)",
   "var(--danger)",
-  "var(--ok)",
+  "var(--warn)",
+  "var(--brand-d)",
+  "var(--brand-l)",
 ] as const;
+
+export function seriesColorVar(index: number) {
+  const base = SERIES_VARS[index % SERIES_VARS.length];
+  const cycle = Math.floor(index / SERIES_VARS.length);
+  if (cycle === 0) return base;
+  const mix = cycle % 2 === 1 ? "var(--ink)" : "var(--panel)";
+  const share = cycle % 2 === 1 ? 74 : 82;
+  return `color-mix(in srgb, ${base} ${share}%, ${mix})`;
+}
 
 const VIEW_W = 560;
 const VIEW_H = 168;
@@ -151,7 +162,7 @@ export function StackedColumns({
                   width={barW}
                   height={Math.max(0.5, h - 1)}
                   rx={s === d.segments.length - 1 ? 2 : 0}
-                  fill={SERIES_VARS[s % SERIES_VARS.length]}
+                  fill={seriesColorVar(s)}
                 />
               );
             })}

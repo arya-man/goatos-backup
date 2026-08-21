@@ -27,6 +27,7 @@ import {
   FeedChartLegend,
   FeedLines,
   FeedStackedColumns,
+  seriesColorVar,
   type LineSeries,
   type StackedDay,
 } from "./feed-analytics-charts";
@@ -138,6 +139,11 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
   const topKeys = new Set(top.map(([key]) => key));
   const hasOther = ranked.length > top.length;
   const itemLabels = [...top.map(([, v]) => v.label), ...(hasOther ? [otherLabel] : [])];
+  const rowByDayItem = new Map<string, FeedAnalyticsDirectedResponse["items"][number]>();
+  for (const item of data.items) {
+    rowByDayItem.set(`${item.feed_day}\u0000${item.feed_item_key}`, item);
+  }
+  const rowFor = (day: string, itemKey: string) => rowByDayItem.get(`${day}\u0000${itemKey}`);
 
   const byDayItem = new Map<string, number[]>();
   for (const day of dayKeys) byDayItem.set(day, new Array(itemLabels.length).fill(0));
@@ -157,9 +163,9 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
   const itemSeries: { label: string; colorVar: string; points: (number | null)[] }[] = ranked.map(
     ([key, v], s) => ({
       label: v.label,
-      colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
+      colorVar: seriesColorVar(s),
       points: dayKeys.map((day) => {
-        const row = data.items.find((it) => it.feed_day === day && it.feed_item_key === key);
+        const row = rowFor(day, key);
         return row ? num(row.directed_kg) : null;
       }),
     }),
@@ -167,9 +173,9 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
 
   const perHeadSeries: LineSeries[] = ranked.map(([key, v], s) => ({
     label: v.label,
-    colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
+    colorVar: seriesColorVar(s),
     points: dayKeys.map((day) => {
-      const row = data.items.find((it) => it.feed_day === day && it.feed_item_key === key);
+      const row = rowFor(day, key);
       return row && row.per_head_grams !== "" ? num(row.per_head_grams) : null;
     }),
   }));
@@ -423,7 +429,7 @@ function DirectedTabs({
           <FeedChartLegend
             entries={view.itemLabels.map((label, s) => ({
               label,
-              colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
+              colorVar: seriesColorVar(s),
             }))}
           />
         </section>
@@ -668,11 +674,17 @@ function ExperimentTab({
   const charted = [...itemKeys]
     .sort((a, b) => (latestKg.get(b) ?? 0) - (latestKg.get(a) ?? 0))
     .slice(0, FEED_SERIES_VARS.length);
+  const labelByItem = new Map<string, string>();
+  const rowByDayItem = new Map<string, FeedAnalyticsExperimentResponse["items"][number]>();
+  for (const item of data.items) {
+    labelByItem.set(item.feed_item_key, item.feed_item_label);
+    rowByDayItem.set(`${item.feed_day}\u0000${item.feed_item_key}`, item);
+  }
   const series: LineSeries[] = charted.map((key, s) => ({
-    label: data.items.find((it) => it.feed_item_key === key)?.feed_item_label ?? key,
+    label: labelByItem.get(key) ?? key,
     colorVar: FEED_SERIES_VARS[s % FEED_SERIES_VARS.length],
     points: dayKeys.map((day) => {
-      const row = data.items.find((it) => it.feed_day === day && it.feed_item_key === key);
+      const row = rowByDayItem.get(`${day}\u0000${key}`);
       return row ? num(row.kg) : null;
     }),
   }));
