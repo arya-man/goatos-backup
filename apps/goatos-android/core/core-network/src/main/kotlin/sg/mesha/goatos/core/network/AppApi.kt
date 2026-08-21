@@ -1142,21 +1142,21 @@ interface AppApi {
      * ASSIGNED tasks for one category tab and one business date; the task detail carries the
      * backend-owned `expected_slots` contract the capture screen iterates verbatim.
      */
-    suspend fun getPcCareWorklist(
-        category: String,
-        date: String,
-        limit: Int? = null,
-        offset: Int? = null,
-    ): PcCareTaskPageDto
+	    suspend fun getPcCareWorklist(
+	        category: String,
+	        date: String,
+	        limit: Int? = null,
+	        cursor: String? = null,
+	    ): PcCareTaskPageDto
 
     /** GET /app/pc-care/tasks — the plan/monitor flat list (CEO planner surface). */
-    suspend fun getPcCareTasks(
-        date: String,
-        parkId: String? = null,
-        category: String? = null,
-        limit: Int? = null,
-        offset: Int? = null,
-    ): PcCareTaskPageDto
+	    suspend fun getPcCareTasks(
+	        date: String,
+	        parkId: String? = null,
+	        category: String? = null,
+	        limit: Int? = null,
+	        cursor: String? = null,
+	    ): PcCareTaskPageDto
 
     suspend fun getPcCareTask(taskId: String): PcCareTaskDto
 
@@ -2117,20 +2117,20 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             capped_at = null,
         )
 
-    override suspend fun getPcCareWorklist(
-        category: String,
-        date: String,
-        limit: Int?,
-        offset: Int?,
-    ): PcCareTaskPageDto = PcCareTaskPageDto()
+	    override suspend fun getPcCareWorklist(
+	        category: String,
+	        date: String,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = PcCareTaskPageDto()
 
     override suspend fun getPcCareTasks(
         date: String,
-        parkId: String?,
-        category: String?,
-        limit: Int?,
-        offset: Int?,
-    ): PcCareTaskPageDto = PcCareTaskPageDto()
+	        parkId: String?,
+	        category: String?,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = PcCareTaskPageDto()
 
     override suspend fun getPcCareTask(taskId: String): PcCareTaskDto = PcCareTaskDto(
         taskId = taskId,

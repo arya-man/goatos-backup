@@ -493,7 +493,7 @@ var protectedRoutes = []Route{
 	// the monitor list admits the read-only oversight capabilities too; the operator surfaces
 	// gate on PCCareExecute — and every WRITE additionally requires task-assignee membership,
 	// enforced in the service (the permission alone is never write authority).
-	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", Permissions: []string{PCCarePlan}},
+	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", Permissions: []string{PCCarePlan}},
 	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", Permissions: []string{PCCarePlan}},
 	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", Permissions: []string{PCCarePlan}},

@@ -721,21 +721,21 @@ interface AppApiService {
     // ------------------------------------------------------------------
 
     @GET("app/pc-care/worklist")
-    suspend fun getPcCareWorklist(
-        @Query("category") category: String,
-        @Query("date") date: String,
-        @Query("limit") limit: Int?,
-        @Query("offset") offset: Int?,
-    ): PcCareTaskPageDto
+	    suspend fun getPcCareWorklist(
+	        @Query("category") category: String,
+	        @Query("date") date: String,
+	        @Query("limit") limit: Int?,
+	        @Query("cursor") cursor: String?,
+	    ): PcCareTaskPageDto
 
     @GET("app/pc-care/tasks")
     suspend fun getPcCareTasks(
         @Query("date") date: String,
-        @Query("park_id") parkId: String?,
-        @Query("category") category: String?,
-        @Query("limit") limit: Int?,
-        @Query("offset") offset: Int?,
-    ): PcCareTaskPageDto
+	        @Query("park_id") parkId: String?,
+	        @Query("category") category: String?,
+	        @Query("limit") limit: Int?,
+	        @Query("cursor") cursor: String?,
+	    ): PcCareTaskPageDto
 
     @GET("app/pc-care/tasks/{task_id}")
     suspend fun getPcCareTask(
@@ -1525,20 +1525,20 @@ class RetrofitAppApi(
         service.getFeedPackingWorklist(parkId, targetDate, shedId, partitionLabel, session, workflow, status, limit, offset)
 
 
-    override suspend fun getPcCareWorklist(
-        category: String,
-        date: String,
-        limit: Int?,
-        offset: Int?,
-    ): PcCareTaskPageDto = service.getPcCareWorklist(category, date, limit, offset)
+	    override suspend fun getPcCareWorklist(
+	        category: String,
+	        date: String,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = service.getPcCareWorklist(category, date, limit, cursor)
 
     override suspend fun getPcCareTasks(
         date: String,
-        parkId: String?,
-        category: String?,
-        limit: Int?,
-        offset: Int?,
-    ): PcCareTaskPageDto = service.getPcCareTasks(date, parkId, category, limit, offset)
+	        parkId: String?,
+	        category: String?,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = service.getPcCareTasks(date, parkId, category, limit, cursor)
 
     override suspend fun getPcCareTask(taskId: String): PcCareTaskDto = service.getPcCareTask(taskId)
 

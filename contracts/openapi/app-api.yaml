@@ -4879,10 +4879,11 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
-        - name: offset
+        - name: cursor
           in: query
           required: false
-          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+          description: Opaque keyset cursor returned as next_cursor by the previous page.
+          schema: { type: string }
       responses:
         "200":
           description: One bounded page of tasks.
@@ -4963,10 +4964,11 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
-        - name: offset
+        - name: cursor
           in: query
           required: false
-          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+          description: Opaque keyset cursor returned as next_cursor by the previous page.
+          schema: { type: string }
       responses:
         "200":
           description: One bounded page of the caller's assigned tasks.
@@ -13590,8 +13592,8 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/PCCareTask" }
-        has_more: { type: boolean }
-      required: [items, has_more]
+        next_cursor: { type: string }
+      required: [items, next_cursor]
     PCCareAnimalSlot:
       type: object
       properties:

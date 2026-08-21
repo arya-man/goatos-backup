@@ -6,8 +6,6 @@ package app
 
 import (
 	"context"
-	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,11 +16,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
-
-// ErrEnqueuerNotWired is returned when a submit cannot enqueue its verification item because the
-// enqueue seam was never wired — a composition bug, surfaced loudly rather than silently
-// stranding a pending_verification task.
-var ErrEnqueuerNotWired = errors.New("pccare: verification enqueuer is not wired")
 
 // VerificationEnqueuer enqueues the ONE verification item a submitted PC Care task produces. The
 // composition layer adapts verification's CreateItem to this narrow port so pccare never touches
@@ -319,7 +312,7 @@ func (s *Service) CancelTask(ctx context.Context, actor domain.Actor, taskID, tr
 var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // ListTasks is the plan/monitor/oversee flat list for one due date, park-clamped.
-func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate string, limit, offset int) (ports.TaskPage, error) {
+func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error) {
 	if !permissions.RolesAuthorizeAny(actor.Roles, monitorReadCapabilities) {
 		return ports.TaskPage{}, ports.ErrForbidden
 	}
@@ -346,12 +339,12 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 		Category:          category,
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
 		Limit:             clampLimit(limit),
-		Offset:            clampOffset(offset),
+		Cursor:            strings.TrimSpace(cursor),
 	})
 }
 
 // Worklist is the operator's assigned-task list for one category tab and one due date.
-func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate string, limit, offset int) (ports.TaskPage, error) {
+func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareExecute}, false) {
 		return ports.TaskPage{}, ports.ErrForbidden
 	}
@@ -371,7 +364,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
 		AssigneeUserID:    actor.UserID,
 		Limit:             clampLimit(limit),
-		Offset:            clampOffset(offset),
+		Cursor:            strings.TrimSpace(cursor),
 	})
 }
 
@@ -429,16 +422,6 @@ func clampLimit(limit int) int {
 		return 100
 	}
 	return limit
-}
-
-func clampOffset(offset int) int {
-	if offset < 0 {
-		return 0
-	}
-	if offset > 5000 {
-		return 5000
-	}
-	return offset
 }
 
 // ---------------------------------------------------------------------------
@@ -573,11 +556,6 @@ func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitT
 	if s.store == nil {
 		return ports.SubmitTaskResult{}, ports.ErrStoreUnavailable
 	}
-	if s.enqueuer == nil {
-		// Fail closed: without the verifier-queue seam a submit would lock the task with
-		// nothing for a verifier to act on.
-		return ports.SubmitTaskResult{}, ErrEnqueuerNotWired
-	}
 	in.TaskID = strings.TrimSpace(in.TaskID)
 	if err := s.requireAssignee(ctx, actor, in.TaskID); err != nil {
 		return ports.SubmitTaskResult{}, err
@@ -594,29 +572,10 @@ func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitT
 		ActorID:        in.ActorID,
 		ActorType:      in.ActorType,
 		TraceID:        in.TraceID,
+		Now:            s.now().UTC(),
 	})
 	if err != nil {
 		return ports.SubmitTaskResult{}, err
-	}
-
-	if result.NewlyPending {
-		if enqErr := s.enqueuer.EnqueuePCCareVerification(ctx, VerificationEnqueueRequest{
-			TenantID:            actor.TenantID,
-			TaskID:              result.TaskID,
-			Category:            result.Category,
-			ParkID:              result.ParkID,
-			ShedID:              result.ShedID,
-			ShedName:            result.ShedName,
-			PartitionLabel:      result.PartitionLabel,
-			PlannedBusinessDate: result.PlannedBusinessDate,
-			MediaRefs:           result.MediaRefs,
-			AnimalCount:         result.AnimalCount,
-			OperatorID:          strings.TrimSpace(actor.UserID),
-			CapturedAt:          s.now().UTC(),
-			IdempotencyKey:      "pc-care-verification:" + result.TaskID + ":" + strconv.Itoa(int(result.RowVersion)),
-		}); enqErr != nil {
-			return ports.SubmitTaskResult{}, enqErr
-		}
 	}
 	return result, nil
 }

@@ -860,7 +860,7 @@ internal fun pcCareBuildRosterRows(
         )
     }
 
-    val rosterKeys = LinkedHashMap<String, String>()
+    val rosterKeys = LinkedHashMap<String, String>() // mobile-guard:ignore: function-local projection of one task roster, capped by PC Care repository page limits and discarded on return
     roster.forEach { id -> rosterKeys.putIfAbsent(normalizePcCareTag(id), id) }
     val rows = rosterKeys.map { (key, verbatim) -> rowFor(key, verbatim) }
     val extras = animals

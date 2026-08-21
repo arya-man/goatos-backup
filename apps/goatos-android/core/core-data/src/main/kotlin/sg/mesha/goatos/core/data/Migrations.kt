@@ -1285,7 +1285,7 @@ val MIGRATION_48_49: Migration = object : Migration(48, 49) {
         )
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `pc_care_task_remote_keys` " +
-                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
                 "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         )
         db.execSQL(

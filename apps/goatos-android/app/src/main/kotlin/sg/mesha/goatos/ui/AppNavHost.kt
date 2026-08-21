@@ -3473,6 +3473,7 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
                 .collectAsStateWithLifecycle()
             LaunchedEffect(createdDate) {
                 if (createdDate.isNotBlank()) {
+                    // exception:exempt malformed saved-state date is stale navigation glue; ignore it and clear the one-shot key below
                     runCatching { java.time.LocalDate.parse(createdDate) }.getOrNull()?.let { date ->
                         vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.SelectMonitorDate(date))
                     }

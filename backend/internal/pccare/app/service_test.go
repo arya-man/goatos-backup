@@ -125,53 +125,35 @@ func TestExecuteWritesRequireThePermission(t *testing.T) {
 	}
 }
 
-// Fail closed: a submit with no enqueue seam wired must refuse BEFORE any store write, or a
-// task would lock with nothing for a verifier to act on.
-func TestSubmitFailsClosedWithoutEnqueuer(t *testing.T) {
-	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
-	svc := NewService(store)
-	_, err := svc.SubmitTask(context.Background(), operatorActor(testAssignee), SubmitTaskInput{
-		TaskID: testTask, IdempotencyKey: "submit-key-2",
-	})
-	if !errors.Is(err, ErrEnqueuerNotWired) {
-		t.Fatalf("submit err = %v, want ErrEnqueuerNotWired", err)
-	}
-	if store.submitCalls != 0 {
-		t.Fatal("store submit ran with no enqueuer wired")
-	}
-}
-
-// The enqueue fires exactly once per real pending transition, keyed to task+row_version so a
-// rework re-submit mints a fresh item while a no-op replay enqueues nothing.
-func TestSubmitEnqueuesOnlyWhenNewlyPendingKeyedByRowVersion(t *testing.T) {
-	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
+// The durable submit event is what enqueues verification now: keyed to task+row_version so a
+// rework re-submit mints a fresh item while a retry collapses.
+func TestPendingVerificationHandlerEnqueuesKeyedByRowVersion(t *testing.T) {
 	enq := &fakeEnqueuer{}
-	svc := NewService(store).WithVerificationEnqueuer(enq).WithNow(func() time.Time { return time.Unix(0, 0) })
+	handler := NewPCCarePendingVerificationHandler(enq, nil)
+	payload, _ := json.Marshal(map[string]any{
+		"task_id":         testTask,
+		"category":        domain.CategoryDeworming,
+		"row_version":     4,
+		"animal_count":    2,
+		"operator_id":     testAssignee,
+		"media_refs":      []map[string]string{{"proof_ref": "proof-1", "label": "RFID-1 · Video"}},
+		"shed_name":       "Castro",
+		"partition_label": "2",
+	})
+	if err := handler.HandleEvent(context.Background(), eventbus.Event{
+		Type:       "pc_care.task.pending_verification",
+		TenantID:   testTenant,
+		OccurredAt: time.Unix(0, 0),
+		Payload:    payload,
+	}); err != nil {
+		t.Fatalf("pending verification: %v", err)
+	}
 
-	store.submitResult = ports.SubmitTaskResult{TaskID: testTask, Status: domain.StatusPendingVerification, RowVersion: 2, NewlyPending: true}
-	if _, err := svc.SubmitTask(context.Background(), operatorActor(testAssignee), SubmitTaskInput{TaskID: testTask, IdempotencyKey: "submit-a"}); err != nil {
-		t.Fatalf("submit: %v", err)
+	if enq.calls != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", enq.calls)
 	}
-	store.submitResult = ports.SubmitTaskResult{TaskID: testTask, Status: domain.StatusPendingVerification, RowVersion: 2, NewlyPending: false}
-	if _, err := svc.SubmitTask(context.Background(), operatorActor(testAssignee), SubmitTaskInput{TaskID: testTask, IdempotencyKey: "submit-b"}); err != nil {
-		t.Fatalf("replay submit: %v", err)
-	}
-	store.submitResult = ports.SubmitTaskResult{TaskID: testTask, Status: domain.StatusPendingVerification, RowVersion: 4, NewlyPending: true}
-	if _, err := svc.SubmitTask(context.Background(), operatorActor(testAssignee), SubmitTaskInput{TaskID: testTask, IdempotencyKey: "submit-c"}); err != nil {
-		t.Fatalf("resubmit: %v", err)
-	}
-
-	if enq.calls != 2 {
-		t.Fatalf("enqueue calls = %d, want 2 (once per real pending transition)", enq.calls)
-	}
-	want := []string{
-		"pc-care-verification:" + testTask + ":2",
-		"pc-care-verification:" + testTask + ":4",
-	}
-	for i, key := range want {
-		if enq.lastKeys[i] != key {
-			t.Fatalf("enqueue key[%d] = %q, want %q", i, enq.lastKeys[i], key)
-		}
+	if got, want := enq.lastKeys[0], "pc-care-verification:"+testTask+":4"; got != want {
+		t.Fatalf("enqueue key = %q, want %q", got, want)
 	}
 }
 

@@ -21,8 +21,8 @@ import kotlinx.coroutines.flow.Flow
  * Same shapes as the Feed Wastage trio in [FeedWastageItemDao] et al:
  *  - `pc_care_task_items` — the paged worklist ROWS, one Room row per task, read back through a
  *    [PagingSource] so the observed query is a bounded ~20-row window.
- *  - `pc_care_task_remote_keys` — the next page offset per filter scope, so `RemoteMediator` can
- *    resume paging after process death without re-walking from zero.
+	 *  - `pc_care_task_remote_keys` — the next page cursor per filter scope, so `RemoteMediator` can
+	 *    resume paging after process death without re-walking from zero.
  *  - `pc_care_task_detail_cache` — the JSON-blob-by-taskId detail cache (a re-opened task renders
  *    from here instead of a blank wall).
  *  - `pc_care_animal_rows` — one row per SCANNED ANIMAL in a task: the durable local model behind
@@ -54,7 +54,7 @@ data class PcCareTaskItemEntity(
 @Entity(tableName = "pc_care_task_remote_keys")
 data class PcCareTaskRemoteKeyEntity(
     @PrimaryKey val queryKey: String,
-    val nextOffset: Int,
+    val nextCursor: String,
     val endReached: Boolean,
     val updatedAt: Long,
 )

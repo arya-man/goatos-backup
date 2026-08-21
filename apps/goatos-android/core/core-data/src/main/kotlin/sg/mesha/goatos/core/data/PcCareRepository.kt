@@ -54,9 +54,9 @@ private const val PC_CARE_ANIMAL_LIST_LIMIT = 300 // mobile-guard:ignore: hard c
 private const val PC_CARE_CAPTURES_PAGE_LIMIT = 20
 private const val PC_CARE_CAPTURES_MAX_PAGES = 50
 
-/** Roster fetch page size and page cap — a pen holds well under 300 tagged animals. */
-private const val PC_CARE_ROSTER_PAGE_LIMIT = 50
-private const val PC_CARE_ROSTER_MAX_PAGES = 6 // mobile-guard:ignore: bounded write-through fill of ONE pen's tap roster into Room (hard 300 ceiling), mirroring PC_CARE_ANIMAL_LIST_LIMIT's rationale
+/** Roster fetch page size and page cap — one bounded pen roster, written through page by page. */
+private const val PC_CARE_ROSTER_PAGE_LIMIT = 20
+private const val PC_CARE_ROSTER_MAX_PAGES = 15 // mobile-guard:ignore: bounded write-through fill of ONE pen's tap roster into Room (hard 300 ceiling), mirroring PC_CARE_ANIMAL_LIST_LIMIT's rationale
 
 /** Namespaces the roster blob beside the task-detail blob in the same bounded cache table. */
 private fun rosterCacheKey(taskId: String): String = "roster:$taskId"
@@ -271,7 +271,7 @@ class DefaultPcCareRepository(
         // exception:exempt expected refresh failure (offline/timeout/5xx); the cached roster keeps
         // serving and the next open/refresh repairs it — the non-blocking refresh contract.
         runCatching {
-            val identifiers = mutableListOf<String>()
+            val identifiers = mutableListOf<String>() // mobile-guard:ignore: function-local roster buffer, capped by PC_CARE_ROSTER_MAX_PAGES * PC_CARE_ROSTER_PAGE_LIMIT and persisted per page
             var cursor: String? = null
             var pages = 0
             // Write-through per page so a big pen shows its first tags immediately.
@@ -471,9 +471,9 @@ class DefaultPcCareRepository(
 /** trim + lowercase — the ONE normalization the duplicate check and the scan idempotency key share. */
 fun normalizePcCareTag(tagVerbatim: String): String = tagVerbatim.trim().lowercase()
 
-/** Fills Room from `GET /app/pc-care/worklist` page-by-page. The backend pages TASKS directly
- *  (limit/offset count tasks; `has_more` ends pagination), so the offset advances by items
- *  returned — the [FeedWastageRemoteMediator] shape minus the shed fan-out. */
+	/** Fills Room from `GET /app/pc-care/worklist` page-by-page. The backend pages TASKS directly
+	 *  with an opaque keyset cursor, so inserts/cancels between pages cannot shift an offset under
+	 *  the operator. */
 @OptIn(ExperimentalPagingApi::class)
 private class PcCareTaskRemoteMediator(
     private val query: PcCareWorklistQuery,
@@ -497,33 +497,34 @@ private class PcCareTaskRemoteMediator(
         loadType: LoadType,
         state: PagingState<Int, PcCareTaskItemEntity>,
     ): MediatorResult {
-        val offset = when (loadType) {
-            LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
-            LoadType.REFRESH -> 0
-            LoadType.APPEND -> {
-                val remoteKey = database.pcCareTaskRemoteKeyDao().get(queryKey)
-                    ?: return MediatorResult.Success(endOfPaginationReached = true)
-                if (remoteKey.endReached) return MediatorResult.Success(endOfPaginationReached = true)
-                remoteKey.nextOffset
-            }
-        }
+		val cursor = when (loadType) {
+		    LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
+		    LoadType.REFRESH -> null
+		    LoadType.APPEND -> {
+		        val remoteKey = database.pcCareTaskRemoteKeyDao().get(queryKey)
+		            ?: return MediatorResult.Success(endOfPaginationReached = true)
+		        if (remoteKey.endReached) return MediatorResult.Success(endOfPaginationReached = true)
+		        remoteKey.nextCursor.ifBlank { null }
+		    }
+		}
         return try {
             val response = if (query.monitor) {
                 api.getPcCareTasks(
                     date = query.date,
-                    category = query.category,
-                    limit = PC_CARE_PAGE_SIZE,
-                    offset = offset,
-                )
-            } else {
-                api.getPcCareWorklist(
-                    category = query.category,
-                    date = query.date,
-                    limit = PC_CARE_PAGE_SIZE,
-                    offset = offset,
-                )
-            }
-            val endReached = !response.hasMore
+		            category = query.category,
+		            limit = PC_CARE_PAGE_SIZE,
+		            cursor = cursor,
+		        )
+		    } else {
+		        api.getPcCareWorklist(
+		            category = query.category,
+		            date = query.date,
+		            limit = PC_CARE_PAGE_SIZE,
+		            cursor = cursor,
+		        )
+		    }
+		    val nextCursor = response.nextCursor.ifBlank { null }
+		    val endReached = nextCursor == null
             val updatedAt = clock()
             database.withTransaction {
                 val itemDao = database.pcCareTaskItemDao()
@@ -544,13 +545,13 @@ private class PcCareTaskRemoteMediator(
                         )
                     },
                 )
-                remoteKeyDao.upsert(
-                    PcCareTaskRemoteKeyEntity(
-                        queryKey = queryKey,
-                        nextOffset = offset + response.items.size,
-                        endReached = endReached,
-                        updatedAt = updatedAt,
-                    ),
+		        remoteKeyDao.upsert(
+		            PcCareTaskRemoteKeyEntity(
+		                queryKey = queryKey,
+		                nextCursor = nextCursor.orEmpty(),
+		                endReached = endReached,
+		                updatedAt = updatedAt,
+		            ),
                 )
                 if (loadType == LoadType.REFRESH) {
                     itemDao.deleteRowsOutsideNewestQueries(PC_CARE_CACHED_QUERIES)

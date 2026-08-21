@@ -29,6 +29,7 @@
     "feed.distribution.completed",
     "feed.packing.completed",
     "feed.wastage.completed",
+    "pc_care.task.pending_verification",
     "pc_care.task.completed",
     "vaccination.capacity.changed",
     "vaccination.roster.changed",
@@ -1143,6 +1144,29 @@
       "owningDoc": "docs/decisions/feed-distribution-verification.md",
       "e2eProof": [
         "backend/internal/feeddirection/adapters/postgres/feed_wastage_verification_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "pc_care.task.pending_verification",
+      "producer": "PC Care operator submit: pccare.Repository.SubmitTask flips pc_care_tasks to pending_verification, stamps submitted animals, records audit/idempotency, and writes this transactional outbox event in the same commit. The durable consumer enqueues exactly one generic verification item keyed by task row_version.",
+      "producerFiles": [
+        "backend/internal/pccare/adapters/postgres/submit.go"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "file": "backend/internal/pccare/app/verification_handler.go",
+          "notes": "PCCarePendingVerificationHandler consumes pc_care.task.pending_verification and calls the PC Care verification bridge, which maps the task media set to verification.CreateItem idempotently."
+        }
+      ],
+      "owningDoc": "docs/decisions/pc-care-module.md",
+      "e2eProof": [
+        "backend/internal/pccare/adapters/postgres/pc_care_verification_integration_test.go"
       ],
       "surfaces": [
         "backend",

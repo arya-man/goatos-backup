@@ -19,6 +19,10 @@ type verificationCreator interface {
 	CreateItem(ctx context.Context, in verificationdomain.CreateItem) (verificationdomain.CreateItemResult, error)
 }
 
+type categoryRegistry interface {
+	RegisterCategory(verificationdomain.CategoryDefinition) error
+}
+
 // Enqueuer bridges pccare submits into the verifier queue.
 type Enqueuer struct {
 	verification verificationCreator
@@ -27,6 +31,26 @@ type Enqueuer struct {
 // New constructs the bridge over the verification service.
 func New(v verificationCreator) *Enqueuer {
 	return &Enqueuer{verification: v}
+}
+
+// RegisterCategories installs the four verifier queue categories used by PC Care. Keep this helper
+// in the bridge so API, outbox-relay, and Pub/Sub consumer cannot hand-maintain divergent labels.
+func RegisterCategories(reg categoryRegistry) error {
+	for order, workCategory := range pccaredomain.Categories {
+		if err := reg.RegisterCategory(verificationdomain.CategoryDefinition{
+			Vertical:              pccaredomain.VerificationVerticalPreventiveCare,
+			Module:                pccaredomain.VerificationModulePCCare,
+			Category:              pccaredomain.VerificationCategoryFor(workCategory),
+			NavigationModule:      pccaredomain.VerificationModulePCCare,
+			NavigationModuleLabel: "Preventive Care",
+			PageKey:               pccaredomain.VerificationCategoryFor(workCategory),
+			PageLabel:             pccaredomain.CategoryLabel(workCategory),
+			PageOrder:             order + 1,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var _ pccareapp.VerificationEnqueuer = (*Enqueuer)(nil)

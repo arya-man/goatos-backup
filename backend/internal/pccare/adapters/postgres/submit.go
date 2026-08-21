@@ -2,9 +2,12 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -12,6 +15,15 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+)
+
+const (
+	pcCarePendingVerificationEventType     = "pc_care.task.pending_verification"
+	pcCarePendingVerificationSchemaVersion = "v1"
+	pcCarePendingVerificationSchemaRef     = "contracts/jsonschema/domain-event-envelope.schema.json"
+	pcCarePendingVerificationTopic         = "pc_care.events"
+	pcCarePendingVerificationAggregateType = "pc_care_task"
 )
 
 // SubmitTask flips the WHOLE task open|rework -> pending_verification once every scanned
@@ -188,6 +200,24 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 	if err := completeIdempotency(ctx, tx, p.TenantID, pcCareSubmitIdemScope, p.IdempotencyKey, pcCareTaskResourceType, p.TaskID); err != nil {
 		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: complete submit idempotency: %w", err)
 	}
+	if err := insertPendingVerificationOutbox(ctx, tx, pendingVerificationOutbox{
+		TenantID:            p.TenantID,
+		TaskID:              p.TaskID,
+		Category:            category,
+		ParkID:              parkID,
+		ShedID:              shedID,
+		ShedName:            shedLocation.ShedName,
+		PartitionLabel:      partitionLabel,
+		PlannedBusinessDate: plannedDate,
+		MediaRefs:           mediaRefs,
+		AnimalCount:         int32(animalCount),
+		OperatorID:          p.SubmittedBy,
+		RowVersion:          rowVersion,
+		OccurredAt:          p.Now,
+		TraceID:             p.TraceID,
+	}); err != nil {
+		return ports.SubmitTaskResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: commit submit: %w", err)
 	}
@@ -200,6 +230,88 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 	result.MediaRefs = mediaRefs
 	result.AnimalCount = int32(animalCount)
 	return result, nil
+}
+
+type pendingVerificationOutbox struct {
+	TenantID            string
+	TaskID              string
+	Category            string
+	ParkID              string
+	ShedID              string
+	ShedName            string
+	PartitionLabel      string
+	PlannedBusinessDate string
+	MediaRefs           []ports.LabeledRef
+	AnimalCount         int32
+	OperatorID          string
+	RowVersion          int32
+	OccurredAt          time.Time
+	TraceID             string
+}
+
+func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVerificationOutbox) error {
+	idempotencyKey := "pc-care-verification:" + o.TaskID + ":" + strconv.Itoa(int(o.RowVersion))
+	eventID := platformoutbox.DeterministicUUID(pcCarePendingVerificationEventType + ":" + o.TenantID + ":" + idempotencyKey)
+	media := make([]map[string]string, 0, len(o.MediaRefs))
+	for _, ref := range o.MediaRefs {
+		if strings.TrimSpace(ref.ProofRef) == "" {
+			continue
+		}
+		media = append(media, map[string]string{"proof_ref": ref.ProofRef, "label": ref.Label})
+	}
+	payload := map[string]any{
+		"task_id":               o.TaskID,
+		"category":              o.Category,
+		"park_id":               o.ParkID,
+		"shed_id":               o.ShedID,
+		"shed_name":             o.ShedName,
+		"partition_label":       o.PartitionLabel,
+		"planned_business_date": o.PlannedBusinessDate,
+		"media_refs":            media,
+		"animal_count":          o.AnimalCount,
+		"operator_id":           o.OperatorID,
+		"row_version":           o.RowVersion,
+	}
+	envelope := pcCareEventEnvelope{
+		EventID:        eventID,
+		EventType:      pcCarePendingVerificationEventType,
+		SchemaVersion:  pcCarePendingVerificationSchemaVersion,
+		SchemaRef:      pcCarePendingVerificationSchemaRef,
+		AggregateType:  pcCarePendingVerificationAggregateType,
+		AggregateID:    o.TaskID,
+		IdempotencyKey: idempotencyKey,
+		TenantID:       o.TenantID,
+		ParkID:         o.ParkID,
+		ShedID:         o.ShedID,
+		ActorID:        o.OperatorID,
+		OccurredAt:     o.OccurredAt,
+		Payload:        payload,
+		TraceID:        o.TraceID,
+	}.build()
+	envelopeJSON, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("pccare: marshal pending verification envelope: %w", err)
+	}
+	headersJSON, err := json.Marshal(map[string]any{"content_type": "application/json"})
+	if err != nil {
+		return fmt.Errorf("pccare: marshal pending verification headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
+  $7, $8::jsonb, $9::jsonb, $10, $11, 'pending', now()
+)
+ON CONFLICT DO NOTHING`,
+		o.TenantID, eventID, pcCarePendingVerificationEventType, pcCarePendingVerificationSchemaVersion,
+		pcCarePendingVerificationAggregateType, o.TaskID, pcCarePendingVerificationTopic,
+		envelopeJSON, headersJSON, idempotencyKey, o.TraceID)
+	if err != nil {
+		return fmt.Errorf("pccare: insert pending verification outbox: %w", err)
+	}
+	return nil
 }
 
 // composeSubmitMediaRefs builds the verification item's labeled media set: every animal's slot

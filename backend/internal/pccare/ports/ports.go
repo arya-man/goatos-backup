@@ -155,6 +155,7 @@ type SubmitTaskParams struct {
 	ActorID        string
 	ActorType      string
 	TraceID        string
+	Now            time.Time
 }
 
 // SubmitTaskResult reports the submit outcome, mirroring feed's CompletePackingResult: the
@@ -215,13 +216,13 @@ type ListTasksQuery struct {
 	// AssigneeUserID, when set, narrows to tasks assigned to this operator (the worklist).
 	AssigneeUserID string
 	Limit          int
-	Offset         int
+	Cursor         string
 }
 
 // TaskPage is one bounded page of tasks.
 type TaskPage struct {
-	Items   []TaskRow
-	HasMore bool
+	Items      []TaskRow
+	NextCursor string
 }
 
 // PlannerShed is one shed/pen option for the create wizard, decorated with any existing live

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 49,
-    "identityHash": "7ab8aa0a5f25587099be532c9b7e5c4f",
+    "identityHash": "61572265d84b26591f048698f3d3f0ca",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -4061,7 +4061,7 @@
       },
       {
         "tableName": "pc_care_task_remote_keys",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         "fields": [
           {
             "fieldPath": "queryKey",
@@ -4070,9 +4070,9 @@
             "notNull": true
           },
           {
-            "fieldPath": "nextOffset",
-            "columnName": "nextOffset",
-            "affinity": "INTEGER",
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT",
             "notNull": true
           },
           {
@@ -4189,7 +4189,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7ab8aa0a5f25587099be532c9b7e5c4f')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '61572265d84b26591f048698f3d3f0ca')"
     ]
   }
 }

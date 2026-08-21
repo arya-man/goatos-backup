@@ -242,6 +242,16 @@ func TestSlotSetGatesSubmitAndPeersMayFillSlots(t *testing.T) {
 	if result.ShedName != "Castro" {
 		t.Fatalf("submit shed name = %q, want Castro", result.ShedName)
 	}
+	var pendingOutboxCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)::int FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'pc_care.task.pending_verification' AND aggregate_id = $2::uuid`,
+		pcTenant, task.TaskID).Scan(&pendingOutboxCount); err != nil {
+		t.Fatalf("count pending verification outbox: %v", err)
+	}
+	if pendingOutboxCount != 1 {
+		t.Fatalf("pc_care.task.pending_verification outbox rows = %d, want 1", pendingOutboxCount)
+	}
 
 	// The lock: a scan into a pending task is refused.
 	if _, err := repo.ScanAnimal(ctx, ports.ScanAnimalParams{
