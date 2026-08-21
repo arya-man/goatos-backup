@@ -32,6 +32,16 @@ import sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
 import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
 import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
+import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -1125,6 +1135,91 @@ interface AppApi {
      * [partitionLabel] is part of the IDENTITY: omitting it on a partitioned shed answers for the
      * shed as a whole and would claim another pen's work.
      */
+
+    /**
+     * PC Care (module pc_care, maintainer decision 2026-08-21). The worklist is the operator's
+     * ASSIGNED tasks for one category tab and one business date; the task detail carries the
+     * backend-owned `expected_slots` contract the capture screen iterates verbatim.
+     */
+    suspend fun getPcCareWorklist(
+        category: String,
+        date: String,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): PcCareTaskPageDto
+
+    /** GET /app/pc-care/tasks — the plan/monitor flat list (CEO planner surface). */
+    suspend fun getPcCareTasks(
+        date: String,
+        parkId: String? = null,
+        category: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): PcCareTaskPageDto
+
+    suspend fun getPcCareTask(taskId: String): PcCareTaskDto
+
+    /**
+     * GET /app/pc-care/tasks/{task_id}/captures — the peer-visibility poll: which animals are
+     * scanned and which slots each holds, by ANY assignee, with "Captured by X" attribution.
+     * Read-only; it is what lets several assigned phones split one task's videos.
+     */
+    suspend fun getPcCareTaskCaptures(
+        taskId: String,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): PcCareCapturesDto
+
+    /**
+     * POST /app/pc-care/tasks/{task_id}/animals — scan one RFID into the task, VERBATIM. A tag
+     * already in the task is `409 duplicate_scan` (terminal — surface "Already scanned", never
+     * re-enqueue under a new key); a locked task is `409 task_locked`.
+     */
+    suspend fun scanPcCareAnimal(
+        taskId: String,
+        idempotencyKey: String,
+        request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto
+
+    /**
+     * PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot} — attach one slot's
+     * live-camera video (server proof id from the /app/proofs pipeline) to one scanned animal.
+     */
+    suspend fun registerPcCareSlotProof(
+        taskId: String,
+        animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    )
+
+    /**
+     * POST /app/pc-care/tasks/{task_id}/submit — submit the WHOLE task (any assignee). Refused
+     * until every scanned animal carries its full slot set (`422 proof_incomplete`) or while no
+     * animal is scanned (`422 no_animals`). Idempotent on [idempotencyKey].
+     */
+    suspend fun submitPcCareTask(
+        taskId: String,
+        idempotencyKey: String,
+    ): PcCareSubmitResponseDto
+
+    suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto
+
+    suspend fun getPcCarePlannerParkSheds(
+        parkId: String,
+        category: String,
+        date: String,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): PcCarePlannerShedsDto
+
+    suspend fun createPcCareTask(
+        idempotencyKey: String,
+        request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto
+
+    suspend fun cancelPcCareTask(taskId: String)
+
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
         shedId: String,
