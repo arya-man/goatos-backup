@@ -12364,13 +12364,13 @@ components:
           type: string
         expected_stock_kg:
           type: string
-          description: Latest load quantity minus days since first_directed_day through yesterday in IST times avg_daily_kg; negative values show the expected shortage.
+          description: Current stock from the purchase ledger. Field name retained for API compatibility.
         ledger_stock_kg:
           type: string
           description: Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion.
         stock_variance_kg:
           type: string
-          description: ledger_stock_kg minus expected_stock_kg.
+          description: Whole days of stock left for the farm-item table anomaly check, calculated as ledger_stock_kg divided by avg_daily_kg. Field name retained for API compatibility.
         stock_check_status:
           type: string
           enum: [ok, mismatch, unavailable]
