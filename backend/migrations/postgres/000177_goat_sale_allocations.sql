@@ -27,6 +27,8 @@
 -- MOMENT IT WAS SOLD. goats.shed_id keeps moving and a sold animal's row eventually says
 -- nothing useful about the sale, so reading the location back off the goat would make an
 -- old sale silently re-describe itself. The snapshot is history and is never updated.
+--
+-- seed-fixture-guard:ignore: operational sale-to-animal ledger, written only by runtime sale confirmation
 
 CREATE TABLE public.goat_sale_allocations (
     allocation_id uuid DEFAULT gen_random_uuid() NOT NULL,
