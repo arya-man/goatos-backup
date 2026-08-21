@@ -14,7 +14,7 @@
 
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
 import type { EditorPlan, EditorVaccine } from "./editor-model";
@@ -47,14 +47,39 @@ export type ImpactSummary = {
 export function VaccinationPlanEditor(props: Props) {
   const router = useRouter();
   const [plan, setPlan] = useState<EditorPlan>(props.initialPlan);
+  // The id of the draft that is actually live RIGHT NOW.
+  //
+  // Saving replaces the draft: a new version carries the edits and the old row is
+  // discarded. props.draftVersionId only catches up when the server components finish
+  // re-rendering, and the buttons re-enable before that -- so a Publish clicked in that
+  // window went to the id the save had just discarded and told the user their draft could
+  // not be read, when it was perfectly fine. A ref is updated synchronously, so it is
+  // right the instant the save returns.
+  const liveVersionId = useRef(props.draftVersionId);
+  // Likewise the document the edits are written back onto: a second save in that window
+  // re-derived from the pre-save original and dropped what the first save wrote.
+  const liveRuleDsl = useRef(props.originalRuleDsl);
+  useEffect(() => {
+    liveVersionId.current = props.draftVersionId;
+    liveRuleDsl.current = props.originalRuleDsl;
+  }, [props.draftVersionId, props.originalRuleDsl]);
+
+  // What "unchanged" means, which is not the same as what the page was first given.
+  //
+  // The server assigns real dose codes to doses the editor invented, so after a save the
+  // saved plan differs from client state by those codes alone. Comparing against the page
+  // props therefore never settled: the "Draft saved." note never appeared and Save stayed
+  // lit, inviting the user to save the same thing forever.
+  const [baseline, setBaseline] = useState<EditorPlan>(props.initialPlan);
+  useEffect(() => setBaseline(props.initialPlan), [props.initialPlan]);
   const [selected, setSelected] = useState(props.initialPlan.vaccines[0]?.code ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   const dirty = useMemo(
-    () => JSON.stringify(plan) !== JSON.stringify(props.initialPlan),
-    [plan, props.initialPlan],
+    () => JSON.stringify(plan) !== JSON.stringify(baseline),
+    [plan, baseline],
   );
   const current = plan.vaccines.find((v) => v.code === selected) ?? plan.vaccines[0];
   const onCount = plan.vaccines.filter((v) => v.on).length;
@@ -71,6 +96,19 @@ export function VaccinationPlanEditor(props: Props) {
         } no doses. Add a dose, or switch ${emptyOn.length === 1 ? "it" : "them"} off.`
       : null;
 
+  // Unsaved edits die silently on a stray click of the backlink or a browser back.
+  // Discarding a draft already demands confirmation; losing an hour of authoring to a
+  // misclick should not be quieter than that.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   function updateVaccine(code: string, change: (v: EditorVaccine) => EditorVaccine) {
     setSaved(false);
     setPlan((p) => ({ ...p, vaccines: p.vaccines.map((v) => (v.code === code ? change(v) : v)) }));
@@ -79,17 +117,19 @@ export function VaccinationPlanEditor(props: Props) {
   function onSave() {
     setError(null);
     startTransition(async () => {
-      const result = await saveDraftPlan(props.draftVersionId, plan, props.originalRuleDsl);
+      const result = await saveDraftPlan(liveVersionId.current, plan, liveRuleDsl.current);
       if (!result.ok) {
         setError(result.error);
         return;
       }
       setSaved(true);
+      setBaseline(plan);
       // A save REPLACES the draft: the new version carries the edits and the old
       // row is discarded, so the id in the URL is now dead. Point the URL at the
       // new draft before refreshing -- refreshing alone re-runs the page against
       // the discarded id and 404s the editor out from under the user.
-      if (result.versionId && result.versionId !== props.draftVersionId) {
+      if (result.versionId && result.versionId !== liveVersionId.current) {
+        liveVersionId.current = result.versionId;
         router.replace(`/vaccination/plan/edit?version=${result.versionId}`);
       }
       router.refresh();
@@ -100,18 +140,20 @@ export function VaccinationPlanEditor(props: Props) {
     setError(null);
     startTransition(async () => {
       // Save first: publishing what is on screen, not what was last saved.
-      const savedResult = await saveDraftPlan(props.draftVersionId, plan, props.originalRuleDsl);
+      const savedResult = await saveDraftPlan(liveVersionId.current, plan, liveRuleDsl.current);
       if (!savedResult.ok) {
         setError(savedResult.error);
         return;
       }
+      setBaseline(plan);
       // The save REPLACED the draft, so the id in the URL is already dead. Point at
       // the new one BEFORE attempting the publish: if the publish then fails, the
       // user is still on a live draft with their edits, rather than stranded on a
       // discarded id where the next click 404s and the saved work is only reachable
       // from the list.
-      const liveId = savedResult.versionId ?? props.draftVersionId;
-      if (liveId !== props.draftVersionId) {
+      const liveId = savedResult.versionId ?? liveVersionId.current;
+      if (liveId !== liveVersionId.current) {
+        liveVersionId.current = liveId;
         router.replace(`/vaccination/plan/edit?version=${liveId}`);
       }
       const published = await publishPlan(liveId);
@@ -139,7 +181,16 @@ export function VaccinationPlanEditor(props: Props) {
 
   return (
     <div className="vplan">
-      <a className="backlink" href="/vaccination/plan">
+      <a
+        className="backlink"
+        href="/vaccination/plan"
+        onClick={(e) => {
+          if (!dirty) return;
+          if (!window.confirm("Leave without saving? Your changes to this draft will be lost.")) {
+            e.preventDefault();
+          }
+        }}
+      >
         <ArrowLeft size={14} aria-hidden /> Vaccination plan
       </a>
 

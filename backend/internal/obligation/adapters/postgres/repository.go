@@ -1375,13 +1375,31 @@ func (r *Repository) insertReworkObligationForMissed(
 				RepeatCycleSourceRef: inherited.RepeatCycleSourceRef,
 			})
 			if causeErr == nil {
-				return byCause, nil
+				return byCause.ObligationID, nil
 			}
 		}
 		if lookupErr != nil {
 			return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
 		}
 		return existing.ObligationID, nil
+	}
+	if isRepeatCycleConflict(err) {
+		// The indexes see races the NOT EXISTS guard cannot: a sibling committed between the
+		// two, or two rows sharing an anchor whose refs differ after a plan edit changed the
+		// rule's vaccine. The cycle exists either way, so this is the same idempotent success
+		// as the guard's own refusal -- not a 500 in the face of the person rescheduling.
+		byCause, causeErr := qtx.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+			TenantID:             tenant,
+			ProtocolVersionID:    protocolVersion,
+			RuleID:               rule,
+			TargetType:           targetType,
+			TargetID:             target,
+			Sequence:             sequence,
+			RepeatCycleSourceRef: inherited.RepeatCycleSourceRef,
+		})
+		if causeErr == nil {
+			return byCause.ObligationID, nil
+		}
 	}
 	if err != nil {
 		return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
@@ -1708,6 +1726,58 @@ WHERE ob.tenant_id = $1
 //
 // This is the cheap pre-filter for that: one query per page instead of one cancel per animal,
 // so the common case -- nothing to supersede -- costs a single indexed read.
+// OpenObligationForRepeatCycle finds the open row that already holds a repeat cycle, by its
+// CAUSE rather than its idempotency key.
+//
+// Generation needs this when its own insert is refused: the refusal can mean "this key is
+// taken", which a key lookup resolves, or it can mean "another writer already created this
+// cycle under a different key" -- a booster-minted successor, or a rescheduled missed dose --
+// which a key lookup cannot see at all. Without this the caller cannot tell the two apart and
+// keeps trying new keys against a guard that will refuse every one of them.
+func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID, protocolVersionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (domain.ObligationRef, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if strings.TrimSpace(sourceRef) == "" {
+		return domain.ObligationRef{}, false, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(protocolVersionID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: protocol version id: %w", err)
+	}
+	rule, err := pgconv.UUID(ruleID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: rule id: %w", err)
+	}
+	target, err := pgconv.UUID(targetID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
+	}
+	row, err := r.queries.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+		TenantID:             tenant,
+		ProtocolVersionID:    version,
+		RuleID:               rule,
+		TargetType:           targetType,
+		TargetID:             target,
+		Sequence:             sequence,
+		RepeatCycleSourceRef: pgtype.Text{String: sourceRef, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: open obligation for repeat cycle: %w", err)
+	}
+	return domain.ObligationRef{
+		ObligationID: row.ObligationID,
+		Status:       row.Status,
+		DueAt:        row.DueAt.Time,
+	}, true, nil
+}
+
 func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

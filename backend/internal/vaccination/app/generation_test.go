@@ -3257,6 +3257,12 @@ func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ contex
 
 // Returns every animal asked about, so the generation tests exercise the supersede path
 // rather than silently skipping it.
+// Returns nothing found, so the successor loop keeps its pre-existing suffix behaviour
+// unless a test opts into the by-cause path.
+func (o *generationObligationFake) OpenObligationForRepeatCycle(context.Context, string, string, string, string, string, int32, string) (obldomain.ObligationRef, bool, error) {
+	return obldomain.ObligationRef{}, false, nil
+}
+
 func (o *generationObligationFake) GoatsWithVaccinationObligationsOutsideVersions(_ context.Context, _ string, goatIDs, _ []string) ([]string, error) {
 	return goatIDs, nil
 }

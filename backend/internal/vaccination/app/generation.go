@@ -81,6 +81,9 @@ type ObligationWriter interface {
 	// Bounded pre-filter for plan replacement: which of these animals still hold open work
 	// under a version that is no longer effective for them. Usually none, for one indexed read.
 	GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error)
+	// Finds an open row by the CAUSE it descends from, for the case where an insert was
+	// refused because another writer already created this cycle under a different key.
+	OpenObligationForRepeatCycle(ctx context.Context, tenantID, protocolVersionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (obldomain.ObligationRef, bool, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
@@ -219,9 +222,22 @@ func actionableObligationForSpacing(ref obldomain.ObligationRef) bool {
 //	                                            Same semantics as above. NO successor.
 //	"ineligible_after_recheck"                  adapter default for the per-version cancel when a
 //	                                            caller passes no reason. Ambiguous → fail closed.
+//	"protocol_version_replaced"                 generation tenant-wide scan — the version that
+//	                                            produced this work is no longer effective for the
+//	                                            animal. MINTS, for the same reason the shift-away
+//	                                            cancel does: the animal can come back into that
+//	                                            version's scope (it moves parks and returns, or a
+//	                                            park override lapses and the tenant default is
+//	                                            effective again). A fixed-due dose then recomputes
+//	                                            to the SAME idempotency key, meets its own canceled
+//	                                            row, and without a successor the animal silently
+//	                                            never receives that vaccination. Repeat cycles
+//	                                            escape that trap on their own -- their identity is
+//	                                            the cause, not the key -- but birth-age and course
+//	                                            doses do not.
 func cancelReasonMintsSuccessor(reason string) bool {
 	switch strings.TrimSpace(reason) {
-	case "ineligible_after_shift":
+	case "ineligible_after_shift", "protocol_version_replaced":
 		return true
 	default:
 		return false
@@ -1839,6 +1855,23 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		}
 		if !strings.EqualFold(strings.TrimSpace(ref.Status), "canceled") && strings.TrimSpace(ref.Status) != "" {
 			return ref, changed, false, nil
+		}
+		// Refused, and no row under this key: for a repeat cycle that means another writer
+		// already holds this cause -- a booster-minted successor, or a rescheduled missed
+		// dose. Every remaining suffix would be refused by the same guard, so trying 99 more
+		// only burns round trips and then fails the whole generation pass with a suffix
+		// error that names the wrong problem. The cycle exists; return it.
+		if strings.TrimSpace(ref.Status) == "" && base.RepeatCycle.Valid() {
+			existing, found, err := s.obl.OpenObligationForRepeatCycle(
+				ctx, tenantID, base.ProtocolVersionID, base.RuleID, base.TargetType, base.TargetID,
+				base.Sequence, base.RepeatCycle.SourceRef,
+			)
+			if err != nil {
+				return obldomain.ObligationRef{}, false, false, err
+			}
+			if found {
+				return existing, false, false, nil
+			}
 		}
 	}
 	return obldomain.ObligationRef{}, false, false, fmt.Errorf("exhausted successor suffix attempts (max 100 from computed next=%d)", nextSuffix)

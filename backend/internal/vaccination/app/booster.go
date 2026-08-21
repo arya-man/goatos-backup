@@ -226,12 +226,15 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	// scheduled. For a repeat those are the same rule, but a next-in-chain dose can belong to
 	// a different rule, and generation names this cause from the administration itself. Take
 	// the administered rule's vaccine so the two writers cannot disagree.
-	administeredVaccineCode, err := boosterRuleVaccineCode(*current)
-	if err != nil {
-		return false, err
-	}
 	var repeatCycle *obldomain.RepeatCycleSource
 	if anchor := strings.TrimSpace(in.CompletedObligationID); anchor != "" && isRepeatRule(candidate) {
+		// Read inside the gate. Evaluated unconditionally, a rule whose vaccine block does not
+		// parse failed the completion event outright -- including for doses that write no
+		// metadata at all and used to schedule perfectly well.
+		administeredVaccineCode, err := boosterRuleVaccineCode(*current)
+		if err != nil {
+			return false, err
+		}
 		administered := in.AdministeredAt
 		nextDue := due
 		if ref := obldomain.RepeatCycleRef(administeredVaccineCode, administered, in.PrevSequence); ref != "" {

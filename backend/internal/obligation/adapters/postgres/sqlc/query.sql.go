@@ -238,7 +238,7 @@ func (q *Queries) GetOpenObligationByLogicalKey(ctx context.Context, arg GetOpen
 }
 
 const getOpenObligationForRepeatCycle = `-- name: GetOpenObligationForRepeatCycle :one
-SELECT obligation_id::text
+SELECT obligation_id::text, status, due_at
 FROM obligation_instances
 WHERE tenant_id = $1
   AND protocol_version_id = $2
@@ -265,11 +265,17 @@ type GetOpenObligationForRepeatCycleParams struct {
 	RepeatCycleSourceRef pgtype.Text
 }
 
+type GetOpenObligationForRepeatCycleRow struct {
+	ObligationID string
+	Status       string
+	DueAt        pgtype.Timestamptz
+}
+
 // Finds the open row that already holds a repeat cycle, by its CAUSE rather than its due
 // date. A repeat's due date moves, so a sibling of the same cycle sitting on a different date
 // is invisible to a due-date lookup -- and that sibling is precisely what the insert guard
 // suppresses against.
-func (q *Queries) GetOpenObligationForRepeatCycle(ctx context.Context, arg GetOpenObligationForRepeatCycleParams) (string, error) {
+func (q *Queries) GetOpenObligationForRepeatCycle(ctx context.Context, arg GetOpenObligationForRepeatCycleParams) (GetOpenObligationForRepeatCycleRow, error) {
 	row := q.db.QueryRow(ctx, getOpenObligationForRepeatCycle,
 		arg.TenantID,
 		arg.ProtocolVersionID,
@@ -279,9 +285,9 @@ func (q *Queries) GetOpenObligationForRepeatCycle(ctx context.Context, arg GetOp
 		arg.Sequence,
 		arg.RepeatCycleSourceRef,
 	)
-	var obligation_id string
-	err := row.Scan(&obligation_id)
-	return obligation_id, err
+	var i GetOpenObligationForRepeatCycleRow
+	err := row.Scan(&i.ObligationID, &i.Status, &i.DueAt)
+	return i, err
 }
 
 const idempotencyKeyStatus = `-- name: IdempotencyKeyStatus :one
