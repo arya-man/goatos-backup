@@ -3453,6 +3453,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"stock.farms.col.last_load":      "Last load",
 			"stock.farms.batch":              "Load",
 			"stock.farms.empty":              "No Mesha concentrate loads in the ledger yet.",
+			"range.coverage_note":            "Data covers only {days} days so far",
 			"chart.spend.title":              "Daily feed expenditure",
 			"spend.week.label":               "Spent this week",
 			"spend.week.sub":                 "From Monday, through yesterday",

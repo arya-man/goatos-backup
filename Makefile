@@ -184,6 +184,7 @@ guardrails:
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
+	$(MAKE) admin-web-date-format-guard
 	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
@@ -967,6 +968,14 @@ overlay-motion-guard:
 admin-web-local-overlay-guard:
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs
+
+# admin-web-date-format-guard: visible dates render DD-MM-YYYY via lib/format.ts
+# fmtDate (maintainer decision 2026-08-21) — canary on the helper plus a scan for
+# JSX text nodes shipping bare ISO date fields to the screen.
+.PHONY: admin-web-date-format-guard
+admin-web-date-format-guard:
+	node tools/agent-hooks/check-admin-web-date-format.mjs --self-test
+	node tools/agent-hooks/check-admin-web-date-format.mjs
 
 # android-bounded-memory-guard: block unbounded in-memory growth in the Android data layer
 # (an in-heap cache/accumulator with no cap/TTL/eviction, or a DAO reading a whole table into
