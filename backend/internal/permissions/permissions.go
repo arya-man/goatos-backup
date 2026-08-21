@@ -68,6 +68,24 @@ const (
 	//
 	// Catalog row: migration 000156 (tier 'manager', vertical 'procurement').
 	RoleProcurementManager = "procurement_manager"
+	// RoleProcurementDirector owns the PROCUREMENT vertical on admin-web and additionally reads
+	// the Feed chain (maintainer decision 2026-08-21: "when he logs in he should see only the
+	// Procurement and Feed modules in web").
+	//
+	// Like RoleProcurementManager this is a JOB, not a per-person authority: running the
+	// procurement desk at director tier is somebody's role, and a future holder inherits it by
+	// being granted this key. Admin-web is its ONLY surface: it deliberately holds NO AppBootstrap,
+	// so granting it changes nothing on the phone — the current holder's mobile access continues
+	// to come from the feed_director grant he holds alongside it.
+	//
+	// The Feed half is READ-ONLY oversight (config/dispatch/packing/wastage/transport reads).
+	// Authoring the ration grid (feed_config.write), the projected-count exception verdicts
+	// (feed_direction.oversee) and the M1 double-verify duty (verification.act) stay with
+	// RoleFeedDirector — this role watches the feed chain, it does not run it.
+	//
+	// Catalog row: migration 000180 (tier 'director', vertical 'procurement', is_legacy like the
+	// other live name_director keys).
+	RoleProcurementDirector = "procurement_director"
 
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
@@ -885,6 +903,39 @@ var rolePermissions = map[string]map[string]struct{}{
 		AdminWebBootstrap: {},
 		VendorRead:        {}, VendorWrite: {}, VendorFinanceRead: {},
 		ProcurementRead: {},
+	},
+	// RoleProcurementDirector: the Procurement vertical in full, plus read-only Feed oversight
+	// (maintainer decision 2026-08-21). See the constant's doc comment for the split with
+	// RoleFeedDirector.
+	//
+	// What it gets, and why:
+	//   - The whole procurement suite: source-entry intake (read/write/review), the vendor
+	//     register including payment instruments, and the sales ledger including record-sale.
+	//     A director of the desk decides arrivals and HF evidence, so ProcurementReview is held
+	//     where RoleProcurementManager deliberately does not hold it.
+	//   - Feed READS only: the dispatch sheet, packing worklist, wastage and transport worklists
+	//     — the oversight half of the feed chain. NOT FeedConfigRead: the authored ration grid
+	//     (/feed/config) is hidden from this workspace by the same 2026-08-21 decision, and its
+	//     leaf/page are withheld in procurement_director_lens.go.
+	//   - LocationsRead: park/shed selectors on those screens.
+	//   - SOPRead: the /feed/sops module-surface renders the sop-library contract over
+	//     /admin/sops, which is gated on sop.read.
+	//
+	// What it deliberately does NOT get:
+	//   - AppBootstrap: admin-web only; the phone surface stays whatever the person's other
+	//     grants provide.
+	//   - FeedConfigWrite / FeedDirectionOversee / FeedDirectionComplete / VerificationAct:
+	//     running the feed chain is RoleFeedDirector's job.
+	//   - Any vaccination, weighing, counts, goat, calendar, roster or health permission —
+	//     the admin-web workspace for this role is Procurement + Feed and nothing else
+	//     (procurement_director_lens.go is the nav half of that decision).
+	RoleProcurementDirector: {
+		AdminWebBootstrap: {},
+		LocationsRead:     {}, SOPRead: {},
+		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
+		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		SalesRead: {}, SalesWrite: {},
+		FeedDirectionRead: {}, FeedPackingRead: {}, FeedWastageRead: {}, FeedTransportRead: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
