@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CeoAiAdminEvents, trackCeoAiAdminError, trackCeoAiAdminEvent } from "./telemetry";
 import type { TraceError, TraceRecord } from "./types";
+import { dateTime } from "@/lib/format";
 
 // CeoAiAdminTraceViewer is the ADMIN-ONLY step-trace debug surface. An
 // engineer/admin (ceo_internal/superadmin — enforced server-side by the
@@ -226,7 +227,7 @@ function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
         )}
       </Panel>
 
-      <p className="text-xs text-slate-500">Recorded {trace.created_at}</p>
+      <p className="text-xs text-slate-500">Recorded {dateTime(trace.created_at)}</p>
     </div>
   );
 }

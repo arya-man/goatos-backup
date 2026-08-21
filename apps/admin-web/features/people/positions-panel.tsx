@@ -2,6 +2,7 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { optionalCopy, type AdminUiPageContract } from '@/lib/admin-ui-contract';
+import { fmtDate } from '@/lib/format';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { CalendarDays, Save, ShieldCheck, Stethoscope, TriangleAlert, UserRoundCheck, UsersRound, X, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -385,7 +386,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                     <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>{coverage.source}</div>
                   </div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--muted)', textAlign: 'right' }}>
-                    {coverage.start_date && coverage.end_date ? `${coverage.start_date} to ${coverage.end_date}` : '—'}
+                    {coverage.start_date && coverage.end_date ? `${fmtDate(coverage.start_date)} to ${fmtDate(coverage.end_date)}` : '—'}
                   </div>
                 </div>
               ))

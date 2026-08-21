@@ -11,6 +11,7 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionalOptionGroup, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesDeal } from "@/lib/api/procurement";
+import { fmtDate } from "@/lib/format";
 import { dealStatusTone, inr, num } from "./sales-format";
 import { recordSaleAction } from "./sales-actions";
 
@@ -129,7 +130,7 @@ export function SalesRecordDrawer({
             <h2>{isAdding ? title : (deal?.buyer_name ?? title)}</h2>
             {deal ? (
               <div className="muted small" style={{ marginTop: 3 }}>
-                {deal.sale_date} · {deal.farm}
+                {fmtDate(deal.sale_date)} · {deal.farm}
               </div>
             ) : null}
           </div>
