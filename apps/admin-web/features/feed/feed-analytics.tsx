@@ -52,6 +52,15 @@ import { FeedFaroView } from "./feed-faro-view";
 // both as URL params so a view survives reload and pastes as a link.
 
 const PAGE_PATH = "/feed/analytics";
+
+// Select options from served rows: first label wins per value, sorted for a stable dropdown.
+function dedupeOptions(options: { value: string; label: string }[]): { value: string; label: string }[] {
+  const seen = new Map<string, string>();
+  for (const o of options) {
+    if (o.value !== "" && !seen.has(o.value)) seen.set(o.value, o.label);
+  }
+  return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
 const TABS = ["overview", "items", "peranimal", "experiment", "execution"] as const;
 type Tab = (typeof TABS)[number];
 const RANGES = ["30", "61", "92"] as const;
@@ -221,6 +230,12 @@ export async function FeedAnalyticsPage({
   // top-bar scope alone.
   const faPark = one(searchParams, "fa_park") ?? "";
   const experimentParkId = parkId || faPark;
+  // The packing-mismatch table carries its own narrowing: farm and feed-item selects over the
+  // served rows, plus a calendar day (fav_day) that re-reads the execution endpoint pinned to that
+  // single business day, so a reader can step back past the page's rolling window.
+  const favDay = one(searchParams, "fav_day") ?? "";
+  const favPark = one(searchParams, "fav_park") ?? "";
+  const favItem = one(searchParams, "fav_item") ?? "";
   const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
   const [directed, execution, experiment, stock] = await Promise.all([
@@ -237,6 +252,12 @@ export async function FeedAnalyticsPage({
       ? getFeedAnalyticsStock(params)
       : Promise.resolve<ApiResult<FeedAnalyticsStockResponse> | null>(null),
   ]);
+  // Second, day-pinned execution read for the mismatch table's calendar. Only its
+  // packing_variance is used; the tab's charts keep the page's rolling window.
+  const executionDay =
+    tab === "execution" && favDay !== ""
+      ? await getFeedAnalyticsExecution({ park_id: parkId, date_from: favDay, date_to: favDay })
+      : null;
   const nonNull = [directed, execution, experiment, stock].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -291,7 +312,16 @@ export async function FeedAnalyticsPage({
       ) : null}
 
       {tab === "execution" && execution?.ok ? (
-        <ExecutionTab data={execution.data} pageContract={pageContract} />
+        <ExecutionTab
+          data={execution.data}
+          pageContract={pageContract}
+          variance={{
+            rows: (executionDay?.ok ? executionDay.data : execution.data).packing_variance,
+            day: favDay,
+            park: favPark,
+            item: favItem,
+          }}
+        />
       ) : null}
 
       {tab === "experiment" && experiment?.ok ? (
@@ -549,9 +579,17 @@ function DirectedTabs({
 function ExecutionTab({
   data,
   pageContract,
+  variance,
 }: {
   data: FeedAnalyticsExecutionResponse;
   pageContract: AdminUiPageContract;
+  /** The mismatch table's own narrowing: rows (day-pinned when `day` is set) + applied filters. */
+  variance: {
+    rows: FeedAnalyticsExecutionResponse["packing_variance"];
+    day: string;
+    park: string;
+    item: string;
+  };
 }) {
   if (data.days.length === 0) {
     return (
@@ -561,6 +599,12 @@ function ExecutionTab({
       </section>
     );
   }
+  // Farm/item narrowing applies over the served rows; the calendar already narrowed the fetch.
+  const varianceRows = variance.rows.filter(
+    (r) =>
+      (variance.park === "" || r.park_label === variance.park) &&
+      (variance.item === "" || r.feed_item_key === variance.item),
+  );
   // Window totals for the KPI row: shares of backend counts, no new business math.
   let packingDone = 0, packingAll = 0, distDone = 0, distAll = 0, transDone = 0, transAll = 0;
   let latestLatency: number | null = null;
@@ -644,13 +688,57 @@ function ExecutionTab({
       </section>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
           enters her per-item readings BLIND -- this comparison exists only on this leadership
-          page, never on any verifier surface. Any difference pops; there is no tolerance band. */}
+          page, never on any verifier surface. Rows pop past the 0.2 kg tolerance. The bar narrows
+          by farm and feed item over the served rows, and the calendar re-reads the endpoint pinned
+          to one business day so older values than the page window stay reachable. */}
       <section className="card" aria-label={fa(pageContract, "variance.title")}>
         <div className="hd">
           <h3>{fa(pageContract, "variance.title")}</h3>
           <span className="small muted">{fa(pageContract, "variance.hint")}</span>
         </div>
-        {data.packing_variance.length === 0 ? (
+        <FeedFilters
+          basePath={PAGE_PATH}
+          pageParam="fa_offset"
+          fields={[
+            {
+              kind: "select",
+              param: "fav_park",
+              label: fa(pageContract, "col.variance.park"),
+              value: variance.park,
+              allowAll: true,
+              options: dedupeOptions(variance.rows.map((r) => ({ value: r.park_label, label: r.park_label }))),
+            },
+            {
+              kind: "select",
+              param: "fav_item",
+              label: fa(pageContract, "col.variance.item"),
+              value: variance.item,
+              allowAll: true,
+              options: dedupeOptions(variance.rows.map((r) => ({ value: r.feed_item_key, label: r.feed_item_label }))),
+            },
+            {
+              kind: "date",
+              param: "fav_day",
+              label: fa(pageContract, "col.variance.day"),
+              value: variance.day,
+              today: todayIso(),
+              labels: {
+                field: fa(pageContract, "col.variance.day"),
+                today: fa(pageContract, "filter.date.today"),
+                single: fa(pageContract, "filter.date.single"),
+                range: fa(pageContract, "filter.date.range"),
+                aria: fa(pageContract, "filter.date.aria"),
+                previousMonth: fa(pageContract, "filter.date.previous_month"),
+                nextMonth: fa(pageContract, "filter.date.next_month"),
+                rangeStartHint: fa(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: fa(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: fa(pageContract, "filter.date.range_separator"),
+              },
+            },
+          ]}
+          pageContract={pageContract}
+        />
+        {varianceRows.length === 0 ? (
           <p className="muted small">{fa(pageContract, "variance.empty")}</p>
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "variance.title")}>
@@ -668,7 +756,7 @@ function ExecutionTab({
                 </tr>
               </thead>
               <tbody>
-                {data.packing_variance.map((row) => (
+                {varianceRows.map((row) => (
                   <tr key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.session_no}:${row.feed_item_key}:${row.workflow}`}>
                     <td>{fmtDate(row.feed_day)}</td>
                     <td>{row.park_label}</td>
