@@ -11,6 +11,12 @@ import (
 // ErrNotFound is returned when a requested protocol row does not exist.
 var ErrNotFound = errors.New("protocol: not found")
 
+// ErrDraftAlreadyExists is returned when creating a draft would give a protocol scope a
+// SECOND one. A plan being worked on is a single thing, so the caller should open the
+// existing draft rather than making another. Enforced by a partial unique index, which is
+// what makes it safe against two callers racing past a read-then-write check.
+var ErrDraftAlreadyExists = errors.New("protocol: a draft already exists for this scope")
+
 // ErrVersionNotDraft is returned when a caller tries to mutate or publish a
 // protocol version that is no longer draft. Published config is immutable.
 var ErrVersionNotDraft = errors.New("protocol: version is not draft")
