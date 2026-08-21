@@ -323,6 +323,101 @@ await runCase("C12", "Earlier versions are readable and unchanged", async () => 
   await page.waitForTimeout(500);
 });
 
+await runCase("C13", "Only ever one draft, however it is asked for", async () => {
+  // The list screen hides "Start a new version" once a draft exists, but that is
+  // not the guard: a tab loaded BEFORE the draft was created still shows the
+  // button. Pressing it used to create a second draft (V2 and V3 side by side),
+  // and the list only ever renders the first one it finds -- so the other became
+  // invisible work that nothing could reach or discard.
+  const stale = await browser.newPage({ viewport: { width: 1512, height: 950 } });
+  await stale.goto(`${BASE}/vaccination/plan`, { waitUntil: "networkidle" });
+
+  await gotoPlan();
+  await page.getByRole("button", { name: /Start a new version/i }).click();
+  await page.waitForTimeout(2500);
+  check("one draft after the first tab", psql("select count(*) from protocol_versions where status='draft'"), "1");
+
+  // The stale tab still shows the button. Pressing it must return the existing draft.
+  await stale.getByRole("button", { name: /Start a new version/i }).click();
+  await stale.waitForTimeout(2500);
+  results.at(-1).shots.push(await shot("C13-stale-tab"));
+  check("still exactly one draft", psql("select count(*) from protocol_versions where status='draft'"), "1");
+  check("and it is still V2", psql("select version_label from protocol_versions where status='draft'"), "V2");
+  await stale.close();
+});
+
+await runCase("C14", "Saving a draft keeps the editor open", async () => {
+  // A save does not update the draft: it creates the next version carrying the
+  // edits and discards the old row. The id in the URL is therefore dead the moment
+  // a save succeeds, and refreshing against it answered notFound() -- the editor
+  // 404'd out from under the user on the very first save.
+  await gotoPlan();
+  await startVersion();
+  const before = page.url();
+  await page.locator(".dose").first().getByRole("button", { name: /4 weeks/ }).click();
+  await page.getByLabel("How many").fill("5");
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(4000);
+  results.at(-1).shots.push(await shot("C14-after-save"));
+  const body = await page.locator("body").innerText();
+  check("the editor is still open", /Company vaccination plan/.test(body), true);
+  check("no not-found page", /404|not found/i.test(body), false);
+  check("the URL followed the new draft", page.url() !== before, true);
+  check("still exactly one draft", psql("select count(*) from protocol_versions where status='draft'"), "1");
+});
+
+await runCase("C15", "Switching a vaccine off keeps its clinical values", async () => {
+  // dose_amount, vial_doses and route_site live ONLY on the schedule rules, and
+  // the editor's model does not carry them. Emptying the schedule to switch a
+  // vaccine off therefore destroyed values the farm chose, and switching it back
+  // on rebuilt bare doses without them.
+  const clinical = () => psql(`select coalesce(string_agg(s->>'dose_code'||':'||coalesce(s->>'dose_amount','-')||'/'||coalesce(s->>'vial_doses','-')||'/'||coalesce(s->>'route_site','-'), ' '), '-')
+      from protocol_versions v, jsonb_array_elements(v.rule_dsl->'matrix_rows') r, jsonb_array_elements(r->'schedule') s
+      where v.status='draft' and r->'vaccine'->>'code'='ET_TT'`);
+
+  await gotoPlan();
+  await startVersion();
+  const original = clinical();
+  note("clinical values before", original);
+
+  await page.getByRole("switch").first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(4000);
+  check("the schedule is empty while switched off", clinical(), "-");
+  check("but the rules are parked, not destroyed", psql(`select coalesce(jsonb_array_length(r->'parked_schedule'),0)::text
+      from protocol_versions v, jsonb_array_elements(v.rule_dsl->'matrix_rows') r
+      where v.status='draft' and r->'vaccine'->>'code'='ET_TT'`), "5");
+
+  await page.getByRole("switch").first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(4000);
+  results.at(-1).shots.push(await shot("C15-restored"));
+  check("switching back on restores every value", clinical(), original);
+});
+
+await runCase("C16", "A duration of zero, negative or nonsense is refused", async () => {
+  await gotoPlan();
+  await startVersion();
+  const stored = () => psql(`select s->>'offset_days' from protocol_versions v,
+      jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='draft' and s->>'dose_code'='et_tt_kid_4w'`);
+  const before = stored();
+  const chip = page.locator(".dose").first().getByRole("button", { name: /4 weeks/ });
+  for (const bad of ["0", "-5", "abc"]) {
+    await chip.click();
+    await page.getByLabel("How many").fill(bad);
+    await page.waitForTimeout(300);
+    check(`"${bad}" does not change the chip`, /4 weeks/.test(await page.locator(".dose").first().innerText()), true);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+  }
+  results.at(-1).shots.push(await shot("C16-refused"));
+  check("nothing was saved", stored(), before);
+  check("Save stayed disabled", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);
+});
+
 await browser.close();
 
 // ── report ──────────────────────────────────────────────────────────────────
