@@ -114,7 +114,21 @@ export async function startNewVersion(): Promise<PlanActionResult> {
     proof_policy: current.data.proof_policy,
     sop_version_id: current.data.sop_version_id || undefined,
   });
-  if (!created.ok) return failure("could not start a new version", created.error);
+  if (!created.ok) {
+    // The database refused a SECOND draft for this plan. The check above already looked,
+    // but a read-then-write check cannot stop two tabs racing -- which is exactly why the
+    // invariant lives in the database. Losing that race is not an error to show anyone:
+    // the draft they wanted exists, so open it.
+    if (isDraftConflict(created.error)) {
+      const after = await listProtocolConfigs(CATEGORY);
+      const draft = after.ok ? after.data.items?.find((item) => item.status === "draft") : undefined;
+      if (draft) {
+        revalidatePath(PLAN_ROUTE);
+        return { ok: true, versionId: draft.protocol_version_id };
+      }
+    }
+    return failure("could not start a new version", created.error);
+  }
 
   revalidatePath(PLAN_ROUTE);
   return { ok: true, versionId: created.data.protocol_version_id };
@@ -267,6 +281,12 @@ export async function discardDraft(draftVersionId: string): Promise<PlanActionRe
   }
   revalidatePath(PLAN_ROUTE);
   return { ok: true };
+}
+
+function isDraftConflict(detail: unknown): boolean {
+  if (!detail || typeof detail !== "object") return false;
+  const body = (detail as { body?: { code?: unknown } }).body;
+  return body?.code === "draft_already_exists";
 }
 
 function isNotFound(detail: unknown): boolean {

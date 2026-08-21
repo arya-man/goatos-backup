@@ -145,6 +145,11 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
 		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
 	})
+	if errors.Is(err, ports.ErrDraftAlreadyExists) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "draft_already_exists", Message: "this plan already has a draft; open that draft instead of starting another", TraceID: traceID(r)}, nil)
+		return
+	}
 	if errors.Is(err, ports.ErrIdempotencyConflict) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol version payload", TraceID: traceID(r)}, nil)

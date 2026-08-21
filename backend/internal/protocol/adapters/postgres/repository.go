@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -362,6 +363,13 @@ WHERE tenant_id = $1
 		DraftedBy:     pgconv.NullableUUID(in.DraftedBy),
 	})
 	if err != nil {
+		// protocol_versions_one_draft_per_scope_idx: this scope already has a draft. The
+		// server action checks for one first, but a read-then-write check cannot stop two
+		// callers racing, which is why the invariant lives in the database. Reported as a
+		// conflict the caller can act on -- open the existing draft -- rather than a 500.
+		if isProtocolUniqueViolation(err, "protocol_versions_one_draft_per_scope_idx") {
+			return "", ports.ErrDraftAlreadyExists
+		}
 		return "", fmt.Errorf("protocol: create version: %w", err)
 	}
 	scopeID := optionalString(in.ScopeID)
@@ -2239,4 +2247,15 @@ RETURNING max_per_day, max_buffer_days, capacity_scope, overflow_policy`,
 		return domain.PublishedCapacity{}, fmt.Errorf("protocol: sync vaccination capacity config: %w", err)
 	}
 	return got, nil
+}
+
+// isProtocolUniqueViolation reports whether err is a Postgres unique violation raised by a
+// SPECIFIC index. Matching the index by name keeps this from swallowing an unrelated
+// constraint and reporting the wrong thing to the caller.
+func isProtocolUniqueViolation(err error, indexName string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	return pgErr.ConstraintName == indexName
 }
