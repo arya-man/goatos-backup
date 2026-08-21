@@ -69,7 +69,10 @@ class PcCareScanWhileRecordingTest {
         assertEquals(1, proofRepo.captureCalls.size)
         val call = proofRepo.captureCalls.single()
         assertEquals(pcCareSlotProofFieldKey("t1", "video"), call.fieldKey)
-        assertEquals("t1", call.subjectId)
+        // The proof platform's create validation requires a UUID subject, so the subject is the
+        // TASK; the animal identity stays pinned on the rfid tag and the slot field key.
+        assertEquals("task-1", call.subjectId)
+        assertEquals("t1", call.rfidTag)
         // The slot registration rode the same fixed identity.
         assertEquals(listOf("task-1", "t1", "video"), repo.slotRegistrations.single().take(3))
         collectJob.cancel()

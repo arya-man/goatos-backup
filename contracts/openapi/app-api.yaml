@@ -4981,11 +4981,12 @@ paths:
       operationId: appGetPCCareTask
       summary: One PC Care task with its backend-owned expected slot contract.
       description: >-
-        expected_slots is the BACKEND-OWNED proof contract for the task's category (one video per
-        animal for every category). capture_mode is the BACKEND-OWNED capture flow: scan_record
-        (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick
-        (the trimming categories — tap an RFID off the pen roster to record). Clients branch on
-        both verbatim and never hardcode a category-to-slot or category-to-mode map.
+        expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for
+        deworming/ticks removal; before/during/after for the trimming categories). capture_mode is
+        the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the
+        recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the
+        pen roster and the screen walks the animal's slots). Clients branch on both verbatim and
+        never hardcode a category-to-slot or category-to-mode map.
       parameters:
         - in: path
           name: task_id

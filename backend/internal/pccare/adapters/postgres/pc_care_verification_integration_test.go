@@ -180,9 +180,9 @@ func registerSlot(t *testing.T, ctx context.Context, repo *Repository, taskID, a
 	})
 }
 
-// (c) Trimming demands its one video per animal; a slot outside the category is refused; a peer
-// may fill the slot; submit is refused until the set is complete and then locks the task; the
-// ONE verification item's media refs are labeled per animal + slot.
+// (c) Trimming demands the before/during/after triple; a slot outside the category is refused;
+// a peer may fill a sibling slot; submit is refused until the set is complete and then locks
+// the task; the ONE verification item's media refs are labeled per animal + slot.
 func TestSlotSetGatesSubmitAndPeersMayFillSlots(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupPCCareDB(t, ctx)
@@ -197,13 +197,16 @@ func TestSlotSetGatesSubmitAndPeersMayFillSlots(t *testing.T) {
 		t.Fatalf("ScanAnimal: %v", err)
 	}
 
-	// The retired before/during/after keys do not belong to a trimming task any more
-	// (maintainer decision 2026-08-21, second pass: one video per animal, every category).
-	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotBefore, "proof-x", pcOperator1, "pc-slot-key-x"); !errors.Is(err, domain.ErrInvalidSlotForCategory) {
-		t.Fatalf("before slot on trimming err = %v, want ErrInvalidSlotForCategory", err)
+	// The 1-video slot does not belong to a trimming task.
+	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotVideo, "proof-x", pcOperator1, "pc-slot-key-x"); !errors.Is(err, domain.ErrInvalidSlotForCategory) {
+		t.Fatalf("video slot on trimming err = %v, want ErrInvalidSlotForCategory", err)
 	}
 
-	// Submit with the video missing is refused with nothing changed.
+	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotBefore, "proof-before-1", pcOperator1, "pc-slot-key-1"); err != nil {
+		t.Fatalf("before slot: %v", err)
+	}
+
+	// Submit with two slots missing is refused with nothing changed.
 	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
 		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
 		IdempotencyKey: "pc-submit-early", ActorType: "operator",
@@ -211,9 +214,12 @@ func TestSlotSetGatesSubmitAndPeersMayFillSlots(t *testing.T) {
 		t.Fatalf("early submit err = %v, want ErrProofIncomplete", err)
 	}
 
-	// A PEER (operator 2) fills the video — the collaboration rule.
-	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotVideo, "proof-video-1", pcOperator2, "pc-slot-key-1"); err != nil {
-		t.Fatalf("video slot: %v", err)
+	// A PEER (operator 2) fills the remaining slots — the collaboration rule.
+	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotDuring, "proof-during-1", pcOperator2, "pc-slot-key-2"); err != nil {
+		t.Fatalf("during slot: %v", err)
+	}
+	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotAfter, "proof-after-1", pcOperator2, "pc-slot-key-3"); err != nil {
+		t.Fatalf("after slot: %v", err)
 	}
 
 	result, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
@@ -226,12 +232,12 @@ func TestSlotSetGatesSubmitAndPeersMayFillSlots(t *testing.T) {
 	if !result.NewlyPending || result.Status != domain.StatusPendingVerification {
 		t.Fatalf("submit result = %+v, want newly pending", result)
 	}
-	if result.AnimalCount != 1 || len(result.MediaRefs) != 1 {
-		t.Fatalf("submit media = %+v, want 1 labeled ref for 1 animal", result.MediaRefs)
+	if result.AnimalCount != 1 || len(result.MediaRefs) != 3 {
+		t.Fatalf("submit media = %+v, want 3 labeled refs for 1 animal", result.MediaRefs)
 	}
-	// OUTPUT-STRING assertion, DB round trip: the label names the animal and the work.
-	if result.MediaRefs[0].Label != "RFID-42 · Hoof trimming video" {
-		t.Fatalf("media label = %q, want 'RFID-42 · Hoof trimming video'", result.MediaRefs[0].Label)
+	// OUTPUT-STRING assertion, DB round trip: the labels name the animal and the step.
+	if result.MediaRefs[0].Label != "RFID-42 · Before trimming" {
+		t.Fatalf("media label = %q, want 'RFID-42 · Before trimming'", result.MediaRefs[0].Label)
 	}
 	if result.ShedName != "Castro" {
 		t.Fatalf("submit shed name = %q, want Castro", result.ShedName)
