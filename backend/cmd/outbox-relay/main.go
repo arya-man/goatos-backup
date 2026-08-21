@@ -34,6 +34,8 @@ import (
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	outboxports "github.com/vgoats/goatos/backend/internal/outbox/ports"
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -43,6 +45,7 @@ import (
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -176,6 +179,11 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		weighingVerificationBridge := weighingverificationbridge.New(
 			verificationpg.NewRepository(pool, pgCfg.QueryTimeout),
 		)
+		verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
+		if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
+			return nil, nil, fmt.Errorf("register pc care verification categories: %w", err)
+		}
+		pcCareVerificationBridge := pccareverificationbridge.New(verificationService)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -199,6 +207,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
 		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, pccarepg.NewRepository(pool, pgCfg.QueryTimeout), logger)
+		pccareapp.NewPCCarePendingVerificationHandler(pcCareVerificationBridge, logger).Register(bus)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,

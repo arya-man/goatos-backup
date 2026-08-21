@@ -113,6 +113,7 @@
         "feed.distribution.completed",
         "feed.packing.completed",
         "feed.wastage.completed",
+        "pc_care.task.pending_verification",
         "pc_care.task.completed",
         "vaccination.capacity.changed",
         "vaccination.roster.changed",

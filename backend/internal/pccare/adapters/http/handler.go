@@ -28,8 +28,8 @@ type Service interface {
 	PlannerParkSheds(ctx context.Context, actor domain.Actor, parkID, category, plannedBusinessDate, cursor string, limit int) (ports.PlannerParkSheds, error)
 	CreateTask(ctx context.Context, actor domain.Actor, in app.CreateTaskInput) (ports.TaskRow, error)
 	CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
-	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate string, limit, offset int) (ports.TaskPage, error)
-	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate string, limit, offset int) (ports.TaskPage, error)
+	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
+	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
 	GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error)
 	ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error)
 	ScanAnimal(ctx context.Context, actor domain.Actor, in app.ScanAnimalInput) (ports.ScanAnimalResult, error)
@@ -154,8 +154,8 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 }
 
 type taskPageDTO struct {
-	Items   []taskDTO `json:"items"`
-	HasMore bool      `json:"has_more"`
+	Items      []taskDTO `json:"items"`
+	NextCursor string    `json:"next_cursor"`
 }
 
 type animalSlotDTO struct {
@@ -418,8 +418,8 @@ func (h *Handler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(r.URL.Query().Get("park_id")),
 		strings.TrimSpace(r.URL.Query().Get("category")),
 		strings.TrimSpace(r.URL.Query().Get("date")),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
 		intQuery(r, "limit", 25),
-		intQuery(r, "offset", 0),
 	)
 	if err != nil {
 		h.writeServiceError(w, r, "pc care list tasks", err)
@@ -437,8 +437,8 @@ func (h *Handler) GetWorklist(w http.ResponseWriter, r *http.Request) {
 		r.Context(), a,
 		strings.TrimSpace(r.URL.Query().Get("category")),
 		strings.TrimSpace(r.URL.Query().Get("date")),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
 		intQuery(r, "limit", 25),
-		intQuery(r, "offset", 0),
 	)
 	if err != nil {
 		h.writeServiceError(w, r, "pc care worklist", err)
@@ -448,7 +448,7 @@ func (h *Handler) GetWorklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeTaskPage(w http.ResponseWriter, page ports.TaskPage) {
-	resp := taskPageDTO{Items: make([]taskDTO, 0, len(page.Items)), HasMore: page.HasMore}
+	resp := taskPageDTO{Items: make([]taskDTO, 0, len(page.Items)), NextCursor: page.NextCursor}
 	for _, t := range page.Items {
 		resp.Items = append(resp.Items, taskDTOFrom(t))
 	}
@@ -659,7 +659,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, err.Error(), nil)
 	case errors.Is(err, ports.ErrInvalidArgument), errors.Is(err, ports.ErrIdempotencyRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-	case errors.Is(err, ports.ErrStoreUnavailable), errors.Is(err, app.ErrEnqueuerNotWired):
+	case errors.Is(err, ports.ErrStoreUnavailable):
 		// A wiring/deployment fault, not a client error.
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, op, err)
 	default:

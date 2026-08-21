@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
@@ -289,12 +291,12 @@ WHERE t.tenant_id = $1::uuid AND t.task_id = $2::uuid
 }
 
 // ListTasks serves the monitor list and (with AssigneeUserID) the operator worklist: one
-// bounded page of one due date's tasks, park-clamped.
+// bounded keyset page of one due date's tasks, park-clamped.
 //
 // projection-review: membership=pc_care_tasks rows for ONE due business date within the
 // caller's authorized parks (optionally one park / one category / one assignee);
 // group_key=task_id (the page rows ARE the grain); join_cardinality=locations 1:1 by PK,
-// assignees/animals pre-aggregated 1:0..1 laterals; pagination=bounded LIMIT/OFFSET over the
+// assignees/animals pre-aggregated 1:0..1 laterals; pagination=bounded keyset over the
 // park's task list for one day (bounded by pens x categories, never herd size); scope=tenant_id
 // + park clamp.
 func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (ports.TaskPage, error) {
@@ -306,35 +308,48 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 		limit = 25
 	}
 
-	// scale-guard:ignore: one bounded page of one due-day's tasks, covered by pc_care_tasks_serving_idx (tenant_id, park_id, due_business_date, work_state); bounded LIMIT/OFFSET (offset capped at 5000 in the app layer) over the park's pen catalog x categories, never by herd size.
+	afterPark, afterShed, afterPartition, afterCategory, afterTask, err := decodeTaskCursor(q.Cursor)
+	if err != nil {
+		return ports.TaskPage{}, ports.ErrInvalidArgument
+	}
+
+	// scale-guard:ignore: one bounded page of one due-day's tasks, covered by pc_care_tasks_serving_idx (tenant_id, park_id, due_business_date, work_state); bounded keyset over the park's pen catalog x categories, never by herd size.
 	listTasksPageSQL := `
-WHERE t.tenant_id = $1::uuid
-  AND t.due_business_date = $2::date
+	WHERE t.tenant_id = $1::uuid
+	  AND t.due_business_date = $2::date
   AND t.work_state <> 'canceled'
   AND ($3::bool OR t.park_id = ANY($4::uuid[]))
   AND ($5::text = '' OR t.park_id = $5::uuid)
   AND ($6::text = '' OR t.category = $6)
-  AND ($7::text = '' OR EXISTS (
-        SELECT 1 FROM pc_care_task_assignees mine
-        WHERE mine.tenant_id = t.tenant_id AND mine.task_id = t.task_id
-          AND mine.operator_user_id = $7::uuid))
-ORDER BY park.name, shed.name, t.partition_key, t.category, t.task_id
-LIMIT $8 OFFSET $9`
+	  AND ($7::text = '' OR EXISTS (
+	        SELECT 1 FROM pc_care_task_assignees mine
+	        WHERE mine.tenant_id = t.tenant_id AND mine.task_id = t.task_id
+	          AND mine.operator_user_id = $7::uuid))
+	  AND (
+	        $9::text = ''
+	        OR (park.name, shed.name, t.partition_key, t.category, t.task_id)
+	           > ($9::text, $10::text, $11::text, $12::text, $13::uuid)
+	      )
+	ORDER BY park.name, shed.name, t.partition_key, t.category, t.task_id
+	LIMIT $8`
 	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
-		q.ParkID, q.Category, q.AssigneeUserID, limit+1, q.Offset)
+		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
+		afterPark, afterShed, afterPartition, afterCategory, afterTask)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}
 	defer rows.Close()
 
 	items := make([]ports.TaskRow, 0, limit)
+	var last ports.TaskRow
 	for rows.Next() {
 		t, err := scanTaskRow(rows)
 		if err != nil {
 			return ports.TaskPage{}, fmt.Errorf("pccare: scan task row: %w", err)
 		}
 		items = append(items, t)
+		last = t
 	}
 	if err := rows.Err(); err != nil {
 		return ports.TaskPage{}, err
@@ -342,8 +357,56 @@ LIMIT $8 OFFSET $9`
 	hasMore := len(items) > limit
 	if hasMore {
 		items = items[:limit]
+		last = items[len(items)-1]
 	}
-	return ports.TaskPage{Items: items, HasMore: hasMore}, nil
+	nextCursor := ""
+	if hasMore {
+		nextCursor = encodeTaskCursor(last)
+	}
+	return ports.TaskPage{Items: items, NextCursor: nextCursor}, nil
+}
+
+type taskCursor struct {
+	ParkName     string `json:"p"`
+	ShedName     string `json:"s"`
+	PartitionKey string `json:"k"`
+	Category     string `json:"c"`
+	TaskID       string `json:"t"`
+}
+
+func encodeTaskCursor(t ports.TaskRow) string {
+	raw, err := json.Marshal(taskCursor{
+		ParkName:     t.ParkName,
+		ShedName:     t.ShedName,
+		PartitionKey: domain.PartitionMatchKey(t.PartitionLabel),
+		Category:     t.Category,
+		TaskID:       t.TaskID,
+	})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeTaskCursor(cursor string) (parkName, shedName, partitionKey, category, taskID string, err error) {
+	if strings.TrimSpace(cursor) == "" {
+		return "", "", "", "", "", nil
+	}
+	raw, decodeErr := base64.RawURLEncoding.DecodeString(cursor)
+	if decodeErr != nil {
+		return "", "", "", "", "", decodeErr
+	}
+	var c taskCursor
+	if unmarshalErr := json.Unmarshal(raw, &c); unmarshalErr != nil {
+		return "", "", "", "", "", unmarshalErr
+	}
+	if c.ParkName == "" || c.ShedName == "" || c.Category == "" || c.TaskID == "" {
+		return "", "", "", "", "", fmt.Errorf("incomplete task cursor")
+	}
+	if !uuidutil.IsUUIDString(c.TaskID) {
+		return "", "", "", "", "", fmt.Errorf("invalid task cursor id")
+	}
+	return c.ParkName, c.ShedName, c.PartitionKey, c.Category, c.TaskID, nil
 }
 
 // IsAssignee reports whether userID is named on the task.

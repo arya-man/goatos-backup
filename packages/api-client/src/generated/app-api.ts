@@ -5511,7 +5511,7 @@ export interface components {
         };
         PCCareTaskPage: {
             items: components["schemas"]["PCCareTask"][];
-            has_more: boolean;
+            next_cursor: string;
         };
         PCCareAnimalSlot: {
             field_key: string;
@@ -15306,7 +15306,8 @@ export interface operations {
                 park_id?: string;
                 category?: components["schemas"]["PCCareCategory"];
                 limit?: number;
-                offset?: number;
+                /** @description Opaque keyset cursor returned as next_cursor by the previous page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -15411,7 +15412,8 @@ export interface operations {
                 category: components["schemas"]["PCCareCategory"];
                 date: string;
                 limit?: number;
-                offset?: number;
+                /** @description Opaque keyset cursor returned as next_cursor by the previous page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;

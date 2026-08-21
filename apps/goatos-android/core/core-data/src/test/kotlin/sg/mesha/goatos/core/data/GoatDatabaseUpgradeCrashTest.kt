@@ -382,14 +382,14 @@ class GoatDatabaseUpgradeCrashTest {
         assertEquals(1, upgraded.pcCareTaskItemDao().countForQuery("pc"))
 
         upgraded.pcCareTaskRemoteKeyDao().upsert(
-            sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyEntity(
-                queryKey = "pc",
-                nextOffset = 20,
-                endReached = false,
-                updatedAt = base + 1,
-            ),
-        )
-        assertEquals(20, upgraded.pcCareTaskRemoteKeyDao().get("pc")?.nextOffset)
+	            sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyEntity(
+	                queryKey = "pc",
+	                nextCursor = "cursor-20",
+	                endReached = false,
+	                updatedAt = base + 1,
+	            ),
+	        )
+	        assertEquals("cursor-20", upgraded.pcCareTaskRemoteKeyDao().get("pc")?.nextCursor)
 
         upgraded.pcCareTaskDetailCacheDao().upsert(
             sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheEntity(

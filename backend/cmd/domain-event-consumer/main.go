@@ -35,6 +35,7 @@ import (
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
@@ -45,6 +46,8 @@ import (
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -187,6 +190,11 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// PC Care verdict applier: pc_care enqueues a verification item per completed care
 	// task, so without this consumer every approve/reject is a silent drop.
 	pccareapp.NewPCCareVerificationHandler(pccarepg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
+	verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
+	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
+		panic(fmt.Sprintf("register pc care verification categories: %v", err))
+	}
+	pccareapp.NewPCCarePendingVerificationHandler(pccareverificationbridge.New(verificationService), logger).Register(bus)
 	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)

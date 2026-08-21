@@ -25,10 +25,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
@@ -282,7 +280,7 @@ fun PcCarePlanWizardScreen(
                 }
                 PcCarePlanStep.PEN -> {
                     item(key = "step_title") { WizardStepTitle("Which pen?") }
-                    items(count = state.pens.size, key = { state.pens[it].shedId + "|" + state.pens[it].partitionLabel }) { index ->
+                    items(count = state.pens.size, key = { state.pens[it].shedId + "|partition|" + state.pens[it].partitionLabel }) { index ->
                         val pen = state.pens[index]
                         val taken = pen.existingTaskId.isNotBlank()
                         WizardOptionRow(
@@ -482,8 +480,7 @@ private fun PcCarePlanFab(label: String, onClick: () -> Unit, modifier: Modifier
         Text(
             text = label,
             color = MeshaColors.PageBg,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W800,
+            style = MeshaType.pillStrong,
         )
     }
 }

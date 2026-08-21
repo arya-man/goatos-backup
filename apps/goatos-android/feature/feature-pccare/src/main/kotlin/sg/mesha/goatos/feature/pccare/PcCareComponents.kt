@@ -25,11 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -257,8 +255,7 @@ internal fun PcCareTaskPill(label: String, fg: Color, bg: Color) {
     Text(
         text = label,
         color = fg,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.W800,
+        style = MeshaType.pillStrong,
         maxLines = 1,
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))

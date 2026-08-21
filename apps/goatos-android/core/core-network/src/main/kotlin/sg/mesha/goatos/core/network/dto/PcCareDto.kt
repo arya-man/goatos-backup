@@ -68,7 +68,7 @@ data class PcCareTaskRosterDto(
 @Serializable
 data class PcCareTaskPageDto(
     @SerialName("items") val items: List<PcCareTaskDto> = emptyList(),
-    @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("next_cursor") val nextCursor: String = "",
 )
 
 /** One slot's server-side state on one scanned animal, with capture attribution ("Captured by X"). */
