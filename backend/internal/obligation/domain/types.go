@@ -49,10 +49,18 @@ type NewObligation struct {
 
 // RepeatCycleSource identifies the administration a repeat obligation descends from.
 //
-// Source is "completed_obligation" when the previous dose was completed inside Goat OS, or
-// "trusted_history" / "imported_history" when it came from accepted or imported records.
-// Those have no obligation row to point at, which is why SourceRef exists alongside
-// AnchorObligationID rather than instead of it -- and why uniqueness needs both indexes.
+// Every writer uses ONE vocabulary: Source is always RepeatCycleSourceTrustedHistory and
+// SourceRef is always RepeatCycleRef(vaccine, administered-at, dose), whether the causing
+// dose was given inside Goat OS or arrived as accepted history. Do not "correct" a writer to
+// name the cause some other way, however natural it looks at that call site: the insert guard
+// compares Source and SourceRef literally and the source index keys on them, so a second
+// vocabulary means two open rows for one cycle, each invisible to the other. That was a real
+// defect here, found in review, not a hypothetical.
+//
+// AnchorObligationID is recorded when the cause happens to be an obligation in this system --
+// for the audit trail and for the stricter per-anchor index -- but it is never the identity.
+// History-driven cycles have no obligation row to point at and are identified by SourceRef
+// alone, which is why the two indexes are not interchangeable.
 type RepeatCycleSource struct {
 	Source             string
 	SourceRef          string
@@ -63,6 +71,10 @@ type RepeatCycleSource struct {
 
 // Repeat-cycle source kinds. Stored verbatim and half of the source-uniqueness key, so they
 // are constants rather than literals retyped at each call site.
+//
+// Only RepeatCycleSourceTrustedHistory is written by production code today -- see the type's
+// doc for why every writer shares it. The other two are the vocabulary this column would need
+// if a cause ever genuinely could not be expressed as an administration.
 // Valid reports whether the metadata identifies a cause. Source and SourceRef must BOTH
 // be present: a half-populated value looks anchored while being invisible to the partial
 // unique indexes (which key on source_ref, and treat a NULL source as distinct), so it
