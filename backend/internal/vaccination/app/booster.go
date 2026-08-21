@@ -79,6 +79,14 @@ type ScheduleNextInput struct {
 	ScopeID           string
 	PrevSequence      int32     // sequence of the dose just administered
 	AdministeredAt    time.Time // basis for the next due date
+
+	// CompletedObligationID is the obligation that was just administered -- the CAUSE of
+	// the successor this call mints. It becomes the successor's repeat-cycle anchor, which
+	// is what lets one completed dose mint exactly one open successor however many times
+	// the completion is replayed, and however far the successor's due date later moves.
+	// Empty means the caller could not identify the source: no metadata is written and the
+	// previous due-date behaviour applies unchanged.
+	CompletedObligationID string
 }
 
 // ScheduleNextDose schedules the next higher-sequence dose when that rule is triggered
@@ -206,12 +214,27 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 
 	key := obligationKey(in.TenantID, in.ProtocolVersionID, candidate.RuleID, "goat", in.GoatID,
 		due.UTC().Format(time.RFC3339), strconv.Itoa(int(candidate.Sequence)))
+	// Anchored to the administration that caused it, for repeat rules only. A one-off dose
+	// keeps its due-date identity, because its due date does not move on its own.
+	var repeatCycle *obldomain.RepeatCycleSource
+	if anchor := strings.TrimSpace(in.CompletedObligationID); anchor != "" && isRepeatRule(candidate) {
+		administered := in.AdministeredAt
+		nextDue := due
+		repeatCycle = &obldomain.RepeatCycleSource{
+			Source:             obldomain.RepeatCycleSourceCompletedObligation,
+			SourceRef:          anchor,
+			AnchorObligationID: &anchor,
+			AnchorAt:           &administered,
+			DueAt:              &nextDue,
+		}
+	}
 	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID:          in.TenantID,
 		ProtocolVersionID: in.ProtocolVersionID,
 		RuleID:            candidate.RuleID,
 		TargetType:        "goat",
 		TargetID:          in.GoatID,
+		RepeatCycle:       repeatCycle,
 		ScopeType:         in.ScopeType,
 		ScopeID:           in.ScopeID,
 		DueAt:             due,
@@ -317,4 +340,17 @@ func repeatDueAfterCompletion(rule protodomain.Rule, administeredAt time.Time) (
 	default:
 		return time.Time{}, false
 	}
+}
+
+// isRepeatRule reports whether a rule's obligations are repeat cycles -- the only ones that
+// carry repeat-cycle metadata.
+func isRepeatRule(rule *protodomain.Rule) bool {
+	if rule == nil {
+		return false
+	}
+	repeat := strings.TrimSpace(rule.Repeat)
+	if repeat != "" && !strings.EqualFold(repeat, "none") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(rule.TriggerType), "after_previous_completion")
 }
