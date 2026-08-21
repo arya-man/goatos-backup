@@ -5413,10 +5413,16 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			{
 				ID: "audit_operation_families",
 				Options: []domain.Option{
+					option("all", "All", "", "mut"),
 					option("vaccination", "Vaccination", "", "info"),
 					option("procurement", "Source Entry", "", "teal"),
 					option("counts", "Herd Register", "", "ok"),
+					option("feed", "Feed", "", "warn"),
+					option("weighing", "Weighing", "", "info"),
+					option("health", "Health", "", "dng"),
+					option("milk", "Milk", "", "teal"),
 					option("admin", "Admin / SOP", "", "mut"),
+					option("other", "Other", "", "mut"),
 				},
 			},
 			{

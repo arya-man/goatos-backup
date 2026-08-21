@@ -161,11 +161,11 @@ func listArgs(q domain.Query) ([]any, []string) {
 	}
 	if q.Domain != nil {
 		args = append(args, *q.Domain)
-		where = append(where, fmt.Sprintf("metadata->>'domain' = $%d", len(args)))
+		where = append(where, fmt.Sprintf("%s = $%d", auditDomainSQL(), len(args)))
 	}
 	if q.Module != nil {
 		args = append(args, *q.Module)
-		where = append(where, fmt.Sprintf("metadata->>'module' = $%d", len(args)))
+		where = append(where, fmt.Sprintf("%s = $%d", auditModuleSQL(), len(args)))
 	}
 	if q.Category != nil {
 		args = append(args, *q.Category)
@@ -243,6 +243,14 @@ func scanAuditRow(row interface{ Scan(dest ...any) error }) (domain.AuditRow, er
 	if len(metadata) > 0 {
 		_ = json.Unmarshal(metadata, &out.Metadata)
 	}
+	domainValue, hasDomain := out.Metadata["domain"].(string)
+	moduleValue, _ := out.Metadata["module"].(string)
+	if !hasDomain || strings.TrimSpace(domainValue) == "" || (domainValue == "pc" && moduleValue == "vaccination") {
+		out.Metadata["domain"] = auditDomain(out.Action, out.ResourceType)
+	}
+	if moduleValue == "" {
+		out.Metadata["module"] = auditModule(out.Action, out.ResourceType)
+	}
 	return out, nil
 }
 
@@ -255,6 +263,106 @@ func stringPtr(value sql.NullString) *string {
 
 func anomalySQL() string {
 	return `(action ILIKE '%fail%' OR action ILIKE '%reject%' OR action ILIKE '%rollback%' OR action ILIKE '%delete%' OR action ILIKE '%skip%' OR action ILIKE '%mismatch%' OR action ILIKE '%rework%' OR metadata ? 'error' OR metadata ? 'anomaly_reason' OR lower(COALESCE(metadata->>'anomaly', '')) IN ('true', '1', 'yes') OR lower(COALESCE(metadata->>'result', '')) IN ('failed', 'rejected', 'rollback', 'rework', 'mismatch', 'skipped', 'deleted') OR lower(COALESCE(metadata->>'status', '')) IN ('failed', 'rejected', 'rollback', 'rework', 'mismatch', 'skipped', 'deleted') OR lower(COALESCE(metadata->>'category', '')) IN ('stock_mismatch', 'delete', 'deleted', 'skip', 'silent_skip', 'rework'))`
+}
+
+func auditDomainSQL() string {
+	return `CASE
+		WHEN metadata->>'domain' = 'pc' AND metadata->>'module' = 'vaccination' THEN 'vaccination'
+		WHEN COALESCE(metadata->>'domain', '') <> '' THEN metadata->>'domain'
+		WHEN action LIKE 'vaccination.%' OR resource_type IN ('vaccination_drive', 'vaccination_drive_assignment') THEN 'vaccination'
+		WHEN action LIKE 'feed.%' OR resource_type LIKE 'feed_%' THEN 'feed'
+		WHEN action LIKE 'weighing.%' OR resource_type LIKE 'weighing_%' THEN 'weighing'
+		WHEN action LIKE 'health.%' OR action LIKE 'clinical.%' OR action LIKE 'treatment.%' OR resource_type LIKE 'health_%' OR resource_type LIKE 'clinical_%' OR resource_type LIKE 'treatment_%' THEN 'health'
+		WHEN action LIKE 'milk.%' OR resource_type LIKE 'milk_%' THEN 'milk'
+		WHEN action LIKE 'procurement.%' OR action LIKE 'source.%' OR action = 'goat.created' OR resource_type IN ('source_load', 'purchase_source') THEN 'procurement'
+		WHEN action LIKE 'goat.%' OR action LIKE 'counts.%' OR action LIKE 'census.%' OR resource_type = 'census_count' THEN 'counts'
+		WHEN action LIKE 'sop.%' OR action LIKE 'protocol.%' OR action LIKE 'auth.%' OR action LIKE 'app.device.%' OR action LIKE 'notification.%' OR action LIKE 'calendar.%' OR resource_type LIKE 'sop_%' OR resource_type LIKE 'protocol_%' OR resource_type IN ('auth_session', 'workforce_member_device', 'calendar_notification', 'calendar_notification_batch') THEN 'admin'
+		ELSE 'other'
+	END`
+}
+
+func auditModuleSQL() string {
+	return `COALESCE(NULLIF(metadata->>'module', ''), CASE
+		WHEN action LIKE 'vaccination.%' OR resource_type IN ('vaccination_drive', 'vaccination_drive_assignment') THEN 'vaccination'
+		WHEN action LIKE 'feed.packing.%' OR resource_type = 'feed_packing_completion' THEN 'feed_packing'
+		WHEN action LIKE 'feed.distribution.%' OR resource_type = 'feed_distribution_completion' THEN 'feed_distribution'
+		WHEN action LIKE 'feed.transport.%' OR resource_type = 'feed_transport_task' THEN 'feed_transport'
+		WHEN action LIKE 'feed.wastage.%' OR resource_type = 'feed_wastage_completion' THEN 'feed_wastage'
+		WHEN action LIKE 'feed.%' OR resource_type LIKE 'feed_%' THEN 'feed'
+		WHEN action LIKE 'weighing.%' OR resource_type LIKE 'weighing_%' THEN 'weights'
+		WHEN action LIKE 'health.%' OR action LIKE 'clinical.%' OR action LIKE 'treatment.%' OR resource_type LIKE 'health_%' OR resource_type LIKE 'clinical_%' OR resource_type LIKE 'treatment_%' THEN 'health'
+		WHEN action LIKE 'milk.%' OR resource_type LIKE 'milk_%' THEN 'milk'
+		WHEN action LIKE 'procurement.%' OR action LIKE 'source.%' OR action = 'goat.created' OR resource_type IN ('source_load', 'purchase_source') THEN 'source_entry'
+		WHEN action LIKE 'goat.%' OR action LIKE 'counts.%' OR action LIKE 'census.%' OR resource_type = 'census_count' THEN 'herd_register'
+		WHEN action LIKE 'sop.%' OR resource_type LIKE 'sop_%' THEN 'sop'
+		WHEN action LIKE 'protocol.%' OR resource_type LIKE 'protocol_%' THEN 'protocol'
+		WHEN action LIKE 'auth.%' THEN 'auth'
+		WHEN action LIKE 'app.device.%' OR resource_type = 'workforce_member_device' THEN 'devices'
+		WHEN action LIKE 'notification.%' OR action LIKE 'calendar.%' OR resource_type IN ('calendar_notification', 'calendar_notification_batch') THEN 'notifications'
+		ELSE 'other'
+	END)`
+}
+
+func auditDomain(action, resourceType string) string {
+	switch {
+	case strings.HasPrefix(action, "vaccination.") || resourceType == "vaccination_drive" || resourceType == "vaccination_drive_assignment":
+		return "vaccination"
+	case strings.HasPrefix(action, "feed.") || strings.HasPrefix(resourceType, "feed_"):
+		return "feed"
+	case strings.HasPrefix(action, "weighing.") || strings.HasPrefix(resourceType, "weighing_"):
+		return "weighing"
+	case strings.HasPrefix(action, "health.") || strings.HasPrefix(action, "clinical.") || strings.HasPrefix(action, "treatment.") || strings.HasPrefix(resourceType, "health_") || strings.HasPrefix(resourceType, "clinical_") || strings.HasPrefix(resourceType, "treatment_"):
+		return "health"
+	case strings.HasPrefix(action, "milk.") || strings.HasPrefix(resourceType, "milk_"):
+		return "milk"
+	case strings.HasPrefix(action, "procurement.") || strings.HasPrefix(action, "source.") || action == "goat.created" || resourceType == "source_load" || resourceType == "purchase_source":
+		return "procurement"
+	case strings.HasPrefix(action, "goat.") || strings.HasPrefix(action, "counts.") || strings.HasPrefix(action, "census.") || resourceType == "census_count":
+		return "counts"
+	case strings.HasPrefix(action, "sop.") || strings.HasPrefix(action, "protocol.") || strings.HasPrefix(action, "auth.") || strings.HasPrefix(action, "app.device.") || strings.HasPrefix(action, "notification.") || strings.HasPrefix(action, "calendar.") || strings.HasPrefix(resourceType, "sop_") || strings.HasPrefix(resourceType, "protocol_") || resourceType == "auth_session" || resourceType == "workforce_member_device" || resourceType == "calendar_notification" || resourceType == "calendar_notification_batch":
+		return "admin"
+	default:
+		return "other"
+	}
+}
+
+func auditModule(action, resourceType string) string {
+	switch {
+	case strings.HasPrefix(action, "vaccination.") || resourceType == "vaccination_drive" || resourceType == "vaccination_drive_assignment":
+		return "vaccination"
+	case strings.HasPrefix(action, "feed.packing.") || resourceType == "feed_packing_completion":
+		return "feed_packing"
+	case strings.HasPrefix(action, "feed.distribution.") || resourceType == "feed_distribution_completion":
+		return "feed_distribution"
+	case strings.HasPrefix(action, "feed.transport.") || resourceType == "feed_transport_task":
+		return "feed_transport"
+	case strings.HasPrefix(action, "feed.wastage.") || resourceType == "feed_wastage_completion":
+		return "feed_wastage"
+	case strings.HasPrefix(action, "feed.") || strings.HasPrefix(resourceType, "feed_"):
+		return "feed"
+	case strings.HasPrefix(action, "weighing.") || strings.HasPrefix(resourceType, "weighing_"):
+		return "weights"
+	case strings.HasPrefix(action, "health.") || strings.HasPrefix(action, "clinical.") || strings.HasPrefix(action, "treatment.") || strings.HasPrefix(resourceType, "health_") || strings.HasPrefix(resourceType, "clinical_") || strings.HasPrefix(resourceType, "treatment_"):
+		return "health"
+	case strings.HasPrefix(action, "milk.") || strings.HasPrefix(resourceType, "milk_"):
+		return "milk"
+	case strings.HasPrefix(action, "procurement.") || strings.HasPrefix(action, "source.") || action == "goat.created" || resourceType == "source_load" || resourceType == "purchase_source":
+		return "source_entry"
+	case strings.HasPrefix(action, "goat.") || strings.HasPrefix(action, "counts.") || strings.HasPrefix(action, "census.") || resourceType == "census_count":
+		return "herd_register"
+	case strings.HasPrefix(action, "sop.") || strings.HasPrefix(resourceType, "sop_"):
+		return "sop"
+	case strings.HasPrefix(action, "protocol.") || strings.HasPrefix(resourceType, "protocol_"):
+		return "protocol"
+	case strings.HasPrefix(action, "auth."):
+		return "auth"
+	case strings.HasPrefix(action, "app.device.") || resourceType == "workforce_member_device":
+		return "devices"
+	case strings.HasPrefix(action, "notification.") || strings.HasPrefix(action, "calendar.") || resourceType == "calendar_notification" || resourceType == "calendar_notification_batch":
+		return "notifications"
+	default:
+		return "other"
+	}
 }
 
 func awaitingVerificationSQL() string {

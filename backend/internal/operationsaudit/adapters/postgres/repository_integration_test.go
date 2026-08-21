@@ -83,7 +83,7 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		t.Fatalf("page2 rows=%#v; boundary row was skipped", page2)
 	}
 
-	domainFilter := "pc"
+	domainFilter := "vaccination"
 	moduleFilter := "vaccination"
 	categoryFilter := "stock_mismatch"
 	filtered, _, err := repo.List(ctx, domain.Query{
@@ -136,11 +136,116 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 	}
 }
 
+func TestOperationsAuditRepositoryDomainFallbacks(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	base := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
+	insertAuditRow(t, ctx, pool, auditSeed{
+		AuditID:      "90000000-0000-4000-8000-000000000006",
+		RecordedAt:   base.Add(6 * time.Minute),
+		Action:       "feed.packing.pending_verification",
+		ResourceType: "feed_packing_completion",
+		Metadata: map[string]any{
+			"result": "verification_pending", "status": "verification_pending",
+		},
+	})
+	insertAuditRow(t, ctx, pool, auditSeed{
+		AuditID:      "90000000-0000-4000-8000-000000000007",
+		RecordedAt:   base.Add(7 * time.Minute),
+		Action:       "weighing.observation_accepted",
+		ResourceType: "weighing_observation",
+		Metadata: map[string]any{
+			"result": "accepted", "status": "accepted",
+		},
+	})
+	insertAuditRow(t, ctx, pool, auditSeed{
+		AuditID:      "90000000-0000-4000-8000-000000000008",
+		RecordedAt:   base.Add(8 * time.Minute),
+		Action:       "vaccination.completed",
+		ResourceType: "obligation_instance",
+		Metadata: map[string]any{
+			"domain": "pc", "module": "vaccination", "result": "completed", "status": "completed",
+		},
+	})
+	insertAuditRow(t, ctx, pool, auditSeed{
+		AuditID:      "90000000-0000-4000-8000-000000000009",
+		RecordedAt:   base.Add(9 * time.Minute),
+		Action:       "goat.created",
+		ResourceType: "goat",
+		Metadata: map[string]any{
+			"result": "recorded", "status": "recorded",
+		},
+	})
+	insertAuditRow(t, ctx, pool, auditSeed{
+		AuditID:      "90000000-0000-4000-8000-000000000010",
+		RecordedAt:   base.Add(10 * time.Minute),
+		Action:       "inventory.stock_mismatch",
+		ResourceType: "inventory_adjustment",
+		Metadata: map[string]any{
+			"result": "mismatch", "status": "mismatch",
+		},
+	})
+
+	from := base.Add(-time.Hour)
+	to := base.Add(time.Hour)
+
+	feedDomain := "feed"
+	feedModule := "feed_packing"
+	feedRows, _, err := repo.List(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Domain: &feedDomain, Module: &feedModule, Limit: 10})
+	if err != nil {
+		t.Fatalf("fallback feed list: %v", err)
+	}
+	if len(feedRows) != 1 || feedRows[0].AuditID != "90000000-0000-4000-8000-000000000006" || feedRows[0].Metadata["domain"] != "feed" || feedRows[0].Metadata["module"] != "feed_packing" {
+		t.Fatalf("fallback feed rows=%#v", feedRows)
+	}
+
+	weighingDomain := "weighing"
+	weighingSummary, err := repo.Summary(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Domain: &weighingDomain})
+	if err != nil {
+		t.Fatalf("fallback weighing summary: %v", err)
+	}
+	if weighingSummary.Actions != 1 {
+		t.Fatalf("weighingSummary.Actions=%d want 1", weighingSummary.Actions)
+	}
+
+	vaccinationDomain := "vaccination"
+	vaccinationRows, _, err := repo.List(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Domain: &vaccinationDomain, Limit: 10})
+	if err != nil {
+		t.Fatalf("fallback vaccination list: %v", err)
+	}
+	if len(vaccinationRows) != 1 || vaccinationRows[0].AuditID != "90000000-0000-4000-8000-000000000008" || vaccinationRows[0].Metadata["domain"] != "vaccination" {
+		t.Fatalf("fallback vaccination rows=%#v", vaccinationRows)
+	}
+
+	procurementDomain := "procurement"
+	procurementRows, _, err := repo.List(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Domain: &procurementDomain, Limit: 10})
+	if err != nil {
+		t.Fatalf("fallback procurement list: %v", err)
+	}
+	if len(procurementRows) != 1 || procurementRows[0].AuditID != "90000000-0000-4000-8000-000000000009" || procurementRows[0].Metadata["module"] != "source_entry" {
+		t.Fatalf("fallback procurement rows=%#v", procurementRows)
+	}
+
+	otherDomain := "other"
+	otherRows, _, err := repo.List(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Domain: &otherDomain, Limit: 10})
+	if err != nil {
+		t.Fatalf("fallback other list: %v", err)
+	}
+	if len(otherRows) != 1 || otherRows[0].AuditID != "90000000-0000-4000-8000-000000000010" || otherRows[0].Metadata["domain"] != "other" {
+		t.Fatalf("fallback other rows=%#v", otherRows)
+	}
+}
+
 type auditSeed struct {
-	AuditID    string
-	RecordedAt time.Time
-	Action     string
-	Metadata   map[string]any
+	AuditID      string
+	RecordedAt   time.Time
+	Action       string
+	ResourceType string
+	Metadata     map[string]any
 }
 
 func insertAuditRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, seed auditSeed) {
@@ -148,6 +253,10 @@ func insertAuditRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, seed 
 	metadata, err := json.Marshal(seed.Metadata)
 	if err != nil {
 		t.Fatal(err)
+	}
+	resourceType := seed.ResourceType
+	if resourceType == "" {
+		resourceType = "goat"
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO audit_log (
@@ -169,14 +278,14 @@ INSERT INTO audit_log (
   'human',
   '10000000-0000-4000-8000-000000000001'::uuid,
   $3,
-  'goat',
+  $4,
   '71000000-0000-4000-8000-000000000001'::uuid,
   'shed',
   '71000000-0000-4000-8000-000000000002'::uuid,
-  $4::jsonb,
+  $5::jsonb,
   'test-trace',
-  $5::timestamptz
-)`, seed.AuditID, auditTestTenant, seed.Action, metadata, seed.RecordedAt)
+  $6::timestamptz
+)`, seed.AuditID, auditTestTenant, seed.Action, resourceType, metadata, seed.RecordedAt)
 	if err != nil {
 		t.Fatalf("insert audit row %s: %v", seed.AuditID, err)
 	}
