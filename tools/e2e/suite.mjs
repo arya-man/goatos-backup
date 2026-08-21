@@ -96,13 +96,21 @@ async function gotoPlan() {
   await page.goto(`${BASE}/vaccination/plan`, { waitUntil: "networkidle" });
 }
 
+/**
+ * Get into the editor, however the list is currently showing itself.
+ *
+ * There is one draft at a time, so the list offers exactly one of two controls:
+ * "Start a new version" when no draft exists, or "Open V…" when one does. Both
+ * end in the editor -- Start no longer returns to the list expecting a second
+ * click.
+ */
 async function startVersion() {
   const start = page.getByRole("button", { name: /Start a new version/i });
   if (await start.count()) {
     await start.click();
-    await page.waitForTimeout(2500);
+  } else {
+    await page.getByRole("link", { name: /^Open V\d/i }).first().click();
   }
-  await page.getByRole("link", { name: /^Open V\d/i }).first().click();
   await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
   await page.waitForLoadState("networkidle");
 }
@@ -132,7 +140,8 @@ await runCase("C01", "List screen reads the live plan from the database", async 
 await runCase("C02", "Start a new version copies the live plan", async () => {
   await gotoPlan();
   await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForTimeout(2500);
+  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await page.waitForLoadState("networkidle");
   results.at(-1).shots.push(await shot("C02-draft"));
   check("exactly one draft exists", psql("select count(*) from protocol_versions where status='draft'"), "1");
   check("draft is labelled V2, not V3", psql("select version_label from protocol_versions where status='draft'"), "V2");
@@ -147,7 +156,9 @@ await runCase("C03", "Discard removes the draft and nothing else", async () => {
   const before = history();
   await gotoPlan();
   await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForTimeout(2500);
+  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  // Discard lives on the list's draft banner, and Start now lands in the editor.
+  await gotoPlan();
   await page.getByRole("button", { name: /^Discard it$/i }).click();
   results.at(-1).shots.push(await shot("C03-confirm"));
   check("it asks before destroying work", /cannot be undone/i.test(await page.locator("body").innerText()), true);
@@ -164,7 +175,9 @@ await runCase("C03", "Discard removes the draft and nothing else", async () => {
 await runCase("C04", "Keep it cancels the discard", async () => {
   await gotoPlan();
   await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForTimeout(2500);
+  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  // Discard lives on the list's draft banner, and Start now lands in the editor.
+  await gotoPlan();
   await page.getByRole("button", { name: /^Discard it$/i }).click();
   await page.getByRole("button", { name: /Keep it/i }).click();
   await page.waitForTimeout(800);
@@ -323,27 +336,46 @@ await runCase("C12", "Earlier versions are readable and unchanged", async () => 
   await page.waitForTimeout(500);
 });
 
-await runCase("C13", "Only ever one draft, however it is asked for", async () => {
-  // The list screen hides "Start a new version" once a draft exists, but that is
-  // not the guard: a tab loaded BEFORE the draft was created still shows the
-  // button. Pressing it used to create a second draft (V2 and V3 side by side),
-  // and the list only ever renders the first one it finds -- so the other became
-  // invisible work that nothing could reach or discard.
+await runCase("C13", "One draft at a time; the button always lands in the editor", async () => {
+  // The maintainer's rule, stated whole: a plan being worked on is ONE thing.
+  // There is never a second draft. Pressing "Start a new version" either creates
+  // the draft or opens the one that exists -- and in both cases you end up in the
+  // editor. The only ways out are publishing it or discarding it.
+  //
+  // Every assertion below is that rule, not a scenario invented around it.
+
+  // The stale tab must be opened FIRST, while no draft exists -- that is what
+  // makes it stale. Opening it afterwards renders "Open V2" and tests nothing.
   const stale = await browser.newPage({ viewport: { width: 1512, height: 950 } });
   await stale.goto(`${BASE}/vaccination/plan`, { waitUntil: "networkidle" });
+  check("the stale tab is showing the Start button", await stale.getByRole("button", { name: /Start a new version/i }).count(), 1);
 
+  // (a) from a clean plan: creates the draft AND lands in the editor
   await gotoPlan();
   await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForTimeout(2500);
-  check("one draft after the first tab", psql("select count(*) from protocol_versions where status='draft'"), "1");
+  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await page.waitForLoadState("networkidle");
+  results.at(-1).shots.push(await shot("C13-lands-in-editor"));
+  check("it opened the editor, not the list", /\/vaccination\/plan\/edit/.test(page.url()), true);
+  check("exactly one draft exists", psql("select count(*) from protocol_versions where status='draft'"), "1");
+  const draftId = psql("select protocol_version_id from protocol_versions where status='draft'");
+  check("the editor is on that draft", page.url().includes(draftId), true);
 
-  // The stale tab still shows the button. Pressing it must return the existing draft.
+  // (b) that stale tab still shows the button, because it rendered before the
+  //     draft existed. Pressing it must open the SAME draft, never make a second.
   await stale.getByRole("button", { name: /Start a new version/i }).click();
-  await stale.waitForTimeout(2500);
-  results.at(-1).shots.push(await shot("C13-stale-tab"));
+  await stale.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  check("the stale tab opened the editor too", /\/vaccination\/plan\/edit/.test(stale.url()), true);
+  check("on the SAME draft", stale.url().includes(draftId), true);
   check("still exactly one draft", psql("select count(*) from protocol_versions where status='draft'"), "1");
-  check("and it is still V2", psql("select version_label from protocol_versions where status='draft'"), "V2");
   await stale.close();
+
+  // (c) a double-click is one draft, not two
+  await gotoPlan();
+  const open = page.getByRole("link", { name: /^Open V\d/i });
+  check("the list offers to open it, not to start another", await open.count(), 1);
+  check("no second Start button is offered", await page.getByRole("button", { name: /Start a new version/i }).count(), 0);
+  check("and the database still holds one draft", psql("select count(*) from protocol_versions where status='draft'"), "1");
 });
 
 await runCase("C14", "Saving a draft keeps the editor open", async () => {
@@ -404,15 +436,31 @@ await runCase("C16", "A duration of zero, negative or nonsense is refused", asyn
   const stored = () => psql(`select s->>'offset_days' from protocol_versions v,
       jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='draft' and s->>'dose_code'='et_tt_kid_4w'`);
   const before = stored();
-  const chip = page.locator(".dose").first().getByRole("button", { name: /4 weeks/ });
-  for (const bad of ["0", "-5", "abc"]) {
-    await chip.click();
+  const dose = page.locator(".dose").first();
+
+  for (const bad of ["0", "-5"]) {
+    await dose.getByRole("button", { name: /4 weeks/ }).click();
     await page.getByLabel("How many").fill(bad);
     await page.waitForTimeout(300);
-    check(`"${bad}" does not change the chip`, /4 weeks/.test(await page.locator(".dose").first().innerText()), true);
+    check(`"${bad}" leaves the chip alone`, /4 weeks/.test(await dose.innerText()), true);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
   }
+
+  // Letters cannot even be typed: the field is a number input, so the browser
+  // refuses them before any of our code runs. Asserted by TYPING rather than by
+  // fill(), which throws instead of showing what a person would experience.
+  await dose.getByRole("button", { name: /4 weeks/ }).click();
+  const box = page.getByLabel("How many");
+  await box.click();
+  await box.fill("");
+  await page.keyboard.type("abc");
+  await page.waitForTimeout(300);
+  check("letters never reach the field", await box.inputValue(), "");
+  check("the chip is unchanged", /4 weeks/.test(await dose.innerText()), true);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+
   results.at(-1).shots.push(await shot("C16-refused"));
   check("nothing was saved", stored(), before);
   check("Save stayed disabled", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);

@@ -61,7 +61,18 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
     setError(null);
     startTransition(async () => {
       const result = await startNewVersion();
-      if (!result.ok) setError(result.error);
+      if (!result.ok) {
+        setError(result.error);
+        router.refresh();
+        return;
+      }
+      // There is one draft at a time, so this action has exactly one outcome:
+      // you are editing it. Whether the draft was just created or already
+      // existed, the button lands in the editor rather than returning to a list
+      // that then asks you to press a second button to get there.
+      if (result.versionId) {
+        router.push(`/vaccination/plan/edit?version=${result.versionId}`);
+      }
       router.refresh();
     });
   }
