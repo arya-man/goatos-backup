@@ -98,7 +98,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
 
   if (loadError) {
     return (
-      <div className="vp">
+      <div className="vplan">
         <section className="card">
           <div className="card-b">
             <div className="alert">
@@ -114,7 +114,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
   const draftHref = draft ? `/vaccination/plan/edit?version=${draft.protocol_version_id}` : "#";
 
   return (
-    <div className="vp">
+    <div className="vplan">
       <header className="head">
         <div className="head-top">
           <div>

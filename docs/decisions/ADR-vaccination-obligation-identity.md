@@ -97,7 +97,7 @@ The supersede path has never executed in this database.
 So staging demonstrates that this case has **never been exercised**, not that it is handled.
 The single version transition that has occurred was trivial.
 
-### Induced — the non-trivial case, on an OCI clone of staging
+### Induced — the non-trivial case, on an disposable staging clone of staging
 
 Deliberately created, because staging has never produced it. Retire v2, publish v3 with ET+TT
 revaccination changed 182 → 91 days, run the real `GenerationService`:
@@ -302,6 +302,24 @@ make the database enforce one open successor per cause:
     WHERE repeat_cycle_anchor_obligation_id IS NOT NULL
       AND status IN ('scheduled', 'due', 'in_progress', 'deferred');
 
+A SECOND index is required, and the first one alone is not enough. Repeat work minted from
+accepted or imported history has NO completed obligation to anchor to -- its source is
+`trusted_history:<id>` or `imported_history:<id>` -- so the anchor index above skips it
+entirely and generation can still duplicate it. Uniqueness must therefore also cover the
+source ref:
+
+    CREATE UNIQUE INDEX CONCURRENTLY obligation_repeat_cycle_open_source_unique_idx
+    ON obligation_instances (
+      tenant_id, protocol_version_id, rule_id, target_type, target_id,
+      repeat_cycle_source, repeat_cycle_source_ref
+    )
+    WHERE repeat_cycle_source_ref IS NOT NULL
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred');
+
+The anchor index is the stricter statement for the internal case (one open successor per
+completed dose, regardless of which rule re-derives it); the source index covers every case,
+including the history-sourced repeats `generation.go` mints.
+
 ONE OPEN SUCCESSOR PER ANCHOR, not one ever. This is the hinge of the whole design. A global
 uniqueness would burn the anchor permanently the first time a successor is cancelled or
 superseded, and the cycle could never restart — the same class of silent stoppage the earlier
@@ -322,7 +340,8 @@ stayed inside the index, the first missed dose would have burnt that anchor perm
 cycle would have stalled in silence: the very failure this design exists to prevent, reintroduced
 through its own predicate.
 
-The open set is therefore `scheduled, due, in_progress, deferred`. Everything else — `completed`,
+The open set is therefore exactly `scheduled, due, in_progress, deferred` -- the same four
+statuses named in the index predicate above, and nowhere is a different list used. Everything else — `completed`,
 `waived`, `canceled`, `superseded`, `missed` — is terminal and outside it.
 
 ### Scope, stated honestly
