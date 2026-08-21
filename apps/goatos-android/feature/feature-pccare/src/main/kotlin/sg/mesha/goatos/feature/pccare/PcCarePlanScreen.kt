@@ -251,10 +251,14 @@ fun PcCarePlanWizardScreen(
             when (state.step) {
                 PcCarePlanStep.DATE -> {
                     item(key = "step_title") { WizardStepTitle("For which day?") }
-                    item(key = "date_bar") {
-                        PcCareDateBar(
-                            selectedDateIso = state.selectedDate,
-                            onSelectDate = { onEvent(PcCarePlanEvent.SelectDate(it)) },
+                    // The weighing wizard's day list: one radio row per plannable day, today first.
+                    val days = pcCareWizardDayOptions(state.today)
+                    items(count = days.size, key = { days[it].first }) { index ->
+                        val (iso, label) = days[index]
+                        WizardOptionRow(
+                            label = label,
+                            selected = iso == state.selectedDate,
+                            onClick = { onEvent(PcCarePlanEvent.SelectDate(java.time.LocalDate.parse(iso))) },
                         )
                     }
                 }
@@ -459,5 +463,24 @@ private fun PcCarePlanFab(label: String, onClick: () -> Unit, modifier: Modifier
             fontSize = 13.sp,
             fontWeight = FontWeight.W800,
         )
+    }
+}
+
+/**
+ * The wizard's plannable days: today through today+14 (the ViewModel's window), as
+ * (isoDate, label) pairs. A fixed bounded list — never park-scale data.
+ */
+private fun pcCareWizardDayOptions(todayIso: String): List<Pair<String, String>> {
+    // exception:exempt a malformed today renders an empty day list; the ViewModel owns the value
+    val today = runCatching { java.time.LocalDate.parse(todayIso) }.getOrNull() ?: return emptyList()
+    return (0..14).map { offset ->
+        val day = today.plusDays(offset.toLong())
+        val base = day.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH))
+        val label = when (offset) {
+            0 -> "Today · $base"
+            1 -> "Tomorrow · $base"
+            else -> base
+        }
+        day.toString() to label
     }
 }
