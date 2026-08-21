@@ -544,7 +544,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
 	}
 
-	t.Run("FarmItemsOneToManyLoadsStayOneRowPerFarmItemAgainstLedgerStock", func(t *testing.T) {
+	t.Run("FarmItemsOneToManyMultipleDimensionsLoadsStayOneRowPerFarmItemAgainstLedgerStock", func(t *testing.T) {
 		if kids.FirstPurchaseDate != "2026-06-20" || kids.LastLoadBatchNo != 330 {
 			t.Fatalf("multi-load row must preserve first purchase and latest load: %+v", kids)
 		}
@@ -553,13 +553,13 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		}
 	})
 
-	t.Run("FarmItemsMultiPageBoundaryReturnsAllMeshaRowsWithDaysLeft", func(t *testing.T) {
+	t.Run("FarmItemsPaginationMultiPageBoundaryReturnsAllMeshaRowsWithDaysLeft", func(t *testing.T) {
 		if len(got.FarmItems) != 4 {
 			t.Fatalf("farm item table is unpaginated and bounded; want all 4 Mesha rows, got %d", len(got.FarmItems))
 		}
 	})
 
-	t.Run("FarmItemsParkScopeKeepsUnresolvedFarmBareAgainstLedgerStock", func(t *testing.T) {
+	t.Run("FarmItemsParkScopeScopeHierarchyKeepsUnresolvedFarmBareAgainstLedgerStock", func(t *testing.T) {
 		if orphan.FarmLabel != "XYZ" || orphan.FeedItemKey != "mesha_kids_goat_concentrate" || orphan.FirstDirectedDay != "" {
 			t.Fatalf("park scope join must not borrow CBE directed rows for unresolved farms: %+v", orphan)
 		}
