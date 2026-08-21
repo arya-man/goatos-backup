@@ -54,6 +54,7 @@ fun PcCareMonitorScreen(
     rows: LazyPagingItems<PcCareTaskCardUi>,
     planEnabled: Boolean,
     onPlanTask: () -> Unit = {},
+    onOpenTask: (PcCareTaskCardUi) -> Unit = {},
     onEvent: (PcCarePlanEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -107,6 +108,7 @@ fun PcCareMonitorScreen(
                     rows[index]?.let { card ->
                         PcCareMonitorTaskCard(
                             card = card,
+                            onOpen = { onOpenTask(card) },
                             onCancel = { onEvent(PcCarePlanEvent.CancelTask(card.taskId)) },
                         )
                     }
@@ -135,9 +137,13 @@ fun PcCareMonitorScreen(
     }
 }
 
-/** One planned task, WeighingTaskCard-shaped: pills up top, pen title, people line, count pill. */
+/**
+ * One planned task, WeighingTaskCard-shaped: pills up top, pen title, people line, count pill.
+ * The whole card opens the task's read-only detail — the oversight answer to "what have they
+ * done" (which animals are in, which videos are recorded) without any capture controls.
+ */
 @Composable
-private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onCancel: () -> Unit) {
+private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onOpen: () -> Unit, onCancel: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -145,6 +151,7 @@ private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onCancel: () -> Unit) 
             .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .clickable(onClick = onOpen)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
