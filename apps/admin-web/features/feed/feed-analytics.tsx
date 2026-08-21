@@ -817,25 +817,6 @@ function StockCards({
     (item) => item.days_left !== null && item.days_left !== undefined,
   );
   const farmItems = stock?.farm_items ?? [];
-  const totalFarmItems = farmItems.reduce(
-    (acc, row) => ({
-      expected: acc.expected + num(row.expected_stock_kg),
-      ledger: acc.ledger + num(row.ledger_stock_kg),
-      variance: acc.variance + num(row.stock_variance_kg),
-      avg: acc.avg + num(row.avg_daily_kg),
-      mismatch: acc.mismatch + (row.stock_check_status === "mismatch" ? 1 : 0),
-      unavailable: acc.unavailable + (row.stock_check_status === "unavailable" ? 1 : 0),
-    }),
-    { expected: 0, ledger: 0, variance: 0, avg: 0, mismatch: 0, unavailable: 0 },
-  );
-  const totalStatus =
-    totalFarmItems.mismatch > 0
-      ? "mismatch"
-      : totalFarmItems.unavailable > 0
-        ? "unavailable"
-        : farmItems.length > 0
-          ? "ok"
-          : "unavailable";
   return (
     <>
       {!stock || active.length === 0 ? (
@@ -914,7 +895,7 @@ function StockCards({
                       <span className="feed-stock-info" tabIndex={0} aria-label="How stock check is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Expected = latest load kg minus days since consumption started multiplied by the latest 3 locked feed days average. Negative expected means the load should already be short. Ledger = purchase stock left in Mesha after import consumed kg and locked depletion. Arrow shows ledger compared with expected: up means extra, down means short.
+                          Expected = latest load kg minus days since consumption started multiplied by the latest 3 locked feed days average. If Expected is positive, Check is Ledger minus Expected. If Expected is a shortage, Check is Ledger minus that shortage. Up means extra, down means still short.
                         </span>
                       </span>
                     </span>
@@ -954,25 +935,6 @@ function StockCards({
                     </td>
                   </tr>
                 ))}
-                <tr>
-                  <td><strong>{fa(pageContract, "stock.farms.total")}</strong></td>
-                  <td><strong>{fa(pageContract, "stock.farms.all")}</strong></td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
-                  <td><strong>{`${nf(totalFarmItems.avg)} ${fa(pageContract, "unit.kg")}`}</strong></td>
-                  <td>
-                    <div className="feed-stock-qty"><strong>{`${fa(pageContract, "stock.farms.expected")} ${nf(Math.abs(totalFarmItems.expected))} ${fa(pageContract, "unit.kg")}`}</strong></div>
-                    <div className="muted small">{`${fa(pageContract, "stock.farms.ledger")} ${nf(totalFarmItems.ledger)} ${fa(pageContract, "unit.kg")}`}</div>
-                  </td>
-                  <td>
-                    <StockCheckSummaryTag
-                      status={totalStatus}
-                      variance={totalFarmItems.variance}
-                      pageContract={pageContract}
-                    />
-                  </td>
-                </tr>
               </tbody>
             </table>
           </div>
