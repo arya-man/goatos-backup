@@ -6,11 +6,16 @@
 INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
-  idempotency_key, generated_by_trigger_id, "sequence"
+  idempotency_key, generated_by_trigger_id, "sequence",
+  repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
+  repeat_cycle_anchor_at, repeat_cycle_due_at
 ) SELECT
   @tenant_id, @protocol_version_id, @rule_id, @batch_id, @target_type, @target_id,
   @scope_type, @scope_id, @due_at, @window_start, @window_end, @status,
-  @idempotency_key, @generated_by_trigger_id, @sequence
+  @idempotency_key, @generated_by_trigger_id, @sequence,
+  sqlc.narg('repeat_cycle_source'), sqlc.narg('repeat_cycle_source_ref'),
+  sqlc.narg('repeat_cycle_anchor_obligation_id'), sqlc.narg('repeat_cycle_anchor_at'),
+  sqlc.narg('repeat_cycle_due_at')
 WHERE NOT EXISTS (
   SELECT 1
   FROM obligation_instances existing
@@ -19,9 +24,29 @@ WHERE NOT EXISTS (
     AND existing.rule_id = @rule_id
     AND existing.target_type = @target_type
     AND existing.target_id = @target_id
-    AND existing."sequence" = @sequence
-    AND existing.due_at = @due_at
-    AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+    AND (
+      -- NON-REPEAT: unchanged, deliberately byte-for-byte. This is the generic obligation
+      -- insert; a broad rewrite would change behaviour for every caller of it.
+      (
+        sqlc.narg('repeat_cycle_source_ref')::text IS NULL
+        AND existing."sequence" = @sequence
+        AND existing.due_at = @due_at
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+      )
+      OR
+      -- REPEAT: deduped by the administration that CAUSED it, never by its due date. A
+      -- repeat's due date moves with the previous dose, which is exactly how the same
+      -- cycle came to be minted twice a day apart.
+      --
+      -- 'missed' is absent on purpose: a missed successor is closed history, so it must
+      -- free its source for the next pass to mint new work rather than block it forever.
+      (
+        sqlc.narg('repeat_cycle_source_ref')::text IS NOT NULL
+        AND existing.repeat_cycle_source = sqlc.narg('repeat_cycle_source')::text
+        AND existing.repeat_cycle_source_ref = sqlc.narg('repeat_cycle_source_ref')::text
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      )
+    )
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET scope_type = EXCLUDED.scope_type,

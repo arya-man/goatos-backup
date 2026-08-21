@@ -329,21 +329,26 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 		return "", false, fmt.Errorf("obligation: scope id: %w", err)
 	}
 	id, err := r.queries.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
-		TenantID:             tenant,
-		ProtocolVersionID:    version,
-		RuleID:               rule,
-		BatchID:              pgconv.NullableUUID(in.BatchID),
-		TargetType:           in.TargetType,
-		TargetID:             target,
-		ScopeType:            in.ScopeType,
-		ScopeID:              scope,
-		DueAt:                pgconv.Timestamptz(in.DueAt),
-		WindowStart:          pgconv.NullableTimestamptz(in.WindowStart),
-		WindowEnd:            pgconv.NullableTimestamptz(in.WindowEnd),
-		Status:               in.Status,
-		IdempotencyKey:       in.IdempotencyKey,
-		GeneratedByTriggerID: pgconv.NullableUUID(in.GeneratedByTriggerID),
-		Sequence:             in.Sequence,
+		TenantID:                      tenant,
+		ProtocolVersionID:             version,
+		RuleID:                        rule,
+		BatchID:                       pgconv.NullableUUID(in.BatchID),
+		TargetType:                    in.TargetType,
+		TargetID:                      target,
+		ScopeType:                     in.ScopeType,
+		ScopeID:                       scope,
+		DueAt:                         pgconv.Timestamptz(in.DueAt),
+		WindowStart:                   pgconv.NullableTimestamptz(in.WindowStart),
+		WindowEnd:                     pgconv.NullableTimestamptz(in.WindowEnd),
+		Status:                        in.Status,
+		IdempotencyKey:                in.IdempotencyKey,
+		GeneratedByTriggerID:          pgconv.NullableUUID(in.GeneratedByTriggerID),
+		Sequence:                      in.Sequence,
+		RepeatCycleSource:             repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.Source }),
+		RepeatCycleSourceRef:          repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.SourceRef }),
+		RepeatCycleAnchorObligationID: repeatUUID(in.RepeatCycle),
+		RepeatCycleAnchorAt:           repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.AnchorAt }),
+		RepeatCycleDueAt:              repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.DueAt }),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil // already generated for this idempotency key
@@ -396,21 +401,26 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 	obligationID, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
-		TenantID:             tenant,
-		ProtocolVersionID:    version,
-		RuleID:               rule,
-		BatchID:              pgconv.NullableUUID(in.BatchID),
-		TargetType:           in.TargetType,
-		TargetID:             target,
-		ScopeType:            in.ScopeType,
-		ScopeID:              scope,
-		DueAt:                pgconv.Timestamptz(in.DueAt),
-		WindowStart:          pgconv.NullableTimestamptz(in.WindowStart),
-		WindowEnd:            pgconv.NullableTimestamptz(in.WindowEnd),
-		Status:               in.Status,
-		IdempotencyKey:       in.IdempotencyKey,
-		GeneratedByTriggerID: pgconv.NullableUUID(in.GeneratedByTriggerID),
-		Sequence:             in.Sequence,
+		TenantID:                      tenant,
+		ProtocolVersionID:             version,
+		RuleID:                        rule,
+		BatchID:                       pgconv.NullableUUID(in.BatchID),
+		TargetType:                    in.TargetType,
+		TargetID:                      target,
+		ScopeType:                     in.ScopeType,
+		ScopeID:                       scope,
+		DueAt:                         pgconv.Timestamptz(in.DueAt),
+		WindowStart:                   pgconv.NullableTimestamptz(in.WindowStart),
+		WindowEnd:                     pgconv.NullableTimestamptz(in.WindowEnd),
+		Status:                        in.Status,
+		IdempotencyKey:                in.IdempotencyKey,
+		GeneratedByTriggerID:          pgconv.NullableUUID(in.GeneratedByTriggerID),
+		Sequence:                      in.Sequence,
+		RepeatCycleSource:             repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.Source }),
+		RepeatCycleSourceRef:          repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.SourceRef }),
+		RepeatCycleAnchorObligationID: repeatUUID(in.RepeatCycle),
+		RepeatCycleAnchorAt:           repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.AnchorAt }),
+		RepeatCycleDueAt:              repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.DueAt }),
 	})
 	applied := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -6258,4 +6268,32 @@ func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID s
 		return oploc.OperationalLocation{}, fmt.Errorf("obligation: resolve shed location: %w", err)
 	}
 	return loc, nil
+}
+
+// repeatText, repeatUUID and repeatTime map an optional RepeatCycleSource onto the nullable
+// columns. Nil stays NULL, which is what keeps the two partial unique indexes -- and the
+// repeat branch of the insert's duplicate guard -- inert for every non-repeat obligation.
+func repeatText(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource) string) pgtype.Text {
+	if rc == nil {
+		return pgtype.Text{}
+	}
+	value := strings.TrimSpace(pick(*rc))
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
+}
+
+func repeatUUID(rc *domain.RepeatCycleSource) pgtype.UUID {
+	if rc == nil || rc.AnchorObligationID == nil {
+		return pgtype.UUID{}
+	}
+	return pgconv.NullableUUID(rc.AnchorObligationID)
+}
+
+func repeatTime(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource) *time.Time) pgtype.Timestamptz {
+	if rc == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgconv.NullableTimestamptz(pick(*rc))
 }
