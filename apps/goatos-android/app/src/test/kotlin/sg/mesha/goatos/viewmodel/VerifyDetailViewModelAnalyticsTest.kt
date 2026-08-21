@@ -470,12 +470,13 @@ class VerifyDetailViewModelAnalyticsTest {
     }
 
     @Test
-    fun `non-source playback error remains visible as Crashlytics non-fatal`() = runTest(dispatcher) {
+    fun `media codec playback error stays out of Crashlytics non-fatals`() = runTest(dispatcher) {
         val crashReporter = RecordingCrashReporter()
+        val analytics = RecordingAnalytics()
         val vm = VerifyDetailViewModel(
             repo = FakeVerifyDetailRepository(),
             syncRepo = FakeVerifyDetailSyncRepository(),
-            analytics = RecordingAnalytics(),
+            analytics = analytics,
             crashReporter = crashReporter,
             savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
         )
@@ -487,11 +488,17 @@ class VerifyDetailViewModelAnalyticsTest {
                 proofSubject = "proof-1",
                 mimeType = "video/mp4",
                 action = VideoPlaybackAction.PLAYBACK_ERROR,
-                reason = "decoder crashed",
+                reason = "MediaCodecVideoRenderer error, index=0, format=Format(2, null, video/mp4, video/avc, avc1.64001F, 2502626, null, [1280, 720, 29.388496, ColorInfo(BT709, Limited range, SDR SMPTE 170M, false, 8bit Luma, 8bit Chroma)], [-1, -1]), format_supported=YES",
             ),
         )
 
-        assertEquals(listOf("verification video playback failed" to "decoder crashed"), crashReporter.exceptions)
+        assertTrue(crashReporter.exceptions.isEmpty())
+        assertTrue(
+            analytics.events.any { (event, props) ->
+                event == AnalyticsEvents.VERIFY_VIDEO_PLAYBACK_ERROR &&
+                    props[AnalyticsFunnels.Params.PROOF_ID] == "proof-1"
+            },
+        )
     }
 }
 
