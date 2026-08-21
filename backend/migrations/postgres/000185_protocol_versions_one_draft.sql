@@ -19,6 +19,50 @@
 -- lock, and this table is read on the publish path that retires the previous version inside
 -- a transaction. Blocking that for a build is avoidable, so it is avoided (same reasoning as
 -- 000154 / 000170).
+-- Two things have to happen before the build, or the migration reports success while
+-- enforcing nothing.
+--
+-- First: a CONCURRENTLY build that fails leaves an INVALID index behind, and IF NOT EXISTS
+-- then SKIPS it on the retry -- goose marks the migration applied, everyone believes the
+-- invariant holds, and no insert is ever refused. Dropping an invalid leftover makes the
+-- retry actually rebuild.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    WHERE c.relname = 'protocol_versions_one_draft_per_scope_idx'
+      AND NOT i.indisvalid
+  ) THEN
+    EXECUTE 'DROP INDEX protocol_versions_one_draft_per_scope_idx';
+  END IF;
+END $$;
+
+-- Second: this index exists because duplicate drafts were really created, so scopes holding
+-- two of them plausibly exist right now -- and a unique build over them simply fails. The
+-- losers are retired rather than deleted: they are unreachable work either way (the list
+-- renders the first draft it finds), but a retired row keeps whatever the farm typed and
+-- stays visible in the version history, where a deleted one would just vanish.
+--
+-- The newest draft survives, which is the one someone was most recently working in.
+WITH ranked AS (
+  SELECT protocol_version_id,
+         row_number() OVER (
+           PARTITION BY tenant_id, protocol_id, scope_type, scope_id
+           ORDER BY created_at DESC, protocol_version_id DESC
+         ) AS rn
+  FROM protocol_versions
+  WHERE status = 'draft'
+)
+UPDATE protocol_versions pv
+SET status = 'retired',
+    retired_at = now(),
+    row_version = pv.row_version + 1,
+    updated_at = now()
+FROM ranked
+WHERE pv.protocol_version_id = ranked.protocol_version_id
+  AND ranked.rn > 1;
+
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS protocol_versions_one_draft_per_scope_idx
   ON protocol_versions (tenant_id, protocol_id, scope_type, scope_id)
   NULLS NOT DISTINCT
