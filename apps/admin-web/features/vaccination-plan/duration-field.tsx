@@ -56,10 +56,16 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
   const [value, setValue] = useState(String(initial.value));
   const [unit, setUnit] = useState<Unit>(initial.unit);
   const box = useRef<HTMLSpanElement>(null);
+  // The last value this field itself committed. While the user is typing, `days`
+  // comes back changed on every keystroke, and re-deriving the unit from it
+  // rewrote the number under their fingers: typing "3010" days flipped to
+  // "1 month" at the third keystroke, and the remaining digits were then read as
+  // MONTHS -- 3300 days saved for 3010 typed. Only a change this field did not
+  // make is allowed to re-sync it.
+  const committed = useRef<number | null>(null);
 
-  // Re-sync when the underlying value changes from elsewhere (Reset, or another
-  // vaccine selected), so the popover never shows a stale number.
   useEffect(() => {
+    if (committed.current === days) return;
     const next = splitDays(days);
     setValue(String(next.value));
     setUnit(next.unit);
@@ -86,7 +92,9 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
     // Zero and negatives are not durations. Refusing them here means the
     // scheduler never receives one.
     if (!Number.isFinite(n) || n <= 0) return;
-    onChange(Math.round(n) * DAYS_PER[nextUnit]);
+    const total = Math.round(n) * DAYS_PER[nextUnit];
+    committed.current = total;
+    onChange(total);
   }
 
   return (

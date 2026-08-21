@@ -619,6 +619,66 @@ await runCase("C21", "A very long vaccine name does not break the layout", async
   check("the long name is on screen", /Extremely Long Vaccine Name/.test(await page.locator(".vp").innerText()), true);
 });
 
+await runCase("C22", "A vaccine switched off and back on keeps its whole course", async () => {
+  // C15 proved the clinical FIELDS survive. This proves the COURSE does: the editor
+  // used to read only the live schedule, so a switched-off vaccine looked like it
+  // had no doses at all. Switching it back on then demanded a dose the farm had
+  // already chosen, wrote that timing onto a rule nobody could see, resurrected the
+  // rest invisibly, and deleted the repeat cadence outright.
+  const shape = () => psql(`select coalesce(string_agg(s->>'dose_code'||'@'||(s->>'offset_days')||'/'||coalesce(s->>'repeat','none'), ' ' order by s->>'dose_code'), '-')
+      from protocol_versions v, jsonb_array_elements(v.rule_dsl->'matrix_rows') r, jsonb_array_elements(r->'schedule') s
+      where v.status='draft' and r->'vaccine'->>'code'='ET_TT'`);
+
+  await gotoPlan();
+  await startVersion();
+  const original = shape();
+  note("the course before", original);
+
+  await page.getByRole("switch").first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(4000);
+
+  // Reload so the editor re-reads the document from the server, which is where the
+  // bug lived -- it only appeared on a FRESH read of a switched-off vaccine.
+  await page.reload({ waitUntil: "networkidle" });
+  const body = await page.locator(".vp").innerText();
+  check("it is switched off", /Switched off/.test(body), true);
+  check("but it does NOT claim to have no doses", /no doses yet/i.test(body), false);
+
+  await page.getByRole("switch").first().click();
+  await page.waitForTimeout(300);
+  check("switching it back on needs no invented dose", await page.getByRole("button", { name: /Save draft/i }).isEnabled(), true);
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(4000);
+  results.at(-1).shots.push(await shot("C22-course-restored"));
+  check("the whole course is back, repeat included", shape(), original);
+});
+
+await runCase("C23", "Typing a long duration is not rewritten mid-keystroke", async () => {
+  // Committing on every keystroke re-derived the unit from the running total, so the
+  // field changed unit under the user's fingers: "3010" days flipped to "1 month" at
+  // the third digit and the rest were read as MONTHS -- 3300 days stored for 3010
+  // typed, moving every scheduled date.
+  await gotoPlan();
+  await startVersion();
+  const dose = page.locator(".dose").first();
+  await dose.getByRole("button", { name: /4 weeks/ }).click();
+  const box = page.getByLabel("How many");
+  const unit = page.getByLabel("Unit", { exact: true });
+  await unit.selectOption("days");
+  await box.fill("");
+  await page.keyboard.type("3010", { delay: 60 });
+  await page.waitForTimeout(400);
+  results.at(-1).shots.push(await shot("C23-typed"));
+  check("the number is still what was typed", await box.inputValue(), "3010");
+  check("the unit is still days", await unit.inputValue(), "days");
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(4000);
+  check("3010 days is what got stored", psql(`select s->>'offset_days' from protocol_versions v,
+      jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='draft' and s->>'dose_code'='et_tt_kid_4w'`), "3010");
+});
+
 await browser.close();
 
 // ── report ──────────────────────────────────────────────────────────────────

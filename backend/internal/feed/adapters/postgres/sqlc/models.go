@@ -1582,6 +1582,27 @@ type GoatOwnership struct {
 	CreatedBy    pgtype.UUID
 }
 
+type GoatSaleAllocation struct {
+	AllocationID   pgtype.UUID
+	TenantID       pgtype.UUID
+	GoatID         pgtype.UUID
+	SalesDealID    pgtype.UUID
+	ParkID         pgtype.UUID
+	ShedID         pgtype.UUID
+	PartitionLabel pgtype.Text
+	TagNumber      pgtype.Text
+	Status         string
+	AllocatedAt    pgtype.Timestamptz
+	AllocatedBy    pgtype.UUID
+	ReleasedAt     pgtype.Timestamptz
+	ReleasedBy     pgtype.UUID
+	ReleaseReason  pgtype.Text
+	IdempotencyKey string
+	RowVersion     int32
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type GoatShedPartition struct {
 	TenantID       pgtype.UUID
 	GoatID         pgtype.UUID

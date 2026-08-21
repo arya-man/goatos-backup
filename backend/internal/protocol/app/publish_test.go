@@ -1085,6 +1085,7 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 	f.version.Status = "published"
 	return nil
 }
+
 // DiscardVersion mirrors the real repository: only a draft may be removed, so a
 // test that discards a published version sees the same refusal production would.
 func (f *fakeProtocolRepo) DiscardVersion(context.Context, string, string) error {
