@@ -628,9 +628,7 @@ WITH loads AS (
 last_load AS (
     SELECT DISTINCT ON (farm_label, feed_item_key)
            farm_label, feed_item_key,
-           batch_no, purchase_date, quantity_kg,
-           COALESCE(per_kg_cost, total_cost / NULLIF(quantity_kg, 0)) AS per_kg_cost,
-           vendor, payment_status
+           batch_no, purchase_date, quantity_kg, vendor
     FROM feed_purchases
     WHERE tenant_id = $1
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
@@ -667,10 +665,8 @@ SELECT l.farm_label,
        COALESCE(round(d.recent_avg_kg, 1)::text, '') AS avg_daily_kg,
        ll.batch_no,
        ll.purchase_date::text,
-       round(ll.quantity_kg, 1)::text                AS last_quantity_kg,
-       COALESCE(round(ll.per_kg_cost, 2)::text, '')  AS last_per_kg_cost,
-       ll.vendor,
-       ll.payment_status
+       round(ll.quantity_kg, 1)::text AS last_quantity_kg,
+       ll.vendor
 FROM loads l
 JOIN last_load ll USING (farm_label, feed_item_key)
 LEFT JOIN directed d
@@ -720,7 +716,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 			&fi.FarmLabel, &fi.FeedItemLabel, &fi.FeedItemKey,
 			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg,
 			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
-			&fi.LastLoadPerKgCost, &fi.LastLoadVendor, &fi.LastLoadPaymentStatus,
+			&fi.LastLoadVendor,
 		); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm scan: %w", err)
 		}
