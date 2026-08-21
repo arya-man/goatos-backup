@@ -4188,7 +4188,7 @@ func TestGenerateRecoveryReplayTerminalObligationDoesNotInventSpacingDate(t *tes
 // minted twice a day apart 207 times in the staging baseline.
 func TestGenerationStampsTheAdministrationThatCausedTheRepeat(t *testing.T) {
 	ctx := context.Background()
-	administered := time.Date(2026, time.January, 6, 9, 30, 0, 0, time.UTC)
+	administered := time.Date(2026, time.January, 6, 9, 30, 0, 471_000_000, time.UTC)
 	asOf := time.Date(2026, time.October, 12, 6, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
@@ -4215,6 +4215,9 @@ func TestGenerationStampsTheAdministrationThatCausedTheRepeat(t *testing.T) {
 	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
+	// Sub-second administration times are the case the two writers disagreed on: RFC3339
+	// keeps fractional seconds, the SQL that reconstructs this reference does not. Asserting
+	// with a whole-second administration would pass either way and prove nothing.
 	var stamped int
 	for _, inserted := range obl.inserted {
 		if inserted.Status == "canceled" || inserted.RuleID != "rule-fmd-repeat" {
@@ -4226,8 +4229,9 @@ func TestGenerationStampsTheAdministrationThatCausedTheRepeat(t *testing.T) {
 		}
 		// The same string the completion path writes for this administration, and the same
 		// one the repair job reconstructs. Diverge and one cycle becomes two open rows.
-		if want := obldomain.RepeatCycleRef("FMD", administered, 2); rc.SourceRef != want {
-			t.Fatalf("cause = %q, want %q", rc.SourceRef, want)
+		if want := "fmd|2026-01-06T09:30:00Z|2"; rc.SourceRef != want {
+			t.Fatalf("cause = %q, want %q -- the reference is lowercased and whole-second, "+
+				"because the repair job reconstructs it from SQL and must produce the same bytes", rc.SourceRef, want)
 		}
 		if rc.Source != obldomain.RepeatCycleSourceTrustedHistory {
 			t.Fatalf("source = %q, want %q", rc.Source, obldomain.RepeatCycleSourceTrustedHistory)
