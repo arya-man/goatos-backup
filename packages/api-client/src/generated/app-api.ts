@@ -1565,7 +1565,7 @@ export interface paths {
          * Feed stock positions and daily expenditure for the Feed Analytics page.
          * @description Per-farm, per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time sheet import; entry screens arrive with the Procurement vertical) plus the window's daily expenditure series.
          *
-         *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 7 most recent locked feed days; a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+         *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 3 most recent locked feed days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
          */
         get: operations["getFeedAnalyticsStock"];
         put?: never;
@@ -4658,7 +4658,7 @@ export interface components {
             feed_item_key: string;
             /** @description May be negative -- the ledger is missing a load, never clamped. */
             balance_kg: string;
-            /** @description Average directed kg over the item's 7 most recent locked feed days; empty when never directed. */
+            /** @description Average directed kg over the item's 3 most recent locked feed days; empty when never directed. */
             avg_daily_kg: string;
             /** Format: int64 */
             days_left?: number | null;
@@ -4678,7 +4678,7 @@ export interface components {
             first_purchase_date: string;
             /** @description First locked feed day the item was directed at this farm; empty when never directed. */
             first_directed_day: string;
-            /** @description Average directed kg over the farm's 7 most recent locked feed days for the item (same semantics as the stock card, scoped to the farm); empty when never directed. */
+            /** @description Average directed kg over the farm's 3 most recent locked feed days for the item (same semantics as the stock card, scoped to the farm); empty when never directed. */
             avg_daily_kg: string;
             /** Format: int64 */
             last_load_batch_no: number;

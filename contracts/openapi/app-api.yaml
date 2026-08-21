@@ -3969,8 +3969,8 @@ paths:
 
         STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) -
         directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left
-        divides the balance by the item's average directed kg over its 7 most recent locked feed
-        days; a negative balance is served as-is, saying the ledger is missing a load.
+        divides the balance by the item's average directed kg over its 3 most recent locked feed
+        days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load.
         Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on
         or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
       parameters:
@@ -11867,7 +11867,7 @@ components:
           description: May be negative -- the ledger is missing a load, never clamped.
         avg_daily_kg:
           type: string
-          description: Average directed kg over the item's 7 most recent locked feed days; empty when never directed.
+          description: Average directed kg over the item's 3 most recent locked feed days; empty when never directed.
         days_left:
           type: integer
           format: int64
@@ -11912,7 +11912,7 @@ components:
         avg_daily_kg:
           type: string
           description: >-
-            Average directed kg over the farm's 7 most recent locked feed days for the item
+            Average directed kg over the farm's 3 most recent locked feed days for the item
             (same semantics as the stock card, scoped to the farm); empty when never directed.
         last_load_batch_no:
           type: integer

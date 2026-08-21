@@ -433,9 +433,14 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 			t.Fatalf("lock %s = (%v, %v)", feedDay, lock.Outcome, err)
 		}
 	}
-	// Two locked days: 20 kg then 22 kg -> avg 21.0, consumption from the first.
+	// Four locked days: 20, 22, 30, 32 kg. The burn-rate window is the 3 MOST
+	// RECENT locked days (matching the farm's legacy stock sheet, maintainer
+	// decision 2026-08-21), so avg = (22+30+32)/3 = 28.0 — the Aug 11 day falls
+	// OUT of the average while remaining the consumption-start date.
 	persistDay("2026-08-11", "fp-sf-1", "20.000")
 	persistDay("2026-08-12", "fp-sf-2", "22.000")
+	persistDay("2026-08-13", "fp-sf-3", "30.000")
+	persistDay("2026-08-14", "fp-sf-4", "32.000")
 	// An ISSUED (unlocked) earlier day must not move the consumption start.
 	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
 		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-10", Workflow: domain.WorkflowNormal,
@@ -478,8 +483,8 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if kids.FirstDirectedDay != "2026-08-11" {
 		t.Errorf("consumption from locked sheets only: want 2026-08-11, got %q", kids.FirstDirectedDay)
 	}
-	if kids.AvgDailyKg != "21.0" {
-		t.Errorf("avg over locked days: want 21.0, got %q", kids.AvgDailyKg)
+	if kids.AvgDailyKg != "28.0" {
+		t.Errorf("avg over the 3 most recent locked days: want 28.0 ((22+30+32)/3, day 1 outside the window), got %q", kids.AvgDailyKg)
 	}
 	if kids.LastLoadBatchNo != 330 || kids.LastLoadDate != "2026-08-08" ||
 		kids.LastLoadQuantityKg != "1150.0" || kids.LastLoadVendor != "Navaladi" {
@@ -507,8 +512,8 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 			byFarm[it.FarmLabel] = it
 		}
 		cbe, xyz := byFarm["CBE"], byFarm["XYZ"]
-		// CBE: 1550+1150 purchased, 42 kg locked-directed -> 2658.0 in store.
-		if cbe.BalanceKg != "2658.0" || cbe.AvgDailyKg != "21.0" {
+		// CBE: 1550+1150 purchased, 104 kg locked-directed -> 2596.0 in store.
+		if cbe.BalanceKg != "2596.0" || cbe.AvgDailyKg != "28.0" {
 			t.Errorf("CBE card must hold only CBE's store: %+v", cbe)
 		}
 		// XYZ resolves to no park: its 10 kg stays whole, no burn rate.
