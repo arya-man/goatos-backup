@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.data.capture.vaccinationSessionGroupKey
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -209,39 +210,29 @@ class VaccinationOutboxConvergenceTest {
         assertEquals(1, calls)
     }
     @Test
-    fun `PRODUCTION group keys put a shed's scans and its Submit in DIFFERENT queues`() = runBlocking {
-        // The hold-back only works WITHIN one FIFO group, and vaccination's two writes do
-        // not share one:
-        //   scan   CaptureRepository.kt:267   "$taskId|$partitionKey"
-        //   submit SubmitViewModel.kt:713     "${activeShedId ?: scopeId ?: taskId}|${label ?: "whole"}"
-        // Different first segment, and different normalisation of the second. So a Submit
-        // can go to the server while one of that shed's animals is still unsent, closing
-        // the shed one animal short -- and the shed reads as complete, so nobody looks.
+    fun `the production helper puts a session's scans and its Submit in the SAME lane`() {
+        // The defect this replaces: scans were enqueued under "$taskId|$partitionKey"
+        // while Submit built its own key from the shed id and a differently-normalised
+        // label, so the two sat in different lanes and nothing ordered them.
         //
-        // Weighing already avoids this by using campaignShedId for BOTH its observations
-        // and its scope submit (WeighingRepository.kt:2035,2058).
-        //
-        // This test pins the CURRENT, WRONG behaviour so the fix has something to flip.
-        val store = FakeOutboxStore()
+        // Asserted through the PRODUCTION helper both call sites now use -- not against
+        // hand-written literals, which is how the two sides drifted apart unnoticed.
         val taskId = "task-77"
-        val shedId = "shed-77"
-        store.insert(scanRow("scan-late", "$taskId|whole", "TAG-1", createdAt = 1L))
-        store.insert(submitRow("submit-A", "$shedId|whole", createdAt = 2L))
 
-        val api = ScriptedAppApi().apply {
-            recordScanCaptureFn = { _, _, _ -> throw IOException("no signal") }
-            submitAppTaskFn = { _, _, _ -> okSubmission() }
-        }
-
-        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
-
-        assertEquals(OutboxStatus.FAILED.name, store.findById("scan-late")!!.status)
+        // The same nav argument reaches both screens, in the forms each one holds it.
         assertEquals(
-            "DEFECT: the Submit went ahead while this shed's scan was still failing, because the " +
-                "two writes are grouped under different keys. Fix by giving them one shared group key.",
-            1,
-            api.submitCalls.size,
+            vaccinationSessionGroupKey(taskId, "whole"),
+            vaccinationSessionGroupKey(taskId, null),
         )
+        // "Part 2" (the Submit side's raw label) and "2" (the scan side's stored key)
+        // are the same session and must produce the same lane.
+        assertEquals(
+            vaccinationSessionGroupKey(taskId, "Part 2"),
+            vaccinationSessionGroupKey(taskId, "2"),
+        )
+        // And the lane is keyed on the task, never the shed, because the persisted scan
+        // rows carry no shed id to key on.
+        assertTrue(vaccinationSessionGroupKey(taskId, "2").startsWith("$taskId|"))
     }
 
     @Test
@@ -252,9 +243,13 @@ class VaccinationOutboxConvergenceTest {
         // past a failed scan would close the shed having recorded one animal fewer
         // than the operator actually vaccinated -- and the shed reads as complete, so
         // nobody goes looking.
+        // Both keys come from the production helper, so this fails if the two call sites
+        // ever diverge again -- the point of the test, and what the literal-keyed version
+        // of it could never catch.
         val store = FakeOutboxStore()
-        store.insert(scanRow("scan-late", "shed-A", "TAG-1", createdAt = 1L))
-        store.insert(submitRow("submit-A", "shed-A", createdAt = 2L))
+        val lane = vaccinationSessionGroupKey("task-77", "Part 2")
+        store.insert(scanRow("scan-late", lane, "TAG-1", createdAt = 1L))
+        store.insert(submitRow("submit-A", lane, createdAt = 2L))
 
         var scanAttempts = 0
         val api = ScriptedAppApi().apply {

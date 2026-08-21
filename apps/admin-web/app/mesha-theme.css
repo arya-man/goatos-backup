@@ -1724,7 +1724,7 @@
   .step.cur .no{border-color:var(--brand);color:var(--brand-d);box-shadow:0 0 0 4px var(--brand-soft)}
   .step .ct b{font-size:13.5px}
   .step .ct .d{color:var(--muted);font-size:12px;margin-top:2px}
-  .step .vplan{margin-top:6px}
+  .step .vp{margin-top:6px}
   .videobox{background:var(--panel);border:1px dashed var(--line);border-radius:11px;padding:14px;display:flex;align-items:center;gap:12px}
   .thumb{width:62px;height:46px;border-radius:8px;background:linear-gradient(135deg,#26384d,#33536f);display:grid;place-items:center;color:#fff;flex:none}
   .nlist{display:flex;flex-direction:column}

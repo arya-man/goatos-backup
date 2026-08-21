@@ -12,6 +12,11 @@
 # Baseline is a clone of goatos-stg (see e2e-db.sh). Every run resets first, so the
 # case is repeatable and order-independent.
 set -euo pipefail
+
+# Snapshots live in the worktree, NOT /tmp: macOS purges /tmp without warning, and a purge
+# between the before- and after-capture makes this case compare against nothing.
+ARTIFACTS="${E2E_ARTIFACTS_DIR:-.e2e-artifacts}"
+mkdir -p "$ARTIFACTS"
 cd "$(dirname "$0")/../.."
 
 DB=${DB:-goatos_e2e}
@@ -34,17 +39,17 @@ say "0. reset $DB from the stg-clone template"
 
 say "1. BASELINE — obligations by version and status"
 Q "select coalesce(protocol_version_id::text,'(none)'), status, count(*)
-   from obligation_instances group by 1,2 order by 1,2" | tee /tmp/e2e-before.txt
+   from obligation_instances group by 1,2 order by 1,2" | tee "$ARTIFACTS"/e2e-before.txt
 
 # capture identities so we can prove specific rows were untouched, not just counts
 Q "select obligation_id||'|'||status||'|'||coalesce(due_at::text,'')
    from obligation_instances where status in ('completed','canceled')
-   order by obligation_id" > /tmp/e2e-terminal-before.txt
-echo "terminal rows captured: $(wc -l < /tmp/e2e-terminal-before.txt)"
+   order by obligation_id" > "$ARTIFACTS"/e2e-terminal-before.txt
+echo "terminal rows captured: $(wc -l < "$ARTIFACTS"/e2e-terminal-before.txt)"
 
 Q "select obligation_id||'|'||coalesce(due_at::text,'')
-   from obligation_instances where status='scheduled' order by obligation_id" > /tmp/e2e-sched-before.txt
-echo "scheduled rows captured: $(wc -l < /tmp/e2e-sched-before.txt)"
+   from obligation_instances where status='scheduled' order by obligation_id" > "$ARTIFACTS"/e2e-sched-before.txt
+echo "scheduled rows captured: $(wc -l < "$ARTIFACTS"/e2e-sched-before.txt)"
 
 say "2. retire V2 first — the DB refuses two live plans for the same scope
 #    (exclusion constraint protocol_versions_published_no_overlap)"
@@ -92,17 +97,17 @@ cd ..
 
 say "5. AFTER — obligations by version and status"
 Q "select coalesce(protocol_version_id::text,'(none)'), status, count(*)
-   from obligation_instances group by 1,2 order by 1,2" | tee /tmp/e2e-after.txt
+   from obligation_instances group by 1,2 order by 1,2" | tee "$ARTIFACTS"/e2e-after.txt
 
 say "6. ASSERTIONS"
 Q "select obligation_id||'|'||status||'|'||coalesce(due_at::text,'')
    from obligation_instances where status in ('completed','canceled')
-   order by obligation_id" > /tmp/e2e-terminal-after.txt
+   order by obligation_id" > "$ARTIFACTS"/e2e-terminal-after.txt
 
-if diff -q /tmp/e2e-terminal-before.txt /tmp/e2e-terminal-after.txt >/dev/null; then
+if diff -q "$ARTIFACTS"/e2e-terminal-before.txt "$ARTIFACTS"/e2e-terminal-after.txt >/dev/null; then
   echo "PASS  completed + canceled work is byte-identical (not one row moved)"
 else
-  echo "FAIL  terminal work changed:"; diff /tmp/e2e-terminal-before.txt /tmp/e2e-terminal-after.txt | head -20
+  echo "FAIL  terminal work changed:"; diff "$ARTIFACTS"/e2e-terminal-before.txt "$ARTIFACTS"/e2e-terminal-after.txt | head -20
 fi
 
 echo

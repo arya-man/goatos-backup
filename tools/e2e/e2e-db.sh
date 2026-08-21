@@ -106,9 +106,21 @@ case "${1:-}" in
     require_throwaway "${2:-}" reset
     require_template
     require_password
+    # Terminating backends is not enough on its own: the API under test holds a
+    # connection POOL, which reconnects between the terminate and the drop and makes
+    # DROP DATABASE fail with "is being accessed by other users". Connections are
+    # refused first, so the pool cannot get back in, and allowed again afterwards.
+    admin "ALTER DATABASE $2 WITH ALLOW_CONNECTIONS false;" >/dev/null 2>&1 || true
     admin "SELECT pg_terminate_backend(pid) FROM pg_stat_activity
            WHERE datname = '$2' AND pid <> pg_backend_pid();" >/dev/null
-    admin "DROP DATABASE IF EXISTS $2;"
+    if ! admin "DROP DATABASE IF EXISTS $2;" >/dev/null 2>&1; then
+      # A late reconnect can still win the race once; retry after another sweep
+      # rather than failing the whole suite on a timing accident.
+      sleep 1
+      admin "SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+             WHERE datname = '$2' AND pid <> pg_backend_pid();" >/dev/null
+      admin "DROP DATABASE IF EXISTS $2;"
+    fi
     admin "CREATE DATABASE $2 TEMPLATE $TEMPLATE;"
     q postgres "select 'reset $2 from $TEMPLATE'" ;;
 

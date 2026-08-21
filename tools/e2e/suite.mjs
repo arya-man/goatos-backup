@@ -27,7 +27,14 @@ const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf
 const psql = (sql) =>
   execFileSync(
     "psql",
-    ["-h", "127.0.0.1", "-p", process.env.E2E_PG_PORT ?? "15432", "-U", "postgres", "-d", DB, "-tA", "-F", "|", "-c", sql],
+    // Host, port and user all come from the environment. Hard-coding any of them lets a
+    // run read one database while it resets another.
+    [
+      "-h", process.env.E2E_PG_HOST ?? "127.0.0.1",
+      "-p", process.env.E2E_PG_PORT ?? "15432",
+      "-U", process.env.E2E_PG_USER ?? "postgres",
+      "-d", DB, "-tA", "-F", "|", "-c", sql,
+    ],
     {
       env: { ...process.env, PGPASSWORD: process.env.E2E_PG_PASSWORD },
       encoding: "utf8",
