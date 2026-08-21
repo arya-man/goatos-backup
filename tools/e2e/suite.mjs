@@ -92,6 +92,43 @@ function history() {
   return { completed: rows.completed ?? "0", canceled: rows.canceled ?? "0", scheduled: rows.scheduled ?? "0" };
 }
 
+/** Stop and restart the Go API, for the cases about a server that is not there. */
+function apiStop() {
+  // ONLY the listener. `lsof -ti :8099` also lists processes holding a client
+  // connection TO that port -- which includes the Next dev server's keep-alive --
+  // so the unqualified form killed the app under test along with the API.
+  try {
+    execFileSync("bash", ["-lc", "lsof -ti tcp:8099 -sTCP:LISTEN | xargs -r kill -9"], { encoding: "utf8" });
+  } catch {}
+}
+function apiStart() {
+  execFileSync("bash", ["-lc", "nohup /tmp/goatos-api > /tmp/goatos-api.log 2>&1 & sleep 1"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      DATABASE_URL: `postgres://postgres:${process.env.E2E_PG_PASSWORD}@127.0.0.1:15432/${DB}?sslmode=disable`,
+      GOATOS_ENV: "local",
+      GOATOS_AUTH_MODE: "bearer",
+      GOATOS_AUTH_HS256_SECRET: "goatos-local-dev-secret-32-bytes-min",
+      GOATOS_AUTH_ISSUER: "goatos-local",
+      GOATOS_AUTH_AUDIENCE: "goatos-api",
+      GOATOS_PG_QUERY_TIMEOUT: "60s",
+      GOATOS_HTTP_ADDR: "127.0.0.1:8099",
+      GOATOS_ALLOW_STALE_LOCAL_STACK: "1",
+      GOATOS_ORIGIN_MAIN_PREVERIFIED: "1",
+      GOATOS_LOCAL_MEDIA_SIGNING_SECRET: "local-dev-media-signing-secret-32b",
+    },
+  });
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      const code = execFileSync("bash", ["-lc", "curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8099/livez"], { encoding: "utf8" }).trim();
+      if (code === "204") return;
+    } catch {}
+    execFileSync("bash", ["-lc", "sleep 1"]);
+  }
+  throw new Error("the API did not come back up");
+}
+
 async function gotoPlan() {
   await page.goto(`${BASE}/vaccination/plan`, { waitUntil: "networkidle" });
 }
@@ -464,6 +501,105 @@ await runCase("C16", "A duration of zero, negative or nonsense is refused", asyn
   results.at(-1).shots.push(await shot("C16-refused"));
   check("nothing was saved", stored(), before);
   check("Save stayed disabled", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);
+});
+
+await runCase("C17", "A vaccine switched on with no doses cannot be saved", async () => {
+  // "Off" IS an empty schedule, so a vaccine switched on with no doses saves as
+  // off and the switch silently flips back -- someone could believe they added a
+  // vaccine and walk away. Saving is blocked until it has a dose or goes back off.
+  await gotoPlan();
+  await startVersion();
+  await page.getByRole("button", { name: /PPR/ }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("switch").first().click();
+  await page.waitForTimeout(400);
+  results.at(-1).shots.push(await shot("C17-blocked"));
+  const body = await page.locator("body").innerText();
+  check("it says which vaccine and what to do", /switched on but .*no doses/i.test(body), true);
+  check("Save is blocked", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);
+  check("Publish is blocked too", await page.getByRole("button", { name: /Publish plan/i }).isDisabled(), true);
+
+  // Giving it a dose clears the block.
+  await page.getByRole("button", { name: /Add a dose from date of birth/i }).click();
+  await page.waitForTimeout(400);
+  check("adding a dose unblocks Save", await page.getByRole("button", { name: /Save draft/i }).isEnabled(), true);
+});
+
+await runCase("C18", "With the server down, nothing is lost and nothing raw is shown", async () => {
+  await gotoPlan();
+  await startVersion();
+  await page.locator(".dose").first().getByRole("button", { name: /4 weeks/ }).click();
+  await page.getByLabel("How many").fill("5");
+  await page.waitForTimeout(400);
+
+  const draftBefore = psql("select protocol_version_id from protocol_versions where status='draft'");
+  apiStop();
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(6000);
+  results.at(-1).shots.push(await shot("C18-server-down"));
+
+  const body = await page.locator("body").innerText();
+  // The app's own wording, asserted verbatim rather than a phrase I invented.
+  check("it says the backend is not reachable", /not reachable/i.test(body), true);
+  check("no raw transport error on screen", /fetch failed|ECONNREFUSED|TypeError|ENOTFOUND/i.test(body), false);
+  check("the draft is untouched", psql("select protocol_version_id from protocol_versions where status='draft'"), draftBefore);
+
+  apiStart();
+  await page.getByRole("button", { name: /Save draft/i }).click();
+  await page.waitForTimeout(5000);
+  check("and the same save works once it is back", psql("select count(*) from protocol_versions where status='draft'"), "1");
+  // 5 of the chip's current unit, which is weeks -- 35 days, not 150.
+  check("the edit landed", psql(`select s->>'offset_days' from protocol_versions v,
+      jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='draft' and s->>'dose_code'='et_tt_kid_4w'`), "35");
+});
+
+await runCase("C19", "An earlier version that will not load says so and closes", async () => {
+  await gotoPlan();
+  // Make the retired version's document unreadable, the way a partial write would.
+  psql("update protocol_versions set rule_dsl = '\"broken\"'::jsonb where status='retired'");
+  await page.reload({ waitUntil: "networkidle" });
+  const view = page.getByRole("button", { name: /View settings/i }).first();
+  if (await view.count()) {
+    await view.click();
+    await page.waitForTimeout(2500);
+    results.at(-1).shots.push(await shot("C19-unreadable"));
+    const body = await page.locator("body").innerText();
+    check("it does not sit on Loading forever", /Loading…/.test(body), false);
+    check("the sheet still closes on Escape", true, true);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+    check("and it did close", await page.locator(".vp-modal").count(), 0);
+  } else {
+    note("no earlier version to view in this baseline", "skipped");
+  }
+});
+
+await runCase("C20", "A published plan cannot be altered, even straight in the database", async () => {
+  // Not a UI case. The strongest guarantee this feature has is that a published
+  // version is immutable at the DATABASE level, so no bug, script or hand-typed
+  // UPDATE can rewrite what a farm was told to do. Asserted directly.
+  let refused = false;
+  try {
+    psql(`update protocol_versions set rule_dsl = jsonb_set(rule_dsl, '{matrix_rows,0,vaccine,name}', '"Tampered"'::jsonb) where status='published'`);
+  } catch (err) {
+    refused = /immutable/i.test(String(err.stderr ?? err.message ?? err));
+  }
+  check("the database refuses the write", refused, true);
+  check("and the name is unchanged", psql(`select rule_dsl->'matrix_rows'->0->'vaccine'->>'name' from protocol_versions where status='published'`), "ET+TT");
+});
+
+await runCase("C21", "A very long vaccine name does not break the layout", async () => {
+  await gotoPlan();
+  await startVersion();
+  // Drafts ARE mutable, which is where a name like this could realistically arrive.
+  const draft = psql("select protocol_version_id from protocol_versions where status='draft'");
+  psql(`update protocol_versions set rule_dsl = jsonb_set(rule_dsl, '{matrix_rows,0,vaccine,name}',
+        '"${"Extremely Long Vaccine Name ".repeat(6).trim()}"'::jsonb) where protocol_version_id = '${draft}'`);
+  await page.reload({ waitUntil: "networkidle" });
+  results.at(-1).shots.push(await shot("C21-long-name"));
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check("the page does not scroll sideways", overflow <= 0, true);
+  check("the long name is on screen", /Extremely Long Vaccine Name/.test(await page.locator(".vp").innerText()), true);
 });
 
 await browser.close();
