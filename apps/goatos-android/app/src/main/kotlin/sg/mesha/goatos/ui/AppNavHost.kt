@@ -2913,8 +2913,12 @@ fun AppNavHost(
                             is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RosterTapped -> {
                                 val taskId = it.arguments?.getString(Routes.PC_TASK_ID_ARG).orEmpty()
                                 val title = it.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
+                                // The verbatim tag comes from whichever list carried the tap —
+                                // the pen roster (roster mode) or the scanned-animal list
+                                // (scan-and-record mode).
                                 val verbatim = state.rosterRows
                                     .firstOrNull { row -> row.key == event.tagKey }?.tagLabel
+                                    ?: state.animals.firstOrNull { row -> row.key == event.tagKey }?.tagLabel
                                     ?: event.tagKey
                                 navController.navigate(
                                     Routes.pcAnimalRoute(taskId, event.tagKey, verbatim, title),

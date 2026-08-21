@@ -5,7 +5,6 @@ package sg.mesha.goatos.feature.pccare
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -201,20 +199,11 @@ private fun PcCareProofCard(
                 )
             }
             if (canRecord && !working) {
-                Text(
-                    text = when (slot.state) {
-                        PcCareSlotState.EMPTY -> "Record"
-                        PcCareSlotState.FAILED -> "Record again"
-                        else -> "Record again"
-                    },
-                    color = MeshaColors.OnBrand,
-                    style = MeshaType.cta,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MeshaColors.Brand)
-                        .clickable(onClick = onRecord)
-                        .padding(horizontal = 12.dp, vertical = 13.dp),
+                // The weighing surfaces' primary-button chrome (Brand fill, dark label).
+                PcCarePrimaryButton(
+                    label = if (slot.state == PcCareSlotState.EMPTY) "Record" else "Record again",
+                    enabled = true,
+                    onClick = onRecord,
                 )
             }
         }

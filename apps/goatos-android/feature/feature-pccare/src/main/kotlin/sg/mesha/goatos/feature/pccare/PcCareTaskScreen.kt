@@ -17,8 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -158,6 +156,7 @@ fun PcCareTaskScreen(
                     PcCareAnimalRow(
                         animal = state.animals[index],
                         locked = state.isLocked,
+                        onOpen = { onEvent(PcCareTaskEvent.RosterTapped(state.animals[index].key)) },
                         onRecordSlot = { fieldKey ->
                             onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
                         },
@@ -247,10 +246,13 @@ private fun PcCareScanRow(
 private fun PcCareAnimalRow(
     animal: PcCareAnimalUi,
     locked: Boolean,
+    onOpen: () -> Unit,
     onRecordSlot: (String) -> Unit,
 ) {
     Column(
-        modifier = pcCareCardModifier(enabled = false, onClick = null),
+        // The whole card opens the animal's own capture screen (the roster drill) — the
+        // per-slot Record buttons below stay as inline shortcuts.
+        modifier = pcCareCardModifier(enabled = !locked, onClick = onOpen.takeIf { !locked }),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -312,16 +314,14 @@ private fun PcCareSlotChipRow(
             }
         }
         if (!locked && slot.canRecord) {
-            OutlinedButton(onClick = onRecord) {
-                Text(
-                    text = when (slot.state) {
-                        PcCareSlotState.EMPTY -> "Record"
-                        else -> "Record again"
-                    },
-                    color = MeshaColors.BrandD,
-                    style = MeshaType.pillStrong,
-                )
-            }
+            PcCarePrimaryButton(
+                label = when (slot.state) {
+                    PcCareSlotState.EMPTY -> "Record"
+                    else -> "Record again"
+                },
+                enabled = true,
+                onClick = onRecord,
+            )
         }
     }
 }
@@ -341,26 +341,17 @@ private fun PcCareSubmitBar(
         if (!state.submitEnabled && state.submitBlockedReason.isNotBlank()) {
             Text(text = state.submitBlockedReason, color = MeshaColors.Muted, style = MeshaType.caption)
         }
-        Button(
-            onClick = { onEvent(PcCareTaskEvent.Submit) },
+        // The weighing surfaces' primary-button chrome (Brand fill, dark label).
+        PcCarePrimaryButton(
+            label = when {
+                state.submitQueued -> "Sent for checking"
+                state.submitInFlight -> "Sending…"
+                else -> "Submit task"
+            },
             enabled = state.submitEnabled && !state.submitInFlight && !state.submitQueued,
+            onClick = { onEvent(PcCareTaskEvent.Submit) },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MeshaColors.BrandD,
-                contentColor = MeshaColors.PageBg,
-                disabledContainerColor = MeshaColors.Surf2,
-                disabledContentColor = MeshaColors.Faint,
-            ),
-        ) {
-            Text(
-                text = when {
-                    state.submitQueued -> "Sent for checking"
-                    state.submitInFlight -> "Sending…"
-                    else -> "Submit task"
-                },
-                style = MeshaType.pillStrong,
-            )
-        }
+        )
     }
 }
 
