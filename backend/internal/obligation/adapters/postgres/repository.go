@@ -1772,9 +1772,10 @@ func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID,
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: open obligation for repeat cycle: %w", err)
 	}
 	return domain.ObligationRef{
-		ObligationID: row.ObligationID,
-		Status:       row.Status,
-		DueAt:        row.DueAt.Time,
+		ObligationID:   row.ObligationID,
+		Status:         row.Status,
+		DueAt:          row.DueAt.Time,
+		IdempotencyKey: row.IdempotencyKey,
 	}, true, nil
 }
 

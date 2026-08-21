@@ -199,6 +199,16 @@ func TestProtocolCreateWritesAreIdempotentAndAudited(t *testing.T) {
 		t.Fatalf("version conflict err=%v, want ErrIdempotencyConflict", err)
 	}
 
+	// One draft per scope is now a database rule, so the first draft has to stop being a
+	// draft before a second version can be created here. Retiring it keeps what this test is
+	// actually about -- that the backend allocates the next version number itself -- since
+	// allocation counts every version, whatever its status.
+	if _, err := pool.Exec(ctx, `
+UPDATE protocol_versions SET status = 'retired'
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid`, testTenantID, versionID); err != nil {
+		t.Fatalf("retire first draft: %v", err)
+	}
+
 	autoVersionID, err := repo.CreateVersion(ctx, domain.NewVersion{
 		TenantID:       testTenantID,
 		ProtocolID:     protocolID,
@@ -226,9 +236,11 @@ WHERE tenant_id = $1::uuid
 		t.Fatalf("backend allocated version = %d, want 2", allocatedVersion)
 	}
 
+	// Rules attach to the draft, which is now the backend-allocated one: the first version
+	// was retired above so a second could be created at all.
 	ruleInput := domain.NewRule{
 		TenantID:          testTenantID,
-		ProtocolVersionID: versionID,
+		ProtocolVersionID: autoVersionID,
 		DoseCode:          "PPR-1",
 		Sequence:          1,
 		TriggerType:       "post_arrival",
@@ -269,7 +281,8 @@ SELECT
   (SELECT count(*) FROM idempotency_keys WHERE idempotency_key IN ($4, $5, $6))`,
 		testTenantID,
 		protocolID,
-		versionID,
+		// The rule count is read against the version the rule was attached to.
+		autoVersionID,
 		testTenantID+":protocol.definition.create:def-key-0001",
 		testTenantID+":protocol.version.create:version-key-0001",
 		testTenantID+":protocol.rule.create:rule-key-0001",

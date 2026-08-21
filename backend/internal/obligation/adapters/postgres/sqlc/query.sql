@@ -227,7 +227,7 @@ WHERE tenant_id = @tenant_id AND obligation_id = @obligation_id;
 -- date. A repeat's due date moves, so a sibling of the same cycle sitting on a different date
 -- is invisible to a due-date lookup -- and that sibling is precisely what the insert guard
 -- suppresses against.
-SELECT obligation_id::text, status, due_at
+SELECT obligation_id::text, status, due_at, idempotency_key
 FROM obligation_instances
 WHERE tenant_id = @tenant_id
   AND protocol_version_id = @protocol_version_id
