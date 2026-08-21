@@ -1229,7 +1229,7 @@ type importStats struct {
 var defaultDepartmentModules = map[string][]string{
 	// pc_care (maintainer decision 2026-08-21): deworming / ticks removal / hoof trimming /
 	// hair trimming live beside vaccination in the Preventive Care department. Migration
-	// 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases.
+	// 000184_pc_care_module_grants.sql applies the same grant to already-seeded databases.
 	"preventive_care": {"vaccination", "counts", "feed_direction", "pc_care"},
 	"health":          {"aas_health", "counts", "milk", "feed_direction", "vaccination"},
 	"feed":            {"feed_direction"},
