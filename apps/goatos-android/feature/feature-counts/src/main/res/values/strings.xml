@@ -85,6 +85,8 @@
     <string name="counts_category_health">Health</string>
     <string name="counts_category_breeding">Breeding</string>
     <string name="counts_category_delivery">Delivery</string>
+    <string name="counts_category_spacing">Spacing</string>
+    <string name="counts_category_flushing">Flushing</string>
 
     <!-- Approval queue -->
     <string name="counts_approval_title">Approvals</string>

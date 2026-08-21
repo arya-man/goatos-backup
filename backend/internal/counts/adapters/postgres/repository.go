@@ -1738,7 +1738,7 @@ INSERT INTO shifting_events (
   -- handler already parses+validates destination_partition_label, but this INSERT never named
   -- them -- so every raise silently discarded the pen and a Castro 1 -> Castro 2 move was stored
   -- as Castro -> Castro. Found by an end-to-end run on 2026-08-06.
-  source_partition_label, destination_partition_label
+  source_partition_label, destination_partition_label, adopt_pen_tag
 ) VALUES (
   $1::uuid, $2, $3, $4, nullif($5::text, '')::uuid, nullif($6::text, '')::uuid,
   $7::uuid, $8::uuid, $9, $10, $11, nullif($12::text, '')::uuid,
@@ -1758,7 +1758,7 @@ INSERT INTO shifting_events (
   -- comment to absent, so an empty string reaching here would be a real (if odd) operator value
   -- rather than "unset", and collapsing it would hide that.
   $24,
-  nullif($25, ''), nullif($26, '')
+  nullif($25, ''), nullif($26, ''), nullif($27, '')
 )
 RETURNING shifting_event_id::text`,
 		in.TenantID, in.LogicalShiftingEventKey, in.Priority, in.Category, ptrValue(in.SourceParkID), ptrValue(in.SourceShedID),
@@ -1766,7 +1766,7 @@ RETURNING shifting_event_id::text`,
 		in.AuthorizationState, in.VerificationState, in.EventStatus, in.SourceSystem, in.SourceRef, ptrValue(in.ProofRef),
 		in.PayloadHash, in.IdempotencyKey, in.RequestFingerprint,
 		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment,
-		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel)).Scan(&id)
+		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel), in.AdoptPenTag).Scan(&id)
 	if err == nil {
 		return id, false, nil
 	}

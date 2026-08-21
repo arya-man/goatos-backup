@@ -241,7 +241,14 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 // validated it against the active animal_stage_lookup vocabulary and rejected clinical states -- so
 // the lookup below cannot silently write NULL.
 func (r *Repository) applyConfiguredCohort(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand, resolution destinationStageResolution) error {
-	partition := strings.TrimSpace(stringValue(cmd.PartitionLabel))
+	return r.writeConfiguredCohort(ctx, tx, cmd.TenantID, cmd.ShedID, strings.TrimSpace(stringValue(cmd.PartitionLabel)), resolution.stage)
+}
+
+// writeConfiguredCohort is the ONE writer of a location's configured cohort, shared by the Counts
+// Breakdown Stage editor (applyConfiguredCohort above) and the typed-shifting pen ADOPTION path
+// (ConfigureAdoptedShedCohortInTx). Callers have already validated the stage against the live
+// vocabulary and their own guards; this only performs the grain-correct write.
+func (r *Repository) writeConfiguredCohort(ctx context.Context, tx pgx.Tx, tenantID, shedID, partition, stage string) error {
 	if partition != "" {
 		tag, err := tx.Exec(ctx, `
 UPDATE shed_partitions sp
@@ -255,7 +262,7 @@ WHERE sp.tenant_id = $1::uuid
   AND a.tenant_id = sp.tenant_id
   AND a.stage_code = $4
   AND a.status = 'active'`,
-			cmd.TenantID, cmd.ShedID, oploc.NormalizePartition(partition), resolution.stage)
+			tenantID, shedID, oploc.NormalizePartition(partition), stage)
 		if err != nil {
 			return fmt.Errorf("identity: reclassify shed stage: configure pen cohort: %w", err)
 		}
@@ -279,7 +286,7 @@ ON CONFLICT (location_id) DO UPDATE
       row_version     = shed_profiles.row_version
                       + CASE WHEN shed_profiles.animal_stage_id IS DISTINCT FROM EXCLUDED.animal_stage_id THEN 1 ELSE 0 END,
       updated_at      = now()`,
-		cmd.TenantID, cmd.ShedID, resolution.stage); err != nil {
+		tenantID, shedID, stage); err != nil {
 		return fmt.Errorf("identity: reclassify shed stage: configure shed cohort: %w", err)
 	}
 	return nil

@@ -50,6 +50,14 @@ type RelocateGoatsCommand struct {
 	// This field changes management_stage only; it never creates pregnancy or lactation facts.
 	DestinationTag string
 
+	// AllowClinicalDestinationTag lifts the clinical-state refusal on DestinationTag for exactly
+	// one caller class: a HEALTH-type shifting (maintainer decision 2026-08-20, superseding the
+	// 2026-08-15 clinical lock FOR THAT TYPE ONLY -- a health shifting IS the health team acting,
+	// so moving an animal into the ICU pen also sets her clinical state, and her vaccinations
+	// defer until the return leg makes her eligible again). Every other caller leaves this false
+	// and keeps ErrClinicalDestinationTag. See docs/features/shifting/shifting-rewrite-tag-rules.md.
+	AllowClinicalDestinationTag bool
+
 	// Reason is recorded on every goat_location_history row written by this command.
 	Reason string
 
@@ -59,6 +67,23 @@ type RelocateGoatsCommand struct {
 	// ("<prefix>:<goat_id>"), so replaying the same approval cannot enqueue a second
 	// goat.location.changed for the same animal.
 	OutboxIdempotencyPrefix string
+}
+
+// ConfigureAdoptedShedCohortCommand tags a destination pen with the tag an arriving typed
+// shifting group carries -- "pen tags follow occupancy" (maintainer decisions 2026-08-20,
+// docs/features/shifting/shifting-rewrite-tag-rules.md). Runs inside the shifting apply
+// transaction via the counts IdentityTxWriter seam; the write re-validates that the pen is still
+// unconfigured-or-matching and holds no disagreeing live animal, failing closed with
+// ErrDestinationPenChanged otherwise.
+type ConfigureAdoptedShedCohortCommand struct {
+	TenantID string
+	ShedID   string
+	// PartitionLabel is the raw pen label within ShedID, nil for a genuinely non-partitioned shed
+	// (the tag then lives on shed_profiles, exactly as the Counts Breakdown editor writes it).
+	PartitionLabel *string
+	// Stage is the tag to adopt, canonicalized against the live vocabulary at write time. Clinical
+	// states are refused -- no movement type adopts a clinical tag onto a PEN.
+	Stage string
 }
 
 // MaxRelocateGoatsPerCommand bounds one bulk relocate. A shed movement is a real-world group of

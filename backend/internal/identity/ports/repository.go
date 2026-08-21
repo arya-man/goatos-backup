@@ -59,6 +59,12 @@ var (
 	// animal. (Reproductive cohorts like Pregnant/Lactating are intentionally NOT rejected here — see
 	// resolveDestinationTag's scope note; that distinction is part of the shed_profiles work.)
 	ErrClinicalDestinationTag = errors.New("identity relocate: destination cohort is a clinical state that a shed move must not fabricate")
+	// ErrDestinationPenChanged: a typed shifting promised the park head an EMPTY (or
+	// already-matching) destination pen to adopt the group's tag onto, and by apply time the pen no
+	// longer satisfies that promise -- somebody configured it differently, or animals of another
+	// cohort now stand in it. The apply fails closed and rolls back rather than silently creating
+	// the mixed pen the raise-time check exists to prevent.
+	ErrDestinationPenChanged = errors.New("identity: destination pen changed between approval and apply; the movement must be raised again")
 	// ErrDestinationProfileMissing: the destination shed has no ACTIVE configured operational profile
 	// (an active shed_profiles row joined through animal_stage_lookup). The destination cohort is
 	// authoritative CONFIGURATION -- read from shed_profiles, never inferred from resident goats

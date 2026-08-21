@@ -194,8 +194,10 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 			ConfiguredStage:  strings.TrimSpace(configuredStage),
 			PartitionLabel:   partitionLabel,
 			Display:          loc.Display(),
+			// The per-pen live population: 0 for a real-but-empty pen. The typed shifting rules
+			// key emptiness checks on this (spacing/delivery/flushing into an empty pen).
+			HeadCount: animalCount,
 		})
-		_ = animalCount // captured for completeness; not used in this API layer
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog rows: %w", err)
@@ -211,6 +213,9 @@ WHERE tenant_id=$1::uuid AND status='active' ORDER BY sort_order, stage_code`, t
 		if err := stageRows.Scan(&stage); err != nil {
 			return domain.ShiftingDestinationCatalog{}, err
 		}
+		// The picker-facing list stays clinical-stripped; the complete list feeds the typed
+		// shifting rulebook, whose per-type clinical refusals do the guarding instead.
+		out.AllManagementStages = append(out.AllManagementStages, stage)
 		if len(nonClinicalShiftingStages([]string{stage})) == 1 {
 			out.ManagementStages = append(out.ManagementStages, stage)
 		}

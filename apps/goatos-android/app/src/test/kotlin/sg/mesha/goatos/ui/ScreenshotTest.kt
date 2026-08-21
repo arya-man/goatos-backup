@@ -535,9 +535,10 @@ class ScreenshotTest {
     }
 
     /**
-     * The raise form's TAG TOGGLE with the destination pen's tag AVAILABLE (maintainer decision
-     * 2026-08-15). Both sides are selectable and the pen's tag is named under the control, so the
-     * operator can see what "use destination tag" would actually apply before choosing it.
+     * The raise form showing the DESTINATION TAG as context (2026-08-20 rewrite: the TAG TOGGLE is
+     * retired -- the movement's category decides the tag on the backend, so the raiser is no
+     * longer asked). The pen's tag is still named under the destination picker, backend-owned and
+     * rendered verbatim, so the operator sees what the chosen pen is for.
      */
     @Test
     fun shifting_tag_toggle_available() = shot("shifting_tag_toggle_available") {
@@ -545,20 +546,20 @@ class ScreenshotTest {
     }
 
     /**
-     * The same toggle on a pen that cannot supply a tag. "Use destination tag" is DIMMED and not
-     * clickable, and the backend's farm-worded reason is rendered verbatim beneath it — the
-     * operator is never offered a choice that silently does nothing, and is told why.
+     * The same context on a pen that cannot supply a tag: the backend's farm-worded reason is
+     * rendered verbatim. The phone never composes the reason -- a blank tag does not say WHY it is
+     * blank, and the operator is owed that.
      */
     @Test
     fun shifting_tag_toggle_unavailable() = shot("shifting_tag_toggle_unavailable") {
         ShiftingScreen(
             state = shiftingTagToggleState(
                 destinationStageReason = "This destination holds a mix of tags",
-            ).copy(stageMode = SHIFTING_STAGE_MODE_KEEP_CURRENT),
+            ),
         )
     }
 
-    /** A raise form with an animal picked and a destination pen selected, ready to show the toggle. */
+    /** A raise form with an animal picked and a destination pen selected, showing its tag context. */
     private fun shiftingTagToggleState(
         destinationStage: String = "",
         destinationStageReason: String = "",

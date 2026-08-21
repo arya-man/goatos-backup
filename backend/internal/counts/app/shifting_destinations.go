@@ -37,6 +37,29 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 	return s.repo.ActiveBreeds(ctx, tenantID)
 }
 
+// ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement) for
+// the typed-raise rulebook (domain.ResolveShiftTypeDecision). Same fail-closed contract as the
+// derivations below: every id must resolve to a live, non-merged animal in this tenant.
+func (s *Service) ShiftingGoatFacts(ctx context.Context, tenantID string, goatIDs []string) ([]domain.GoatShiftingFact, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrMissingRequiredField
+	}
+	if len(goatIDs) == 0 {
+		return nil, ErrImpactNotDerivable
+	}
+	facts, err := s.repo.GoatShiftingFacts(ctx, tenantID, goatIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(facts) != len(goatIDs) {
+		return nil, fmt.Errorf("%w: %d of %d goat ids resolved", ports.ErrGoatNotFound, len(facts), len(goatIDs))
+	}
+	if err := validateShiftableGoatFacts(facts); err != nil {
+		return nil, err
+	}
+	return facts, nil
+}
+
 // DeriveShiftingSource reads the CURRENT park/shed of a single named animal so a shifting event
 // that arrived without an explicit source can still record where the movement started.
 //

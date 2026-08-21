@@ -121,6 +121,10 @@ type ShiftingEventRecorder interface {
 	// DeriveShiftingSource reads a single named animal's current park/shed/PARTITION so a movement submitted
 	// without an explicit source still records where it started.
 	DeriveShiftingSource(ctx context.Context, tenantID string, goatIDs []string) (parkID *string, shedID *string, partitionLabel *string, err error)
+
+	// ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement)
+	// for the typed-raise rulebook (domain.ResolveShiftTypeDecision).
+	ShiftingGoatFacts(ctx context.Context, tenantID string, goatIDs []string) ([]domain.GoatShiftingFact, error)
 }
 
 // NOTE: the handler prepares each birth child through identity validation, but the approval service
@@ -359,12 +363,15 @@ type appApprovalSubmitResponse struct {
 const maxShiftingCommentRunes = 1000
 
 var (
-	// Governing product-doc taxonomy (maintainer decision 2026-07-20): Priority High/Low,
-	// Category Growth/Health/Breeding/Delivery. The prior normal/high/emergency +
-	// routine/pregnancy/warmup/... vocabulary is retired (see migration 000016).
+	// Priority High/Low (maintainer decision 2026-07-20). Category is no longer mere taxonomy:
+	// since the 2026-08-20 shifting rewrite the category IS the shift TYPE, and the type decides
+	// what happens to the animals' tag (domain.ResolveShiftTypeDecision; canonical prose
+	// docs/features/shifting/shifting-rewrite-tag-rules.md). Spacing and flushing joined the
+	// vocabulary with that decision (migration 000177).
 	allowedShiftingPriority = map[string]bool{"high": true, "low": true}
 	allowedShiftingCategory = map[string]bool{
-		"growth": true, "health": true, "breeding": true, "delivery": true,
+		domain.ShiftTypeGrowth: true, domain.ShiftTypeHealth: true, domain.ShiftTypeBreeding: true,
+		domain.ShiftTypeDelivery: true, domain.ShiftTypeSpacing: true, domain.ShiftTypeFlushing: true,
 	}
 	// The raise-form tag toggle's two positions. These are the SAME tokens the
 	// shifting_events.management_stage_mode column already stores, so the toggle records the
@@ -434,14 +441,23 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	// ambiguous about which pen it lands in whichever tag it carries. Gating them on the toggle
 	// would let keep_current skip the check that a partitioned destination names its partition.
 	stageMode, targetStage := shiftingStageModeKeepCurrent, ""
+	// Destination pen facts captured for the typed rulebook below (found-ness, authored tag,
+	// resident stages, live head count) and the whole catalog kept for the source-pen lookup the
+	// spacing rule needs. The catalog fetch itself stays exactly where it was.
+	var (
+		catalog                    domain.ShiftingDestinationCatalog
+		destinationStages          []string
+		destinationConfiguredStage string
+		destinationHeadCount       int
+		destinationFound           bool
+	)
 	{
-		catalog, catalogErr := h.shifting.ShiftingDestinations(r.Context(), tenantID)
+		var catalogErr error
+		catalog, catalogErr = h.shifting.ShiftingDestinations(r.Context(), tenantID)
 		if catalogErr != nil {
 			h.writeCountsError(w, r, catalogErr)
 			return
 		}
-		var destinationStages []string
-		var destinationConfiguredStage string
 		var destinationEntries []domain.ShiftingDestinationShed
 		wantPartition := ""
 		if normalized.DestinationPartitionLabel != nil {
@@ -466,6 +482,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 				}
 				destinationStages = shed.ManagementStages
 				destinationConfiguredStage = shed.ConfiguredStage
+				destinationHeadCount = shed.HeadCount
+				destinationFound = true
 			}
 		}
 		// The destination catalog is built ONLY from active locations (see
@@ -539,23 +557,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		effectiveAt = *normalized.EffectiveAt
 	}
 
-	// Impacts are derived AFTER the canonical hash is taken, never before, and that ordering is
-	// load-bearing for idempotency. The hash must cover only what the CLIENT sent: if a derived
-	// impact were folded into it, an exact replay of the same request would hash differently the
-	// moment the animal's breed or stage row changed underneath, and a legitimate retry would be
-	// rejected as a same-key/different-payload conflict.
-	impacts := shiftingImpacts(normalized)
-	if len(impacts) == 0 {
-		derived, err := h.shifting.DeriveShiftingImpacts(
-			r.Context(), tenantID, normalized.DestinationShedID, normalized.GoatIDs)
-		if err != nil {
-			h.writeCountsError(w, r, err)
-			return
-		}
-		impacts = derived
-	}
-
-	// The source park/shed is backfilled here for the same reason, under the same ordering rule: the
+	// The source park/shed is backfilled here under the hash-ordering rule: the
 	// phone no longer sends a source the server can read off the animal, but the stored event still
 	// has to record where the movement started. Deriving it AFTER the canonical hash keeps a retry
 	// that arrives once the animal has already been moved hashing identically, so it replays onto the
@@ -607,6 +609,107 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// THE SHIFT TYPE DECIDES THE TAG (maintainer decisions 2026-08-20; canonical prose
+	// docs/features/shifting/shifting-rewrite-tag-rules.md). When the raise names a category, the
+	// typed rulebook -- not the legacy toggle -- resolves what happens to the animals' tag, and a
+	// raise the rulebook refuses is rejected HERE, before the approval request, before the park
+	// head reads it, and before any video is shot. The legacy stage_mode toggle governs only a
+	// category-less raise from a client predating the rewrite.
+	//
+	// Ordering is deliberate: this runs AFTER the canonical hash (so the derived facts never leak
+	// into idempotency identity) and AFTER the source backfill (the spacing rule needs the source
+	// pen). It reuses the SAME catalog the form renders and the destination block above captured.
+	adoptPenTag := ""
+	if normalized.Category != "" {
+		facts, factsErr := h.shifting.ShiftingGoatFacts(r.Context(), tenantID, normalized.GoatIDs)
+		if factsErr != nil {
+			h.writeCountsError(w, r, factsErr)
+			return
+		}
+		typeAnimals := make([]domain.ShiftTypeAnimal, 0, len(facts))
+		for _, fact := range facts {
+			animal := domain.ShiftTypeAnimal{GoatID: fact.GoatID}
+			if fact.StageTag != nil {
+				animal.Stage = strings.TrimSpace(*fact.StageTag)
+			}
+			if fact.Sex != nil {
+				animal.Sex = strings.TrimSpace(*fact.Sex)
+			}
+			typeAnimals = append(typeAnimals, animal)
+		}
+		// The SOURCE pen's authored tag and live population, from the same catalog. The source is
+		// the derived/explicit (shed, partition) pair; a group without one single source pen keeps
+		// SourceKnown false and the spacing rule refuses it with its own farm copy.
+		sourceConfiguredStage, sourceHeadCount, sourceFound := "", 0, false
+		if sourceShedID != nil {
+			wantSourcePartition := ""
+			if normalized.SourcePartitionLabel != nil {
+				wantSourcePartition = oploc.NormalizePartition(*normalized.SourcePartitionLabel)
+			}
+			for _, park := range catalog.Parks {
+				for _, shed := range park.Sheds {
+					if shed.ShedID != *sourceShedID {
+						continue
+					}
+					entryPartition := ""
+					if shed.PartitionLabel != nil {
+						entryPartition = oploc.NormalizePartition(*shed.PartitionLabel)
+					}
+					if entryPartition != wantSourcePartition {
+						continue
+					}
+					sourceConfiguredStage = shed.ConfiguredStage
+					sourceHeadCount = shed.HeadCount
+					sourceFound = true
+				}
+			}
+		}
+		decision, refusal := domain.ResolveShiftTypeDecision(domain.ShiftTypeContext{
+			Type:                       normalized.Category,
+			DestinationConfiguredStage: destinationConfiguredStage,
+			DestinationResidentStages:  destinationStages,
+			DestinationHeadCount:       destinationHeadCount,
+			DestinationKnown:           destinationFound,
+			SourceConfiguredStage:      sourceConfiguredStage,
+			SourceHeadCount:            sourceHeadCount,
+			SourceKnown:                sourceFound,
+			Animals:                    typeAnimals,
+			// The COMPLETE vocabulary, clinical included: a health movement stamps a clinical
+			// state, and the rulebook's own per-type refusals guard every other type.
+			WritableStages: catalog.AllManagementStages,
+		})
+		if refusal != nil {
+			h.writeAppError(w, r, identityapp.BadRequest(refusal.Code, refusal.Message))
+			return
+		}
+		// The rulebook's answer replaces the toggle's, recorded in the SAME stored vocabulary:
+		// a stamped target reads as 'destination_stage' (this target came from the destination),
+		// keep-current as 'keep_current'. The type itself is already stored in category.
+		stageMode, targetStage = shiftingStageModeKeepCurrent, ""
+		if decision.TargetStage != "" {
+			stageMode, targetStage = shiftingStageModeDestination, decision.TargetStage
+		}
+		adoptPenTag = decision.AdoptPenTag
+	}
+
+	// Impacts are derived AFTER the canonical hash is taken, never before, and that ordering is
+	// load-bearing for idempotency. The hash must cover only what the CLIENT sent: if a derived
+	// impact were folded into it, an exact replay of the same request would hash differently the
+	// moment the animal's breed or stage row changed underneath, and a legitimate retry would be
+	// rejected as a same-key/different-payload conflict. Running it after the typed rulebook is
+	// deliberate too: a raise the rulebook refuses gets ITS reason ("spacing moves the whole pen
+	// together"), never the impacts derivation's more generic missing_impacts.
+	impacts := shiftingImpacts(normalized)
+	if len(impacts) == 0 {
+		derived, err := h.shifting.DeriveShiftingImpacts(
+			r.Context(), tenantID, normalized.DestinationShedID, normalized.GoatIDs)
+		if err != nil {
+			h.writeCountsError(w, r, err)
+			return
+		}
+		impacts = derived
+	}
+
 	event := domain.ShiftingEvent{
 		TenantID: tenantID,
 		// The logical key is the business identity of this reported movement. Deriving it from the
@@ -623,6 +726,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		DestinationPartitionLabel: normalized.DestinationPartitionLabel,
 		ManagementStageMode:       stageMode,
 		TargetManagementStage:     targetStage,
+		AdoptPenTag:               adoptPenTag,
 		RaisedAt:                  raisedAt,
 		EffectiveAt:               effectiveAt,
 		SourceSystem:              appShiftingSourceSystem,
@@ -663,6 +767,9 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		Category                  string  `json:"category,omitempty"`
 		ManagementStageMode       string  `json:"management_stage_mode"`
 		TargetManagementStage     string  `json:"target_management_stage"`
+		// AdoptPenTag is the tag the destination pen itself adopts at apply (typed raises into an
+		// empty pen). Carried on the payload so the park head approves the pen configuration too.
+		AdoptPenTag string `json:"adopt_pen_tag,omitempty"`
 		// The raiser's note travels WITH the approval request, not just on the movement row: the
 		// park head decides from this payload, so a comment the operator wrote to justify the move
 		// has to be in front of them at the moment they approve or reject.
@@ -684,6 +791,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		Category:              normalized.Category,
 		ManagementStageMode:   stageMode,
 		TargetManagementStage: targetStage,
+		AdoptPenTag:           adoptPenTag,
 		Comment:               normalized.Comment,
 		GoatIDs:               normalized.GoatIDs,
 	})
@@ -800,7 +908,8 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 		return req, identityapp.BadRequest("invalid_priority", "priority must be high or low")
 	}
 	if req.Category != "" && !allowedShiftingCategory[req.Category] {
-		return req, identityapp.BadRequest("invalid_category", "category must be growth, health, breeding, or delivery")
+		return req, identityapp.BadRequest("invalid_category",
+			"category must be growth, health, breeding, delivery, spacing, or flushing")
 	}
 	// A present-but-invalid mode is REJECTED, never silently rewritten. Quietly falling back to the
 	// default would apply the destination pen's tag to a movement whose raiser asked for the
