@@ -28,7 +28,7 @@ q() { psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -tA -F'
 
 case "${1:-}" in
   seed)
-    ./tools/e2e/oci-db.sh reset "$DB" >/dev/null
+    ./tools/e2e/e2e-db.sh reset "$DB" >/dev/null
     q "
     with src as (select tenant_id, custodian_party_id, farm_id, park_id, shed_id, breed_id
                  from goats where lifecycle_status='alive' and shed_id is not null and species='goat' limit 1)

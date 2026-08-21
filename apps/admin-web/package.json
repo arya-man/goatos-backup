@@ -18,7 +18,6 @@
     "smoke:herd-signals-no-reload:live": "node scripts/smoke-herd-signals-no-reload-live.mjs",
     "smoke:herd-signals-mock-parity:live": "node scripts/smoke-herd-signals-mock-parity-live.mjs",
     "smoke:vaccination-click-matrix:live": "node scripts/smoke-vaccination-click-matrix-live.mjs",
-    "smoke:vaccination-authoring:live": "node scripts/smoke-vaccination-authoring-live.mjs",
     "smoke:calendar-identity:live": "GOATOS_SMOKE_ONLY_ROUTES=calendar GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY=1 node scripts/smoke-visual-live.mjs",
     "e2e:sop-builder": "node scripts/sop-builder-e2e.mjs",
     "smoke:visual:baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --require-baseline",

@@ -100,11 +100,14 @@ class VaccinationOutboxConvergenceTest {
     @Test
     fun `an offline shed session drains scans before the submit`() = runBlocking {
         val store = FakeOutboxStore()
-        // Recorded in the order the operator worked: three animals, then Submit.
+        // Inserted in the WRONG order on purpose: the operator worked TAG-1, TAG-2,
+        // TAG-3, then Submit, and that is what createdAt says. Inserting them
+        // backwards means passing this test requires ordering by createdAt -- an
+        // engine that merely drained in insertion order would fail.
+        store.insert(submitRow("submit-1", "shed-A", createdAt = 4L))
+        store.insert(scanRow("scan-3", "shed-A", "TAG-3", createdAt = 3L))
         store.insert(scanRow("scan-1", "shed-A", "TAG-1", createdAt = 1L))
         store.insert(scanRow("scan-2", "shed-A", "TAG-2", createdAt = 2L))
-        store.insert(scanRow("scan-3", "shed-A", "TAG-3", createdAt = 3L))
-        store.insert(submitRow("submit-1", "shed-A", createdAt = 4L))
 
         val order = mutableListOf<String>()
         val api = ScriptedAppApi().apply {
@@ -204,5 +207,64 @@ class VaccinationOutboxConvergenceTest {
         val row = store.findById("submit-1")!!
         assertTrue("a business conflict is terminal", row.conflict)
         assertEquals(1, calls)
+    }
+    @Test
+    fun `a shed's Submit is held back while one of its own scans is still failing`() = runBlocking {
+        // The most consequential ordering property in a vaccination session, and the
+        // one a shed-level test must prove: if an animal's scan has not reached the
+        // server yet, the shed's Submit must NOT go ahead of it. A submit that raced
+        // past a failed scan would close the shed having recorded one animal fewer
+        // than the operator actually vaccinated -- and the shed reads as complete, so
+        // nobody goes looking.
+        val store = FakeOutboxStore()
+        store.insert(scanRow("scan-late", "shed-A", "TAG-1", createdAt = 1L))
+        store.insert(submitRow("submit-A", "shed-A", createdAt = 2L))
+
+        var scanAttempts = 0
+        val api = ScriptedAppApi().apply {
+            recordScanCaptureFn = { _, _, _ ->
+                scanAttempts += 1
+                // Still no signal on the first attempt.
+                if (scanAttempts == 1) throw IOException("no signal") else ScanCaptureResponseDto()
+            }
+            submitAppTaskFn = { _, _, _ -> okSubmission() }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(OutboxStatus.FAILED.name, store.findById("scan-late")!!.status)
+        assertEquals("the Submit must not have gone yet", 0, api.submitCalls.size)
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("submit-A")!!.status)
+
+        // Once the scan lands, the Submit is free to follow -- in that order.
+        store.markRetryReady("scan-late", now = 0L)
+        engine.drainOnce()
+
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("scan-late")!!.status)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("submit-A")!!.status)
+        assertEquals(1, api.submitCalls.size)
+    }
+
+    @Test
+    fun `a different shed's Submit is not held back by shed A's failing scan`() = runBlocking {
+        // The other half of the same rule: hold-back is per shed, not global. One
+        // shed stuck offline must not stop a second operator finishing theirs.
+        val store = FakeOutboxStore()
+        store.insert(scanRow("scan-A", "shed-A", "TAG-1", createdAt = 1L))
+        store.insert(submitRow("submit-A", "shed-A", createdAt = 2L))
+        store.insert(submitRow("submit-B", "shed-B", createdAt = 3L))
+
+        val api = ScriptedAppApi().apply {
+            recordScanCaptureFn = { _, _, _ -> throw IOException("shed A has no signal") }
+            submitAppTaskFn = { _, _, _ -> okSubmission() }
+        }
+
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
+
+        assertEquals(OutboxStatus.QUEUED.name, store.findById("submit-A")!!.status)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("submit-B")!!.status)
+        assertEquals(1, api.submitCalls.size)
+        assertTrue("only shed B submitted", api.submitCalls.all { it.first == "shed-B" })
     }
 }

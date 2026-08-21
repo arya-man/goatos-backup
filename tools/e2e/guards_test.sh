@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Guard tests for oci-db.sh. Needs no database: every case asserts that the
+# Guard tests for e2e-db.sh. Needs no database: every case asserts that the
 # script refuses BEFORE opening a connection, so these run anywhere.
 #
 #   ./tools/e2e/guards_test.sh
 set -uo pipefail
 cd "$(dirname "$0")"
-SUT=./oci-db.sh
+SUT=./e2e-db.sh
 pass=0; fail=0
 
 # Deliberately absent credentials and an unroutable host: if a guard ever lets

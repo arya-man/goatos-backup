@@ -9,7 +9,7 @@
 #     d. do FUTURE scheduled obligations move to the new dates?
 #     e. or do old-version obligations survive alongside the new ones (duplicates)?
 #
-# Baseline is a clone of goatos-stg (see oci-db.sh). Every run resets first, so the
+# Baseline is a clone of goatos-stg (see e2e-db.sh). Every run resets first, so the
 # case is repeatable and order-independent.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -30,7 +30,7 @@ Q(){ psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -tA -F'|'
 say(){ printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 say "0. reset $DB from the stg-clone template"
-./tools/e2e/oci-db.sh reset "$DB" >/dev/null
+./tools/e2e/e2e-db.sh reset "$DB" >/dev/null
 
 say "1. BASELINE — obligations by version and status"
 Q "select coalesce(protocol_version_id::text,'(none)'), status, count(*)
@@ -84,7 +84,7 @@ Q "update protocol_versions set status='published', published_at=now()
 say "4. run the REAL generation service (same code path as the publish handler)"
 cd backend
 # GOATOS_PG_QUERY_TIMEOUT defaults to 3s, which is fine on a LAN and hopeless over
-# an SSH tunnel to Mumbai. Raise it for the remote dev DB only.
+# a forwarded port to a remote clone. Raise it for a remote database only.
 DATABASE_URL="$URL" GOATOS_PG_QUERY_TIMEOUT=120s \
   go run ./cmd/generate-vaccination-obligations \
   -tenant-id "$TENANT" -as-of "$AS_OF" -timeout 45m 2>&1 | tail -25

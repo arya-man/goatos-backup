@@ -38,7 +38,7 @@ const psql = (sql) =>
   ).trim();
 
 function resetDb() {
-  execFileSync("./tools/e2e/oci-db.sh", ["reset", DB], { env: process.env, encoding: "utf8" });
+  execFileSync("./tools/e2e/e2e-db.sh", ["reset", DB], { env: process.env, encoding: "utf8" });
 }
 
 const results = [];

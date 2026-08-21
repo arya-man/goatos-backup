@@ -300,17 +300,30 @@ make the database enforce one open successor per cause:
     CREATE UNIQUE INDEX CONCURRENTLY obligation_repeat_cycle_open_anchor_unique_idx
     ON obligation_instances (tenant_id, repeat_cycle_anchor_obligation_id)
     WHERE repeat_cycle_anchor_obligation_id IS NOT NULL
-      AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed');
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred');
 
 ONE OPEN SUCCESSOR PER ANCHOR, not one ever. This is the hinge of the whole design. A global
 uniqueness would burn the anchor permanently the first time a successor is cancelled or
 superseded, and the cycle could never restart — the same class of silent stoppage the earlier
 constant-key proposal was rejected for.
 
-`missed` is INSIDE the open set deliberately: generation's recovery-repair pass reopens missed
-and deferred rows, so a missed dose is still live work. Terminal statuses — `completed`,
-`waived`, `canceled`, `superseded` — are excluded, which is what lets the next cycle be minted
-from the next completed dose.
+`missed` is OUTSIDE the open set. An earlier draft of this ADR put it inside, on the belief that
+recovery-repair reopens missed rows. That was checked and is FALSE:
+`ReopenDeferredObligationForKey` gates on `status = 'deferred'` only
+(`obligation/adapters/postgres/sqlc/commands.sql:158,214`), and
+`docs/protocol-engine/state-machines.md:60` states that `completed`, `waived`, `canceled`,
+`superseded` AND `missed` rows are immutable history: "a later policy correction creates new work
+or a rework/correction record; it does not rewrite the closed row."
+
+That convention is what makes excluding `missed` correct rather than merely consistent. A missed
+successor is closed history, so it must FREE its anchor — the next completed dose then mints new
+work, which is exactly what the state machine says a policy correction should do. Had `missed`
+stayed inside the index, the first missed dose would have burnt that anchor permanently and the
+cycle would have stalled in silence: the very failure this design exists to prevent, reintroduced
+through its own predicate.
+
+The open set is therefore `scheduled, due, in_progress, deferred`. Everything else — `completed`,
+`waived`, `canceled`, `superseded`, `missed` — is terminal and outside it.
 
 ### Scope, stated honestly
 
@@ -328,9 +341,13 @@ repaired too.
 
 ### Constraints on the implementation
 
-- KEEP IT OPT-IN. `InsertObligationInstance` is the generic obligation insert; feed and health
-  share it. The existing due-date guard stays byte-identical when repeat metadata is absent, with
-  a separate branch only for rows carrying `repeat_cycle_source_ref`.
+- KEEP IT OPT-IN. The existing due-date guard stays byte-identical when repeat metadata is
+  absent, with a separate branch only for rows carrying `repeat_cycle_source_ref`. Stated
+  precisely: TODAY only vaccination inserts through `InsertObligationInstance` — feed completes
+  obligations but never creates them, and health does not touch the statement at all. So this is
+  architecture-preserving hygiene on a genuinely generic statement, not protection of live
+  concurrent callers. An earlier draft of this ADR claimed feed and health share the path; they
+  do not.
 - BOTH MINTING PATHS. `booster.go` is not the only one that creates repeat work — `generation.go`
   also mints it from accepted and imported history. Fixing only the booster leaves a path that
   still writes bad rows.

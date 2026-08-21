@@ -1,9 +1,9 @@
 # E2E — what publishing a new vaccination plan version actually does
 
 **Status:** in progress. Findings below are empirical, run against a clone of `goatos-stg`
-restored onto the OCI dev VM. Every claim states how it was produced.
+restored onto a disposable staging clone. Every claim states how it was produced.
 
-**Harness:** [`tools/e2e/oci-db.sh`](../../../tools/e2e/oci-db.sh),
+**Harness:** [`tools/e2e/e2e-db.sh`](../../../tools/e2e/e2e-db.sh),
 [`tools/e2e/case-01-publish-new-version.sh`](../../../tools/e2e/case-01-publish-new-version.sh)
 
 ---
@@ -12,10 +12,10 @@ restored onto the OCI dev VM. Every claim states how it was produced.
 
 | | |
 |---|---|
-| Database | clone of `goatos-stg` on the OCI dev VM, reached over an SSH tunnel at `127.0.0.1:15432` |
+| Database | a disposable clone of the staging database, reached on a local forwarded port |
 | Reset | Postgres **template** `goatos_base` frozen from that clone; each case runs `CREATE DATABASE … TEMPLATE goatos_base` — **9 seconds**, verified |
 | Generation | the real `GenerationService`, invoked through `backend/cmd/generate-vaccination-obligations` — the same code path as the `protocol.version.published` handler (`internal/vaccination/app/generation_handler.go:175`) |
-| Never touched | Cloud SQL. The harness only ever connects to `127.0.0.1:15432`. |
+| Never touched | Cloud SQL. The harness only ever connects to a local forwarded port. |
 
 ### Baseline (identical for every case)
 
@@ -160,14 +160,14 @@ never touched"** in the redesigned console. It is enforced in SQL, not in applic
 ## Finding 4 — the 3-second query timeout is wrong for a remote database
 
 `GOATOS_PG_QUERY_TIMEOUT` defaults to `3s` (`internal/platform/postgres/postgres.go:30`).
-Against the OCI VM over an SSH tunnel this fails immediately:
+Against a remote clone over a forwarded port this fails immediately:
 
 ```
 generate effective cohort: obligation: cancel by idempotency key: timeout: context deadline exceeded
 ```
 
 The harness sets `GOATOS_PG_QUERY_TIMEOUT=120s` for remote runs. Fine on a LAN; a trap for
-anyone pointing a local binary at the OCI dev DB.
+anyone pointing a local binary at the remote clone.
 
 ---
 
