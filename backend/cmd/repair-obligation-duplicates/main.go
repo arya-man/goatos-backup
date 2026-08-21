@@ -36,10 +36,14 @@ import (
 const (
 	repeatReason   = "repeat_cycle_duplicate_repaired"
 	campaignReason = "campaign_duplicate_repaired"
+	courseReason   = "course_dose_duplicate_repaired"
 
-	// A repeat cycle's cause, when reconstructed after the fact, is the animal's most recent
-	// completed obligation under the same rule.
-	sourceCompletedObligation = "completed_obligation"
+	// A repeat cycle's cause, reconstructed after the fact, is the animal's most recent
+	// accepted administration of the rule's own vaccine -- referenced exactly the way
+	// generation references it, as vaccine|administered-at|dose. Anchoring instead to the
+	// completed obligation would give the legacy row a reference generation never computes,
+	// so the two would not collapse and the duplicate would come straight back.
+	sourceTrustedHistory = "trusted_history"
 )
 
 type config struct {
@@ -110,7 +114,7 @@ func parseFlags(args []string) (config, error) {
 	fs := flag.NewFlagSet("repair-obligation-duplicates", flag.ContinueOnError)
 	cfg := config{}
 	fs.StringVar(&cfg.TenantID, "tenant", "", "tenant id to repair (required)")
-	fs.StringVar(&cfg.Mode, "mode", "repeat", "repeat|campaign: which duplicate class to repair")
+	fs.StringVar(&cfg.Mode, "mode", "repeat", "repeat|course|campaign: which duplicate class to repair")
 	fs.IntVar(&cfg.Limit, "limit", 500, "maximum duplicate groups to process in one run")
 	fs.DurationVar(&cfg.Timeout, "timeout", 10*time.Minute, "overall run timeout")
 	// Applying is opt-in. A repair job that mutates by default is one mistyped flag away from
@@ -123,9 +127,9 @@ func parseFlags(args []string) (config, error) {
 		return config{}, errors.New("-tenant is required")
 	}
 	switch cfg.Mode {
-	case "repeat", "campaign":
+	case "repeat", "course", "campaign":
 	default:
-		return config{}, fmt.Errorf("unknown -mode %q: want repeat or campaign", cfg.Mode)
+		return config{}, fmt.Errorf("unknown -mode %q: want repeat, course or campaign", cfg.Mode)
 	}
 	if cfg.Limit <= 0 {
 		return config{}, errors.New("-limit must be positive")
@@ -170,8 +174,11 @@ func repair(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg config)
 	}
 	now := time.Now().UTC()
 	reason := repeatReason
-	if cfg.Mode == "campaign" {
+	switch cfg.Mode {
+	case "campaign":
 		reason = campaignReason
+	case "course":
+		reason = courseReason
 	}
 	for _, g := range groups {
 		got.GroupsExamined++
@@ -187,9 +194,10 @@ func repair(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg config)
 			}
 			got.DuplicatesRetired++
 		}
-		if cfg.Mode == "campaign" {
-			// A manual campaign has no repeat cause to anchor to; deduplication is the whole
-			// repair. Counted explicitly so the two classes never look conflated in the report.
+		if cfg.Mode != "repeat" {
+			// Neither a manual campaign nor a fixed course dose has a repeat cause to anchor
+			// to; deduplication is the whole repair. Counted in its own bucket so the classes
+			// never look conflated in the report.
 			got.SkippedNotRepeat++
 			continue
 		}
@@ -223,12 +231,15 @@ WITH open_rows AS (
   SELECT oi.protocol_version_id::text AS version_id,
          oi.rule_id::text             AS rule_id,
          oi.target_id::text           AS target_id,
-         oi."sequence"                AS sequence,
+         -- A manual campaign names the animals itself, so its slot is the rule, not a
+         -- sequence: the campaign row and a generated row for the same rule are the same
+         -- work under two sequence numbers.
+         CASE WHEN $2::text = 'campaign' THEN 0 ELSE oi."sequence" END AS sequence,
          -- Rows already stamped with DIFFERENT causes are different cycles, and the new
          -- indexes say so. Grouping them together would have the repair destroy rows the
          -- identity model calls correct. Unstamped rows share the empty key, which is what
          -- puts the pre-fix duplicates in one group.
-         coalesce(oi.repeat_cycle_source_ref, '') AS cycle_ref,
+         CASE WHEN $2::text = 'repeat' THEN coalesce(oi.repeat_cycle_source_ref, '') ELSE '' END AS cycle_ref,
          oi.obligation_id::text       AS obligation_id,
          oi.idempotency_key,
          oi.status,
@@ -248,9 +259,14 @@ WITH open_rows AS (
   WHERE oi.tenant_id = $1
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-    AND CASE
-          WHEN $2::text = 'campaign'
-            THEN lower(coalesce(pr.trigger_type, '')) = 'manual_campaign'
+    AND CASE $2::text
+          WHEN 'campaign' THEN lower(coalesce(pr.trigger_type, '')) = 'manual_campaign'
+          -- A fixed course dose is due once. Its due date still moves -- a corrected date of
+          -- birth or a drive realignment moves it -- and under due-date identity that minted
+          -- a second row for the same slot. There is no repeat cause to anchor here, so the
+          -- course slot itself (rule, animal, sequence) is the identity.
+          WHEN 'course' THEN lower(coalesce(pr.repeat, 'none')) IN ('', 'none')
+              AND lower(coalesce(pr.trigger_type, '')) NOT IN ('manual_campaign', 'after_previous_completion')
           ELSE lower(coalesce(pr.repeat, 'none')) NOT IN ('', 'none')
               OR lower(coalesce(pr.trigger_type, '')) = 'after_previous_completion'
         END
@@ -312,27 +328,41 @@ ORDER BY o.version_id, o.rule_id, o.target_id, o.sequence, o.cycle_ref,
 // worse than none, because it makes two genuinely different cycles collide.
 const anchorCTE = `
 WITH target AS (
-  SELECT oi.tenant_id, oi.obligation_id, oi.rule_id, oi.target_id,
-         oi.protocol_version_id, oi.due_at, oi.repeat_cycle_source_ref
+  SELECT oi.tenant_id, oi.obligation_id, oi.target_id, oi.due_at,
+         lower(coalesce(nullif(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+                        nullif(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '')) AS vaccine_code
   FROM obligation_instances oi
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   WHERE oi.tenant_id = $1
     AND oi.obligation_id = $2::uuid
     AND oi.repeat_cycle_source_ref IS NULL
     AND lower(coalesce(pr.repeat, 'none')) NOT IN ('', 'none')
 ),
 anchor AS (
-  SELECT done.obligation_id, done.completed_at
-  FROM obligation_instances done
-  JOIN target ON target.tenant_id = done.tenant_id
-             AND target.rule_id = done.rule_id
-             AND target.target_id = done.target_id
-             AND target.protocol_version_id = done.protocol_version_id
-  WHERE done.status = 'completed'
-    AND done.completed_at IS NOT NULL
-    AND done.completed_at <= target.due_at
-  ORDER BY done.completed_at DESC
+  SELECT vc.administered_at,
+         t.vaccine_code || '|' ||
+           to_char(vc.administered_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') || '|' ||
+           coalesce(done_rule.sequence, 0)::text AS source_ref
+  FROM vaccination_completions vc
+  JOIN target t ON t.tenant_id = vc.tenant_id AND t.target_id = vc.goat_id
+  JOIN obligation_instances done
+    ON done.tenant_id = vc.tenant_id AND done.obligation_id = vc.obligation_id
+  JOIN protocol_rules done_rule
+    ON done_rule.tenant_id = done.tenant_id AND done_rule.rule_id = done.rule_id
+  JOIN protocol_versions done_version
+    ON done_version.tenant_id = done.tenant_id
+   AND done_version.protocol_version_id = done.protocol_version_id
+  WHERE vc.status = 'accepted'
+    AND vc.verified_at IS NOT NULL
+    AND vc.administered_at <= t.due_at
+    AND lower(coalesce(nullif(done_rule.eligibility_json -> 'vaccine' ->> 'code', ''),
+                       nullif(done_version.rule_dsl -> 'vaccine' ->> 'code', ''), ''))
+        = t.vaccine_code
+    AND t.vaccine_code <> ''
+  ORDER BY vc.administered_at DESC
   LIMIT 1
 )`
 
@@ -352,16 +382,15 @@ SELECT EXISTS (SELECT 1 FROM anchor)`, cfg.TenantID, survivor.ObligationID).Scan
 	tag, err := pool.Exec(ctx, anchorCTE+`
 UPDATE obligation_instances oi
 SET repeat_cycle_source = $3,
-    repeat_cycle_source_ref = anchor.obligation_id::text,
-    repeat_cycle_anchor_obligation_id = anchor.obligation_id,
-    repeat_cycle_anchor_at = anchor.completed_at,
+    repeat_cycle_source_ref = anchor.source_ref,
+    repeat_cycle_anchor_at = anchor.administered_at,
     repeat_cycle_due_at = oi.due_at,
     row_version = oi.row_version + 1,
     updated_at = now()
 FROM anchor, target
 WHERE oi.tenant_id = target.tenant_id
   AND oi.obligation_id = target.obligation_id`,
-		cfg.TenantID, survivor.ObligationID, sourceCompletedObligation)
+		cfg.TenantID, survivor.ObligationID, sourceTrustedHistory)
 	if err != nil {
 		if isRepeatCycleConflict(err) {
 			// Another open cycle already claims this cause. Leaving the row unstamped is
