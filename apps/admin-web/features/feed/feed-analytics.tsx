@@ -780,34 +780,97 @@ function StockCards({
   const active = (stock?.items ?? []).filter(
     (item) => item.days_left !== null && item.days_left !== undefined,
   );
-  if (!stock || active.length === 0) {
-    return (
-      <section className="card" style={{ marginTop: 14 }}>
-        <h2 className="h">{fa(pageContract, "stock.title")}</h2>
-        <p className="muted small">{fa(pageContract, "stock.empty")}</p>
-      </section>
-    );
-  }
+  const farmItems = stock?.farm_items ?? [];
   return (
-    <section style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.title")}>
-      <h2 className="h">{fa(pageContract, "stock.title")}</h2>
-      <p className="muted small">{fa(pageContract, "stock.hint")}</p>
-      <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
-        {active.map((item) => (
-          <div className="kpi card" key={item.feed_item_key}>
-            <div className="dl" title={item.feed_item_label}>{item.feed_item_label}</div>
-            <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
-              {item.days_left === null || item.days_left === undefined
-                ? fa(pageContract, "stock.never_directed")
-                : `${nf(item.days_left)} ${fa(pageContract, "stock.days_left")}`}
-            </div>
-            <div className="muted small">
-              {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
-            </div>
-            {item.low_stock ? <span className="tag t-dng">{fa(pageContract, "stock.low")}</span> : null}
+    <>
+      {!stock || active.length === 0 ? (
+        <section className="card" style={{ marginTop: 14 }}>
+          <h2 className="h">{fa(pageContract, "stock.title")}</h2>
+          <p className="muted small">{fa(pageContract, "stock.empty")}</p>
+        </section>
+      ) : (
+        <section style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.title")}>
+          <h2 className="h">{fa(pageContract, "stock.title")}</h2>
+          <p className="muted small">{fa(pageContract, "stock.hint")}</p>
+          <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
+            {active.map((item) => (
+              <div className="kpi card" key={item.feed_item_key}>
+                <div className="dl" title={item.feed_item_label}>{item.feed_item_label}</div>
+                <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
+                  {item.days_left === null || item.days_left === undefined
+                    ? fa(pageContract, "stock.never_directed")
+                    : `${nf(item.days_left)} ${fa(pageContract, "stock.days_left")}`}
+                </div>
+                <div className="muted small">
+                  {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
+                </div>
+                {item.low_stock ? <span className="tag t-dng">{fa(pageContract, "stock.low")}</span> : null}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    </section>
+        </section>
+      )}
+      <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.farms.title")}>
+        <h2 className="h">{fa(pageContract, "stock.farms.title")}</h2>
+        <p className="muted small">{fa(pageContract, "stock.farms.hint")}</p>
+        {farmItems.length === 0 ? (
+          <p className="muted small">{fa(pageContract, "stock.farms.empty")}</p>
+        ) : (
+          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{fa(pageContract, "stock.farms.col.item")}</th>
+                  <th>{fa(pageContract, "stock.farms.col.farm")}</th>
+                  <th>{fa(pageContract, "stock.farms.col.first_purchase")}</th>
+                  <th>{fa(pageContract, "stock.farms.col.directed_since")}</th>
+                  <th>{fa(pageContract, "stock.farms.col.avg")}</th>
+                  <th>{fa(pageContract, "stock.farms.col.last_load")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {farmItems.map((row) => (
+                  <tr key={`${row.feed_item_key}|${row.farm_label}`}>
+                    <td>{row.feed_item_label}</td>
+                    <td>{row.farm_label}</td>
+                    <td>{row.first_purchase_date}</td>
+                    <td>{row.first_directed_day === "" ? fa(pageContract, "stock.never_directed") : row.first_directed_day}</td>
+                    <td>
+                      {row.avg_daily_kg === ""
+                        ? "—"
+                        : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
+                    </td>
+                    <td>
+                      <div>
+                        {[
+                          `${fa(pageContract, "stock.farms.batch")} ${row.last_load_batch_no}`,
+                          row.last_load_date,
+                          `${nf(num(row.last_load_quantity_kg))} ${fa(pageContract, "unit.kg")}`,
+                          row.last_load_per_kg_cost === ""
+                            ? null
+                            : `${fa(pageContract, "unit.rupees")}${row.last_load_per_kg_cost}/${fa(pageContract, "unit.kg")}`,
+                        ]
+                          .filter((part) => part !== null)
+                          .join(" · ")}
+                      </div>
+                      {row.last_load_vendor !== "" || row.last_load_payment_status !== "" ? (
+                        <div className="muted small">
+                          {[
+                            row.last_load_vendor === "" ? null : row.last_load_vendor,
+                            row.last_load_payment_status === "" ? null : row.last_load_payment_status,
+                          ]
+                            .filter((part) => part !== null)
+                            .join(" · ")}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
