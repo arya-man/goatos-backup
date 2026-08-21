@@ -31,7 +31,7 @@ const psql = (sql) =>
     // run read one database while it resets another.
     [
       "-h", process.env.E2E_PG_HOST ?? "127.0.0.1",
-      "-p", process.env.E2E_PG_PORT ?? "15432",
+      "-p", process.env.E2E_PG_PORT ?? "5432",
       "-U", process.env.E2E_PG_USER ?? "postgres",
       "-d", DB, "-tA", "-F", "|", "-c", sql,
     ],
@@ -123,7 +123,7 @@ function apiStart() {
       // Host and port come from the environment, like every other connection in this
       // harness -- hard-coding them could point a restarted API at a different database
       // than the one the case just reset.
-      DATABASE_URL: `postgres://postgres:${process.env.E2E_PG_PASSWORD}@${process.env.E2E_PG_HOST ?? "127.0.0.1"}:${process.env.E2E_PG_PORT ?? "15432"}/${DB}?sslmode=disable`,
+      DATABASE_URL: `postgres://postgres:${process.env.E2E_PG_PASSWORD}@${process.env.E2E_PG_HOST ?? "127.0.0.1"}:${process.env.E2E_PG_PORT ?? "5432"}/${DB}?sslmode=disable`,
       GOATOS_ENV: "local",
       GOATOS_AUTH_MODE: "bearer",
       GOATOS_AUTH_HS256_SECRET: "goatos-local-dev-secret-32-bytes-min",
