@@ -537,6 +537,8 @@ Explicit documented exclusion — no coverage-matrix mapping required.
 
 | shifting_destination_tag_resolver | func:Resolved, func:ResolveShiftingDestinationStageDetailed, func:ResolveShiftingDestinationPenStageDetailed, func:NormalizeClinicalStageKey, func:IsClinicalManagementStage | Explicit exclusion: shifting write-path/form resolver helpers only; existing counts/herd/verification reads remain the leadership assistant coverage source. |
 
+| shifting_type_tag_rules | func:ShiftingGoatFacts, func:KnownShiftType, func:ResolveShiftTypeDecision, func:ConfigureAdoptedShedCohortInTx | Explicit exclusion: typed shifting write-path validation and apply helpers only. They decide whether a raise/apply is allowed and which destination pen tag is adopted; they add no new leadership KPI, read API, `ceo_ai.*` view, Cube metric, MCP Toolbox tool, or read-only SQL fallback. Existing counts, herd, shifting approval/completion, and verification reporting remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
 
 `GET /counts/breakdown` (row 35 above, already `api + view:animal_current_scope`)

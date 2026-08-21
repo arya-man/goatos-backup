@@ -45,6 +45,12 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_BREEDING
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_DELIVERY
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_FLUSHING
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_GROWTH
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_SPACING
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingEvent
@@ -159,6 +165,33 @@ class ShiftingViewModelEligibilityTest {
 
         vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
         assertTrue(vm.state.value.canSubmit)
+    }
+
+    @Test
+    fun `every rendered shifting category is selectable and travels on submit`() = runTest(dispatcher) {
+        val categories = listOf(
+            SHIFTING_CATEGORY_GROWTH,
+            SHIFTING_CATEGORY_HEALTH,
+            SHIFTING_CATEGORY_BREEDING,
+            SHIFTING_CATEGORY_DELIVERY,
+            SHIFTING_CATEGORY_SPACING,
+            SHIFTING_CATEGORY_FLUSHING,
+        )
+
+        categories.forEach { category ->
+            val sync = NoopShiftingSyncRepository()
+            val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
+            advanceUntilIdle()
+
+            selectAnimalAndPen(vm)
+            vm.onEvent(ShiftingEvent.SelectCategory(category))
+            assertEquals(category, vm.state.value.category)
+
+            vm.onEvent(ShiftingEvent.Submit)
+            advanceUntilIdle()
+
+            assertEquals(category, sync.lastShiftingRequest?.category)
+        }
     }
 
     // -------------------------------------------------------------------------------------------

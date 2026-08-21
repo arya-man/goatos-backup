@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -465,7 +466,7 @@ fun ShiftingScreen(
                 }
             }
             // Matches are a bounded one-screen page from the backend, never a cohort pull.
-            items(state.animalMatches, key = { "match-${it.goatId}" }) { match ->
+            items(state.animalMatches, key = { "match-${it.displayId}-${it.locationLabel}" }) { match ->
                 AnimalRow(
                     animal = match,
                     selected = state.selectedAnimals.any { it.goatId == match.goatId },
@@ -851,6 +852,7 @@ private fun ShiftingSubmitConfirmation(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.W800,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(10.dp))
                     .clickable(onClick = onConfirm)
                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -863,6 +865,7 @@ private fun ShiftingSubmitConfirmation(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.W700,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(10.dp))
                     .clickable(onClick = onDismiss)
                     .padding(horizontal = 12.dp, vertical = 10.dp),

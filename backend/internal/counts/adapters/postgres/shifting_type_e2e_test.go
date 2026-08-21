@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
