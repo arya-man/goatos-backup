@@ -866,8 +866,8 @@ function StockCards({
                   <th>{fa(pageContract, "stock.farms.col.farm")}</th>
                   <th>{fa(pageContract, "stock.farms.col.first_purchase")}</th>
                   <th>{fa(pageContract, "stock.farms.col.directed_since")}</th>
-                  <th>{fa(pageContract, "stock.farms.col.avg")}</th>
                   <th>{fa(pageContract, "stock.farms.col.last_load")}</th>
+                  <th>{fa(pageContract, "stock.farms.col.avg")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -877,11 +877,6 @@ function StockCards({
                     <td>{row.farm_label}</td>
                     <td>{fmtDate(row.first_purchase_date)}</td>
                     <td>{row.first_directed_day === "" ? fa(pageContract, "stock.never_directed") : fmtDate(row.first_directed_day)}</td>
-                    <td>
-                      {row.avg_daily_kg === ""
-                        ? "—"
-                        : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
-                    </td>
                     <td>
                       <div>
                         {[
@@ -893,6 +888,11 @@ function StockCards({
                       {row.last_load_vendor !== "" ? (
                         <div className="muted small">{row.last_load_vendor}</div>
                       ) : null}
+                    </td>
+                    <td>
+                      {row.avg_daily_kg === ""
+                        ? "—"
+                        : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
                     </td>
                   </tr>
                 ))}
