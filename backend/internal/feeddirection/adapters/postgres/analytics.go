@@ -678,7 +678,9 @@ stock_balance AS (
            l.feed_item_key,
            round(l.net_kg - COALESCE(dep.total_directed_kg, 0), 1) AS ledger_stock_kg
     FROM loads l
-    LEFT JOIN depletion dep USING (farm_label, feed_item_key)
+    LEFT JOIN depletion dep
+      ON dep.farm_label = l.farm_label
+     AND dep.feed_item_key = l.feed_item_key
 )
 SELECT l.farm_label,
        l.feed_item_label,
@@ -692,12 +694,16 @@ SELECT l.farm_label,
        ll.vendor,
        sb.ledger_stock_kg::text
 FROM loads l
-JOIN last_load ll USING (farm_label, feed_item_key)
+JOIN last_load ll
+  ON ll.farm_label = l.farm_label
+ AND ll.feed_item_key = l.feed_item_key
 LEFT JOIN directed d
   ON l.park_id_text IS NOT NULL
  AND d.park_id = l.park_id_text::uuid
  AND d.feed_item_key = l.feed_item_key
-LEFT JOIN stock_balance sb USING (farm_label, feed_item_key)
+LEFT JOIN stock_balance sb
+  ON sb.farm_label = l.farm_label
+ AND sb.feed_item_key = l.feed_item_key
 ORDER BY l.feed_item_label, l.farm_label`
 
 // StockAnalytics serves the stock cards and the expenditure series.
