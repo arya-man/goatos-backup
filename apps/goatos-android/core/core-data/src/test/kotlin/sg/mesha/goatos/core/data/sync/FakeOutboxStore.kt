@@ -48,11 +48,16 @@ class FakeOutboxStore : OutboxStore {
                 row.isDrainCandidate(now) &&
                     snapshot.none { older ->
                         older.groupKey == row.groupKey &&
-                            older.createdAt < row.createdAt &&
+                            // Mirrors OutboxDao: insertion order breaks a createdAt tie, so
+                            // same-millisecond rows still hold each other back.
+                            (
+                                older.createdAt < row.createdAt ||
+                                    (older.createdAt == row.createdAt && snapshot.indexOf(older) < snapshot.indexOf(row))
+                                ) &&
                             older.isBackedOff(now)
                     }
             }
-            .sortedBy { it.createdAt }
+            .sortedWith(compareBy({ it.createdAt }, { snapshot.indexOf(it) }))
             .take(limit)
     }
 

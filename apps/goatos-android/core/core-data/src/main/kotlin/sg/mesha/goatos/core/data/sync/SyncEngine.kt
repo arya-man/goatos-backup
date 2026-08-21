@@ -241,7 +241,13 @@ class SyncEngine(
                         actionable.groupBy { it.groupKey }.values.forEach { groupItems ->
                             launch {
                                 semaphore.withPermit {
-                                    for (item in groupItems.sortedBy { it.createdAt }) {
+                                    // NOT re-sorted here. The store returns rows in drain
+                                    // order (createdAt, then rowid), and re-sorting on
+                                    // createdAt alone threw that away: two rows from the same
+                                    // millisecond came back in an order the sort did not fix,
+                                    // so a Submit could still be handed to the server before a
+                                    // scan it must wait for. groupBy preserves encounter order.
+                                    for (item in groupItems) {
                                         if (!processItem(item, ::rememberRetryDue)) {
                                             blockedGroups += item.groupKey
                                             break

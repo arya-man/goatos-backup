@@ -61,13 +61,18 @@ interface OutboxDao {
             "AND NOT EXISTS (" +
             "SELECT 1 FROM outbox AS older " +
             "WHERE older.groupKey = candidate.groupKey " +
-            "AND older.createdAt < candidate.createdAt " +
+            // A strict createdAt comparison lets two rows written in the SAME millisecond
+            // ignore each other: a Submit enqueued in the same tick as a scan was neither
+            // held back by it nor ordered after it. rowid is SQLite's durable insertion
+            // sequence, so it breaks the tie the way the operator actually worked.
+            "AND (older.createdAt < candidate.createdAt " +
+            "OR (older.createdAt = candidate.createdAt AND older.rowid < candidate.rowid)) " +
             "AND older.status = 'FAILED' " +
             "AND older.conflict = 0 " +
             "AND older.attemptCount < older.maxAttempts " +
             "AND older.nextAttemptAt > :now" +
             ") " +
-            "ORDER BY candidate.createdAt ASC LIMIT :limit",
+            "ORDER BY candidate.createdAt ASC, candidate.rowid ASC LIMIT :limit",
     )
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
