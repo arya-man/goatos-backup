@@ -93,14 +93,22 @@ func SlotsForCategory(category string) []Slot {
 		return []Slot{{FieldKey: SlotVideo, Label: "Deworming video"}}
 	case CategoryTicksRemoval:
 		return []Slot{{FieldKey: SlotVideo, Label: "Ticks removal video"}}
-	// Maintainer decision 2026-08-21 (second pass): the trimming categories are ONE video per
-	// animal — the operator taps the animal's RFID off the pen roster and records. The
-	// before/during/after slot keys and columns remain valid storage for historical rows but are
-	// no longer part of any category's expected set.
+	// Maintainer decision 2026-08-21 (restated in the second pass): the trimming categories keep
+	// THREE videos per animal — before, while (~10 s), and after the work. Only the capture FLOW
+	// changed to roster_pick: the operator taps the animal's RFID off the pen roster and the
+	// screen walks the three clips.
 	case CategoryHoofTrimming:
-		return []Slot{{FieldKey: SlotVideo, Label: "Hoof trimming video"}}
+		return []Slot{
+			{FieldKey: SlotBefore, Label: "Before trimming"},
+			{FieldKey: SlotDuring, Label: "While trimming", MinDurationHintSeconds: 10},
+			{FieldKey: SlotAfter, Label: "After trimming"},
+		}
 	case CategoryHairTrimming:
-		return []Slot{{FieldKey: SlotVideo, Label: "Hair trimming video"}}
+		return []Slot{
+			{FieldKey: SlotBefore, Label: "Before trimming"},
+			{FieldKey: SlotDuring, Label: "While trimming", MinDurationHintSeconds: 10},
+			{FieldKey: SlotAfter, Label: "After trimming"},
+		}
 	}
 	return nil
 }

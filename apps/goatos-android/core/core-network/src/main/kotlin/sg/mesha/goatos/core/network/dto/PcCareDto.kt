@@ -9,9 +9,10 @@ import kotlinx.serialization.Serializable
  * verifier gate.
  *
  * `expectedSlots` is the BACKEND-OWNED proof contract for the task's category (one `video` slot
- * per animal for every category), and `captureMode` is the BACKEND-OWNED capture flow
- * (scan_record vs roster_pick). The client iterates/branches on both verbatim — it never
- * hardcodes a category→slot or category→mode map.
+ * for deworming/ticks removal; `before_video`/`during_video`/`after_video` for the trimming
+ * categories), and `captureMode` is the BACKEND-OWNED capture flow (scan_record vs roster_pick).
+ * The client iterates/branches on both verbatim — it never hardcodes a category→slot or
+ * category→mode map.
  */
 @Serializable
 data class PcCareSlotDto(

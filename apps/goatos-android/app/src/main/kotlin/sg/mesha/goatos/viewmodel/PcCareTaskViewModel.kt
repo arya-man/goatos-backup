@@ -254,8 +254,9 @@ class PcCareTaskViewModel @Inject constructor(
     }
 
     /**
-     * Roster mode: a tap on a pen-roster row records that animal. A tag not yet in the task is
-     * scanned in first (the SAME free-flow scan write), then the recorder opens.
+     * Roster mode: a tap on a pen-roster row records that animal's NEXT missing clip (the
+     * trimming triple walks before → while → after). A tag not yet in the task is scanned in
+     * first (the SAME free-flow scan write), then the recorder opens.
      */
     private fun onRosterTapped(tagKey: String) {
         val detail = latestDetail ?: return
@@ -264,8 +265,13 @@ class PcCareTaskViewModel @Inject constructor(
             local.update { it.copy(message = "Finish the current video first.") }
             return
         }
-        val slotFieldKey = detail.expectedSlots.firstOrNull()?.fieldKey ?: return
         val animal = latestAnimals.firstOrNull { it.normalizedTag == tagKey }
+        val slotFieldKey = pcCareNextRosterSlot(
+            expectedSlots = detail.expectedSlots,
+            animal = animal,
+            animalProofs = latestProofs.filter { it.fieldKey.substringBefore(':') == tagKey },
+            json = json,
+        ) ?: return
         if (animal != null) {
             onRecordSlot(tagKey, slotFieldKey)
             return
@@ -357,12 +363,14 @@ class PcCareTaskViewModel @Inject constructor(
                     val result = proofCaptureRepository.captureReplacingLatest(
                         slot = slot,
                         subject = ProofSubject.OTHER,
-                        subjectId = tagKey,
+                        // The proof platform requires a UUID subject/scope (validateCreate); the
+                        // animal's tag identity rides rfidTag + the slot field key instead.
+                        subjectId = taskId,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
                         caption = "${slotDto.label} · $animalTagVerbatim",
                         rfidTag = animalTagVerbatim,
-                        scopeType = "pc_care_task",
+                        scopeType = "task",
                         scopeId = taskId,
                         capturedStartMs = captured.startedAtMs,
                         capturedEndMs = captured.endedAtMs,
@@ -543,7 +551,12 @@ class PcCareTaskViewModel @Inject constructor(
                 ""
             },
             submitEnabled = evaluation.ready && !locked,
-            submitBlockedReason = if (!evaluation.ready && !locked) evaluation.blockedReason else "",
+            submitBlockedReason = when {
+                evaluation.ready || locked -> ""
+                // Roster mode has no scan verb — the same gate reads as a record ask.
+                rosterMode && animals.isEmpty() -> "Record at least one animal first" // mobile-contract:ignore: device-local pre-sync gate copy
+                else -> evaluation.blockedReason
+            },
             showSubmitConfirmation = bits.showSubmitConfirmation,
             submitInFlight = bits.submitInFlight,
             submitQueued = bits.submitQueued,
@@ -722,10 +735,37 @@ internal fun pcCareBuildAnimalUis(
     }
 }
 
+/** True when this chip's clip is durably in (this phone synced, or a peer's attribution). */
+private fun pcCareChipDone(chip: PcCareSlotChipUi): Boolean =
+    chip.state == PcCareSlotState.SYNCED || chip.state == PcCareSlotState.PEER
+
 /**
- * Derives the roster-tap rows: one per pen-roster RFID, in roster order, each carrying the video
- * state of the FIRST expected slot (roster categories are one video per animal). Animals scanned
- * into the task but absent from the roster append after, so no recorded work is ever hidden.
+ * The slot a roster tap records next for one animal: the first expected slot that is neither
+ * durably captured nor mid-pipeline (slot ORDER is the backend contract's order — before, while,
+ * after for the trimming categories). Every slot settled → the FIRST slot, so a sent-back task
+ * can re-record. An animal not yet scanned starts at the first slot.
+ */
+internal fun pcCareNextRosterSlot(
+    expectedSlots: List<PcCareSlotDto>,
+    animal: PcCareAnimalRowEntity?,
+    animalProofs: List<ProofCaptureRow>,
+    json: Json,
+): String? {
+    val first = expectedSlots.firstOrNull()?.fieldKey ?: return null
+    if (animal == null) return first
+    val serverSlots = decodeServerSlots(json, animal.serverSlotsJson)
+    val next = expectedSlots.firstOrNull { slot ->
+        val chip = pcCareSlotChip(slot, animal.normalizedTag, animalProofs, serverSlots, capturingSlotKey = null)
+        !pcCareChipDone(chip) && chip.state != PcCareSlotState.WORKING
+    }
+    return next?.fieldKey ?: first
+}
+
+/**
+ * Derives the roster-tap rows: one per pen-roster RFID, in roster order, each summarizing the
+ * animal's WHOLE slot set (one video for scan-record work; before/while/after for the trimming
+ * categories). Animals scanned into the task but absent from the roster append after, so no
+ * recorded work is ever hidden.
  */
 internal fun pcCareBuildRosterRows(
     expectedSlots: List<PcCareSlotDto>,
@@ -735,26 +775,38 @@ internal fun pcCareBuildRosterRows(
     capturingSlotKey: String?,
     json: Json,
 ): List<PcCareRosterRowUi> {
-    val slot = expectedSlots.firstOrNull() ?: return emptyList()
+    if (expectedSlots.isEmpty()) return emptyList()
     val proofsByAnimal = proofs.groupBy { it.fieldKey.substringBefore(':') }
     val animalsByTag = animals.associateBy { it.normalizedTag }
 
     fun rowFor(tagKey: String, tagVerbatim: String): PcCareRosterRowUi {
         val animal = animalsByTag[tagKey]
             ?: return PcCareRosterRowUi(key = tagKey, tagLabel = tagVerbatim)
-        val chip = pcCareSlotChip(
-            slot = slot,
-            normalizedTag = tagKey,
-            animalProofs = proofsByAnimal[tagKey].orEmpty(),
-            serverSlots = decodeServerSlots(json, animal.serverSlotsJson),
-            capturingSlotKey = capturingSlotKey,
-        )
+        val serverSlots = decodeServerSlots(json, animal.serverSlotsJson)
+        val animalProofs = proofsByAnimal[tagKey].orEmpty()
+        val chips = expectedSlots.map { slot ->
+            pcCareSlotChip(slot, tagKey, animalProofs, serverSlots, capturingSlotKey)
+        }
+        val doneCount = chips.count(::pcCareChipDone)
+        val done = doneCount == chips.size
+        // The camera is open for THIS animal (never merely uploading — a background upload must
+        // not block recording the animal's next clip).
+        val recordingNow = capturingSlotKey != null && capturingSlotKey.startsWith("$tagKey:")
+        val statusLabel = when {
+            recordingNow -> "Recording…"
+            done && chips.size == 1 -> chips.first().statusLabel
+            done -> "All ${chips.size} videos in"
+            chips.any { it.state == PcCareSlotState.FAILED } -> "Record again"
+            doneCount > 0 || chips.any { it.state == PcCareSlotState.WORKING } ->
+                "$doneCount of ${chips.size} videos"
+            else -> ""
+        }
         return PcCareRosterRowUi(
             key = tagKey,
             tagLabel = animal.tagVerbatim,
-            statusLabel = chip.statusLabel,
-            done = chip.state == PcCareSlotState.SYNCED || chip.state == PcCareSlotState.PEER,
-            working = chip.state == PcCareSlotState.WORKING,
+            statusLabel = statusLabel,
+            done = done,
+            working = recordingNow,
         )
     }
 
