@@ -1716,18 +1716,45 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			var finalRef obldomain.ObligationRef
 			var changed bool
 			var reschedule *obldomain.RecoveryReschedule
+			// Which row this pass is actually reconciling.
+			//
+			// Everything below is keyed, and the key contains the due date. A repeat cycle
+			// whose due date moved is suppressed by its CAUSE, so the surviving row sits under
+			// the PREVIOUS key and every call here would miss it: the duplicate is gone, but
+			// so is the move -- the row keeps a stale date, is never deferred for a sick
+			// animal, never reopened for a recovered one, and contributes nothing to
+			// cross-vaccine spacing. Reconciling the row we actually suppressed against fixes
+			// that; it also means the new due date reaches the surviving row, which is the
+			// only way a moved date surfaces at all now that a second row is impossible.
+			reconcileKey := key
+			if historyAnchor.Valid() {
+				survivor, found, err := s.obl.OpenObligationForRepeatCycle(
+					ctx, tenantID, versionID, rule.RuleID, "goat", g.GoatID, rule.Sequence, historyAnchor.SourceRef,
+				)
+				if err != nil {
+					return err
+				}
+				if found && strings.TrimSpace(survivor.IdempotencyKey) != "" && survivor.IdempotencyKey != key {
+					reconcileKey = survivor.IdempotencyKey
+					if !deferred && !survivor.DueAt.Equal(due) {
+						if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, reconcileKey, due, newObligation.WindowEnd, asOf); err != nil {
+							return err
+						}
+					}
+				}
+			}
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 					return err
 				}
 			}
 			if cohortCampaignRealignment && !deferred {
-				if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, key, due, newObligation.WindowEnd, asOf); err != nil {
+				if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, reconcileKey, due, newObligation.WindowEnd, asOf); err != nil {
 					return err
 				}
 			}
 			if deferred {
-				finalRef, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, key, deferReason, asOf)
+				finalRef, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, reconcileKey, deferReason, asOf)
 				if err != nil {
 					return err
 				}
@@ -1744,7 +1771,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 						return err
 					}
 				}
-				finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, key, asOf, reschedule)
+				finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, reconcileKey, asOf, reschedule)
 				if err != nil {
 					return err
 				}

@@ -29,20 +29,18 @@ console.log("1. open the plan list");
 await page.goto(`${BASE}/vaccination/plan`, { waitUntil: "networkidle" });
 await shot("01-list");
 
+// Starting a version lands straight in the editor now -- there is no intermediate
+// "Open V2" link to click, and waiting for one made this script fail on a working app.
 const startButton = page.getByRole("button", { name: /Start a new version/i });
 const openDraft = page.getByRole("link", { name: /^Open V\d/i });
 if (await startButton.count()) {
   console.log("2. start a new version");
   await startButton.click();
-  await page.waitForTimeout(2500);
 } else {
-  console.log("2. a draft already exists");
+  console.log("2. a draft already exists — open it");
+  await openDraft.first().click();
 }
-await shot("02-draft-created");
-
-console.log("3. open the draft");
-await openDraft.first().click();
-await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 20000 });
+await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
 await page.waitForLoadState("networkidle");
 await shot("03-editor");
 

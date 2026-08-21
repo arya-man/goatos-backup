@@ -132,6 +132,10 @@ type ObligationRef struct {
 	Reason       string
 	DueAt        time.Time
 	RowVersion   int32
+	// IdempotencyKey is set only by lookups that find a row some OTHER way -- by its cause,
+	// say. Generation's reconciliation is all keyed, so a row located by cause is unreachable
+	// without carrying its key back.
+	IdempotencyKey string
 }
 
 // DueObligation is a row from the due-window scan.

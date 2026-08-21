@@ -238,7 +238,7 @@ func (q *Queries) GetOpenObligationByLogicalKey(ctx context.Context, arg GetOpen
 }
 
 const getOpenObligationForRepeatCycle = `-- name: GetOpenObligationForRepeatCycle :one
-SELECT obligation_id::text, status, due_at
+SELECT obligation_id::text, status, due_at, idempotency_key
 FROM obligation_instances
 WHERE tenant_id = $1
   AND protocol_version_id = $2
@@ -266,9 +266,10 @@ type GetOpenObligationForRepeatCycleParams struct {
 }
 
 type GetOpenObligationForRepeatCycleRow struct {
-	ObligationID string
-	Status       string
-	DueAt        pgtype.Timestamptz
+	ObligationID   string
+	Status         string
+	DueAt          pgtype.Timestamptz
+	IdempotencyKey string
 }
 
 // Finds the open row that already holds a repeat cycle, by its CAUSE rather than its due
@@ -286,7 +287,12 @@ func (q *Queries) GetOpenObligationForRepeatCycle(ctx context.Context, arg GetOp
 		arg.RepeatCycleSourceRef,
 	)
 	var i GetOpenObligationForRepeatCycleRow
-	err := row.Scan(&i.ObligationID, &i.Status, &i.DueAt)
+	err := row.Scan(
+		&i.ObligationID,
+		&i.Status,
+		&i.DueAt,
+		&i.IdempotencyKey,
+	)
 	return i, err
 }
 

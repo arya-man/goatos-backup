@@ -3136,7 +3136,7 @@ type nearestBatchLookup struct {
 	parkID      string
 }
 
-func (o *generationObligationFake) InsertObligation(_ context.Context, in obldomain.NewObligation) (string, bool, error) {
+func (o *generationObligationFake) InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error) {
 	if o.seen == nil {
 		o.seen = map[string]bool{}
 	}
@@ -3148,6 +3148,15 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	}
 	if o.seen[in.IdempotencyKey] {
 		return "obligation-1", false, nil
+	}
+	// The database refuses a repeat cycle whose CAUSE already has an open row, whatever key
+	// it arrives under. Without that here, a moved due date would look like a fresh insert
+	// and the fake would quietly disagree with production about the one behaviour that
+	// matters most in this area.
+	if in.RepeatCycle.Valid() {
+		if _, found, _ := o.OpenObligationForRepeatCycle(ctx, in.TenantID, in.ProtocolVersionID, in.RuleID, in.TargetType, in.TargetID, in.Sequence, in.RepeatCycle.SourceRef); found {
+			return "obligation-1", false, nil
+		}
 	}
 	if o.failOnceAfterInserted > 0 && len(o.inserted) >= o.failOnceAfterInserted && !o.failed {
 		o.failed = true
@@ -3257,9 +3266,31 @@ func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ contex
 
 // Returns every animal asked about, so the generation tests exercise the supersede path
 // rather than silently skipping it.
-// Returns nothing found, so the successor loop keeps its pre-existing suffix behaviour
-// unless a test opts into the by-cause path.
-func (o *generationObligationFake) OpenObligationForRepeatCycle(context.Context, string, string, string, string, string, int32, string) (obldomain.ObligationRef, bool, error) {
+// Finds an open row by the cause it descends from, exactly as the database does: the
+// production suppression is by cause, so a fake that could not answer this would let the
+// stale-survivor bug pass unnoticed.
+func (o *generationObligationFake) OpenObligationForRepeatCycle(_ context.Context, _, versionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (obldomain.ObligationRef, bool, error) {
+	for i := range o.inserted {
+		row := o.inserted[i]
+		if row.RepeatCycle == nil || row.RepeatCycle.SourceRef != sourceRef {
+			continue
+		}
+		if row.ProtocolVersionID != versionID || row.RuleID != ruleID ||
+			row.TargetType != targetType || row.TargetID != targetID || row.Sequence != sequence {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(row.Status)) {
+		case "scheduled", "due", "in_progress", "deferred":
+		default:
+			continue
+		}
+		return obldomain.ObligationRef{
+			ObligationID:   fmt.Sprintf("obligation-%d", i+1),
+			Status:         row.Status,
+			DueAt:          row.DueAt,
+			IdempotencyKey: row.IdempotencyKey,
+		}, true, nil
+	}
 	return obldomain.ObligationRef{}, false, nil
 }
 
@@ -4246,5 +4277,74 @@ func TestGenerationStampsTheAdministrationThatCausedTheRepeat(t *testing.T) {
 	}
 	if stamped != 1 {
 		t.Fatalf("stamped %d repeat obligations, want 1", stamped)
+	}
+}
+
+// The duplicate is gone -- but the move must still land somewhere.
+//
+// A repeat cycle is suppressed by its CAUSE, so the surviving row can be one another writer
+// created under a different idempotency key -- a booster-minted successor, most often, since
+// completion mints the next cycle the moment a dose is recorded. Every reconciliation in
+// generation is keyed, so a pass that keeps using the key it just computed reconciles
+// nothing: no duplicate, but a row frozen on the booster's date, never realigned to the
+// drive, never deferred for a sick animal, never reopened for a recovered one. Suppression is
+// not the same as being finished.
+func TestGenerationMovesTheSurvivingRepeatCycleInsteadOfLeavingItStale(t *testing.T) {
+	ctx := context.Background()
+	administered := time.Date(2026, time.January, 6, 9, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2,
+			TriggerType: "after_previous_completion", OffsetDays: 274, DueWindowDays: 30, Repeat: "every_n_days",
+		}},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "repeat-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-1", ParkID: "cpt",
+		}},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"repeat-goat": {{
+				AdministeredAt: administered, VaccineCode: "FMD", VaccineType: "killed",
+				PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	// The successor the completion path already minted for this cause, on ITS date and under
+	// ITS key -- five days off what generation is about to compute.
+	cause := obldomain.RepeatCycleRef("FMD", administered, 2)
+	boosterDue := businessDayStart(administered).AddDate(0, 0, 269)
+	anchorID := "obligation-that-was-given"
+	if _, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: "rule-fmd-repeat",
+		TargetType: "goat", TargetID: "repeat-goat", ScopeType: "shed", ScopeID: "shed-1",
+		DueAt: boosterDue, Status: "scheduled", IdempotencyKey: "booster:next-cycle", Sequence: 2,
+		RepeatCycle: &obldomain.RepeatCycleSource{
+			Source: obldomain.RepeatCycleSourceTrustedHistory, SourceRef: cause,
+			AnchorObligationID: &anchorID, AnchorAt: &administered, DueAt: &boosterDue,
+		},
+	}); err != nil || !applied {
+		t.Fatalf("seed booster successor: applied=%v err=%v", applied, err)
+	}
+
+	gen := NewGenerationService(proto, goats, obl)
+	asOf := time.Date(2026, time.September, 1, 6, 0, 0, 0, time.UTC)
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(obl.inserted) != 1 {
+		t.Fatalf("generation created a second row for a cycle that already existed: %d rows", len(obl.inserted))
+	}
+	got := obl.inserted[0]
+	if got.IdempotencyKey != "booster:next-cycle" {
+		t.Fatalf("survivor key = %q, want the booster-minted row", got.IdempotencyKey)
+	}
+	want := businessDayStart(administered).AddDate(0, 0, 274)
+	if !got.DueAt.Equal(want) {
+		t.Fatalf("survivor due %s, want %s -- the recomputed date never reached the row it suppressed against", got.DueAt, want)
 	}
 }
