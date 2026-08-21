@@ -25,6 +25,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.navigation.NavController
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -76,6 +77,10 @@ import sg.mesha.goatos.feature.feed.FeedWastageCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedWastageCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedWastageEvent
 import sg.mesha.goatos.feature.feed.FeedWastageScreen
+import sg.mesha.goatos.feature.pccare.PcCarePlanScreen
+import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
+import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
+import sg.mesha.goatos.feature.pccare.PcCareWorklistScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -169,6 +174,9 @@ import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
+import sg.mesha.goatos.viewmodel.PcCarePlanViewModel
+import sg.mesha.goatos.viewmodel.PcCareTaskViewModel
+import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -401,6 +409,29 @@ object Routes {
     // worklist. The backend's nav item carries this href verbatim ({key:"feed_wastage",
     // href:"/feed/wastage"}), so registering the route is what makes the tab work.
     const val FEED_WASTAGE = "/feed/wastage"
+
+    // PC Care module bar (backend module `pc_care`, maintainer decision 2026-08-21). The four
+    // category worklists are L0 roots matching the backend-composed nav hrefs VERBATIM
+    // (bootstrap_copy.go), plus the CEO planner tab. Category keys are the backend's category
+    // vocabulary (backend/internal/pccare/domain).
+    const val PC_DEWORMING = "/pc/deworming"
+    const val PC_TICKS = "/pc/ticks"
+    const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
+    const val PC_HAIR_TRIMMING = "/pc/hair-trimming"
+    const val PC_TASKS = "/pc/tasks"
+    const val PC_TASK_ID_ARG = "task_id"
+    const val PC_TASK_CATEGORY_ARG = "category"
+    const val PC_TASK_TITLE_ARG = "title"
+
+    // The L1 task drill: one PC Care task's scan/capture/submit screen. A distinct hosted
+    // destination with Up/Back and NO root chrome (Android navigation-stack invariant) — never a
+    // prefix reuse of the L0 tabs above.
+    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcTaskRoute(taskId: String, category: String, title: String): String =
+        "/pc/task/${Uri.encode(taskId)}" +
+            "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
     const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
     // [lifecycleStatus] is the task's backend-owned status AT THE MOMENT the row was tapped — only a
     // FIRST-PAINT hint for FeedTransportCaptureViewModel; see its ARG_LIFECYCLE_STATUS kdoc.
@@ -2779,6 +2810,80 @@ fun AppNavHost(
             }
         }
 
+        // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------
+        // Four L0 category worklist tabs, one shared composable. Each route binds its category
+        // constant + backend tab label; tapping a card pushes the hosted task drill.
+        // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
+        // header and the bottom-bar tab read identically.
+        pcCareWorklistComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController)
+        pcCareWorklistComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController)
+        pcCareWorklistComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController)
+        pcCareWorklistComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController)
+
+        // The CEO planner tab — reachable only when the backend offers it (nav is
+        // backend-composed; no client-side role checks).
+        composable(Routes.PC_TASKS) {
+            val vm: PcCarePlanViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCarePlanScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // The L1 task drill: scan + per-animal slot capture + whole-task submit. The composable
+        // is wrapped in CaptureAccessGate + BindVideoCaptureSource so the LIVE in-app camera works
+        // exactly like the weighing scan screen.
+        composable(
+            route = Routes.PC_TASK,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TASK_CATEGORY_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: PcCareTaskViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Hardware reader capture only while this capture screen is active.
+            DisposableEffect(vm) {
+                vm.setCaptureActive(true)
+                onDispose { vm.setCaptureActive(false) }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                PcCareTaskScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
         // The approver's queue -- the whole of the APPROVALS module (maintainer decision
         // 2026-08-05, superseding the 2026-07-21 removal). The backend gates the module on
         // counts.approve_access, so a principal without that authority never receives it and
@@ -3141,6 +3246,15 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_COLOSTRUM,
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
+    // PC Care roots (maintainer decision 2026-08-21): the four backend-composed category tabs
+    // plus the CEO planner tab. Each is an L0 bottom-bar destination exactly like its siblings —
+    // registering the composable alone would leave a notification or deep link naming one
+    // treated as unhosted and bounced to home.
+    Routes.PC_DEWORMING,
+    Routes.PC_TICKS,
+    Routes.PC_HOOF_TRIMMING,
+    Routes.PC_HAIR_TRIMMING,
+    Routes.PC_TASKS,
 )
 
 /**
@@ -3204,6 +3318,50 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
         "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
         "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}"
+
+/**
+ * One PC Care category worklist tab (module pc_care). The four L0 tab routes share this
+ * registration: each binds its category constant + backend tab label to its own
+ * [PcCareWorklistViewModel] instance (VMs are scoped per NavBackStackEntry, so the tabs never
+ * share state), and a card tap pushes the hosted task drill carrying the same category + title.
+ */
+private fun NavGraphBuilder.pcCareWorklistComposable(
+    route: String,
+    category: String,
+    title: String,
+    navController: NavHostController,
+) {
+    composable(route) {
+        val vm: PcCareWorklistViewModel = hiltViewModel()
+        LaunchedEffect(vm) { vm.bind(category, title) }
+        val state by vm.state.collectAsStateWithLifecycle()
+        val rows = vm.rows.collectAsLazyPagingItems()
+        val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+        val appendError = (rows.loadState.append as? LoadState.Error)?.error
+        LaunchedEffect(refreshError, appendError) {
+            (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+        }
+        PcCareWorklistScreen(
+            state = state,
+            rows = rows,
+            onEvent = { event ->
+                when (event) {
+                    PcCareWorklistEvent.Refresh -> {
+                        vm.onEvent(event)
+                        rows.refresh()
+                    }
+                    is PcCareWorklistEvent.OpenTask -> {
+                        vm.onEvent(event)
+                        navController.navigate(Routes.pcTaskRoute(event.taskId, category, title)) {
+                            launchSingleTop = true
+                        }
+                    }
+                    else -> vm.onEvent(event)
+                }
+            },
+        )
+    }
+}
 
 private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 

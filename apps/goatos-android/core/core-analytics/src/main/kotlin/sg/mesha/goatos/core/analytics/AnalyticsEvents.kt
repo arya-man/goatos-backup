@@ -535,6 +535,42 @@ object AnalyticsEvents {
     /** A feed-transport proof or completion could not be queued. */
     const val FEED_TRANSPORT_FAILURE = "feed_transport_failure"
 
+    // --- PC Care (module pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
+    // ticks removal / hoof trimming / hair trimming tasks with per-animal slot videos. ---
+
+    /** A PC Care category worklist tab was opened; [Params.KIND] carries the category key. */
+    const val PC_CARE_WORKLIST_VIEWED = "pc_care_worklist_viewed"
+
+    /** A PC Care task detail was opened from a worklist card. */
+    const val PC_CARE_TASK_OPENED = "pc_care_task_opened"
+
+    /** A scanned tag was accepted into the task (queued durably for sync). */
+    const val PC_CARE_SCAN_ACCEPTED = "pc_care_scan_accepted"
+
+    /** A scanned tag was already in the task ("Already scanned" notice shown). */
+    const val PC_CARE_SCAN_DUPLICATE = "pc_care_scan_duplicate"
+
+    /** A slot's video recorder was opened; [Params.KIND] carries the slot field key. */
+    const val PC_CARE_SLOT_CAPTURE_STARTED = "pc_care_slot_capture_started"
+
+    /** A slot's video was captured and its upload queued; [Params.KIND] the slot field key. */
+    const val PC_CARE_SLOT_CAPTURED = "pc_care_slot_captured"
+
+    /** Submit was refused; [Params.REASON] carries the coarse blocked cause. */
+    const val PC_CARE_SUBMIT_BLOCKED = "pc_care_submit_blocked"
+
+    /** The operator confirmed the whole-task submit (write enqueued). */
+    const val PC_CARE_SUBMIT_CONFIRMED = "pc_care_submit_confirmed"
+
+    /** A task in rework was opened (the verifier's reason is on screen). */
+    const val PC_CARE_REWORK_VIEWED = "pc_care_rework_viewed"
+
+    /** The planner created a PC Care task; [Params.KIND] carries the category key. */
+    const val PC_CARE_PLAN_TASK_CREATED = "pc_care_plan_task_created"
+
+    /** A PC Care read, scan, capture, or submit could not be queued/served. [Params.REASON]. */
+    const val PC_CARE_FAILURE = "pc_care_failure"
+
     /** The milk preparation screen (park's milk processing setup) was opened. */
     const val MILK_PREPARATION_OPENED = "milk_preparation_opened"
 
