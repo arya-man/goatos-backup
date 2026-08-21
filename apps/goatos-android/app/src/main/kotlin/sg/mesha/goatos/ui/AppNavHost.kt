@@ -427,6 +427,9 @@ object Routes {
     // destination with Up/Back and NO root chrome (Android navigation-stack invariant) — never a
     // prefix reuse of the L0 tabs above.
     const val PC_TASK_MONITOR_ARG = "monitor"
+
+    /** SavedStateHandle key: the plan wizard hands its planned date back to the monitor list. */
+    const val PC_CARE_CREATED_DATE_KEY = "pc_care_created_date"
     const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}&$PC_TASK_MONITOR_ARG={$PC_TASK_MONITOR_ARG}"
 
     const val PC_TAG_KEY_ARG = "tag_key"
@@ -2864,7 +2867,13 @@ fun AppNavHost(
             LaunchedEffect(vm) { vm.bindWizard(category, title) }
             val state by vm.state.collectAsStateWithLifecycle()
             LaunchedEffect(state.createdTaskId) {
-                if (state.createdTaskId.isNotBlank()) navController.popBackStack()
+                if (state.createdTaskId.isNotBlank()) {
+                    // Hand the planned date back to the monitor face so it can jump there and
+                    // show the new task immediately.
+                    navController.previousBackStackEntry?.savedStateHandle
+                        ?.set(Routes.PC_CARE_CREATED_DATE_KEY, state.selectedDate)
+                    navController.popBackStack()
+                }
             }
             PcCarePlanWizardScreen(
                 state = state,
@@ -3419,7 +3428,7 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
     canExecutePcCare: Boolean,
     canPlanPcCare: Boolean,
 ) {
-    composable(route) {
+    composable(route) { entry ->
         if (canExecutePcCare) {
             // Executor face: the scan worklist for tasks assigned to this person.
             val vm: PcCareWorklistViewModel = hiltViewModel()
@@ -3457,6 +3466,21 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
             LaunchedEffect(vm) { vm.bindMonitor(category, title) }
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
+            // A finished plan wizard hands back the planned date: jump the monitor to that day
+            // and refetch, so the just-created task is on screen the moment the wizard closes.
+            val createdDate by entry.savedStateHandle
+                .getStateFlow(Routes.PC_CARE_CREATED_DATE_KEY, "")
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(createdDate) {
+                if (createdDate.isNotBlank()) {
+                    runCatching { java.time.LocalDate.parse(createdDate) }.getOrNull()?.let { date ->
+                        vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.SelectMonitorDate(date))
+                    }
+                    entry.savedStateHandle[Routes.PC_CARE_CREATED_DATE_KEY] = ""
+                    vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh)
+                    rows.refresh()
+                }
+            }
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(refreshError, appendError) {

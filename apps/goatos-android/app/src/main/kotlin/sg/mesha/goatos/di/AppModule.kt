@@ -930,6 +930,7 @@ private class DeferredPcCareRepository(
     private val delegate: sg.mesha.goatos.core.data.PcCareRepository by lazy { provider.get() }
 
     override fun worklistRows(query: sg.mesha.goatos.core.data.PcCareWorklistQuery) = delegate.worklistRows(query)
+    override suspend fun invalidateWorklist(query: sg.mesha.goatos.core.data.PcCareWorklistQuery) = delegate.invalidateWorklist(query)
     override fun observeTaskDetail(taskId: String) = delegate.observeTaskDetail(taskId)
     override fun observeTaskRowStatus(taskId: String) = delegate.observeTaskRowStatus(taskId)
     override suspend fun refreshTaskDetail(taskId: String) = delegate.refreshTaskDetail(taskId)

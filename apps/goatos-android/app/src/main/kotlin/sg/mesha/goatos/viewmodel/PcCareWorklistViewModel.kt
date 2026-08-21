@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -111,8 +112,19 @@ class PcCareWorklistViewModel @Inject constructor(
     }
 
     private fun refresh() {
-        // A NEW value, not an equal one: MutableStateFlow conflates on equality.
-        selection.value = selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+        viewModelScope.launch {
+            // Drop the freshness marker FIRST so the re-created pager refetches instead of
+            // TTL-skipping — an explicit refresh means "show me the server's list now".
+            val sel = selection.value
+            if (sel.category.isNotBlank()) {
+                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
+                runCatching {
+                    repository.invalidateWorklist(PcCareWorklistQuery(category = sel.category, date = sel.date))
+                }
+            }
+            // A NEW value, not an equal one: MutableStateFlow conflates on equality.
+            selection.value = selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+        }
     }
 
     /** Window: recent history through a short planning horizon (planner may schedule ahead). */
