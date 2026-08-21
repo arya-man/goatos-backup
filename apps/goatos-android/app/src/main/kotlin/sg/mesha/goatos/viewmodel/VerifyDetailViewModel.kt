@@ -844,6 +844,9 @@ private fun String.isExpectedVerificationPlaybackState(): Boolean {
     val normalized = lowercase()
     return "source error" in normalized ||
         "behind live window" in normalized ||
+        "mediacodecvideorenderer" in normalized ||
+        "mediacodec" in normalized ||
+        "decoder" in normalized ||
         "cleartext http traffic" in normalized ||
         "response code: 404" in normalized ||
         "response code: 410" in normalized

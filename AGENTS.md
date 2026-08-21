@@ -266,6 +266,13 @@ HEAD:main` when the maintainer asked to land directly on `main`. Never include
 unrelated proof files, screenshots, temp folders, or local artifacts in the
 commit.
 
+When the maintainer asks whether a fix was pushed or why it was not pushed,
+answer the status plainly first and do not argue. If the maintainer's intent is
+to land the already-reviewed/focused fix on `main`, do the repo/identity/dirty
+state checks and push the scoped fix to `main` instead of stopping at an
+explanation. If the worktree contains unrelated dirty files, isolate only the
+fix files in the commit/push path or state the concrete blocker.
+
 Report the verification boundary honestly and briefly. If only a narrow check
 was run, say so; do not spend 20 minutes manufacturing confidence for a one-line
 change.
