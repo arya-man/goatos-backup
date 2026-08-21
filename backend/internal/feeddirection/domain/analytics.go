@@ -243,13 +243,13 @@ type StockFarmItem struct {
 	// recent locked feed days (same semantics as StockItem.AvgDailyKg, scoped
 	// to the farm); empty when never directed.
 	AvgDailyKg string
-	// Last load (highest purchase_date, then batch_no) details.
-	LastLoadBatchNo       int64
-	LastLoadDate          string
-	LastLoadQuantityKg    string
-	LastLoadPerKgCost     string
-	LastLoadVendor        string
-	LastLoadPaymentStatus string
+	// Last load (highest purchase_date, then batch_no) details. Cost and
+	// payment state are deliberately absent (maintainer decision 2026-08-21):
+	// this table is about quantities and timing, not money.
+	LastLoadBatchNo    int64
+	LastLoadDate       string
+	LastLoadQuantityKg string
+	LastLoadVendor     string
 }
 
 // ExpenditureDay is one feed day's spend: directed kg priced at each item's

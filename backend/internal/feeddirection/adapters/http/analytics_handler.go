@@ -263,18 +263,16 @@ type spendSummaryDTO struct {
 }
 
 type stockFarmItemDTO struct {
-	FarmLabel             string `json:"farm_label"`
-	FeedItemLabel         string `json:"feed_item_label"`
-	FeedItemKey           string `json:"feed_item_key"`
-	FirstPurchaseDate     string `json:"first_purchase_date"`
-	FirstDirectedDay      string `json:"first_directed_day"`
-	AvgDailyKg            string `json:"avg_daily_kg"`
-	LastLoadBatchNo       int64  `json:"last_load_batch_no"`
-	LastLoadDate          string `json:"last_load_date"`
-	LastLoadQuantityKg    string `json:"last_load_quantity_kg"`
-	LastLoadPerKgCost     string `json:"last_load_per_kg_cost"`
-	LastLoadVendor        string `json:"last_load_vendor"`
-	LastLoadPaymentStatus string `json:"last_load_payment_status"`
+	FarmLabel          string `json:"farm_label"`
+	FeedItemLabel      string `json:"feed_item_label"`
+	FeedItemKey        string `json:"feed_item_key"`
+	FirstPurchaseDate  string `json:"first_purchase_date"`
+	FirstDirectedDay   string `json:"first_directed_day"`
+	AvgDailyKg         string `json:"avg_daily_kg"`
+	LastLoadBatchNo    int64  `json:"last_load_batch_no"`
+	LastLoadDate       string `json:"last_load_date"`
+	LastLoadQuantityKg string `json:"last_load_quantity_kg"`
+	LastLoadVendor     string `json:"last_load_vendor"`
 }
 
 type stockAnalyticsDTO struct {
