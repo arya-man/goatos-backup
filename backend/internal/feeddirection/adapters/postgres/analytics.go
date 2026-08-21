@@ -43,7 +43,7 @@ WITH iss AS (
     SELECT feed_direction_issue_id, feed_day
     FROM feed_direction_issues
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
       -- BOTH workflows (maintainer decision 2026-08-19): experiment pens are real
@@ -92,7 +92,7 @@ WITH iss AS (
     SELECT feed_direction_issue_id, feed_day
     FROM feed_direction_issues
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
       -- BOTH workflows (maintainer decision 2026-08-19): experiment pens are real
@@ -191,7 +191,7 @@ const executionStatusSQL = `
 SELECT target_date::text AS d, status, COUNT(*)
 FROM %s
 WHERE tenant_id = $1
-  AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
   AND target_date BETWEEN $3 AND $4
 GROUP BY target_date, status`
 
@@ -199,7 +199,7 @@ const executionTransportSQL = `
 SELECT business_date::text AS d, status, COUNT(*)
 FROM feed_transport_tasks
 WHERE tenant_id = $1
-  AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
   AND business_date BETWEEN $3 AND $4
 GROUP BY business_date, status`
 
@@ -212,12 +212,12 @@ SELECT (verified_at AT TIME ZONE 'Asia/Kolkata')::date::text AS d,
        ))::bigint AS median_minutes
 FROM (
     SELECT verified_at, created_at FROM feed_packing_completions
-    WHERE tenant_id = $1 AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+    WHERE tenant_id = $1 AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND verified_at IS NOT NULL
       AND (verified_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $3 AND $4
     UNION ALL
     SELECT verified_at, created_at FROM feed_distribution_completions
-    WHERE tenant_id = $1 AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+    WHERE tenant_id = $1 AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND verified_at IS NOT NULL
       AND (verified_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $3 AND $4
 ) verdicts
@@ -345,7 +345,7 @@ WITH iss AS (
     SELECT feed_direction_issue_id, feed_day
     FROM feed_direction_issues
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
       AND state IN ('issued', 'amended', 'locked')
       AND workflow = 'experiment'
@@ -370,7 +370,7 @@ WITH iss AS (
     SELECT feed_direction_issue_id
     FROM feed_direction_issues
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_day = $3
       AND state IN ('issued', 'amended', 'locked')
       AND workflow = 'experiment'
@@ -399,7 +399,7 @@ LEFT JOIN feed_wastage_completions c
  AND c.partition_key = p.partition_key
  AND c.target_date = $3
  AND c.workflow = 'experiment'
- AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
+ AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR c.park_id = ANY ($2::uuid[]))
 ORDER BY p.park_label, p.shed_label, p.partition_key`
 
 // ExperimentAnalytics serves the trial arms' authored kg series.
@@ -487,7 +487,7 @@ WITH bought AS (
            MIN(depletes_from)                            AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
     GROUP BY farm_label, feed_item_key
 ),
 locked_cells AS (
@@ -496,7 +496,7 @@ locked_cells AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
     WHERE i.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
       AND i.state = 'locked'
     GROUP BY i.park_id, r.feed_item_key, i.feed_day
 ),
@@ -547,7 +547,7 @@ WITH day_item AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
     WHERE i.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.feed_day BETWEEN $3 AND $4
     GROUP BY i.feed_day, i.park_id, r.feed_item_key
@@ -559,7 +559,7 @@ JOIN LATERAL (
     SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
     FROM feed_purchases p
     WHERE p.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR p.park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
       AND p.park_id = di.park_id
       AND p.feed_item_key = di.feed_item_key
       AND p.purchase_date <= di.feed_day
@@ -581,7 +581,7 @@ WITH day_item AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
     WHERE i.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.feed_day >= date_trunc('year', $3::date)::date
       AND i.feed_day < $3::date
@@ -594,7 +594,7 @@ priced AS (
         SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
         FROM feed_purchases p
         WHERE p.tenant_id = $1
-          AND ($2::uuid[] IS NULL OR p.park_id = ANY ($2::uuid[]))
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
           AND p.park_id = di.park_id
           AND p.feed_item_key = di.feed_item_key
           AND p.purchase_date <= di.feed_day
@@ -625,7 +625,7 @@ WITH loads AS (
            MIN(depletes_from)    AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     GROUP BY farm_label, feed_item_key
 ),
@@ -635,7 +635,7 @@ last_load AS (
            batch_no, purchase_date, quantity_kg, vendor
     FROM feed_purchases
     WHERE tenant_id = $1
-      AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     ORDER BY farm_label, feed_item_key, purchase_date DESC, batch_no DESC
 ),
@@ -645,7 +645,7 @@ locked_cells AS (
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
     WHERE i.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
       AND i.state = 'locked'
       AND r.feed_item_key = ANY ($3::text[])
     GROUP BY i.park_id, r.feed_item_key, i.feed_day
