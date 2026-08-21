@@ -703,12 +703,17 @@ SELECT l.farm_label,
        c.expected_stock_kg::text,
        c.ledger_stock_kg::text,
        CASE
-         WHEN c.expected_stock_kg < 0 THEN c.expected_stock_kg::text
+         WHEN c.expected_stock_kg < 0 THEN round(c.ledger_stock_kg + c.expected_stock_kg, 1)::text
          ELSE round(c.ledger_stock_kg - c.expected_stock_kg, 1)::text
        END AS stock_variance_kg,
        CASE
          WHEN d.first_directed_day IS NULL OR d.recent_avg_kg IS NULL THEN 'unavailable'
-         WHEN abs(c.ledger_stock_kg - c.expected_stock_kg) <= 0.1 THEN 'ok'
+         WHEN abs(
+           CASE
+             WHEN c.expected_stock_kg < 0 THEN round(c.ledger_stock_kg + c.expected_stock_kg, 1)
+             ELSE round(c.ledger_stock_kg - c.expected_stock_kg, 1)
+           END
+         ) <= 0.1 THEN 'ok'
          ELSE 'mismatch'
        END AS stock_check_status
 FROM loads l

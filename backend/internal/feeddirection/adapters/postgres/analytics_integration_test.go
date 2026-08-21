@@ -400,6 +400,9 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	// older date while last-load carries the newer batch's details.
 	insertPurchase("CBE", "Mesha Kids Goat Concentrate", 298, "2026-06-20", "1550.000", &park)
 	insertPurchase("CBE", "Mesha Kids Goat Concentrate", 330, "2026-08-08", "1150.000", &park)
+	// A row whose simple expected balance goes negative: the stock check must
+	// compare ledger stock against the shortage, not just echo the shortage.
+	insertPurchase("CBE", "Mesha Kids Sheep Concentrate", 329, "2026-08-08", "1200.000", &park)
 	// A Mesha item purchased but NEVER directed: directed columns stay empty.
 	insertPurchase("CBE", "Mesha Adult Concentrate Sheep", 331, "2026-08-08", "400.000", &park)
 	// A NON-Mesha item: must not appear in the table at all.
@@ -433,6 +436,31 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 			t.Fatalf("lock %s = (%v, %v)", feedDay, lock.Outcome, err)
 		}
 	}
+	persistKidsSheepDay := func(feedDay, fingerprint string, qty string) {
+		t.Helper()
+		cells := []domain.StoredCell{{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Mesha Kids Sheep Concentrate", FeedItemKey: "mesha_kids_sheep_concentrate",
+			QuantityKg: kg(qty), SessionTotalKg: qty,
+		}}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fingerprint,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + feedDay + ":stockfarm-sheep",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", feedDay, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay,
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", feedDay, lock.Outcome, err)
+		}
+	}
 	// Four locked days: 20, 22, 30, 32 kg. The burn-rate window is the 3 MOST
 	// RECENT locked days (matching the farm's legacy stock sheet, maintainer
 	// decision 2026-08-21), so avg = (22+30+32)/3 = 28.0 — the Aug 11 day falls
@@ -441,6 +469,10 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	persistDay("2026-08-12", "fp-sf-2", "22.000")
 	persistDay("2026-08-13", "fp-sf-3", "30.000")
 	persistDay("2026-08-14", "fp-sf-4", "32.000")
+	persistKidsSheepDay("2026-08-11", "fp-sf-sheep-1", "200.000")
+	persistKidsSheepDay("2026-08-12", "fp-sf-sheep-2", "200.000")
+	persistKidsSheepDay("2026-08-13", "fp-sf-sheep-3", "200.000")
+	persistKidsSheepDay("2026-08-14", "fp-sf-sheep-4", "200.000")
 	// An ISSUED (unlocked) earlier day must not move the consumption start.
 	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
 		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-10", Workflow: domain.WorkflowNormal,
@@ -462,8 +494,8 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
 	}
-	if len(got.FarmItems) != 3 {
-		t.Fatalf("want 3 farm rows (Mesha only, non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
+	if len(got.FarmItems) != 4 {
+		t.Fatalf("want 4 farm rows (Mesha only, non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
 	}
 	// Ordered by feed item then farm.
 	sheep := got.FarmItems[0]
@@ -493,7 +525,14 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if kids.ExpectedStockKg != "898.0" || kids.LedgerStockKg != "2596.0" {
 		t.Errorf("stock reconciliation fields: %+v", kids)
 	}
-	orphan := got.FarmItems[2]
+	kidsSheep := got.FarmItems[2]
+	if kidsSheep.FeedItemLabel != "Mesha Kids Sheep Concentrate" || kidsSheep.FarmLabel != "CBE" {
+		t.Fatalf("row 2: %+v", kidsSheep)
+	}
+	if kidsSheep.ExpectedStockKg != "-600.0" || kidsSheep.LedgerStockKg != "400.0" || kidsSheep.StockVarianceKg != "-200.0" {
+		t.Errorf("negative expected must compare ledger against shortage, got %+v", kidsSheep)
+	}
+	orphan := got.FarmItems[3]
 	if orphan.FarmLabel != "XYZ" || orphan.FirstDirectedDay != "" {
 		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
 	}
@@ -508,8 +547,8 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	})
 
 	t.Run("FarmItemsMultiPageBoundaryReturnsAllMeshaRows", func(t *testing.T) {
-		if len(got.FarmItems) != 3 {
-			t.Fatalf("farm item table is unpaginated and bounded; want all 3 Mesha rows, got %d", len(got.FarmItems))
+		if len(got.FarmItems) != 4 {
+			t.Fatalf("farm item table is unpaginated and bounded; want all 4 Mesha rows, got %d", len(got.FarmItems))
 		}
 	})
 
@@ -561,7 +600,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
 		}
-		if len(again.FarmItems) != 3 {
+		if len(again.FarmItems) != 4 {
 			t.Fatalf("a third load must not add a row: %+v", again.FarmItems)
 		}
 		if again.FarmItems[1].LastLoadBatchNo != 340 {

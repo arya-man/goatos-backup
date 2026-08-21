@@ -260,8 +260,9 @@ type StockFarmItem struct {
 	// LedgerStockKg is the canonical current stock from the purchase ledger:
 	// purchased minus consumed-at-import minus locked-sheet directed kg.
 	LedgerStockKg string
-	// StockVarianceKg is LedgerStockKg − ExpectedStockKg. Positive means the
-	// ledger has more stock than Manju's simple check predicts.
+	// StockVarianceKg is the ledger balance compared with Manju's simple check.
+	// When ExpectedStockKg is negative, it is LedgerStockKg plus that shortage.
+	// Positive means the ledger has more stock than the simple check predicts.
 	StockVarianceKg string
 	// StockCheckStatus is ok | mismatch | unavailable. Unavailable means the
 	// item has not been directed yet or lacks an avg/day.
