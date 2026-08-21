@@ -334,7 +334,9 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		labelKey:    "module.approvals",
 		landingHref: "/counts/approvals", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,
-		priority:    7,
+		// Swapped with pc_care (maintainer ask 2026-08-21): Preventive Care sits ABOVE
+		// Approvals in the drawer.
+		priority: 8,
 		contributions: []moduleNavContribution{
 			// labelKey reuses the pre-existing "nav.approval" key rather than minting a new one:
 			// it survived the 2026-07-21 removal already translated into all four locales.
@@ -354,7 +356,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		landingHref:       "/pc/deworming",   //nav-composition:ignore: registry entry
 		reviewLandingHref: "/verify/pc_care", //nav-composition:ignore: registry entry
 		status:            moduleStatusAvailable,
-		priority:          8,
+		priority:          7,
 		contributions: []moduleNavContribution{
 			// The FOUR CATEGORIES ARE THE BAR (maintainer decision 2026-08-21, matching Feed's
 			// four-tab shape). Every module holder sees the same four tabs; what each tab RENDERS
@@ -1191,7 +1193,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "Weighing",
 		"module.counts":         "Herd Operations",
 		"module.feed_direction": "Feed",
-		"module.pc_care":        "PC",
+		"module.pc_care":        "Preventive Care",
 		"module.breeding":       "Breeding",
 		"module.health":         "Health",
 		"module.milk":           "Milk",
@@ -1238,7 +1240,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "वजन",
 		"module.counts":         "झुंड संचालन",
 		"module.feed_direction": "फ़ीड",
-		"module.pc_care":        "PC",
+		"module.pc_care":        "निवारक देखभाल",
 		"module.breeding":       "प्रजनन",
 		"module.health":         "स्वास्थ्य",
 		"module.milk":           "दूध",
@@ -1285,7 +1287,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "ತೂಕ",
 		"module.counts":         "ಹಿಂಡು ಕಾರ್ಯಾಚರಣೆ",
 		"module.feed_direction": "ಆಹಾರ",
-		"module.pc_care":        "PC",
+		"module.pc_care":        "ತಡೆಗಟ್ಟುವ ಆರೈಕೆ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"module.health":         "ಆರೋಗ್ಯ",
 		"module.milk":           "ಹಾಲು",
@@ -1332,7 +1334,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "బరువు",
 		"module.counts":         "మంద కార్యకలాపాలు",
 		"module.feed_direction": "ఫీడ్",
-		"module.pc_care":        "PC",
+		"module.pc_care":        "నివారణ సంరక్షణ",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"module.health":         "ఆరోగ్యం",
 		"module.milk":           "పాలు",
