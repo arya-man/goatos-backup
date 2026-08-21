@@ -70,6 +70,13 @@ export function VaccinationPlanEditor(props: Props) {
         return;
       }
       setSaved(true);
+      // A save REPLACES the draft: the new version carries the edits and the old
+      // row is discarded, so the id in the URL is now dead. Point the URL at the
+      // new draft before refreshing -- refreshing alone re-runs the page against
+      // the discarded id and 404s the editor out from under the user.
+      if (result.versionId && result.versionId !== props.draftVersionId) {
+        router.replace(`/vaccination/plan/edit?version=${result.versionId}`);
+      }
       router.refresh();
     });
   }

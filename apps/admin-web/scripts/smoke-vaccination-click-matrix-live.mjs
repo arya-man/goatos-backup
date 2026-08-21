@@ -41,8 +41,7 @@ try {
   await step("action center: board filters, queue tab, drawer, and linked records", () => verifyActionCenter(page));
   await step("protocol adherence: filters, ledger drawer, and linked records", () => verifyProtocolAdherence(page));
   await step("workflows: catalog, chain links, and workflow detail", () => verifyWorkflows(page));
-  await step("config: protocol-rule drawer and new draft page controls", () => verifyConfig(page));
-  await step("sop library: SOP card drawer and new SOP page controls", () => verifySops(page));
+  await step("vaccination plan: live card and earlier-version settings", () => verifyVaccinationPlan(page));
 } finally {
   await browser.close();
 }
@@ -146,8 +145,6 @@ async function verifyShell(page) {
     ["Workflows", "/workflows"],
     ["Vaccination", "/vaccination"],
     ["Source Entry", "/procurement/source-entry"],
-    ["Config", "/config"],
-    ["Vaccination SOP", "/vaccination/sops"],
     ["SOP Library", "/sops"],
     ["Herd Analytics", "/counts/analytics"],
     ["Audit Log", "/operations/audit"],
@@ -177,10 +174,9 @@ async function verifyVaccination(page) {
   await goto(page, "/vaccination?scope_mode=company");
 
   await openAndCloseDialog(page, page.getByRole("button", { name: "SOP", exact: true }), /Vaccination Drive SOP/i, /Close/i, "vaccination SOP quick view");
-  await openDialogClickLink(page, page.getByRole("button", { name: "SOP", exact: true }), /Vaccination Drive SOP/i, /Open Vaccination SOP page/i, "/vaccination/sops");
+  await openDialogClickLink(page, page.getByRole("button", { name: "SOP", exact: true }), /Vaccination Drive SOP/i, /Open Vaccination SOP page/i, "/vaccination/plan");
   await goto(page, "/vaccination?scope_mode=company");
 
-  await clickAndExpectPath(page, page.getByRole("link", { name: /Protocol Rules/i }).first(), "/config", "vaccination Protocol Rules link");
 
   await goto(page, "/vaccination?scope_mode=company");
   const filters = page.getByRole("button", { name: "Filters", exact: true });
@@ -291,77 +287,24 @@ async function verifyWorkflows(page) {
   }
 }
 
-async function verifyConfig(page) {
-  await goto(page, "/config?scope_mode=company&category=vaccination");
-  const firstRecord = page.locator('section:has-text("Protocol rules") tbody tr').first();
-  if ((await firstRecord.count()) === 1) {
-    await firstRecord.click();
-    await page.locator(".drawer.on").first().waitFor({ state: "visible", timeout: 5_000 });
-    await expectVisibleText(page, /PROTOCOL RULE/i, "Config protocol rule drawer");
-    await closeDrawer(page, "Config protocol record drawer");
-  }
-  const newRule = page.getByRole("link", { name: /New draft rule/i }).first();
-  await expectAtLeastOne("Config new draft rule page link", newRule);
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === "/config" && url.searchParams.get("new_rule") === "1", { timeout: 10_000 }),
-    newRule.click(),
-  ]);
-  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
-  await assertHealthy(page, "Config new draft rule page");
-  const editor = page.getByTestId("rule-editor").first();
-  await editor.waitFor({ state: "visible", timeout: 5_000 });
-  if ((await page.locator('[role="dialog"]').count()) > 0) {
-    throw new Error("Config new draft rule should render as a page, not a dialog");
-  }
-  await expectVisibleText(page, /New draft rule/i, "Config new draft rule page title");
-  await expectVisibleText(page, /Admin \/ Data Ops/i, "Config new draft rule breadcrumb");
-  await editor.getByRole("button", { name: /Preview Impact/i }).click();
-  await expectVisibleText(page, /Eligible goats|Preview|impact/i, "Config preview impact feedback");
-  const addDose = editor.getByRole("button", { name: /Add dose/i }).first();
-  if ((await addDose.count()) === 1) await addDose.click();
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === "/config" && url.searchParams.get("new_rule") !== "1", { timeout: 10_000 }),
-    editor.getByRole("button", { name: /Cancel/i }).last().click(),
-  ]);
-  await assertHealthy(page, "Config new draft rule cancel");
-}
+async function verifyVaccinationPlan(page) {
+  // Replaces verifyConfig and verifySops. /config and /vaccination/sops were both
+  // removed: the plan console is the single surface that owns vaccination config,
+  // and the proof method is one field on the plan rather than a separate SOP.
+  await goto(page, "/vaccination/plan?scope_mode=company");
+  await assertHealthy(page, "Vaccination plan");
+  await expectVisibleText(page, /Vaccination plan/i, "Vaccination plan title");
+  await expectVisibleText(page, /Live right now|Start a new version/i, "Vaccination plan live card or empty state");
 
-async function verifySops(page) {
-  await goto(page, "/vaccination/sops?scope_mode=company");
-  const card = page.locator("#sopCards .card").first();
-  if ((await card.count()) === 1) {
-    await card.click();
+  const viewSettings = page.getByRole("button", { name: /View settings/i }).first();
+  if ((await viewSettings.count()) === 1) {
+    await viewSettings.click();
     await page.locator('[role="dialog"]').first().waitFor({ state: "visible", timeout: 5_000 });
-    await expectVisibleText(page, /SOP|Vaccination/i, "SOP detail modal");
-    await page.getByRole("button", { name: /Close/i }).first().click();
+    await expectVisibleText(page, /Read-only/i, "earlier-version settings sheet");
+    await page.keyboard.press("Escape");
     await page.locator('[role="dialog"]').first().waitFor({ state: "hidden", timeout: 5_000 }).catch(() => undefined);
   }
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === "/vaccination/sops" && (url.searchParams.get("compose") === "1" || url.searchParams.get("new") === "1"), { timeout: 10_000 }),
-    page.getByRole("button", { name: /New SOP/i }).first().click(),
-  ]);
-  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
-  await assertHealthy(page, "New SOP page");
-  if ((await page.locator('[role="dialog"]').count()) > 0) {
-    throw new Error("New SOP should render as a page, not a dialog");
-  }
-  await expectVisibleText(page, /New SOP.*form builder|Build it like a form/i, "New SOP page");
-  const builder = page.locator("main").first();
-  const trigger = builder.getByRole("button", { name: /^Form$/i }).first();
-  if ((await trigger.count()) === 1) await trigger.click();
-  await builder.getByRole("button", { name: /Add question/i }).click();
-  const preview = builder.getByRole("button", { name: /Preview form/i }).first();
-  if ((await preview.count()) !== 1) throw new Error("New SOP page missing Preview form control");
-  const publish = builder.getByRole("button", { name: /Publish/i }).first();
-  if ((await publish.count()) === 1 && !(await publish.isDisabled())) {
-    throw new Error("New SOP page Publish is enabled before draft save");
-  }
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === "/vaccination/sops" && url.searchParams.get("compose") !== "1" && url.searchParams.get("new") !== "1", { timeout: 10_000 }),
-    page.getByRole("link", { name: /Back to SOP Library/i }).first().click(),
-  ]);
 }
-
 async function goto(page, path) {
   const response = await page.goto(`${appBaseUrl}${path}`, { waitUntil: "networkidle", timeout: 30_000 });
   if (response && !response.ok()) throw new Error(`${path} returned HTTP ${response.status()}`);
