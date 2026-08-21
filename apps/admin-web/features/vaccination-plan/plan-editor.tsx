@@ -127,7 +127,7 @@ export function VaccinationPlanEditor(props: Props) {
 
   if (!current) {
     return (
-      <div className="vp">
+      <div className="vplan">
         <section className="card">
           <div className="card-b">
             <p>This draft has no vaccines in it.</p>
@@ -138,7 +138,7 @@ export function VaccinationPlanEditor(props: Props) {
   }
 
   return (
-    <div className="vp">
+    <div className="vplan">
       <a className="backlink" href="/vaccination/plan">
         <ArrowLeft size={14} aria-hidden /> Vaccination plan
       </a>

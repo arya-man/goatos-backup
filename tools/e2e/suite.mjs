@@ -101,12 +101,22 @@ function apiStop() {
     execFileSync("bash", ["-lc", "lsof -ti tcp:8099 -sTCP:LISTEN | xargs -r kill -9"], { encoding: "utf8" });
   } catch {}
 }
+// The API binary and its log live in the worktree, NOT in /tmp: macOS purges /tmp without
+// warning, and a purge mid-run makes the restart cases fail in a way that reads like a
+// product bug. It is also rebuilt by the caller, so a stale binary cannot be run against a
+// freshly migrated database.
+const API_BIN = process.env.E2E_API_BIN ?? ".e2e-artifacts/goatos-api";
+const API_LOG = process.env.E2E_API_LOG ?? ".e2e-artifacts/goatos-api.log";
+
 function apiStart() {
-  execFileSync("bash", ["-lc", "nohup /tmp/goatos-api > /tmp/goatos-api.log 2>&1 & sleep 1"], {
+  execFileSync("bash", ["-lc", `nohup ${API_BIN} > ${API_LOG} 2>&1 & sleep 1`], {
     encoding: "utf8",
     env: {
       ...process.env,
-      DATABASE_URL: `postgres://postgres:${process.env.E2E_PG_PASSWORD}@127.0.0.1:15432/${DB}?sslmode=disable`,
+      // Host and port come from the environment, like every other connection in this
+      // harness -- hard-coding them could point a restarted API at a different database
+      // than the one the case just reset.
+      DATABASE_URL: `postgres://postgres:${process.env.E2E_PG_PASSWORD}@${process.env.E2E_PG_HOST ?? "127.0.0.1"}:${process.env.E2E_PG_PORT ?? "15432"}/${DB}?sslmode=disable`,
       GOATOS_ENV: "local",
       GOATOS_AUTH_MODE: "bearer",
       GOATOS_AUTH_HS256_SECRET: "goatos-local-dev-secret-32-bytes-min",
@@ -166,7 +176,7 @@ await runCase("C01", "List screen reads the live plan from the database", async 
   results.at(-1).shots.push(await shot("C01-list"));
   // Scoped to the page, not the whole document: the app's own header says
   // "tenant scope", which is chrome this change does not own.
-  const body = await page.locator(".vp").innerText();
+  const body = await page.locator(".vplan").innerText();
   check("live version shown", /V1 Real Vaccination/.test(body), true);
   check("vaccine count is 5 of 7", /5 of 7/.test(body), true);
   check("a switched-off vaccine is still listed", /Blue Tongue/.test(body), true);
@@ -532,7 +542,7 @@ await runCase("C17", "A vaccine switched on with no doses cannot be saved", asyn
   await page.getByRole("switch").first().click();
   await page.waitForTimeout(400);
   results.at(-1).shots.push(await shot("C17-blocked"));
-  check("it says which vaccine and what to do", /PPR .*switched on but .*no doses/i.test(await page.locator(".vp").innerText()), true);
+  check("it says which vaccine and what to do", /PPR .*switched on but .*no doses/i.test(await page.locator(".vplan").innerText()), true);
   check("Save is blocked", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);
   check("Publish is blocked too", await page.getByRole("button", { name: /Publish plan/i }).isDisabled(), true);
 
@@ -616,7 +626,7 @@ await runCase("C21", "A very long vaccine name does not break the layout", async
   results.at(-1).shots.push(await shot("C21-long-name"));
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check("the page does not scroll sideways", overflow <= 0, true);
-  check("the long name is on screen", /Extremely Long Vaccine Name/.test(await page.locator(".vp").innerText()), true);
+  check("the long name is on screen", /Extremely Long Vaccine Name/.test(await page.locator(".vplan").innerText()), true);
 });
 
 await runCase("C22", "A vaccine switched off and back on keeps its whole course", async () => {
@@ -642,7 +652,7 @@ await runCase("C22", "A vaccine switched off and back on keeps its whole course"
   // Reload so the editor re-reads the document from the server, which is where the
   // bug lived -- it only appeared on a FRESH read of a switched-off vaccine.
   await page.reload({ waitUntil: "networkidle" });
-  const body = await page.locator(".vp").innerText();
+  const body = await page.locator(".vplan").innerText();
   check("it is switched off", /Switched off/.test(body), true);
   check("but it does NOT claim to have no doses", /no doses yet/i.test(body), false);
 
