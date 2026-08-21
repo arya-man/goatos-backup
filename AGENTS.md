@@ -692,7 +692,33 @@ surfaces disagree about what a count means, stop and surface the conflict per th
 maintainer-lock rule above; fix parity by making the backend own one number, not
 by choosing a client's semantics.
 
-Confirmed shifting TAG TOGGLE rule (maintainer decision 2026-08-15, SUPERSEDING the
+Confirmed shifting TYPED-RAISE rule (maintainer decisions 2026-08-20, SUPERSEDING the
+2026-08-15 tag-toggle rule below on WHO decides for a raise that names a category, and
+superseding the clinical raise-time refusal FOR `health` MOVEMENTS ONLY): **THE SHIFT
+TYPE DECIDES THE TAG — the raiser is no longer asked.** Every typed raise carries a
+`category` that IS the rule selector: `health` stamps the destination tag on both legs
+(the one type allowed to stamp a clinical state — a health shift IS the health team
+acting); `growth` stamps the destination tag FORWARD ONLY along the authored lifecycle
+ladder (one reverse edge, Pregnant → Non-Pregnant; sexed stages refuse the wrong sex);
+`breeding` never changes the tag; `delivery` stamps the destination tag except never the
+newborn stage (into an empty untagged recovery shed the mother keeps her tag and the pen
+ADOPTS it); `spacing` moves the WHOLE source pen carrying its tag ("half-half is not an
+option") into a same-tag or empty destination (an empty pen adopts the tag); `flushing`
+moves females onto the Flushing tag into an empty or already-flushing pen. A raise a
+rule refuses is rejected at RAISE time with backend-owned farm copy — before approval and
+before any video. Pen adoption is snapshotted at raise (`adopt_pen_tag`, migration
+000177) and re-validated under the apply row lock, failing the whole apply closed
+(`ErrDestinationPenChanged`) when the pen changed underneath the approval. The client
+still names no stage of its own — `target_management_stage` stays rejected; the 2026-08-15
+toggle below survives ONLY as the legacy path for a category-less raise from an older APK.
+Canonical prose: `docs/features/shifting/shifting-rewrite-tag-rules.md`; rulebook:
+`backend/internal/counts/domain.ResolveShiftTypeDecision`. Open decisions recorded there:
+Mother/Milking/M0/Warmup have no growth edges yet (a growth raise touching them refuses),
+and an approver-chooses-tag capability for an untagged spacing source is a follow-up.
+
+Confirmed shifting TAG TOGGLE rule (maintainer decision 2026-08-15, now the LEGACY path
+governing only category-less raises per the 2026-08-20 typed-raise rule above; it had
+itself SUPERSEDED the
 2026-08-03 no-chooser rule below on WHO decides, and its FLUSHING carve-out outright;
 the 2026-08-03 rule had itself superseded the 2026-07-29 three-mode operator chooser and
 the 2026-07-20 destination `shed_profiles` authority rule): **the raiser chooses again —

@@ -305,6 +305,14 @@ const val SHIFTING_CATEGORY_HEALTH = "health"
 const val SHIFTING_CATEGORY_BREEDING = "breeding"
 const val SHIFTING_CATEGORY_DELIVERY = "delivery"
 
+/**
+ * Spacing and Flushing joined the vocabulary with the 2026-08-20 rewrite: the category is now the
+ * shift TYPE, and the type decides what happens to the animals' tag on the backend. The form only
+ * names WHY the animals move; every tag outcome and every refusal reason is backend-owned copy.
+ */
+const val SHIFTING_CATEGORY_SPACING = "spacing"
+const val SHIFTING_CATEGORY_FLUSHING = "flushing"
+
 sealed interface ShiftingEvent {
     data class EditAnimalQuery(val value: String) : ShiftingEvent
     data object LookupAnimals : ShiftingEvent
@@ -459,40 +467,21 @@ fun ShiftingScreen(
                 }
             }
 
-            // --- 3b. Tag toggle --------------------------------------------------------------
-            // Which tag the animal ends up carrying. Sits directly under the destination picker
-            // because it is a question ABOUT the chosen pen, and its answer changes as the pen
-            // changes.
-            //
-            // The pen's-tag option stays VISIBLE even when unavailable, dimmed, with the backend's
-            // reason underneath — an operator who cannot use it is owed the reason, and a control
-            // that changes shape between pens is harder to trust than one that explains itself.
-            item(key = "stage-mode") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CountsFieldGroupTitle(text = stringResource(R.string.counts_group_stage_mode))
-                    CountsSegmented(
-                        options = listOf(
-                            SHIFTING_STAGE_MODE_KEEP_CURRENT to
-                                stringResource(R.string.counts_stage_mode_keep_current),
-                            SHIFTING_STAGE_MODE_DESTINATION to
-                                stringResource(R.string.counts_stage_mode_destination),
-                        ),
-                        selectedKey = state.stageMode,
-                        onSelect = { onEvent(ShiftingEvent.SelectStageMode(it)) },
-                        disabledKeys = if (state.canUseDestinationStage) {
-                            emptySet()
-                        } else {
-                            setOf(SHIFTING_STAGE_MODE_DESTINATION)
-                        },
-                    )
-                    // Exactly one of these ever shows: the pen's tag when it has one, else the
-                    // backend's reason it has none. Both are backend-owned strings rendered
-                    // verbatim — the phone never composes either.
-                    state.destinationStageLabel?.let { tag ->
-                        Text(text = tag, color = MeshaColors.Muted, fontSize = 12.sp)
-                    }
-                    state.destinationStageReason?.let { reason ->
-                        Text(text = reason, color = MeshaColors.Muted, fontSize = 12.sp)
+            // --- 3b. Destination tag context -------------------------------------------------
+            // The TAG TOGGLE is retired (2026-08-20 rewrite): the movement's CATEGORY decides what
+            // happens to the animals' tag on the backend, so the raiser is no longer asked. What
+            // remains is CONTEXT about the chosen pen -- its tag when it has one, else the
+            // backend's reason it has none. Both are backend-owned strings rendered verbatim; the
+            // phone never composes either.
+            if (state.destinationStageLabel != null || state.destinationStageReason != null) {
+                item(key = "destination-tag-context") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        state.destinationStageLabel?.let { tag ->
+                            Text(text = tag, color = MeshaColors.Muted, fontSize = 12.sp)
+                        }
+                        state.destinationStageReason?.let { reason ->
+                            Text(text = reason, color = MeshaColors.Muted, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -522,6 +511,8 @@ fun ShiftingScreen(
                             SHIFTING_CATEGORY_HEALTH to stringResource(R.string.counts_category_health),
                             SHIFTING_CATEGORY_BREEDING to stringResource(R.string.counts_category_breeding),
                             SHIFTING_CATEGORY_DELIVERY to stringResource(R.string.counts_category_delivery),
+                            SHIFTING_CATEGORY_SPACING to stringResource(R.string.counts_category_spacing),
+                            SHIFTING_CATEGORY_FLUSHING to stringResource(R.string.counts_category_flushing),
                         ),
                         selectedKey = state.category,
                         onSelect = { onEvent(ShiftingEvent.SelectCategory(it)) },

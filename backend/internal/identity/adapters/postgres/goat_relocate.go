@@ -261,7 +261,12 @@ ORDER BY stage_code LIMIT 1`, cmd.TenantID, stage).Scan(&canonical, &ageBand)
 	// (sick/under_treatment/recovering/quarantine/icu -- protocol/domain.MandatoryClinicalDeferStates,
 	// reused not re-hardcoded) is rejected. The animal's clinical state is set by its owning clinical
 	// flow; the move then follows an already-diagnosed animal. See ports.ErrClinicalDestinationTag.
-	if isClinicalDestinationStage(canonical) {
+	//
+	// THE ONE EXCEPTION (maintainer decision 2026-08-20): a HEALTH-type shifting sets
+	// AllowClinicalDestinationTag -- moving an animal into the ICU pen IS the health team setting
+	// her clinical state, and the typed raise resolver already gated which raises may carry the
+	// flag. Every other caller keeps the refusal.
+	if isClinicalDestinationStage(canonical) && !cmd.AllowClinicalDestinationTag {
 		return destinationStageResolution{}, ports.ErrClinicalDestinationTag
 	}
 	return resolved, nil

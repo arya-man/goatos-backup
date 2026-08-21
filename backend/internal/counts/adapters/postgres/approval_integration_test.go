@@ -55,6 +55,12 @@ type fakeIdentityTx struct {
 	lastExit     identityports.ExitGoatCommand
 	lastRelocate identityports.RelocateGoatsCommand
 
+	// Pen-tag adoption seam (typed shifting rewrite). failAdopt simulates the destination pen
+	// changing between approval and apply, which must roll the whole apply back.
+	adoptCalls int
+	failAdopt  error
+	lastAdopt  identityports.ConfigureAdoptedShedCohortCommand
+
 	newGoatID string
 }
 
@@ -132,6 +138,12 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, cmd.TenantID, goatID, cmd.To
 		}
 	}
 	return identityports.RelocateGoatsResult{MovedGoatIDs: moved}, nil
+}
+
+func (f *fakeIdentityTx) ConfigureAdoptedShedCohortInTx(_ context.Context, _ pgx.Tx, cmd identityports.ConfigureAdoptedShedCohortCommand) error {
+	f.adoptCalls++
+	f.lastAdopt = cmd
+	return f.failAdopt
 }
 
 // ---------------------------------------------------------------------------
