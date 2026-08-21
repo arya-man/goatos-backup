@@ -609,6 +609,7 @@ run_admin_web() {
   step "admin-web request reads" make admin-web-request-reads-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
+  step "admin-web-date-format-guard" make admin-web-date-format-guard
   step "overlay motion"          make overlay-motion-guard
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
