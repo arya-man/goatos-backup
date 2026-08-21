@@ -212,6 +212,43 @@ type StockItem struct {
 // LowStockDays mirrors the legacy sheet's warning threshold.
 const LowStockDays = 5
 
+// MeshaConcentrateStockKeys is the fixed set of in-house Mesha concentrate
+// feeds the per-farm purchase/consumption table covers (maintainer decision
+// 2026-08-21: exactly these four, not every ledger item). Keys are
+// feed_config_norm outputs of the ledger's feed_item_label values.
+var MeshaConcentrateStockKeys = []string{
+	"mesha_adult_concentrate_goat",
+	"mesha_adult_concentrate_sheep",
+	"mesha_kids_goat_concentrate",
+	"mesha_kids_sheep_concentrate",
+}
+
+// StockFarmItem is one (farm, Mesha concentrate) row of the per-farm
+// purchase/consumption table on the Stock tab. Consumption figures come from
+// LOCKED GoatOS feed sheets only, so a bootstrapped item's consumption start
+// is the ledger cutoff, not the sheet era before it.
+type StockFarmItem struct {
+	FarmLabel     string
+	FeedItemLabel string
+	FeedItemKey   string
+	// FirstPurchaseDate is the earliest load's purchase date for this farm.
+	FirstPurchaseDate string
+	// FirstDirectedDay is the first locked feed day the item was directed at
+	// this farm; empty when never directed.
+	FirstDirectedDay string
+	// AvgDailyKg averages the farm's directed kg for the item over its 7 most
+	// recent locked feed days (same semantics as StockItem.AvgDailyKg, scoped
+	// to the farm); empty when never directed.
+	AvgDailyKg string
+	// Last load (highest purchase_date, then batch_no) details.
+	LastLoadBatchNo       int64
+	LastLoadDate          string
+	LastLoadQuantityKg    string
+	LastLoadPerKgCost     string
+	LastLoadVendor        string
+	LastLoadPaymentStatus string
+}
+
 // ExpenditureDay is one feed day's spend: directed kg priced at each item's
 // most recent load rate on or before that day.
 type ExpenditureDay struct {
@@ -236,7 +273,10 @@ type SpendSummary struct {
 
 // StockAnalytics is the /feed-analytics/stock payload.
 type StockAnalytics struct {
-	Items       []StockItem
+	Items []StockItem
+	// FarmItems is the per-farm Mesha-concentrate purchase/consumption table
+	// (MeshaConcentrateStockKeys only), ordered by feed item then farm.
+	FarmItems   []StockFarmItem
 	Expenditure []ExpenditureDay
 	Spend       SpendSummary
 }
