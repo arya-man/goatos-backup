@@ -673,22 +673,12 @@ depletion AS (
      AND lc.feed_day >= l.depletes_from
     GROUP BY l.farm_label, l.feed_item_key
 ),
-calc AS (
+stock_balance AS (
     SELECT l.farm_label,
            l.feed_item_key,
-           round(
-             ll.quantity_kg -
-               COALESCE((($4::date - d.first_directed_day + 1) * d.recent_avg_kg), 0),
-             1
-           ) AS expected_stock_kg,
            round(l.net_kg - COALESCE(dep.total_directed_kg, 0), 1) AS ledger_stock_kg
     FROM loads l
-    JOIN last_load ll USING (farm_label, feed_item_key)
     LEFT JOIN depletion dep USING (farm_label, feed_item_key)
-    LEFT JOIN directed d
-      ON l.park_id_text IS NOT NULL
-     AND d.park_id = l.park_id_text::uuid
-     AND d.feed_item_key = l.feed_item_key
 )
 SELECT l.farm_label,
        l.feed_item_label,
@@ -700,31 +690,14 @@ SELECT l.farm_label,
        ll.purchase_date::text,
        round(ll.quantity_kg, 1)::text AS last_quantity_kg,
        ll.vendor,
-       c.expected_stock_kg::text,
-       c.ledger_stock_kg::text,
-       CASE
-         WHEN c.expected_stock_kg < 0 THEN round(c.ledger_stock_kg + c.expected_stock_kg, 1)::text
-         ELSE round(c.ledger_stock_kg - c.expected_stock_kg, 1)::text
-       END AS stock_variance_kg,
-       CASE
-         WHEN d.first_directed_day IS NULL OR d.recent_avg_kg IS NULL THEN 'unavailable'
-         WHEN abs(
-           CASE
-             WHEN c.expected_stock_kg < 0 THEN round(c.ledger_stock_kg + c.expected_stock_kg, 1)
-             ELSE round(c.ledger_stock_kg - c.expected_stock_kg, 1)
-           END
-         ) <= 0.1 THEN 'ok'
-         ELSE 'mismatch'
-       END AS stock_check_status
+       sb.ledger_stock_kg::text
 FROM loads l
 JOIN last_load ll USING (farm_label, feed_item_key)
 LEFT JOIN directed d
   ON l.park_id_text IS NOT NULL
  AND d.park_id = l.park_id_text::uuid
  AND d.feed_item_key = l.feed_item_key
-LEFT JOIN calc c
-  ON c.farm_label = l.farm_label
- AND c.feed_item_key = l.feed_item_key
+LEFT JOIN stock_balance sb USING (farm_label, feed_item_key)
 ORDER BY l.feed_item_label, l.farm_label`
 
 // StockAnalytics serves the stock cards and the expenditure series.
@@ -737,7 +710,6 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	if len(q.ParkIDs) > 0 {
 		parkIDs = q.ParkIDs
 	}
-	stockAsOf := biztime.BusinessDayStart(time.Now()).AddDate(0, 0, -1)
 	out := domain.StockAnalytics{Items: []domain.StockItem{}, Expenditure: []domain.ExpenditureDay{}}
 
 	itemRows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
@@ -758,7 +730,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 
 	out.FarmItems = []domain.StockFarmItem{}
-	farmRows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys, stockAsOf.Format("2006-01-02"))
+	farmRows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys)
 	if err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm items: %w", err)
 	}
@@ -770,8 +742,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg,
 			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
 			&fi.LastLoadVendor,
-			&fi.ExpectedStockKg, &fi.LedgerStockKg,
-			&fi.StockVarianceKg, &fi.StockCheckStatus,
+			&fi.LedgerStockKg,
 		); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm scan: %w", err)
 		}

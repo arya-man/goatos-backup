@@ -920,13 +920,13 @@
   .main table.feed-stock-table{width:100%;min-width:0;table-layout:fixed}
   .main table.feed-stock-table th,.main table.feed-stock-table td{padding-left:9px;padding-right:9px;white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
   .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}
-  .main table.feed-stock-table th:nth-child(1),.main table.feed-stock-table td:nth-child(1){width:20%}
+  .main table.feed-stock-table th:nth-child(1),.main table.feed-stock-table td:nth-child(1){width:22%}
   .main table.feed-stock-table th:nth-child(2),.main table.feed-stock-table td:nth-child(2){width:5%}
   .main table.feed-stock-table th:nth-child(3),.main table.feed-stock-table td:nth-child(3){width:9%}
   .main table.feed-stock-table th:nth-child(4),.main table.feed-stock-table td:nth-child(4){width:10%}
-  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:27%}
+  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:29%}
   .main table.feed-stock-table th:nth-child(6),.main table.feed-stock-table td:nth-child(6){width:8%}
-  .main table.feed-stock-table th:nth-child(7),.main table.feed-stock-table td:nth-child(7){width:12%}
+  .main table.feed-stock-table th:nth-child(7),.main table.feed-stock-table td:nth-child(7){width:8%}
   .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:9%}
   .main table.feed-stock-table .feed-stock-load{white-space:normal;overflow:visible;text-overflow:clip}
   .main table.feed-stock-table .tag{max-width:100%;white-space:normal;line-height:1.25;justify-content:center;text-align:center}
