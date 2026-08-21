@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -848,7 +849,14 @@ SELECT l.farm_label,
        ll.purchase_date::text,
        round(ll.quantity_kg, 1)::text AS last_quantity_kg,
        ll.vendor,
-       sb.ledger_stock_kg::text
+       sb.ledger_stock_kg::text                       AS expected_stock_kg,
+       sb.ledger_stock_kg::text,
+       COALESCE(floor(sb.ledger_stock_kg / NULLIF(d.recent_avg_kg, 0))::bigint::text, '') AS stock_variance_kg,
+       CASE
+         WHEN d.recent_avg_kg IS NULL OR d.recent_avg_kg = 0 OR sb.ledger_stock_kg IS NULL THEN 'unavailable'
+         WHEN floor(sb.ledger_stock_kg / NULLIF(d.recent_avg_kg, 0))::bigint < $4::bigint THEN 'mismatch'
+         ELSE 'ok'
+       END AS stock_check_status
 FROM loads l
 JOIN last_load ll
   ON ll.farm_label = l.farm_label
@@ -862,6 +870,53 @@ LEFT JOIN stock_balance sb
  AND sb.feed_item_key = l.feed_item_key
 ORDER BY l.feed_item_label, l.farm_label`
 
+const stockItemsExternalConsumptionUnion = `
+        UNION ALL
+        SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+        GROUP BY x.park_id, x.feed_item_key, x.feed_day`
+
+const stockExpenditureExternalConsumptionUnion = `
+        UNION ALL
+        SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+          AND x.feed_day BETWEEN $3 AND $4
+        GROUP BY x.feed_day, x.park_id, x.feed_item_key`
+
+const stockSpendExternalConsumptionUnion = `
+        UNION ALL
+        SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+          AND x.feed_day >= date_trunc('year', $3::date)::date
+          AND x.feed_day < $3::date
+        GROUP BY x.feed_day, x.park_id, x.feed_item_key`
+
+func feedExternalConsumptionSQLAvailable(ctx context.Context, r *Repository) (bool, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass('public.feed_external_consumption') IS NOT NULL`).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func stockAnalyticsSQL(hasExternalConsumption bool) (itemsSQL, expenditureSQL, spendSQL string) {
+	if hasExternalConsumption {
+		return stockItemsSQL, stockExpenditureSQL, stockSpendSQL
+	}
+	return strings.Replace(stockItemsSQL, stockItemsExternalConsumptionUnion, "", 1),
+		strings.Replace(stockExpenditureSQL, stockExpenditureExternalConsumptionUnion, "", 1),
+		strings.Replace(stockSpendSQL, stockSpendExternalConsumptionUnion, "", 1)
+}
+
 // StockAnalytics serves the stock cards and the expenditure series.
 func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -874,7 +929,13 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 	out := domain.StockAnalytics{Items: []domain.StockItem{}, Expenditure: []domain.ExpenditureDay{}}
 
-	itemRows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs)
+	hasExternalConsumption, err := feedExternalConsumptionSQLAvailable(ctx, r)
+	if err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics external consumption relation check: %w", err)
+	}
+	itemsSQL, expenditureSQL, spendSQL := stockAnalyticsSQL(hasExternalConsumption)
+
+	itemRows, err := r.pool.Query(ctx, itemsSQL, tenantID, parkIDs)
 	if err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock items: %w", err)
 	}
@@ -892,7 +953,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 
 	out.FarmItems = []domain.StockFarmItem{}
-	farmRows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys)
+	farmRows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys, domain.LowStockDays)
 	if err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm items: %w", err)
 	}
@@ -904,7 +965,8 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg,
 			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
 			&fi.LastLoadVendor,
-			&fi.LedgerStockKg,
+			&fi.ExpectedStockKg, &fi.LedgerStockKg, &fi.StockVarianceKg,
+			&fi.StockCheckStatus,
 		); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm scan: %w", err)
 		}
@@ -914,7 +976,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm rows: %w", err)
 	}
 
-	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	expRows, err := r.pool.Query(ctx, expenditureSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure: %w", err)
 	}
@@ -931,7 +993,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 
 	today := biztime.BusinessDate(time.Now())
-	if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
+	if err := r.pool.QueryRow(ctx, spendSQL, tenantID, parkIDs, today).
 		Scan(&out.Spend.ThisWeek, &out.Spend.ThisMonth, &out.Spend.ThreeMonths, &out.Spend.ThisYear); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
 	}

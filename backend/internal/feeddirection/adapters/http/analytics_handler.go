@@ -316,7 +316,10 @@ type stockFarmItemDTO struct {
 	LastLoadDate       string `json:"last_load_date"`
 	LastLoadQuantityKg string `json:"last_load_quantity_kg"`
 	LastLoadVendor     string `json:"last_load_vendor"`
+	ExpectedStockKg    string `json:"expected_stock_kg"`
 	LedgerStockKg      string `json:"ledger_stock_kg"`
+	StockVarianceKg    string `json:"stock_variance_kg"`
+	StockCheckStatus   string `json:"stock_check_status"`
 }
 
 type stockAnalyticsDTO struct {
@@ -351,7 +354,22 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 		dto.Items = append(dto.Items, stockItemDTO(it))
 	}
 	for _, fi := range result.FarmItems {
-		dto.FarmItems = append(dto.FarmItems, stockFarmItemDTO(fi))
+		dto.FarmItems = append(dto.FarmItems, stockFarmItemDTO{
+			FarmLabel:          fi.FarmLabel,
+			FeedItemLabel:      fi.FeedItemLabel,
+			FeedItemKey:        fi.FeedItemKey,
+			FirstPurchaseDate:  fi.FirstPurchaseDate,
+			FirstDirectedDay:   fi.FirstDirectedDay,
+			AvgDailyKg:         fi.AvgDailyKg,
+			LastLoadBatchNo:    fi.LastLoadBatchNo,
+			LastLoadDate:       fi.LastLoadDate,
+			LastLoadQuantityKg: fi.LastLoadQuantityKg,
+			LastLoadVendor:     fi.LastLoadVendor,
+			ExpectedStockKg:    fi.ExpectedStockKg,
+			LedgerStockKg:      fi.LedgerStockKg,
+			StockVarianceKg:    fi.StockVarianceKg,
+			StockCheckStatus:   fi.StockCheckStatus,
+		})
 	}
 	for _, d := range result.Expenditure {
 		dto.Expenditure = append(dto.Expenditure, expenditureDayDTO(d))

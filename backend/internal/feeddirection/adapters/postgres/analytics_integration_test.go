@@ -512,6 +512,9 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if sheep.FirstDirectedDay != "" || sheep.AvgDailyKg != "" {
 		t.Errorf("never-directed item must serve empty consumption fields, got %q / %q", sheep.FirstDirectedDay, sheep.AvgDailyKg)
 	}
+	if sheep.ExpectedStockKg != "" || sheep.StockCheckStatus != "unavailable" {
+		t.Errorf("never-directed stock verification must expose no expected balance, got %+v", sheep)
+	}
 	kids := got.FarmItems[1]
 	if kids.FeedItemLabel != "Mesha Kids Goat Concentrate" || kids.FarmLabel != "CBE" {
 		t.Fatalf("row 1: %+v", kids)
@@ -532,12 +535,21 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if kids.LedgerStockKg != "2596.0" {
 		t.Errorf("ledger stock: want 2596.0, got %+v", kids)
 	}
+	if kids.ExpectedStockKg != "2596.0" {
+		t.Errorf("table stock must be the actual ledger stock, got %+v", kids)
+	}
+	if kids.StockVarianceKg != "92" || kids.StockCheckStatus != "ok" {
+		t.Errorf("stock check must be full days left from ledger stock divided by recent avg/day, got %+v", kids)
+	}
 	kidsSheep := got.FarmItems[2]
 	if kidsSheep.FeedItemLabel != "Mesha Kids Sheep Concentrate" || kidsSheep.FarmLabel != "CBE" {
 		t.Fatalf("row 2: %+v", kidsSheep)
 	}
 	if kidsSheep.LedgerStockKg != "400.0" {
 		t.Errorf("ledger stock must remain the current purchase-ledger balance, got %+v", kidsSheep)
+	}
+	if kidsSheep.ExpectedStockKg != "400.0" || kidsSheep.StockVarianceKg != "2" || kidsSheep.StockCheckStatus != "mismatch" {
+		t.Errorf("stock/check must use actual ledger stock and color low-days anomaly, got %+v", kidsSheep)
 	}
 	orphan := got.FarmItems[3]
 	if orphan.FarmLabel != "XYZ" || orphan.FirstDirectedDay != "" {
@@ -550,6 +562,9 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		}
 		if kids.LastLoadQuantityKg != "1150.0" || kids.LedgerStockKg != "2596.0" {
 			t.Fatalf("ledger stock must keep all purchased stock while last load shows only the latest purchase: %+v", kids)
+		}
+		if kids.ExpectedStockKg != "2596.0" {
+			t.Fatalf("table stock must use actual ledger stock, not projected latest-load depletion: %+v", kids)
 		}
 	})
 
@@ -582,9 +597,10 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 			byFarm[it.FarmLabel] = it
 		}
 		cbe, xyz := byFarm["CBE"], byFarm["XYZ"]
-		// CBE: 1550+1150 purchased, 104 kg locked-directed -> 2596.0 in store.
+		// Cards are the same ledger-stock summary shown on staging: purchased
+		// minus imported/locked depletion, divided by the latest-3-day burn rate.
 		if cbe.BalanceKg != "2596.0" || cbe.AvgDailyKg != "28.0" {
-			t.Errorf("CBE card must hold only CBE's store: %+v", cbe)
+			t.Errorf("CBE card must hold only CBE's ledger-stock store: %+v", cbe)
 		}
 		if kids.LedgerStockKg != cbe.BalanceKg {
 			t.Errorf("farm table ledger must match stock card balance, table=%q card=%q", kids.LedgerStockKg, cbe.BalanceKg)

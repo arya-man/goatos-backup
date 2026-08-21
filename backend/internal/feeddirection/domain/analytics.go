@@ -295,6 +295,14 @@ type StockFarmItem struct {
 	// LedgerStockKg is the canonical current stock from the purchase ledger:
 	// purchased minus consumed-at-import minus locked-sheet directed kg.
 	LedgerStockKg string
+	// ExpectedStockKg is the table's displayed stock: the current purchase
+	// ledger balance. The JSON field name is retained for API compatibility.
+	ExpectedStockKg string
+	// StockVarianceKg is the table check value: full days of stock left,
+	// calculated as ledger stock divided by the latest-3-locked-days average. The JSON
+	// field name is retained for API compatibility.
+	StockVarianceKg  string
+	StockCheckStatus string
 }
 
 // ExpenditureDay is one feed day's spend: directed kg priced at each item's

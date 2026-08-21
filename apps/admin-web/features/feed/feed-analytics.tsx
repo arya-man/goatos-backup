@@ -1029,18 +1029,18 @@ function StockCards({
                       <span className="feed-stock-info" tabIndex={0} aria-label="How stock is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Ledger = purchased kg minus consumed-at-import kg, minus locked directed kg from the purchase depletion date onward.
+                          Stock is the current purchase-ledger balance after locked feed directions.
                         </span>
                       </span>
                     </span>
                   </th>
                   <th>
                     <span className="feed-stock-check-head">
-                      {fa(pageContract, "stock.farms.col.days_left")}
-                      <span className="feed-stock-info" tabIndex={0} aria-label="How days left is calculated">
+                      {fa(pageContract, "stock.farms.col.check")}
+                      <span className="feed-stock-info" tabIndex={0} aria-label="How stock check is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Days left = ledger stock divided by Avg / Day. Avg / Day uses the latest 3 locked feed days for this farm and item.
+                          Anomaly = fewer than 5 full days of stock left. Avg / Day uses only the latest 3 locked feed days.
                         </span>
                       </span>
                     </span>
@@ -1072,10 +1072,12 @@ function StockCards({
                         : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
                     </td>
                     <td>
-                      <div className="feed-stock-qty">{`${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
+                      <div className="feed-stock-qty">
+                        {row.ledger_stock_kg === "" ? "—" : `${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}
+                      </div>
                     </td>
                     <td>
-                      <DaysLeftText row={row} pageContract={pageContract} />
+                      <StockCheckTag row={row} pageContract={pageContract} />
                     </td>
                   </tr>
                 ))}
@@ -1088,15 +1090,20 @@ function StockCards({
   );
 }
 
-function DaysLeftText({
+function StockCheckTag({
   row,
   pageContract,
 }: {
   row: FeedAnalyticsStockResponse["farm_items"][number];
   pageContract: AdminUiPageContract;
 }) {
-  const avg = num(row.avg_daily_kg);
-  if (avg <= 0) return <>{fa(pageContract, "stock.farms.unavailable")}</>;
-  const daysLeft = num(row.ledger_stock_kg) / avg;
-  return <>{`${nf(daysLeft)} ${fa(pageContract, "stock.days_left")}`}</>;
+  if (row.stock_check_status === "unavailable" || row.stock_variance_kg === "") {
+    return <span className="tag">{fa(pageContract, "stock.farms.unavailable")}</span>;
+  }
+  const daysLeft = Math.floor(num(row.stock_variance_kg));
+  return (
+    <span className={`tag ${row.stock_check_status === "mismatch" ? "t-dng" : "t-ok"} feed-stock-check-tag`}>
+      <span>{`${nf(daysLeft)} ${fa(pageContract, "stock.days_left")}`}</span>
+    </span>
+  );
 }

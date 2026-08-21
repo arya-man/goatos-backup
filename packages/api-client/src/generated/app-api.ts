@@ -4929,11 +4929,11 @@ export interface components {
             last_load_date: string;
             last_load_quantity_kg: string;
             last_load_vendor: string;
-            /** @description Latest load quantity minus days since first_directed_day through yesterday in IST times avg_daily_kg; negative values show the expected shortage. */
+            /** @description Current stock from the purchase ledger. Field name retained for API compatibility. */
             expected_stock_kg: string;
             /** @description Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion. */
             ledger_stock_kg: string;
-            /** @description ledger_stock_kg minus expected_stock_kg. */
+            /** @description Days of stock left, calculated as ledger_stock_kg divided by avg_daily_kg. Field name retained for API compatibility. */
             stock_variance_kg: string;
             /** @enum {string} */
             stock_check_status: "ok" | "mismatch" | "unavailable";
