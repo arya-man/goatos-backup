@@ -239,6 +239,9 @@ await runCase("C06", "Duration dropdown: number and unit, any value", async () =
   await startVersion();
   // The rail summarises a vaccine as "from 4 weeks ...", so the chip must be
   // addressed inside the dose card rather than by text alone.
+  const storedBefore = psql(`select s->>'offset_days' from protocol_versions v,
+      jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='draft' and s->>'dose_code'='et_tt_kid_4w'`);
+  check("it starts at 28 days", storedBefore, "28");
   await page.locator(".dose").first().getByRole("button", { name: /4 weeks/ }).click();
   await page.waitForTimeout(300);
   results.at(-1).shots.push(await shot("C06-open"));
@@ -249,7 +252,9 @@ await runCase("C06", "Duration dropdown: number and unit, any value", async () =
   await numberBox.fill("5");
   await page.waitForTimeout(400);
   results.at(-1).shots.push(await shot("C06-set"));
-  check("chip shows the new value", /5 months/.test(await page.locator("body").innerText()), true);
+  // Scoped to the dose card: a regex over the whole page would be satisfied by
+  // any unrelated text that happened to say the same thing.
+  check("the chip shows the new value", /5 months/.test(await page.locator(".dose").first().innerText()), true);
   check("Save became available", await page.getByRole("button", { name: /Save draft/i }).isEnabled(), true);
   await page.getByRole("button", { name: /Save draft/i }).click();
   await page.waitForTimeout(3000);
@@ -323,6 +328,12 @@ await runCase("C09", "Reset restores everything the editor changed", async () =>
 await runCase("C10", "Publishing: history and in-flight work untouched", async () => {
   const before = history();
   const beforeRows = psql("select obligation_id||'|'||status||'|'||due_at from obligation_instances order by 1");
+  // What the live plan says BEFORE, so the case can prove publishing changed it.
+  // Asserting only that obligations did not move would pass if publish silently
+  // did nothing at all.
+  const liveRepeatBefore = psql(`select s->>'offset_days' from protocol_versions v,
+      jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='published' and s->>'dose_code'='et_tt_revac'`);
+  check("the live plan repeats every 182 days to begin with", liveRepeatBefore, "182");
   await gotoPlan();
   await startVersion();
   await page.getByRole("button", { name: "3 months", exact: true }).click();
@@ -334,9 +345,14 @@ await runCase("C10", "Publishing: history and in-flight work untouched", async (
   results.at(-1).shots.push(await shot("C10-published"));
   check("the new version is live", psql("select version_label from protocol_versions where status='published'"), "V2");
   check("the old one is retired", psql("select count(*) from protocol_versions where status='retired'"), "2");
-  check("ET+TT repeat is now 90 days", psql(
+  const liveRepeatAfter = psql(
     "select s->>'offset_days' from protocol_versions v, jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='published' and s->>'dose_code'='et_tt_revac'",
-  ), "90");
+  );
+  check("ET+TT repeat is now 90 days", liveRepeatAfter, "90");
+  check("so the live plan genuinely changed", liveRepeatAfter !== liveRepeatBefore, true);
+  check("and the retired version still says 182", psql(`select s->>'offset_days' from protocol_versions v,
+      jsonb_array_elements(v.rule_dsl->'schedule') s where v.status='retired' and v.version_label='V1 Real Vaccination'
+      and s->>'dose_code'='et_tt_revac' limit 1`), "182");
   const after = history();
   check("completed untouched", after.completed, before.completed);
   check("canceled untouched", after.canceled, before.canceled);
@@ -432,7 +448,9 @@ await runCase("C14", "Saving a draft keeps the editor open", async () => {
   const body = await page.locator("body").innerText();
   check("the editor is still open", /Company vaccination plan/.test(body), true);
   check("no not-found page", /404|not found/i.test(body), false);
-  check("the URL followed the new draft", page.url() !== before, true);
+  const nowDraft = psql("select protocol_version_id from protocol_versions where status='draft'");
+  check("the URL points at the new draft", page.url().includes(nowDraft), true);
+  check("and no longer at the discarded one", page.url() === before, false);
   check("still exactly one draft", psql("select count(*) from protocol_versions where status='draft'"), "1");
 });
 
@@ -514,8 +532,7 @@ await runCase("C17", "A vaccine switched on with no doses cannot be saved", asyn
   await page.getByRole("switch").first().click();
   await page.waitForTimeout(400);
   results.at(-1).shots.push(await shot("C17-blocked"));
-  const body = await page.locator("body").innerText();
-  check("it says which vaccine and what to do", /switched on but .*no doses/i.test(body), true);
+  check("it says which vaccine and what to do", /PPR .*switched on but .*no doses/i.test(await page.locator(".vp").innerText()), true);
   check("Save is blocked", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);
   check("Publish is blocked too", await page.getByRole("button", { name: /Publish plan/i }).isDisabled(), true);
 
@@ -565,10 +582,10 @@ await runCase("C19", "An earlier version that will not load says so and closes",
     results.at(-1).shots.push(await shot("C19-unreadable"));
     const body = await page.locator("body").innerText();
     check("it does not sit on Loading forever", /Loading…/.test(body), false);
-    check("the sheet still closes on Escape", true, true);
+    check("the sheet is open", await page.locator(".vp-modal").count(), 1);
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
-    check("and it did close", await page.locator(".vp-modal").count(), 0);
+    await page.locator(".vp-modal").waitFor({ state: "detached", timeout: 5000 }).catch(() => undefined);
+    check("Escape closes it even in the error state", await page.locator(".vp-modal").count(), 0);
   } else {
     note("no earlier version to view in this baseline", "skipped");
   }
