@@ -2419,6 +2419,11 @@ export async function replaceProtocolDraftVersion(
     proof_policy?: unknown;
     sop_version_id?: string;
   },
+  // A replace deletes one version and creates another, so a retry that cannot tell whether
+  // the first attempt committed is dangerous: the old id is already gone and a naive retry
+  // reads as "not found" rather than replaying. The key makes the second attempt return the
+  // same replacement instead of failing.
+  idempotencyKey = `protocol-version-replace-${randomUUID()}`,
 ): Promise<ApiResult<{ protocol_version_id: string }>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -2427,9 +2432,12 @@ export async function replaceProtocolDraftVersion(
   return request(() =>
     client.request<{ protocol_version_id: string }>(path, {
       method: "POST",
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json" },
       cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      // The client serialises this itself. Passing an already-stringified body sent the
+      // backend a JSON STRING where it expected an object, and every save and publish
+      // failed to decode.
+      body,
     }),
   );
 }

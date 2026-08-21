@@ -394,6 +394,10 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 // one-draft-per-scope refuses -- or deletes the farm's work before knowing the replacement
 // will land.
 func (h *Handler) ReplaceDraftVersion(w http.ResponseWriter, r *http.Request) {
+	idempotencyKey, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
 	var req createVersionRequest
 	if !h.decode(w, r, &req) {
 		return
@@ -409,8 +413,13 @@ func (h *Handler) ReplaceDraftVersion(w http.ResponseWriter, r *http.Request) {
 		ScopeType: req.ScopeType, ScopeID: req.ScopeID, VersionLabel: req.VersionLabel,
 		Status: "draft", EffectiveFrom: req.EffectiveFrom, EffectiveTo: req.EffectiveTo,
 		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
-		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r),
+		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
 	}, replaces)
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different draft payload", TraceID: traceID(r)}, nil)
+		return
+	}
 	if errors.Is(err, ports.ErrVersionNotDraft) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "version_not_draft", Message: "that version is not a draft and cannot be replaced", TraceID: traceID(r)}, nil)

@@ -1229,7 +1229,14 @@ func arrayHasNonBlankString(v any) bool {
 // consistent. The draft-only restriction lives in the repository's SQL.
 // ReplaceDraftVersion swaps one draft for another atomically. See the port for why the two
 // halves cannot be separate calls.
+//
+// The DSL is validated first, exactly as CreateVersion validates it. Without that, saving an
+// edited plan was the one way to get an invalid rule_dsl into the database -- and it would
+// land by DELETING the draft that was still valid.
 func (s *Service) ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error) {
+	if err := ValidateRuleDSL(in.RuleDsl); err != nil {
+		return "", err
+	}
 	return s.repo.ReplaceDraftVersion(ctx, in, replacesVersionID)
 }
 

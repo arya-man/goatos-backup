@@ -40,6 +40,28 @@ RESET lock_timeout;
 -- permanently and the animal would silently stop being scheduled -- the exact failure this
 -- design exists to prevent, reintroduced through its own predicate.
 --
+-- A CONCURRENTLY build that fails leaves an INVALID index behind, and IF NOT EXISTS then
+-- SKIPS it on the retry: goose marks the migration applied, everyone believes duplicates are
+-- being refused, and nothing is enforced at all. Both leftovers are dropped so a retry
+-- actually rebuilds. (Same guard as 000185.)
+DO $$
+DECLARE
+  idx text;
+BEGIN
+  FOREACH idx IN ARRAY ARRAY[
+    'obligation_repeat_cycle_open_anchor_unique_idx',
+    'obligation_repeat_cycle_open_source_unique_idx'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname = idx AND NOT i.indisvalid
+    ) THEN
+      EXECUTE format('DROP INDEX %I', idx);
+    END IF;
+  END LOOP;
+END $$;
+
 -- rule_id is part of the key because one administration can legitimately cause work under
 -- more than one rule: a combo vaccine drives its own revac rule and a shared-component rule
 -- from the same dose. Keyed on the anchor alone, the second rule's successor would be
