@@ -946,7 +946,7 @@ function StockCards({
                         : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
                     </td>
                     <td>
-                      <div className="feed-stock-qty">{`${fa(pageContract, "stock.farms.expected")} ${nf(num(row.expected_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
+                      <div className="feed-stock-qty">{`${fa(pageContract, "stock.farms.expected")} ${nf(Math.max(num(row.expected_stock_kg), 0))} ${fa(pageContract, "unit.kg")}`}</div>
                       <div className="muted small">{`${fa(pageContract, "stock.farms.ledger")} ${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
                     </td>
                     <td>
@@ -954,15 +954,15 @@ function StockCards({
                     </td>
                   </tr>
                 ))}
-                  <tr>
-                    <td><strong>{fa(pageContract, "stock.farms.total")}</strong></td>
+                <tr>
+                  <td><strong>{fa(pageContract, "stock.farms.total")}</strong></td>
                   <td><strong>{fa(pageContract, "stock.farms.all")}</strong></td>
                   <td>—</td>
                   <td>—</td>
                   <td>—</td>
                   <td><strong>{`${nf(totalFarmItems.avg)} ${fa(pageContract, "unit.kg")}`}</strong></td>
                   <td>
-                    <div className="feed-stock-qty"><strong>{`${fa(pageContract, "stock.farms.expected")} ${nf(totalFarmItems.expected)} ${fa(pageContract, "unit.kg")}`}</strong></div>
+                    <div className="feed-stock-qty"><strong>{`${fa(pageContract, "stock.farms.expected")} ${nf(Math.max(totalFarmItems.expected, 0))} ${fa(pageContract, "unit.kg")}`}</strong></div>
                     <div className="muted small">{`${fa(pageContract, "stock.farms.ledger")} ${nf(totalFarmItems.ledger)} ${fa(pageContract, "unit.kg")}`}</div>
                   </td>
                   <td>
