@@ -63,14 +63,33 @@ interface OutboxDao {
             "WHERE older.groupKey = candidate.groupKey " +
             // A strict createdAt comparison lets two rows written in the SAME millisecond
             // ignore each other: a Submit enqueued in the same tick as a scan was neither
-            // held back by it nor ordered after it. rowid is SQLite's durable insertion
-            // sequence, so it breaks the tie the way the operator actually worked.
+            // held back by it nor ordered after it. rowid breaks the tie in insertion order.
+            //
+            // outbox has a TEXT primary key, so this rowid is IMPLICIT -- and SQLite is
+            // allowed to renumber implicit rowids during VACUUM. Nothing in this app runs
+            // VACUUM, and nothing may: adding one would silently invert a same-millisecond
+            // scan/Submit pair that is already queued. If a compaction task is ever wanted,
+            // give this table an explicit monotonic sequence column first.
             "AND (older.createdAt < candidate.createdAt " +
             "OR (older.createdAt = candidate.createdAt AND older.rowid < candidate.rowid)) " +
+            // A failed older row in this lane holds the lane -- including the two TERMINAL
+            // failures, a scan that burned its retry budget and one dead-lettered as a
+            // conflict, which used to fall straight through because they are no longer
+            // eligible themselves.
+            //
+            // Those are the cases that matter most. Ordering exists here so a shed's Submit
+            // cannot claim the session complete while one of its scans never reached the
+            // server, and a permanently stuck scan is exactly that: letting the Submit past
+            // closes the shed one animal short while every screen reads "complete". A held
+            // lane is visible and recoverable; a silent under-count is neither.
+            //
+            // Rows still making progress (QUEUED, IN_FLIGHT) are deliberately NOT blockers:
+            // they drain in this same pass, in order, and treating them as blockers would
+            // hold back work that is about to succeed.
             "AND older.status = 'FAILED' " +
-            "AND older.conflict = 0 " +
-            "AND older.attemptCount < older.maxAttempts " +
-            "AND older.nextAttemptAt > :now" +
+            "AND (older.conflict = 1 " +
+            "  OR older.attemptCount >= older.maxAttempts " +
+            "  OR older.nextAttemptAt > :now) " +
             ") " +
             "ORDER BY candidate.createdAt ASC, candidate.rowid ASC LIMIT :limit",
     )

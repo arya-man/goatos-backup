@@ -91,7 +91,7 @@ V2  scheduled 6,852  deferred 56          V2  scheduled 6,852  deferred 56   ←
 Generation reported `generated=7271 deferred=62 failed_goats=0 suppressed_trusted=4155`.
 
 **6,908 obligations remain `scheduled`/`deferred` against the retired V2 and are never
-superseded.** 6,232 goat+dose pairs exist twice. A single goat, `et_tt_revac`:
+superseded.** (As measured then. Fixed -- see the end of this finding.) 6,232 goat+dose pairs exist twice. A single goat, `et_tt_revac`:
 
 | version | due | status |
 |---|---|---|
@@ -129,12 +129,25 @@ version. The orphans are never batched, never escalated, never closed.
   (`generation.go:1930`). A goat that happens to be rechecked later *does* get its stale rows
   canceled, which makes the residue non-deterministic.
 
-### Suggested fix (not implemented)
+### Fixed (2026-08-22)
 
-Call the existing cancel with the newly-effective version list once per cohort after a publish
-generation completes, or emit a per-goat recheck for the affected cohort. The function, its
-predicate, its status events and its outbox writes already exist and are already exercised by
-the per-goat path; this is a wiring gap, not new behaviour.
+Everything above describes the state BEFORE the fix and is kept as the measurement that
+justified it. It is no longer the current behaviour: do not re-implement it.
+
+The tenant-wide generation scan now supersedes work belonging to a version that is no longer
+effective for the animal, one park at a time, via the same
+`CancelOpenVaccinationObligationsForGoatExceptVersions` this section identified. It is
+preceded by a bounded pre-filter, so the common case -- nothing to supersede -- costs one
+indexed read per park per page rather than a cancel per animal.
+
+Two things the wiring had to get right, and did:
+
+- Work already in progress is left alone. The cancel covers `scheduled`, `due` and `deferred`
+  only, so a publish never pulls an obligation out from under the operator working it.
+- The cancel mints a successor. An animal can leave a version's scope and come back -- it
+  moves parks and returns, or a park override lapses -- and a fixed-due dose then recomputes
+  to the same idempotency key and meets its own canceled row. Without a successor it would
+  silently never be given.
 
 ---
 
@@ -171,7 +184,11 @@ anyone pointing a local binary at the remote clone.
 
 ---
 
-## Cases still to run
+## Cases
+
+Cases 02-12 were subsequently built and run as `tools/e2e/suite.mjs` against a fresh staging
+clone, alongside the browser cases the plan console needed. This table records what each case
+is for; the suite itself is the authority on what currently passes.
 
 | # | Case | What it proves |
 |---|---|---|

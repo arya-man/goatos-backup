@@ -298,9 +298,17 @@ make the database enforce one open successor per cause:
     repeat_cycle_due_at            the next due date
 
     CREATE UNIQUE INDEX CONCURRENTLY obligation_repeat_cycle_open_anchor_unique_idx
-    ON obligation_instances (tenant_id, repeat_cycle_anchor_obligation_id)
+    ON obligation_instances (tenant_id, rule_id, repeat_cycle_anchor_obligation_id)
     WHERE repeat_cycle_anchor_obligation_id IS NOT NULL
       AND status IN ('scheduled', 'due', 'in_progress', 'deferred');
+
+`rule_id` is part of that key. An earlier draft of this decision left it out, on the reasoning
+that one completed dose should yield one open successor "regardless of which rule re-derives
+it". That is wrong: one administration can legitimately cause work under two rules -- a combo
+vaccine drives its own revac rule and a shared-component rule from the same dose -- and the
+insert guard is itself rule-scoped, so the second rule's successor passes the guard and is
+then rejected by the index as a hard error rather than an idempotent skip. The invariant is
+one open successor per cause PER RULE.
 
 A SECOND index is required, and the first one alone is not enough. Repeat work minted from
 accepted or imported history has NO completed obligation to anchor to -- its source is
@@ -317,8 +325,16 @@ source ref:
       AND status IN ('scheduled', 'due', 'in_progress', 'deferred');
 
 The anchor index is the stricter statement for the internal case (one open successor per
-completed dose, regardless of which rule re-derives it); the source index covers every case,
-including the history-sourced repeats `generation.go` mints.
+completed dose per rule); the source index covers every case, including the history-sourced
+repeats `generation.go` mints.
+
+One thing this section originally implied and the implementation does NOT do: it is not two
+vocabularies. Every writer names a cause the same way -- source `trusted_history`, ref
+`vaccine|administered-at|dose` -- including the completion path, whose cause IS an obligation
+in this system. Naming it by obligation id there was tried and is a bug: the guard compares
+these strings literally, so a second vocabulary leaves two open rows for one cycle, each
+invisible to the other. The anchor column is still written for the audit trail and for the
+per-anchor index, but it is never the identity.
 
 ONE OPEN SUCCESSOR PER ANCHOR, not one ever. This is the hinge of the whole design. A global
 uniqueness would burn the anchor permanently the first time a successor is cancelled or

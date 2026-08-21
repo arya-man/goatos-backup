@@ -27,7 +27,7 @@ AS_OF=${AS_OF:-2026-08-20T00:00:00+05:30}
 
 # Configuration comes from tools/e2e/e2e.env (gitignored). See e2e.env.example.
 : "${E2E_PG_PASSWORD:?source tools/e2e/e2e.env first (see e2e.env.example)}"
-HOST="${E2E_PG_HOST:-127.0.0.1}"; PORT="${E2E_PG_PORT:-15432}"; USER="${E2E_PG_USER:-postgres}"
+HOST="${E2E_PG_HOST:-127.0.0.1}"; PORT="${E2E_PG_PORT:-5432}"; USER="${E2E_PG_USER:-postgres}"
 export PGPASSWORD="$E2E_PG_PASSWORD"
 URL="postgres://${USER}:${E2E_PG_PASSWORD}@${HOST}:${PORT}/${DB}?sslmode=disable"
 Q(){ psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -tA -F'|' -c "$1"; }

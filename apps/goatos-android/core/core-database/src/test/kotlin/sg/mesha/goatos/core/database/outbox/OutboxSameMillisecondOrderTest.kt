@@ -31,7 +31,16 @@ class OutboxSameMillisecondOrderTest {
             OutboxDatabase::class.java,
         ).allowMainThreadQueries().build()
 
-    private fun row(id: String, opType: String, group: String, createdAt: Long, status: String = "QUEUED", nextAttemptAt: Long = 0L, attempts: Int = 0) =
+    private fun row(
+        id: String,
+        opType: String,
+        group: String,
+        createdAt: Long,
+        status: String = "QUEUED",
+        nextAttemptAt: Long = 0L,
+        attempts: Int = 0,
+        conflict: Boolean = false,
+    ) =
         OutboxEntity(
             id = id,
             opType = opType,
@@ -41,7 +50,7 @@ class OutboxSameMillisecondOrderTest {
             status = status,
             attemptCount = attempts,
             maxAttempts = 8,
-            conflict = false,
+            conflict = conflict,
             createdAt = createdAt,
             updatedAt = createdAt,
             nextAttemptAt = nextAttemptAt,
@@ -85,6 +94,79 @@ class OutboxSameMillisecondOrderTest {
         val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
 
         assertEquals(listOf("submit-b"), eligible)
+        database.close()
+    }
+
+    /**
+     * A scan that has run out of retries is not "finished" -- it is unsent, permanently.
+     *
+     * The back-off case above was already covered, and it hid this one: the predicate only
+     * held the lane while the scan was still retryable, so the moment it burned its last
+     * attempt the Submit became eligible and the shed closed one animal short, reading as
+     * complete to everyone. The exhausted scan is not even in the active set, so nothing on
+     * screen would have said otherwise.
+     */
+    @Test
+    fun `a Submit is not eligible while a same-lane scan has exhausted its retries`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "scan", "SCAN_CAPTURE", "task-77|whole", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = 10L, attempts = 8,
+            ),
+        )
+        dao.insert(row("submit", "SHED_SUBMIT", "task-77|whole", createdAt = 5L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "the Submit must not close a shed whose scan will never be sent",
+            emptyList<String>(),
+            eligible,
+        )
+        database.close()
+    }
+
+    /** Same again for a scan dead-lettered as a conflict: also unsent, also permanent. */
+    @Test
+    fun `a Submit is not eligible while a same-lane scan is dead-lettered`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "scan", "SCAN_CAPTURE", "task-77|whole", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = 10L, attempts = 2, conflict = true,
+            ),
+        )
+        dao.insert(row("submit", "SHED_SUBMIT", "task-77|whole", createdAt = 5L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "a dead-lettered scan still means the shed is incomplete",
+            emptyList<String>(),
+            eligible,
+        )
+        database.close()
+    }
+
+    /** A stuck scan holds ITS lane only. Another shed's session must keep draining. */
+    @Test
+    fun `an exhausted scan does not block a different shed`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "scan", "SCAN_CAPTURE", "task-77|whole", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = 10L, attempts = 8,
+            ),
+        )
+        dao.insert(row("other-submit", "SHED_SUBMIT", "task-99|whole", createdAt = 5L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(listOf("other-submit"), eligible)
         database.close()
     }
 }

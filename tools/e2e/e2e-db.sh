@@ -28,7 +28,7 @@
 set -euo pipefail
 
 HOST="${E2E_PG_HOST:-127.0.0.1}"
-PORT="${E2E_PG_PORT:-15432}"
+PORT="${E2E_PG_PORT:-5432}"
 USER="${E2E_PG_USER:-postgres}"
 TEMPLATE="${E2E_TEMPLATE_DB:-goatos_base}"
 SOURCE_DB="${E2E_SOURCE_DB:-goatos}"
