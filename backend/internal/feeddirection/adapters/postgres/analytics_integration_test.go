@@ -497,6 +497,13 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if len(got.FarmItems) != 4 {
 		t.Fatalf("want 4 farm rows (Mesha only, non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
 	}
+	emptyScope, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{}})
+	if err != nil {
+		t.Fatalf("StockAnalytics empty park scope: %v", err)
+	}
+	if len(emptyScope.FarmItems) != len(got.FarmItems) || len(emptyScope.Items) != len(got.Items) {
+		t.Fatalf("empty park scope must mean unrestricted, got farm/items %d/%d want %d/%d", len(emptyScope.FarmItems), len(emptyScope.Items), len(got.FarmItems), len(got.Items))
+	}
 	// Ordered by feed item then farm.
 	sheep := got.FarmItems[0]
 	if sheep.FeedItemLabel != "Mesha Adult Concentrate Sheep" || sheep.FarmLabel != "CBE" {
