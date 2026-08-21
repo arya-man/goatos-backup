@@ -86,6 +86,9 @@ class PcCareTaskViewModel @Inject constructor(
     private val focusTagKey: String = savedStateHandle.get<String>(ARG_TAG_KEY).orEmpty()
     private val focusTagVerbatim: String = savedStateHandle.get<String>(ARG_TAG_VERBATIM).orEmpty()
 
+    /** Oversight drill (planner/monitor list tap): the screen is read-only regardless of status. */
+    private val monitorView: Boolean = savedStateHandle.get<String>(ARG_MONITOR) == "1"
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private data class LocalBits(
@@ -534,7 +537,7 @@ class PcCareTaskViewModel @Inject constructor(
         roster: List<String>,
         bits: LocalBits,
     ): PcCareTaskUiState {
-        val locked = isLifecycleLocked(detail) || bits.submitQueued
+        val locked = isLifecycleLocked(detail) || bits.submitQueued || monitorView
         val expectedSlots = detail?.expectedSlots.orEmpty()
         val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
         val rosterRows = if (rosterMode) {
@@ -582,6 +585,7 @@ class PcCareTaskViewModel @Inject constructor(
             lockNotice = when {
                 detail?.status == PC_CARE_STATUS_COMPLETED -> "Checked and approved"
                 detail?.status == PC_CARE_STATUS_PENDING_VERIFICATION || bits.submitQueued -> "Sent for checking"
+                monitorView -> "Viewing only"
                 else -> ""
             },
             reworkReason = detail?.takeIf { it.status == PC_CARE_STATUS_REWORK }?.reworkReason.orEmpty(),
@@ -639,6 +643,7 @@ class PcCareTaskViewModel @Inject constructor(
         const val ARG_TITLE = "title"
         const val ARG_TAG_KEY = "tag_key"
         const val ARG_TAG_VERBATIM = "tag_verbatim"
+        const val ARG_MONITOR = "monitor"
 
         private const val SCAN_NOTICE_DISMISS_MS = 4_000L
         private const val MAX_REASON_CHARS = 96

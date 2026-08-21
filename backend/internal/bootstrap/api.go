@@ -904,7 +904,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			// The media set is DYNAMIC (animals x slots), so no positional ExpectedMedia /
 			// MediaLabels contract: every clip is a video and carries its animal's tag, the
 			// operator, and the capture time burned into its overlay.
-			NavigationModule: "pc_care", NavigationModuleLabel: "PC",
+			NavigationModule: "pc_care", NavigationModuleLabel: "Preventive Care",
 			PageKey:   pccaredomain.VerificationCategoryFor(workCategory),
 			PageLabel: pccaredomain.CategoryLabel(workCategory), PageOrder: order + 1,
 		}); err != nil {

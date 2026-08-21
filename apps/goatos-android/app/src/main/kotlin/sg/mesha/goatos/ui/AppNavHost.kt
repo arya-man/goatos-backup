@@ -426,7 +426,8 @@ object Routes {
     // The L1 task drill: one PC Care task's scan/capture/submit screen. A distinct hosted
     // destination with Up/Back and NO root chrome (Android navigation-stack invariant) — never a
     // prefix reuse of the L0 tabs above.
-    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+    const val PC_TASK_MONITOR_ARG = "monitor"
+    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}&$PC_TASK_MONITOR_ARG={$PC_TASK_MONITOR_ARG}"
 
     const val PC_TAG_KEY_ARG = "tag_key"
     const val PC_TAG_VERBATIM_ARG = "tag_verbatim"
@@ -440,10 +441,11 @@ object Routes {
             "?$PC_TAG_VERBATIM_ARG=${Uri.encode(tagVerbatim)}" +
             "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
 
-    fun pcTaskRoute(taskId: String, category: String, title: String): String =
+    fun pcTaskRoute(taskId: String, category: String, title: String, monitor: Boolean = false): String =
         "/pc/task/${Uri.encode(taskId)}" +
             "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
-            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}" +
+            "&$PC_TASK_MONITOR_ARG=${if (monitor) "1" else ""}"
 
     // The L1 plan-wizard drill (maintainer feedback 2026-08-21): "Plan a care task" opens as its
     // own hosted destination with Up/Back and NO root chrome, launched from a category tab's plan
@@ -2890,6 +2892,10 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(Routes.PC_TASK_MONITOR_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val vm: PcCareTaskViewModel = hiltViewModel()
@@ -3462,6 +3468,13 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
                 planEnabled = canPlanPcCare,
                 onPlanTask = {
                     navController.navigate(Routes.pcPlanRoute(category, title)) { launchSingleTop = true }
+                },
+                // Oversight drill: any card opens the task READ-ONLY — animals, video states,
+                // and status, with no scan/record/submit controls (monitor=1 locks the screen).
+                onOpenTask = { card ->
+                    navController.navigate(
+                        Routes.pcTaskRoute(card.taskId, card.category, title, monitor = true),
+                    ) { launchSingleTop = true }
                 },
                 onEvent = { event ->
                     when (event) {
