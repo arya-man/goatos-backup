@@ -347,6 +347,19 @@ contract-unavailable shell, documented in
 `context/frontend/admin-web-backend-ui-contract.md`. Run
 `npm --prefix apps/admin-web run check:ui-contract` before handoff or push.
 
+## Date Display Rule (maintainer decision 2026-08-21)
+
+Every VISIBLE date in an admin-web table, card, or drawer renders **DD-MM-YYYY**
+through `lib/format.ts` `fmtDate` (timestamps through `fmtDateTime` /
+`dateTime`). Chart axes render the compact **dd-mm-yy** via
+`components/svg-series.tsx`. Never render a wire field like `feed_day`,
+`*_date`, or `*_day` directly into JSX text — that ships the API's ISO string to
+the operator's eyes. Wire formats themselves (query params, API payloads, React
+keys, `todayIso`/`istDayPlus` arithmetic) stay ISO `YYYY-MM-DD` and must not be
+reformatted. Machine gate: `make admin-web-date-format-guard` (canary on the
+helper's composition + a scan for bare date fields in JSX text nodes; laundering
+through intermediate variables is a stated blind spot that review owns).
+
 ## UI Source Of Truth
 
 `../../mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of

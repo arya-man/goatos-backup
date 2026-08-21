@@ -8,6 +8,16 @@
   },
   "guards": [
     {
+      "id": "admin-web-date-format",
+      "script": "tools/agent-hooks/check-admin-web-date-format.mjs",
+      "makeTarget": "admin-web-date-format-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-date-format.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-date-format.mjs --self-test",
+      "owningDoc": "apps/admin-web/AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-date-format-guard"
+    },
+    {
       "id": "admin-web-local-overlays",
       "script": "tools/agent-hooks/check-admin-web-local-overlays.mjs",
       "makeTarget": "admin-web-local-overlay-guard",
