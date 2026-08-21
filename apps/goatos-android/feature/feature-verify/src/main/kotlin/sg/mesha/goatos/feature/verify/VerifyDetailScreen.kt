@@ -627,8 +627,7 @@ private fun VerifyEntryCard(
         }
         valueIsUsable ->
             VerifyMeasurementInput(
-                // Not-null by valueIsUsable.
-                value = value ?: 0.0,
+                value = value,
                 // Only where the backend offered the field; the write path refuses a count that
                 // the grain cannot carry, so it is dropped rather than sent to be rejected.
                 count = count.takeIf { correction.countLabel?.isNotBlank() == true },
