@@ -64,8 +64,8 @@ verifier reject  -> rework (re-record on the SAME animal rows, resubmit)
 
 ## Where things live
 
-- Migrations: `000180_pc_care_tasks.sql` (three tables + outbox trigger branch),
-  `000181_pc_care_module_grants.sql` (preventive_care → pc_care).
+- Migrations: `000183_pc_care_tasks.sql` (three tables + outbox trigger branch),
+  `000184_pc_care_module_grants.sql` (preventive_care → pc_care).
 - Backend: `backend/internal/pccare/**` (domain / ports / app / adapters
   http|postgres|proof|verificationbridge), kernel stage
   `backend/internal/kernelstages/pc_care_kernel.go`.
