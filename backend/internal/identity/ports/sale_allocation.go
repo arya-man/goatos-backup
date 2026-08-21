@@ -43,6 +43,9 @@ var (
 	ErrSaleAllocationBlocked = errors.New("identity: sale allocation blocked")
 	// ErrSaleAllocationEmpty is returned when a confirm names no animals at all.
 	ErrSaleAllocationEmpty = errors.New("identity: sale allocation names no animals")
+	// ErrSaleAllocationCountChanged is returned when a serialized confirm finds the
+	// sale's live allocation count no longer matches the preflight count.
+	ErrSaleAllocationCountChanged = errors.New("identity: sale allocation count changed")
 )
 
 // ListSaleCandidatesParams filters the picker.
@@ -144,9 +147,13 @@ type RecordSaleAllocationsCommand struct {
 	TraceID              string
 
 	SalesDealID string
-	Rows        []SaleAllocationRow
-	Reason      string
-	OccurredAt  time.Time
+	// DeclaredAnimalCount is re-checked inside the serialized write transaction. The
+	// app-layer count gate is still the friendly preflight, but this is the race gate:
+	// two tabs cannot both see remaining=N and commit disjoint goats beyond the sale.
+	DeclaredAnimalCount int
+	Rows                []SaleAllocationRow
+	Reason              string
+	OccurredAt          time.Time
 }
 
 // SaleAllocationShedGroup is the confirmation screen's shape: the picked animals of ONE
