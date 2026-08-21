@@ -31,6 +31,8 @@ type Props = {
   proofPolicy: unknown;
   initialPlan: EditorPlan;
   impact: ImpactSummary | null;
+  canPublish: boolean;
+  cannotPublishReason: string | null;
 };
 
 export type ImpactSummary = {
@@ -55,6 +57,18 @@ export function VaccinationPlanEditor(props: Props) {
   );
   const current = plan.vaccines.find((v) => v.code === selected) ?? plan.vaccines[0];
   const onCount = plan.vaccines.filter((v) => v.on).length;
+
+  // A vaccine switched on with no doses is not in the plan: "off" IS an empty
+  // schedule, so saving one round-trips it straight back to off and the switch
+  // silently flips back. Rather than let that happen quietly, saving is blocked
+  // until the vaccine has a dose or is switched off again.
+  const emptyOn = plan.vaccines.filter((v) => v.on && v.kidDoses.length === 0 && v.driveDoses.length === 0);
+  const blockedReason =
+    emptyOn.length > 0
+      ? `${emptyOn.map((v) => v.name).join(", ")} ${emptyOn.length === 1 ? "is" : "are"} switched on but ${
+          emptyOn.length === 1 ? "has" : "have"
+        } no doses. Add a dose, or switch ${emptyOn.length === 1 ? "it" : "them"} off.`
+      : null;
 
   function updateVaccine(code: string, change: (v: EditorVaccine) => EditorVaccine) {
     setSaved(false);
@@ -432,6 +446,10 @@ export function VaccinationPlanEditor(props: Props) {
             {props.draftLabel} · draft
           </span>
           <span className={saved && !dirty ? "saved-note show" : "saved-note"}>Draft saved.</span>
+          {blockedReason ? <span className="ab-block">{blockedReason}</span> : null}
+          {!blockedReason && props.cannotPublishReason ? (
+            <span className="ab-block">{props.cannotPublishReason}</span>
+          ) : null}
           <span className="ab-spacer" />
           <button
             className="btn ghost sm"
@@ -444,10 +462,22 @@ export function VaccinationPlanEditor(props: Props) {
           >
             Reset
           </button>
-          <button className="btn" type="button" disabled={pending || !dirty} onClick={onSave}>
+          <button
+            className="btn"
+            type="button"
+            disabled={pending || !dirty || blockedReason !== null}
+            title={blockedReason ?? undefined}
+            onClick={onSave}
+          >
             {pending ? "Working…" : "Save draft"}
           </button>
-          <button className="btn pubb" type="button" disabled={pending} onClick={onPublish}>
+          <button
+            className="btn pubb"
+            type="button"
+            disabled={pending || blockedReason !== null || !props.canPublish}
+            title={blockedReason ?? props.cannotPublishReason ?? undefined}
+            onClick={onPublish}
+          >
             Publish plan
           </button>
         </div>

@@ -38,6 +38,13 @@ const CATEGORY = "vaccination";
 
 /** Human message for a failed API call, never a raw transport error. */
 function failure(prefix: string, detail: unknown): PlanActionResult {
+  // A dropped connection surfaces as a TypeError from fetch ("fetch failed",
+  // ECONNREFUSED, ENOTFOUND). Those are true but useless on screen, and this
+  // function exists precisely to keep transport noise off it, so they are
+  // reported as what they mean: the server could not be reached.
+  if (isUnreachable(detail)) {
+    return { ok: false, error: `${prefix}: the server could not be reached. Nothing was changed — try again.` };
+  }
   const message =
     typeof detail === "string"
       ? detail
@@ -45,6 +52,16 @@ function failure(prefix: string, detail: unknown): PlanActionResult {
         ? String((detail as { message: unknown }).message)
         : "unexpected error";
   return { ok: false, error: `${prefix}: ${message}` };
+}
+
+function isUnreachable(detail: unknown): boolean {
+  const text =
+    typeof detail === "string"
+      ? detail
+      : detail && typeof detail === "object" && "message" in detail
+        ? String((detail as { message: unknown }).message)
+        : "";
+  return /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|network|timeout/i.test(text);
 }
 
 /**
@@ -146,9 +163,23 @@ export async function saveDraftPlan(
   });
   if (!saved.ok) return failure("could not save the draft", saved.error);
 
-  // The superseded draft is removed, so the list never shows two drafts for one
-  // edit. Failure here is not fatal: the save itself succeeded.
-  await discardProtocolVersion(draftVersionId);
+  // The superseded draft must go: one draft at a time is the rule, and leaving
+  // the old row behind would break it for everything downstream -- the list
+  // renders the FIRST draft it finds, so the loser becomes work nobody can reach
+  // or discard.
+  //
+  // The save itself has already succeeded at this point, so a failure here is
+  // reported rather than thrown: the edit is safe, but the caller is told the
+  // tidy-up did not happen instead of being left with a silently broken rule.
+  const removed = await discardProtocolVersion(draftVersionId);
+  if (!removed.ok && !isNotFound(removed.error)) {
+    revalidatePath(PLAN_ROUTE);
+    return {
+      ok: false,
+      error:
+        "Your changes were saved, but the previous draft could not be removed. Reload the plan and discard the older draft before publishing.",
+    };
+  }
 
   revalidatePath(PLAN_ROUTE);
   return { ok: true, versionId: saved.data.protocol_version_id };

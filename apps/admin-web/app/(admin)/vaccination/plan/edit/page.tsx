@@ -8,6 +8,7 @@ import {
   previewVaccinationImpact,
   requireAdminWebPageContract,
 } from "@/lib/api/server";
+import { control, controlEnabled } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const versionId = one(params, "version");
   if (!versionId) notFound();
 
-  const [, configs, version] = await Promise.all([
+  const [contract, configs, version] = await Promise.all([
     requireAdminWebPageContract("vaccination-plan"),
     listProtocolConfigs("vaccination"),
     getProtocolVersion(versionId),
@@ -61,6 +62,18 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
       proofPolicy={version.data.proof_policy}
       initialPlan={fromRuleDsl(version.data.rule_dsl, version.data.proof_policy)}
       impact={impact}
+      // The publish gate is the backend's, not this screen's. The header says
+      // "only you and the COO can publish", and that was decoration: the button
+      // rendered and worked for anyone who could open the page. The backend
+      // already emits a publish_protocol_version control carrying whether this
+      // principal holds protocol.publish, and why not.
+      canPublish={controlEnabled(contract, "publish_protocol_version", true)}
+      cannotPublishReason={
+        controlEnabled(contract, "publish_protocol_version", true)
+          ? null
+          : control(contract, "publish_protocol_version").disabled_reason ||
+            "Your role cannot publish the vaccination plan."
+      }
     />
   );
 }

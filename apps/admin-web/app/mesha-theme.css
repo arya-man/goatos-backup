@@ -3572,7 +3572,12 @@ select:disabled { opacity: .45; }
   font-size: 12px; font-weight: 600; white-space: nowrap;
   border: 1px solid var(--warn); background: var(--warnx); color: var(--warn); }
 .vp .pill.live { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d); }
-.vp .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+/* The app already uses `.dot` for an ABSOLUTELY POSITIONED notification badge
+   (top:-5px; right:-5px; min-width:17px). Overriding only width/height left that
+   positioning in force, so the pill's dot sat 5px outside the viewport and the
+   whole page scrolled sideways. Every property that rule sets is reset here. */
+.vp .dot { position: static; width: 7px; height: 7px; min-width: 0; padding: 0; border: 0;
+  border-radius: 50%; background: currentColor; display: inline-block; flex: none; }
 
 .vp .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   box-shadow: var(--shadow); margin: 0 0 16px; overflow: hidden; }
@@ -3797,3 +3802,4 @@ select:disabled { opacity: .45; }
 .vp .del { margin-left: auto; color: var(--faint); cursor: pointer; font-size: 17px; line-height: 1;
   padding: 4px 8px; border-radius: 6px; background: none; border: none; }
 .vp .del:hover:not(:disabled) { background: var(--dangerx); color: var(--danger); }
+.vp .ab-block { font-size: 12.5px; color: var(--warn); max-width: 62ch; }
