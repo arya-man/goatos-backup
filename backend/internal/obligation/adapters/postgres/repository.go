@@ -6314,7 +6314,7 @@ func repeatText(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource
 }
 
 func repeatUUID(rc *domain.RepeatCycleSource) pgtype.UUID {
-	if rc == nil || rc.AnchorObligationID == nil {
+	if !rc.Valid() || rc.AnchorObligationID == nil {
 		return pgtype.UUID{}
 	}
 	return pgconv.NullableUUID(rc.AnchorObligationID)
