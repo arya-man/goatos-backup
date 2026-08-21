@@ -42,6 +42,7 @@ import {
   type SopVersionOption,
   type VaccinationMatrixRow,
 } from "./rule-dsl";
+import { fmtDate } from "@/lib/format";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 import {
   copy,
@@ -854,7 +855,7 @@ export function RuleEditorModal({
                 const tone = optionTone(pageContract, "capacity_chips", s.capacity);
                 return (
                   <tr key={`${s.date}-${i}`}>
-                    <td>{s.date}</td>
+                    <td>{fmtDate(s.date)}</td>
                     <td>{s.vaccinations}</td>
                     <td className="muted">{s.dailyLimit}</td>
                     <td>

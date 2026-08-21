@@ -29,33 +29,66 @@ import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
 
-// A JSX text interpolation whose entire expression is a member access ending in
-// a date-ish suffix: `>{row.first_purchase_date}<`, `>{d.feed_day}</`.
-const BARE_DATE_TEXT = />\{\s*[A-Za-z_$][\w$]*(?:\.[\w$]+)*\.(?:[\w$]*_date|[\w$]*_day|feed_day)\s*\}\s*</g;
+const DATE_FIELD = String.raw`[A-Za-z_$][\w$]*(?:\.[\w$]+)*\.(?:[\w$]*_date|[\w$]*_day|[\w$]*_at|feed_day)`;
+
+// JSX text interpolations that ship a date-ish member access directly to the
+// screen: `{row.first_purchase_date}`, `{row.last_weighed_date ?? (...)}`, or a
+// template/range literal like `` `${coverage.start_date} to ${coverage.end_date}` ``.
+const BARE_DATE_PATTERNS = [
+  new RegExp(String.raw`>\{\s*(${DATE_FIELD})\s*\}\s*<`, "g"),
+  new RegExp(String.raw`>\{\s*(${DATE_FIELD})\s*\?\?`, "g"),
+  new RegExp(String.raw`>\{\s*` + "`" + String.raw`[^` + "`" + String.raw`]*\$\{\s*${DATE_FIELD}\s*\}[^` + "`" + String.raw`]*` + "`" + String.raw`\s*\}<`, "g"),
+  new RegExp(String.raw`>[^<{}]*\{\s*(${DATE_FIELD})\s*\}[^<{}]*<`, "g"),
+  new RegExp(String.raw`>\{\s*(${DATE_FIELD})\s*\}\s*[^<{}]+`, "g"),
+];
 
 function scanSource(source) {
   const hits = [];
-  let match;
-  BARE_DATE_TEXT.lastIndex = 0;
-  while ((match = BARE_DATE_TEXT.exec(source)) !== null) {
-    const line = source.slice(0, match.index).split("\n").length;
-    hits.push({ line, text: match[0].trim() });
+  const seen = new Set();
+  for (const pattern of BARE_DATE_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      const line = source.slice(0, match.index).split("\n").length;
+      const text = match[0].trim();
+      const key = `${line}:${text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push({ line, text });
+    }
   }
   return hits;
 }
 
 function canaryFailures(formatSource) {
   const failures = [];
-  if (!formatSource.includes("${parts.day}-${parts.month}-${parts.year}")) {
+  const fmtDateBody = formatSource.match(/export function fmtDate\([^]*?\n}/)?.[0] ?? "";
+  const fmtDateTimeBody = formatSource.match(/export function fmtDateTime\([^]*?\n}/)?.[0] ?? "";
+  if (!fmtDateBody.includes("${parts.day}-${parts.month}-${parts.year}")) {
     failures.push("lib/format.ts fmtDate no longer composes DD-MM-YYYY (maintainer decision 2026-08-21)");
+  }
+  if (!fmtDateTimeBody.includes("${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}")) {
+    failures.push("lib/format.ts fmtDateTime no longer composes DD-MM-YYYY HH:MM (maintainer decision 2026-08-21)");
   }
   return failures;
 }
 
 function selfTest() {
-  const bad = "<td>{row.first_purchase_date}</td>\n<td>{d.feed_day}</td>";
-  const good = "<td>{fmtDate(row.first_purchase_date)}</td>\n<td key={d.feed_day}>{fmtDate(d.feed_day)}</td>";
-  if (scanSource(bad).length !== 2) {
+  const bad = [
+    "<td>{row.first_purchase_date}</td>",
+    "<td>{d.feed_day}</td>",
+    "<td>{row.last_weighed_date ?? <span>never</span>}</td>",
+    "<p>Recorded {trace.created_at}</p>",
+    "<span>{`${coverage.start_date} to ${coverage.end_date}`}</span>",
+  ].join("\n");
+  const good = [
+    "<td>{fmtDate(row.first_purchase_date)}</td>",
+    "<td key={d.feed_day}>{fmtDate(d.feed_day)}</td>",
+    "<td>{row.last_weighed_date ? fmtDate(row.last_weighed_date) : <span>never</span>}</td>",
+    "<p>Recorded {dateTime(trace.created_at)}</p>",
+    "<span>{coverage.start_date && coverage.end_date ? `${fmtDate(coverage.start_date)} to ${fmtDate(coverage.end_date)}` : '—'}</span>",
+  ].join("\n");
+  if (scanSource(bad).length !== 5) {
     console.error("self-test FAIL: bare date text nodes not flagged");
     process.exit(1);
   }
@@ -63,11 +96,18 @@ function selfTest() {
     console.error("self-test FAIL: wrapped/attribute dates wrongly flagged");
     process.exit(1);
   }
-  if (canaryFailures("return `${parts.year}-${parts.month}-${parts.day}`;").length !== 1) {
+  const isoFmtDate = "export function fmtDate(iso) {\nreturn `${parts.year}-${parts.month}-${parts.day}`;\n}\nexport function fmtDateTime(iso) {\nreturn `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;\n}";
+  const isoFmtDateTime = "export function fmtDate(iso) {\nreturn `${parts.day}-${parts.month}-${parts.year}`;\n}\nexport function fmtDateTime(iso) {\nreturn `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;\n}";
+  const ddmmyyyy = "export function fmtDate(iso) {\nreturn `${parts.day}-${parts.month}-${parts.year}`;\n}\nexport function fmtDateTime(iso) {\nreturn `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;\n}";
+  if (canaryFailures(isoFmtDate).length !== 1) {
     console.error("self-test FAIL: ISO-shaped fmtDate canary not caught");
     process.exit(1);
   }
-  if (canaryFailures("return `${parts.day}-${parts.month}-${parts.year}`;").length !== 0) {
+  if (canaryFailures(isoFmtDateTime).length !== 1) {
+    console.error("self-test FAIL: ISO-shaped fmtDateTime canary not caught");
+    process.exit(1);
+  }
+  if (canaryFailures(ddmmyyyy).length !== 0) {
     console.error("self-test FAIL: DD-MM-YYYY canary wrongly flagged");
     process.exit(1);
   }
