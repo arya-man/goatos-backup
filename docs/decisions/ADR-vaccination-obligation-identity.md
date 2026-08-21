@@ -276,9 +276,102 @@ Conceptually no operator-facing change — scan, vaccinate, upload proof, submit
 Returning `vaccine_code` / `dose_code` explicitly on the API would make identity legible to
 clients and is worth doing in the same change.
 
+## Settled: repeat-cycle identity (2026-08-21)
+
+The "Open" item below asking for `occurrence_anchor` is answered. The design was proposed,
+counter-reviewed twice, and narrowed against the measured data. Recording it here because the
+scope claim is the part most easily overstated.
+
+### Anchor identity to the cause, not the effect
+
+Identity currently includes the DUE DATE (`generation.go` obligation key; `booster.go` repeat
+key). For a dose anchored to when the previous one was actually given, that date legitimately
+moves, so a re-run inserts beside the existing row instead of moving it.
+
+The fix is to label every repeat obligation with WHAT PREVIOUS VACCINATION CREATED IT, and to
+make the database enforce one open successor per cause:
+
+    repeat_cycle_source            completed_obligation | trusted_history | imported_history
+    repeat_cycle_source_ref        the completed obligation id, or the history record id
+    repeat_cycle_anchor_obligation_id   the completed obligation, when the source is internal
+    repeat_cycle_anchor_at         administered_at of the previous dose
+    repeat_cycle_due_at            the next due date
+
+    CREATE UNIQUE INDEX CONCURRENTLY obligation_repeat_cycle_open_anchor_unique_idx
+    ON obligation_instances (tenant_id, repeat_cycle_anchor_obligation_id)
+    WHERE repeat_cycle_anchor_obligation_id IS NOT NULL
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed');
+
+ONE OPEN SUCCESSOR PER ANCHOR, not one ever. This is the hinge of the whole design. A global
+uniqueness would burn the anchor permanently the first time a successor is cancelled or
+superseded, and the cycle could never restart — the same class of silent stoppage the earlier
+constant-key proposal was rejected for.
+
+`missed` is INSIDE the open set deliberately: generation's recovery-repair pass reopens missed
+and deferred rows, so a missed dose is still live work. Terminal statuses — `completed`,
+`waived`, `canceled`, `superseded` — are excluded, which is what lets the next cycle be minted
+from the next completed dose.
+
+### Scope, stated honestly
+
+This fixes 207 of the 222 duplicate groups measured in the staging baseline. The other 15 are
+DIFFERENT BUGS and must not be counted as fixed by it:
+
+| dose | groups | gap between the pair | shape |
+|---|---|---|---|
+| `et_tt_revac` | 207 | 0–1 days | `after_previous_completion` + `every_n_days` — the same cycle minted twice across a day boundary. Fixed by the anchor index. |
+| `goat_pox_adult_w1` | 14 | 216 days | `manual_campaign`, `repeat = none` — carries no repeat anchor at all. A campaign supersede/realignment defect. NOT fixed here. |
+| `et_tt_kid_7w` | 1 | 8 days | `birth_age`, `min_gap_days = 21` — a course-gap duplicate. NOT fixed here. |
+
+The rollout must not claim the system is clean until the manual-campaign and birth-age paths are
+repaired too.
+
+### Constraints on the implementation
+
+- KEEP IT OPT-IN. `InsertObligationInstance` is the generic obligation insert; feed and health
+  share it. The existing due-date guard stays byte-identical when repeat metadata is absent, with
+  a separate branch only for rows carrying `repeat_cycle_source_ref`.
+- BOTH MINTING PATHS. `booster.go` is not the only one that creates repeat work — `generation.go`
+  also mints it from accepted and imported history. Fixing only the booster leaves a path that
+  still writes bad rows.
+- `completed_handler.go` currently discards the completed `obligation_id` and passes only
+  `PrevSequence`; the source ref cannot be set without threading it through, and matching the
+  current rule by sequence is fragile independently of this change.
+- HOT TABLE. `obligation_instances` is registered in
+  `backend/tests/integration/validate-hot-index-migrations.sh`, so: nullable columns under a
+  bounded `lock_timeout`; `CREATE INDEX CONCURRENTLY`; goose `NO TRANSACTION` (a concurrent index
+  cannot run inside a transaction); constraints `NOT VALID` then validated separately; and the
+  repair as a bounded job, never an unbounded migration.
+- THE BACKFILL IS LOAD-BEARING. Existing rows have NULL anchors, so the partial index does not
+  see them: the index prevents new damage, the repair fixes old damage. It must be idempotent and
+  report each class separately, including the ones it cannot fix:
+
+      repeat duplicates repaired
+      repeat successors created
+      campaign duplicates repaired
+      course duplicates repaired
+      duplicates skipped because they carry no repeat metadata
+
+  That last counter is how the 15 stay visible instead of being hidden by a clean-looking run.
+
+### Mobile
+
+Unchanged. The phone completes a concrete `obligation_id`; the backend emits
+`vaccination.completed` and schedules the successor. No repeat-cycle field reaches a client.
+Movement is already handled — open future obligations are re-scoped when a goat moves.
+
+### Tests required before trusting it
+
+- `booster_test.go` — a repeat successor stores its source metadata, and a replay does not duplicate.
+- `booster_integration_test.go` — complete a repeat dose, dispatch the event twice, get exactly one successor.
+- `generation_test.go` — history-driven repeat work carries repeat-cycle metadata too.
+- `repository_integration_test.go` — two inserts with the same repeat source cannot create two open
+  rows; two DIFFERENT completed anchors can create two different future cycles.
+- a move/shift test — a future repeat obligation follows the goat's new shed.
+
 ## Open
 
-1. Exact definition of `occurrence_anchor` for repeating doses.
+1. ~~Exact definition of `occurrence_anchor` for repeating doses.~~ Settled above.
 2. Whether to keep `effective_from` at all. Future-dating is currently unsafe: `effective_to` is
    immutable on a published row, so a future-dated publish leaves a window with no effective
    plan. Either allow `effective_to` to be closed during the atomic retire, or drop future-dating
