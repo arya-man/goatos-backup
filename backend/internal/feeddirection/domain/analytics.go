@@ -201,8 +201,10 @@ type StockItem struct {
 	// BalanceKg may go negative when directed kg overruns the ledger — shown as
 	// is, never clamped: a negative balance says the ledger is missing a load.
 	BalanceKg string
-	// AvgDailyKg averages the item's directed kg over its 7 most recent locked
-	// feed days; empty when the item was never directed.
+	// AvgDailyKg averages the item's directed kg over its 3 most recent locked
+	// feed days — a short window so a ration-regime change (e.g. animals moving
+	// onto a new concentrate) moves days-left immediately, matching the farm's
+	// legacy stock sheet (maintainer decision 2026-08-21); empty when the item was never directed.
 	AvgDailyKg string
 	// DaysLeft is BalanceKg ÷ AvgDailyKg, nil when the item has no recent
 	// directed days to divide by.
@@ -239,7 +241,7 @@ type StockFarmItem struct {
 	// FirstDirectedDay is the first locked feed day the item was directed at
 	// this farm; empty when never directed.
 	FirstDirectedDay string
-	// AvgDailyKg averages the farm's directed kg for the item over its 7 most
+	// AvgDailyKg averages the farm's directed kg for the item over its 3 most
 	// recent locked feed days (same semantics as StockItem.AvgDailyKg, scoped
 	// to the farm); empty when never directed.
 	AvgDailyKg string

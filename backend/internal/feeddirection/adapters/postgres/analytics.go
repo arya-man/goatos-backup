@@ -517,7 +517,7 @@ recent AS (
                ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
         FROM locked_cells
     ) ranked
-    WHERE rn <= 7
+    WHERE rn <= 3
     GROUP BY park_id, feed_item_key
 )
 SELECT b.farm_label,
@@ -649,7 +649,7 @@ locked_cells AS (
 directed AS (
     SELECT park_id, feed_item_key,
            MIN(feed_day)                  AS first_directed_day,
-           AVG(kg) FILTER (WHERE rn <= 7) AS recent_avg_kg
+           AVG(kg) FILTER (WHERE rn <= 3) AS recent_avg_kg
     FROM (
         SELECT park_id, feed_item_key, feed_day, kg,
                ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
