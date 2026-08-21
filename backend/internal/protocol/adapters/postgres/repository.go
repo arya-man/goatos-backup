@@ -422,11 +422,39 @@ func (r *Repository) ReplaceDraftVersion(ctx context.Context, in domain.NewVersi
 		return "", fmt.Errorf("protocol: replaced version id: %w", err)
 	}
 
+	// A replace DELETES one version and creates another, so a retry cannot tell from the
+	// outside whether the first attempt committed: the id it holds is already gone, and a
+	// naive second attempt reads as "not a draft" rather than replaying. The reservation
+	// makes the retry return the same replacement it created the first time.
+	fingerprint := protocolFingerprint(
+		"version.replace",
+		in.TenantID,
+		in.ProtocolID,
+		replacesVersionID,
+		strings.TrimSpace(in.ScopeType),
+		optionalString(in.ScopeID),
+		strings.TrimSpace(in.VersionLabel),
+		in.EffectiveFrom.UTC().Format(time.RFC3339Nano),
+		optionalTime(in.EffectiveTo),
+		canonicalJSON(in.RuleDsl),
+		canonicalJSON(in.ProofPolicy),
+		optionalString(in.SopVersionID),
+	)
+	key := protocolIdempotencyKey(in.IdempotencyKey, fingerprint)
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("protocol: begin replace draft: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, in.TenantID, "protocol.version.replace", key, fingerprint, "protocol_version")
+	if err != nil {
+		return "", fmt.Errorf("protocol: reserve replace idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return reservation.resultID, nil
+	}
 	qtx := r.queries.WithTx(tx)
 
 	// The old draft goes first, so the replacement never has to coexist with it.
@@ -505,6 +533,9 @@ WHERE tenant_id = $1
 		"replaces":       replacesVersionID,
 	}, map[string]any{"idempotency_scope": "protocol.version.replace"}); err != nil {
 		return "", err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, in.TenantID, "protocol.version.replace", key, "protocol_version", id); err != nil {
+		return "", fmt.Errorf("protocol: complete replace idempotency: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("protocol: commit replace draft: %w", err)

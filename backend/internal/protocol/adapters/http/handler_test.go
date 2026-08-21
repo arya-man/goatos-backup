@@ -382,3 +382,55 @@ func TestDiscardVersionDeletesDraft(t *testing.T) {
 		t.Fatalf("discarded %q, want draft-9", fake.discardedID)
 	}
 }
+
+// A JSON STRING is not an object, and the difference is invisible until a real request is
+// made: the admin-web wrapper stringified the body itself while the shared client stringifies
+// too, so the backend was handed `"{\"protocol_id\":...}"` and every save and publish failed
+// to decode. Asserting the shape at the boundary is what catches that class of bug.
+func TestReplaceDraftVersionRejectsADoubleEncodedBody(t *testing.T) {
+	fake := &fakeConfig{}
+	doubleEncoded, err := json.Marshal(`{"protocol_id":"p-1","scope_type":"tenant","effective_from":"2026-06-01T00:00:00Z","rule_dsl":{}}`)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/draft-9/replace", string(doubleEncoded))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d for a body that is a JSON string", rec.Code, http.StatusBadRequest)
+	}
+	if fake.replacedID != "" {
+		t.Fatalf("a draft was replaced from an undecodable body: %q", fake.replacedID)
+	}
+}
+
+// The success path: the replacement id comes back, and the version being replaced is the one
+// named in the path.
+func TestReplaceDraftVersionSwapsTheNamedDraft(t *testing.T) {
+	fake := &fakeConfig{}
+	body := `{"protocol_id":"p-1","scope_type":"tenant","effective_from":"2026-06-01T00:00:00Z","rule_dsl":{"ruleset_family":"vaccination.matrix"}}`
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/draft-9/replace", body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusCreated)
+	}
+	if fake.replacedID != "draft-9" {
+		t.Fatalf("replaced %q, want draft-9", fake.replacedID)
+	}
+	if !strings.Contains(rec.Body.String(), "version-replacement") {
+		t.Fatalf("body = %s, want the replacement id", rec.Body.String())
+	}
+}
+
+// Replacing something that is not a draft is a conflict, not a second draft.
+func TestReplaceDraftVersionRefusesPublished(t *testing.T) {
+	fake := &fakeConfig{replaceErr: ports.ErrVersionNotDraft}
+	body := `{"protocol_id":"p-1","scope_type":"tenant","effective_from":"2026-06-01T00:00:00Z","rule_dsl":{}}`
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/ver-1/replace", body)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), "version_not_draft") {
+		t.Fatalf("body = %s, want version_not_draft", rec.Body.String())
+	}
+}

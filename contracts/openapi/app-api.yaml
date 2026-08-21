@@ -2642,6 +2642,7 @@ paths:
         discarding first destroys the farm's work if the create then fails.
       parameters:
         - $ref: "#/components/parameters/ProtocolVersionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:

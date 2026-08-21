@@ -14820,7 +14820,9 @@ export interface operations {
     replaceProtocolDraftVersion: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 version_id: components["parameters"]["ProtocolVersionId"];
             };
