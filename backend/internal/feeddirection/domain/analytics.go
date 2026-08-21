@@ -191,8 +191,11 @@ type ExperimentAnalytics struct {
 // same store.
 // ---------------------------------------------------------------------------
 
-// StockItem is one feed item's current stock position.
+// StockItem is one FARM's current stock position for one feed item. Each farm
+// keeps its own physical store (maintainer decision 2026-08-21), so there is
+// deliberately no tenant-wide combined balance — a number nobody's store holds.
 type StockItem struct {
+	FarmLabel     string
 	FeedItemLabel string
 	FeedItemKey   string
 	// BalanceKg may go negative when directed kg overruns the ledger — shown as
