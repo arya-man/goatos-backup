@@ -3,6 +3,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,16 @@ type RepeatCycleSource struct {
 
 // Repeat-cycle source kinds. Stored verbatim and half of the source-uniqueness key, so they
 // are constants rather than literals retyped at each call site.
+// Valid reports whether the metadata identifies a cause. Source and SourceRef must BOTH
+// be present: a half-populated value looks anchored while being invisible to the partial
+// unique indexes (which key on source_ref, and treat a NULL source as distinct), so it
+// would silently reintroduce the very duplicates this metadata exists to prevent.
+func (r *RepeatCycleSource) Valid() bool {
+	return r != nil &&
+		strings.TrimSpace(r.Source) != "" &&
+		strings.TrimSpace(r.SourceRef) != ""
+}
+
 const (
 	RepeatCycleSourceCompletedObligation = "completed_obligation"
 	RepeatCycleSourceTrustedHistory      = "trusted_history"

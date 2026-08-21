@@ -1404,6 +1404,8 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		anchorCatchUpKey := ""
+		// Set only on the history-driven repeat path below, and only for repeat rules.
+		var historyAnchor *obldomain.RepeatCycleSource
 		baseDue, ok, skip := time.Time{}, false, false
 		if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
 			return err
@@ -1512,6 +1514,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
 					baseDue = historyDue
 					ok = true
+					// This due date was derived from a specific past administration, and it
+					// moves whenever a newer administration of the same vaccine lands. Record
+					// the administration itself as the cycle's cause so the moved date updates
+					// the existing row instead of minting a second one beside it.
+					if latest, hasLatest := latestVaccineAdministration(rule, strings.TrimSpace(ruleVaccine.Code), vaccineHistory); hasLatest && isRepeatRule(&rule) {
+						historyAnchor = historyRepeatCycle(latest)
+					}
 				}
 			}
 		}
@@ -1636,6 +1645,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			Status:            status,
 			IdempotencyKey:    key,
 			Sequence:          rule.Sequence,
+			RepeatCycle:       historyAnchor,
+		}
+		if historyAnchor != nil {
+			finalDue := due
+			historyAnchor.DueAt = &finalDue
 		}
 		var applied bool
 		if deferred {
@@ -2721,5 +2735,26 @@ func generationResultFromRun(run domain.GenerationRun) domain.GenerateResult {
 		FailedGoats:                run.FailedGoats,
 		SkippedNoDueDate:           run.SkippedNoDueDate,
 		SuppressedByTrustedHistory: run.SuppressedByTrustedHistory,
+	}
+}
+
+// historyRepeatCycle names a past administration as the cause of the repeat cycle it
+// drives. The reference is the administration's own immutable coordinates -- which
+// vaccine, given when, as which dose -- and never the derived due date, because the due
+// date is precisely what moves when a newer administration lands.
+func historyRepeatCycle(admin domain.RecentVaccineAdministration) *obldomain.RepeatCycleSource {
+	code := strings.TrimSpace(admin.VaccineCode)
+	if code == "" || admin.AdministeredAt.IsZero() {
+		return nil
+	}
+	at := admin.AdministeredAt
+	return &obldomain.RepeatCycleSource{
+		Source: obldomain.RepeatCycleSourceTrustedHistory,
+		SourceRef: strings.Join([]string{
+			strings.ToLower(code),
+			at.UTC().Format(time.RFC3339),
+			strconv.Itoa(int(admin.Sequence)),
+		}, "|"),
+		AnchorAt: &at,
 	}
 }
