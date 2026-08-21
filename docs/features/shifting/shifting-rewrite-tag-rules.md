@@ -2,7 +2,7 @@
 
 Maintainer decisions 2026-08-20. This document is the canonical prose for the typed-shifting
 rulebook; the code cites it from `backend/internal/counts/domain/shifting_type.go`, the raise
-handler, the apply path, and migration `000177_shifting_type_tag_rules.sql`.
+handler, the apply path, and migration `000179_shifting_type_tag_rules.sql`.
 
 **What changed:** the raiser no longer chooses tag behaviour. The 2026-08-15 `stage_mode` toggle
 (keep_current / destination_stage) is retired for typed raises. Every raise carries a `category`
@@ -55,7 +55,7 @@ K0 -> K1 -> K2 -> K3 -+- F2 -+- F2-Male   -> Buck
 ## Pen-tag adoption ("pen tags follow occupancy")
 
 A spacing / delivery / flushing movement into an EMPTY pen tags THAT PEN with the arriving group's
-tag. The decision is snapshotted at raise into `shifting_events.adopt_pen_tag` (migration 000177),
+tag. The decision is snapshotted at raise into `shifting_events.adopt_pen_tag` (migration 000179),
 so the park head approves the exact pen configuration the apply will write. At apply,
 `identity.ConfigureAdoptedShedCohortInTx` re-validates the promise under the shifting row lock —
 the pen must still be unconfigured-or-matching and hold no disagreeing live occupant — and FAILS
@@ -102,7 +102,7 @@ an invented cohort (agree-or-go-bare).
   from the STORED category so a hand-crafted completion cannot widen it)
 - Pen adoption — `backend/internal/identity/adapters/postgres/shed_cohort_adopt.go` (same write as
   the Counts Breakdown Stage editor; different guard)
-- Schema — `backend/migrations/postgres/000177_shifting_type_tag_rules.sql` (category vocabulary
+- Schema — `backend/migrations/postgres/000179_shifting_type_tag_rules.sql` (category vocabulary
   +spacing +flushing; `adopt_pen_tag` snapshot column)
 - Contract — `contracts/openapi/app-api.yaml` `ShiftingEventRequest.category` / `stage_mode`
 - Android — `feature-counts/ShiftingScreen.kt` (six category chips; tag toggle removed, replaced by

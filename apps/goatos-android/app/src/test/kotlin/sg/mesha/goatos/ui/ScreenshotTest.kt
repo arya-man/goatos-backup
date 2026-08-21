@@ -519,7 +519,7 @@ class ScreenshotTest {
             state = ShiftingUiState(
                 animalQuery = animal.tag,
                 animalMatches = listOf(animal),
-                selectedAnimal = animal,
+                selectedAnimals = listOf(animal),
                 destinationParks = listOf(
                     ShiftingParkUi(
                         parkId = animal.parkId,
@@ -579,7 +579,7 @@ class ScreenshotTest {
         return ShiftingUiState(
             animalQuery = animal.tag,
             animalMatches = listOf(animal),
-            selectedAnimal = animal,
+            selectedAnimals = listOf(animal),
             destinationParks = listOf(
                 ShiftingParkUi(
                     parkId = animal.parkId,

@@ -86,6 +86,14 @@
     <string name="counts_category_breeding">Breeding</string>
     <string name="counts_category_delivery">Delivery</string>
     <string name="counts_category_spacing">Spacing</string>
+    <!-- Bulk shifting: the basket, its remove control, and the confirm-before-submit read-back. -->
+    <string name="counts_shifting_selected_count">Animals being moved (%1$d)</string>
+    <string name="counts_shifting_remove_animal">Remove this animal from the move</string>
+    <string name="counts_shifting_confirm_title">Move %1$d animals?</string>
+    <string name="counts_shifting_confirm_body">These animals will be moved to %1$s once the farm head approves.</string>
+    <string name="counts_shifting_confirm_body_no_destination">Choose a destination shed before recording this move.</string>
+    <string name="counts_shifting_confirm_action">Yes, move %1$d</string>
+    <string name="counts_shifting_confirm_cancel">Go back</string>
     <string name="counts_category_flushing">Flushing</string>
 
     <!-- Approval queue -->
@@ -163,7 +171,7 @@
     <string name="counts_field_status">Status</string>
     <string name="counts_field_goat">Goat</string>
     <string name="counts_field_reason">Reason</string>
-    <string name="counts_field_animal_lookup">Search by RFID</string>
+    <string name="counts_field_animal_lookup">Scan or type the RFID</string>
     <string name="counts_select_farm">Select a farm</string>
     <string name="counts_select_farm_first">Select a farm first</string>
     <string name="counts_select_animal_first">Select an animal first</string>
@@ -186,7 +194,7 @@
     <!-- Hints -->
     <string name="counts_hint_dob">Cannot be a future date.</string>
     <string name="counts_hint_reason">Between 3 and 500 characters.</string>
-    <string name="counts_hint_animal_lookup">Approving this movement relocates exactly the animal you select here.</string>
+    <string name="counts_hint_animal_lookup">Tap the Bluetooth button to scan the tag, or type the number. Approving this movement relocates exactly the animal you select here.</string>
     <string name="counts_hint_death_lookup">Recording a death exits exactly the animal you select here.</string>
     <string name="counts_more_fields">More details</string>
 

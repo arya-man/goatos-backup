@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -334,39 +335,67 @@ internal fun CountsSegmented(
      * dimmed one.
      */
     disabledKeys: Set<String> = emptySet(),
+    /**
+     * Most options this control will place on ONE line before wrapping to the next.
+     *
+     * A single row divides the width equally, so each added option takes width from every other
+     * one. Past a handful the cells are narrower than the words they hold and Compose breaks the
+     * label mid-word — the shifting form's six categories rendered as "Breedin/g", "Deliver/y",
+     * "Spacin/g", "Flushin/g". A truncated label is worse than a wrapped control: the operator is
+     * choosing what a movement MEANS, and half a word is not a choice.
+     *
+     * So a caller with more options than fit declares how many belong on a line, and the rest wrap
+     * onto the next one at the SAME cell width (short final rows are padded), keeping the grid
+     * even. The default keeps every existing two- and three-option caller on one line, unchanged.
+     */
+    maxPerRow: Int = options.size.coerceAtLeast(1),
 ) {
     // Filled track with a selected pill — same coherent segmented look across all Counts screens.
-    Row(
+    val rows = options.chunked(maxPerRow.coerceAtLeast(1))
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 54.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.Surf2)
             .padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        options.forEach { (key, label) ->
-            val selected = key == selectedKey
-            val disabled = key in disabledKeys
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (selected) MeshaColors.Brand else Color.Transparent)
-                    .let { base -> if (disabled) base else base.clickable { onSelect(key) } }
-                    .padding(vertical = 13.dp),
-                contentAlignment = Alignment.Center,
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Text(
-                    text = label,
-                    color = when {
-                        selected -> MeshaColors.OnBrand
-                        disabled -> MeshaColors.Muted.copy(alpha = 0.4f)
-                        else -> MeshaColors.Muted
-                    },
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W700,
-                )
+                row.forEach { (key, label) ->
+                    val selected = key == selectedKey
+                    val disabled = key in disabledKeys
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (selected) MeshaColors.Brand else Color.Transparent)
+                            .let { base -> if (disabled) base else base.clickable { onSelect(key) } }
+                            .padding(vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            color = when {
+                                selected -> MeshaColors.OnBrand
+                                disabled -> MeshaColors.Muted.copy(alpha = 0.4f)
+                                else -> MeshaColors.Muted
+                            },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.W700,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                // A short final row keeps the others' width rather than stretching to fill: the
+                // cells stay a consistent size, so the grid reads as one control.
+                repeat(maxPerRow - row.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }

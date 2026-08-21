@@ -367,7 +367,7 @@ var (
 	// since the 2026-08-20 shifting rewrite the category IS the shift TYPE, and the type decides
 	// what happens to the animals' tag (domain.ResolveShiftTypeDecision; canonical prose
 	// docs/features/shifting/shifting-rewrite-tag-rules.md). Spacing and flushing joined the
-	// vocabulary with that decision (migration 000177).
+	// vocabulary with that decision (migration 000179).
 	allowedShiftingPriority = map[string]bool{"high": true, "low": true}
 	allowedShiftingCategory = map[string]bool{
 		domain.ShiftTypeGrowth: true, domain.ShiftTypeHealth: true, domain.ShiftTypeBreeding: true,

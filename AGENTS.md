@@ -707,7 +707,7 @@ option") into a same-tag or empty destination (an empty pen adopts the tag); `fl
 moves females onto the Flushing tag into an empty or already-flushing pen. A raise a
 rule refuses is rejected at RAISE time with backend-owned farm copy — before approval and
 before any video. Pen adoption is snapshotted at raise (`adopt_pen_tag`, migration
-000177) and re-validated under the apply row lock, failing the whole apply closed
+000179) and re-validated under the apply row lock, failing the whole apply closed
 (`ErrDestinationPenChanged`) when the pen changed underneath the approval. The client
 still names no stage of its own — `target_management_stage` stays rejected; the 2026-08-15
 toggle below survives ONLY as the legacy path for a category-less raise from an older APK.
