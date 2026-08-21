@@ -157,7 +157,15 @@ sealed interface PcCareTaskEvent {
 // ---------------------------------------------------------------------------
 
 @Immutable
-data class PcCarePlanOption(val key: String, val label: String)
+data class PcCarePlanOption(
+    val key: String,
+    val label: String,
+    /**
+     * For an operator option: the parks this person is mapped to (backend-owned grants).
+     * Empty means cross-park/tenant-wide. Park/category options leave it empty.
+     */
+    val parkIds: List<String> = emptyList(),
+)
 
 @Immutable
 data class PcCarePlanPenUi(

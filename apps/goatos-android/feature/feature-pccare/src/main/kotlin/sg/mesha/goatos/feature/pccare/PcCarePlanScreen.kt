@@ -311,13 +311,28 @@ fun PcCarePlanWizardScreen(
                 }
                 PcCarePlanStep.OPERATORS -> {
                     item(key = "step_title") { WizardStepTitle("Who does the work?") }
-                    items(count = state.operators.size, key = { state.operators[it].key }) { index ->
-                        val option = state.operators[index]
+                    // Only the people mapped to the CHOSEN farm (backend-owned park grants);
+                    // an empty mapping means cross-park and stays offered everywhere.
+                    val assignable = state.operators.filter {
+                        it.parkIds.isEmpty() || state.selectedParkId in it.parkIds
+                    }
+                    items(count = assignable.size, key = { assignable[it].key }) { index ->
+                        val option = assignable[index]
                         WizardOptionRow(
                             label = option.label,
                             selected = option.key in state.selectedOperatorIds,
                             onClick = { onEvent(PcCarePlanEvent.ToggleOperator(option.key)) },
                         )
+                    }
+                    if (assignable.isEmpty()) {
+                        item(key = "no_operators") {
+                            Text(
+                                text = "No one is mapped to this farm yet",
+                                color = MeshaColors.Muted,
+                                style = MeshaType.cardSubtitle,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
                     }
                 }
                 PcCarePlanStep.REVIEW -> {
