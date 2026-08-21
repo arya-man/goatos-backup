@@ -104,7 +104,7 @@ class OutboxDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "outbox-migration-test.db"
-        const val CURRENT_VERSION = 3
+        const val CURRENT_VERSION = 4
     }
 }
 

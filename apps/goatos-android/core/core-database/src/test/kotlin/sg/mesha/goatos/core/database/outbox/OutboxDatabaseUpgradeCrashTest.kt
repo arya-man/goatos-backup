@@ -69,7 +69,7 @@ class OutboxDatabaseUpgradeCrashTest {
         // 2. App update: open the same file with current schema + real migrations. Crashes here if
         //    a migration is wrong.
         val upgraded = Room.databaseBuilder(context, OutboxDatabase::class.java, DB_NAME)
-            .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3)
+            .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4)
             .build()
         try {
             upgraded.openHelper.writableDatabase // force open + migrate + validate

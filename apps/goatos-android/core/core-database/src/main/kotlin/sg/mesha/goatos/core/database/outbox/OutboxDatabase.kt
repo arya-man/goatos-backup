@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 // OUTBOX_MIGRATION_* is validated against by MigrationTestHelper, and makes schema
 // changes reviewable. The outbox holds not-yet-synced writes, so a silently-wrong
 // migration here loses operator submissions — validated migrations are mandatory.
-@Database(entities = [OutboxEntity::class], version = 3, exportSchema = true)
+@Database(entities = [OutboxEntity::class], version = 4, exportSchema = true)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
 }
@@ -38,8 +38,68 @@ val OUTBOX_MIGRATION_2_3: Migration = object : Migration(2, 3) {
     }
 }
 
+/**
+ * v3 -> v4: puts already-queued vaccination Submit rows into the same ordering lane as
+ * their session's scans.
+ *
+ * Scans have always been grouped by `taskId|partition`, but Submit used to build its own
+ * key from the shed id and a differently-normalised label. Those two lanes are not
+ * ordered against each other, so a Submit could drain while one of its own animals' scans
+ * was still failing, closing the shed one animal short.
+ *
+ * New rows are fixed at the call sites. This exists for the rows already sitting on a
+ * phone when it upgrades: without it, a Submit queued by the old build keeps its old lane
+ * and can still outrun a failed scan -- a live risk for any device that has the previous
+ * APK, not a theoretical one.
+ *
+ * DATA-ONLY: no schema change. It touches only non-terminal SHED_SUBMIT rows, rewrites
+ * nothing else, and is a no-op on a row already in the new form -- so re-running it cannot
+ * corrupt anything. The task id is read from the row's own payload rather than guessed,
+ * and a row whose payload cannot be read is LEFT ALONE: an unchanged row keeps today's
+ * behaviour, whereas a wrongly-rewritten one would silently strand an operator's
+ * submission.
+ */
+val OUTBOX_MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        val pending = listOf("QUEUED", "IN_FLIGHT", "FAILED")
+        val placeholders = pending.joinToString(",") { "?" }
+        val rows = mutableListOf<Triple<String, String, String>>()
+        db.query(
+            "SELECT id, groupKey, payloadJson FROM outbox WHERE opType = 'SHED_SUBMIT' AND status IN ($placeholders)",
+            pending.toTypedArray(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                rows += Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+            }
+        }
+        for ((id, groupKey, payloadJson) in rows) {
+            val taskId = TASK_ID_IN_PAYLOAD.find(payloadJson)?.groupValues?.get(1) ?: continue
+            // The old key's partition segment is everything after the last separator.
+            val partition = groupKey.substringAfterLast('|', "")
+            val nextKey = "$taskId|${normalizeOutboxPartition(partition)}"
+            if (nextKey == groupKey) continue
+            db.execSQL("UPDATE outbox SET groupKey = ? WHERE id = ?", arrayOf(nextKey, id))
+        }
+    }
+}
+
+private val TASK_ID_IN_PAYLOAD = Regex("\"task_id\"\\s*:\\s*\"([^\"]+)\"")
+
+/**
+ * The partition half of an outbox lane key.
+ *
+ * Deliberately identical to core-data's `executionPartitionKey`, which the running app
+ * uses: "Part 2", "part 2" and "2" are one session and must produce one lane. It is
+ * restated here because core-database cannot depend on core-data, and
+ * `OutboxPartitionNormalisationTest` asserts the two never drift apart.
+ */
+internal fun normalizeOutboxPartition(raw: String?): String {
+    val normalized = raw.orEmpty().trim().lowercase().replace(Regex("^part[\\s]+"), "")
+    return normalized.ifBlank { "whole" }
+}
+
 /** Builds the outbox database. Callers (DI) supply the application context. */
 fun buildOutboxDatabase(context: Context): OutboxDatabase =
     Room.databaseBuilder(context, OutboxDatabase::class.java, "goatos-outbox.db")
-        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3)
+        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4)
         .build()
