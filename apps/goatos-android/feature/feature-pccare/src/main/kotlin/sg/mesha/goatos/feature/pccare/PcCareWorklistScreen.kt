@@ -118,7 +118,9 @@ internal fun PcCareTaskCard(
     onOpen: () -> Unit,
 ) {
     Column(
-        modifier = pcCareCardModifier(enabled = true, onClick = onOpen),
+        // A task sent for checking (or approved) is closed to the operator: the card renders
+        // its status chip but is no longer tappable. A rework verdict makes it tappable again.
+        modifier = pcCareCardModifier(enabled = card.openable, onClick = onOpen.takeIf { card.openable }),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

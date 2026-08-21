@@ -168,6 +168,9 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         animalCountLabel = if (animalCount > 0) "$animalCount animals" else "",
         reworkReason = if (effectiveStatus == PC_CARE_STATUS_REWORK) reworkReason else "",
         cancellable = effectiveStatus == PC_CARE_STATUS_OPEN,
+        // A submitted (or approved) task is closed to the operator: the row keeps its chip but
+        // no longer opens the capture screen. Rework reopens it.
+        openable = effectiveStatus == PC_CARE_STATUS_OPEN || effectiveStatus == PC_CARE_STATUS_REWORK,
     )
 }
 

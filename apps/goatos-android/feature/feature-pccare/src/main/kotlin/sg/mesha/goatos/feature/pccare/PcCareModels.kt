@@ -39,6 +39,12 @@ data class PcCareTaskCardUi(
     val reworkReason: String = "",
     /** True while an open-for-cancel action is offered (planner monitor only). */
     val cancellable: Boolean = false,
+    /**
+     * True while the operator can still work this task (open / sent back for rework). A task
+     * that is sent for checking or approved is closed to the operator — the row shows its
+     * status chip and does not open.
+     */
+    val openable: Boolean = true,
 )
 
 @Immutable
