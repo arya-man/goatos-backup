@@ -130,7 +130,11 @@ function buildDirectedView(data: FeedAnalyticsDirectedResponse, otherLabel: stri
     totalsByItem.set(item.feed_item_key, { label: item.feed_item_label, total });
   }
   const ranked = [...totalsByItem.entries()].sort((a, b) => b[1].total - a[1].total);
-  const top = ranked.slice(0, 4);
+  // Every feed item gets its own slice (maintainer request 2026-08-21) — the
+  // window's item count is bounded by the catalog, and folding the tail into
+  // one "Other feeds" slot hid real feeds from the chart and legend. Ranked
+  // order keeps each item's colour stable across the page's charts.
+  const top = ranked;
   const topKeys = new Set(top.map(([key]) => key));
   const hasOther = ranked.length > top.length;
   const itemLabels = [...top.map(([, v]) => v.label), ...(hasOther ? [otherLabel] : [])];
