@@ -2777,7 +2777,11 @@ func historyRepeatCycle(admin domain.RecentVaccineAdministration) *obldomain.Rep
 		Source: obldomain.RepeatCycleSourceTrustedHistory,
 		SourceRef: strings.Join([]string{
 			strings.ToLower(code),
-			at.UTC().Format(time.RFC3339),
+			// Truncated to the second. RFC3339 keeps fractional seconds when they are
+			// non-zero, and the repair job -- which has to compute a byte-identical
+			// reference for the same administration -- formats from SQL, which does not.
+			// A stored microsecond would make the two disagree and the duplicate return.
+			at.UTC().Truncate(time.Second).Format(time.RFC3339),
 			strconv.Itoa(int(admin.Sequence)),
 		}, "|"),
 		AnchorAt: &at,
