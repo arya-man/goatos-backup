@@ -80,7 +80,7 @@ class PcCarePlanViewModel @Inject constructor(
         combine(monitorSelection, submittedGrains.observe()) { sel, submitted -> sel to submitted }
             .filter { (sel, _) -> sel.category.isNotBlank() && sel.date.isNotBlank() }
             .flatMapLatest { (sel, submitted) ->
-                repository.worklistRows(PcCareWorklistQuery(category = sel.category, date = sel.date))
+                repository.worklistRows(PcCareWorklistQuery(category = sel.category, date = sel.date, monitor = true))
                     .map { page -> page.map { dto -> dto.toCardUi(submitted) } }
             }
             .cachedIn(viewModelScope)
@@ -195,7 +195,7 @@ class PcCarePlanViewModel @Inject constructor(
                     current.copy(
                         categories = categories,
                         parks = loaded.parks.map { PcCarePlanOption(it.parkId, it.parkLabel) },
-                        operators = loaded.operators.map { PcCarePlanOption(it.userId, it.displayName) },
+                        operators = loaded.operators.map { PcCarePlanOption(it.userId, it.displayName, it.parkIds) },
                     )
                 }
             } catch (cancelled: CancellationException) {
@@ -223,7 +223,19 @@ class PcCarePlanViewModel @Inject constructor(
 
     private fun selectPark(parkId: String) {
         val label = _state.value.parks.firstOrNull { it.key == parkId }?.label.orEmpty()
-        _state.update { it.copy(selectedParkId = parkId, selectedParkLabel = label, pens = emptyList(), selectedShedId = "", selectedPartitionLabel = "", selectedPenLabel = "") }
+        _state.update {
+            it.copy(
+                selectedParkId = parkId,
+                selectedParkLabel = label,
+                pens = emptyList(),
+                selectedShedId = "",
+                selectedPartitionLabel = "",
+                selectedPenLabel = "",
+                // A different farm has different people: the operator step filters to the
+                // chosen park's mapping, so choices made under another park cannot carry over.
+                selectedOperatorIds = emptySet(),
+            )
+        }
     }
 
     private fun selectPen(shedId: String, partitionLabel: String) {

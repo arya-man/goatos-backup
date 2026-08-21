@@ -65,8 +65,15 @@ private const val PC_CARE_CACHE_SHAPE = "task-v1"
 data class PcCareWorklistQuery(
     val category: String,
     val date: String,
+    /**
+     * False: the operator worklist (`/app/pc-care/worklist`, MY assigned tasks only).
+     * True: the plan/monitor flat list (`/app/pc-care/tasks`, every task in scope) — the face a
+     * category tab shows a planner/monitor. Distinct Room namespace so the caches never mix.
+     */
+    val monitor: Boolean = false,
 ) {
-    fun roomKey(): String = cacheKey(PC_CARE_CACHE_SHAPE, category, date, PC_CARE_PAGE_SIZE.toString())
+    fun roomKey(): String =
+        cacheKey(PC_CARE_CACHE_SHAPE, if (monitor) "monitor" else "work", category, date, PC_CARE_PAGE_SIZE.toString())
 }
 
 /** Outcome of recording one scan locally. The ViewModel owns the copy; this is typed state. */
@@ -429,12 +436,21 @@ private class PcCareTaskRemoteMediator(
             }
         }
         return try {
-            val response = api.getPcCareWorklist(
-                category = query.category,
-                date = query.date,
-                limit = PC_CARE_PAGE_SIZE,
-                offset = offset,
-            )
+            val response = if (query.monitor) {
+                api.getPcCareTasks(
+                    date = query.date,
+                    category = query.category,
+                    limit = PC_CARE_PAGE_SIZE,
+                    offset = offset,
+                )
+            } else {
+                api.getPcCareWorklist(
+                    category = query.category,
+                    date = query.date,
+                    limit = PC_CARE_PAGE_SIZE,
+                    offset = offset,
+                )
+            }
             val endReached = !response.hasMore
             val updatedAt = clock()
             database.withTransaction {
