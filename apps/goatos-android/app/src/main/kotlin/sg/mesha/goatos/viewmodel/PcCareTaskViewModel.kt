@@ -141,22 +141,11 @@ class PcCareTaskViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { repository.observeRoster(taskId).collect { latestRoster = it } }
-        // Self-healing registration reconcile: a clip whose UPLOAD row is durable but whose slot
-        // registration enqueue was lost (back-press or process death between the upload enqueue
-        // and the registration write) is re-enqueued here under the SAME stable idempotency key,
-        // so a duplicate is a no-op and a lost one is repaired on every screen open.
-        viewModelScope.launch {
-            val proofs = proofCaptureRepository.observeProofs(taskId).first()
-            proofs.forEach { row ->
-                val outboxId = row.outboxItemId
-                if (outboxId.isNullOrBlank() || row.syncStatus == CaptureSyncStatus.FAILED) return@forEach
-                val tag = row.fieldKey.substringBefore(':')
-                val slot = row.fieldKey.substringAfter(':')
-                if (tag.isNotBlank() && slot.isNotBlank() && slot != row.fieldKey) {
-                    repository.registerSlotProof(taskId, tag, slot, outboxId)
-                }
-            }
-        }
+        // Self-healing registration reconcile on every screen open (and again on every manual
+        // refresh): a clip whose UPLOAD row is durable but whose slot registration enqueue was
+        // lost is re-enqueued under the SAME stable idempotency key, so a duplicate is a no-op
+        // and a lost one is repaired.
+        viewModelScope.launch { reconcileSlotRegistrations() }
         viewModelScope.launch {
             repository.observeTaskDetail(taskId)
                 .map { it?.status.orEmpty() }
@@ -379,8 +368,26 @@ class PcCareTaskViewModel @Inject constructor(
                     )
                 ) {
                     is AppResult.Ok -> {
-                        val proofOutboxId = result.value.outboxItemId
+                        // The upload-row id can land in Room a beat AFTER the capture result is
+                        // composed, so a blank id here is usually a read race, not a lost clip
+                        // (2026-08-21: a fully uploaded clip reported "didn't save" and its slot
+                        // registration was skipped). Re-read the durable row before concluding
+                        // anything failed; only a row still without an upload id after the wait
+                        // is a real capture failure.
+                        var proofOutboxId = result.value.outboxItemId
+                        var waited = 0L
+                        while (proofOutboxId.isNullOrBlank() && waited < PROOF_ROW_SETTLE_MAX_MS) {
+                            delay(PROOF_ROW_SETTLE_STEP_MS)
+                            waited += PROOF_ROW_SETTLE_STEP_MS
+                            proofOutboxId = proofCaptureRepository.observeProofs(taskId).first()
+                                .firstOrNull { it.id == result.value.id }
+                                ?.outboxItemId
+                        }
                         if (proofOutboxId.isNullOrBlank()) {
+                            crashReporter.recordException(
+                                IllegalStateException("pc care clip ${result.value.id} has no upload row after ${waited}ms"),
+                                "pc care slot capture never enqueued its upload",
+                            )
                             local.update { it.copy(message = "Video didn't save. Record again.") }
                             return@withContext
                         }
@@ -489,11 +496,31 @@ class PcCareTaskViewModel @Inject constructor(
         local.update { it.copy(isRefreshing = true) }
         viewModelScope.launch {
             try {
+                reconcileSlotRegistrations()
                 syncRepository.triggerDrain()
                 repository.refreshTaskDetail(taskId)
                 repository.pollTaskOnce(taskId)
             } finally {
                 local.update { it.copy(isRefreshing = false) }
+            }
+        }
+    }
+
+    /**
+     * Re-enqueues the slot registration for every durable clip of this task. Registration rides
+     * a STABLE idempotency key per (task, tag, slot, upload row), so a registration that already
+     * exists is a no-op and one that was lost (process death, back-press before the fix, a read
+     * race) is repaired.
+     */
+    private suspend fun reconcileSlotRegistrations() {
+        val proofs = proofCaptureRepository.observeProofs(taskId).first()
+        proofs.forEach { row ->
+            val outboxId = row.outboxItemId
+            if (outboxId.isNullOrBlank() || row.syncStatus == CaptureSyncStatus.FAILED) return@forEach
+            val tag = row.fieldKey.substringBefore(':')
+            val slot = row.fieldKey.substringAfter(':')
+            if (tag.isNotBlank() && slot.isNotBlank() && slot != row.fieldKey) {
+                repository.registerSlotProof(taskId, tag, slot, outboxId)
             }
         }
     }
@@ -615,6 +642,10 @@ class PcCareTaskViewModel @Inject constructor(
 
         private const val SCAN_NOTICE_DISMISS_MS = 4_000L
         private const val MAX_REASON_CHARS = 96
+
+        /** Bounded wait for a fresh clip's upload-row id to land in Room (read-race headroom). */
+        private const val PROOF_ROW_SETTLE_STEP_MS = 250L
+        private const val PROOF_ROW_SETTLE_MAX_MS = 5_000L
 
         /** 30 s cadence, bounded at ~24 h of screen-open time; a manual refresh re-reads anyway. */
         private const val STATUS_POLL_INTERVAL_MS = 30_000L
