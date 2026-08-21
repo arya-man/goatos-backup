@@ -209,6 +209,42 @@ class VaccinationOutboxConvergenceTest {
         assertEquals(1, calls)
     }
     @Test
+    fun `PRODUCTION group keys put a shed's scans and its Submit in DIFFERENT queues`() = runBlocking {
+        // The hold-back only works WITHIN one FIFO group, and vaccination's two writes do
+        // not share one:
+        //   scan   CaptureRepository.kt:267   "$taskId|$partitionKey"
+        //   submit SubmitViewModel.kt:713     "${activeShedId ?: scopeId ?: taskId}|${label ?: "whole"}"
+        // Different first segment, and different normalisation of the second. So a Submit
+        // can go to the server while one of that shed's animals is still unsent, closing
+        // the shed one animal short -- and the shed reads as complete, so nobody looks.
+        //
+        // Weighing already avoids this by using campaignShedId for BOTH its observations
+        // and its scope submit (WeighingRepository.kt:2035,2058).
+        //
+        // This test pins the CURRENT, WRONG behaviour so the fix has something to flip.
+        val store = FakeOutboxStore()
+        val taskId = "task-77"
+        val shedId = "shed-77"
+        store.insert(scanRow("scan-late", "$taskId|whole", "TAG-1", createdAt = 1L))
+        store.insert(submitRow("submit-A", "$shedId|whole", createdAt = 2L))
+
+        val api = ScriptedAppApi().apply {
+            recordScanCaptureFn = { _, _, _ -> throw IOException("no signal") }
+            submitAppTaskFn = { _, _, _ -> okSubmission() }
+        }
+
+        SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }).drainOnce()
+
+        assertEquals(OutboxStatus.FAILED.name, store.findById("scan-late")!!.status)
+        assertEquals(
+            "DEFECT: the Submit went ahead while this shed's scan was still failing, because the " +
+                "two writes are grouped under different keys. Fix by giving them one shared group key.",
+            1,
+            api.submitCalls.size,
+        )
+    }
+
+    @Test
     fun `a shed's Submit is held back while one of its own scans is still failing`() = runBlocking {
         // The most consequential ordering property in a vaccination session, and the
         // one a shed-level test must prove: if an animal's scan has not reached the
