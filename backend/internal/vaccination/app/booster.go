@@ -222,7 +222,11 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	// vocabularies for one cause means two open rows, each invisible to the other. The
 	// obligation id is still recorded as the anchor, for the audit trail and for the stricter
 	// per-cause index.
-	candidateVaccineCode, err := boosterRuleVaccineCode(*candidate)
+	// The cause is named by the vaccine that was GIVEN, not by the rule about to be
+	// scheduled. For a repeat those are the same rule, but a next-in-chain dose can belong to
+	// a different rule, and generation names this cause from the administration itself. Take
+	// the administered rule's vaccine so the two writers cannot disagree.
+	administeredVaccineCode, err := boosterRuleVaccineCode(*current)
 	if err != nil {
 		return false, err
 	}
@@ -230,7 +234,7 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	if anchor := strings.TrimSpace(in.CompletedObligationID); anchor != "" && isRepeatRule(candidate) {
 		administered := in.AdministeredAt
 		nextDue := due
-		if ref := obldomain.RepeatCycleRef(candidateVaccineCode, administered, in.PrevSequence); ref != "" {
+		if ref := obldomain.RepeatCycleRef(administeredVaccineCode, administered, in.PrevSequence); ref != "" {
 			repeatCycle = &obldomain.RepeatCycleSource{
 				Source:             obldomain.RepeatCycleSourceTrustedHistory,
 				SourceRef:          ref,
