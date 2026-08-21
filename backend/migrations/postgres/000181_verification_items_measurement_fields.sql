@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- BLIND PER-ITEM MEASUREMENT ENTRY on a verification item (maintainer decision 2026-08-21).
 --
 -- Feed packing verification changes shape: instead of showing the verifier the frozen expected
@@ -22,14 +23,19 @@
 -- which fields a verifier is asked to fill for work already submitted.
 --
 -- Lock safety: constant DEFAULT (metadata-only on PG11+); array CHECK added NOT VALID then
--- validated so the write lock never spans a scan.
-SET LOCAL lock_timeout = '2s';
-SET LOCAL statement_timeout = '30s';
+-- validated in a separate autocommit step so the write lock never spans a scan.
+-- NO TRANSACTION requires session-level timeouts rather than SET LOCAL.
+SET lock_timeout = '2s';
+SET statement_timeout = '30s';
 
 -- seed-migration-guard:ignore owner=manohark issue=feed-packing-blind-entry reason=no-seed-impact-additive-default-backed-jsonb-column-populated-only-at-runtime-enqueue expiry=2026-10-31
 ALTER TABLE public.verification_items
   ADD COLUMN IF NOT EXISTS measurement_fields jsonb DEFAULT '[]'::jsonb NOT NULL;
+RESET lock_timeout;
+RESET statement_timeout;
 
+SET lock_timeout = '2s';
+SET statement_timeout = '30s';
 -- seed-migration-guard:ignore owner=manohark issue=feed-packing-blind-entry reason=no-seed-impact-additive-default-backed-jsonb-column-populated-only-at-runtime-enqueue expiry=2026-10-31
 ALTER TABLE public.verification_items
   DROP CONSTRAINT IF EXISTS verification_items_measurement_fields_is_array;
@@ -37,20 +43,35 @@ ALTER TABLE public.verification_items
 ALTER TABLE public.verification_items
   ADD CONSTRAINT verification_items_measurement_fields_is_array
   CHECK (jsonb_typeof(measurement_fields) = 'array') NOT VALID;
+RESET lock_timeout;
+RESET statement_timeout;
+
+SET lock_timeout = '2s';
+SET statement_timeout = '30s';
 -- seed-migration-guard:ignore owner=manohark issue=feed-packing-blind-entry reason=no-seed-impact-additive-default-backed-jsonb-column-populated-only-at-runtime-enqueue expiry=2026-10-31
 ALTER TABLE public.verification_items
   VALIDATE CONSTRAINT verification_items_measurement_fields_is_array;
+RESET lock_timeout;
+RESET statement_timeout;
 
 COMMENT ON COLUMN public.verification_items.measurement_fields IS
   'Ordered [{"key","label"}] of per-item measurement entry fields the producing module attached at enqueue (e.g. one per feed item of a packing pen-session). key is the producer''s stable token echoed back on verdict measurement entries; label is the backend-owned caption. Empty for categories whose measurement is a single value or absent.';
 
 -- +goose Down
-SET LOCAL lock_timeout = '2s';
-SET LOCAL statement_timeout = '30s';
+-- +goose NO TRANSACTION
+SET lock_timeout = '2s';
+SET statement_timeout = '30s';
 
 -- seed-migration-guard:ignore owner=manohark issue=feed-packing-blind-entry reason=no-seed-impact-additive-default-backed-jsonb-column-populated-only-at-runtime-enqueue expiry=2026-10-31
 ALTER TABLE public.verification_items
   DROP CONSTRAINT IF EXISTS verification_items_measurement_fields_is_array;
+RESET lock_timeout;
+RESET statement_timeout;
+
+SET lock_timeout = '2s';
+SET statement_timeout = '30s';
 -- seed-migration-guard:ignore owner=manohark issue=feed-packing-blind-entry reason=no-seed-impact-additive-default-backed-jsonb-column-populated-only-at-runtime-enqueue expiry=2026-10-31
 ALTER TABLE public.verification_items
   DROP COLUMN IF EXISTS measurement_fields;
+RESET lock_timeout;
+RESET statement_timeout;
