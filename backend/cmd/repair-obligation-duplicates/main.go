@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
@@ -151,7 +152,14 @@ type dupGroup struct {
 	VersionID string
 	RuleID    string
 	TargetID  string
+	Sequence  int32
+	CycleRef  string
 	Rows      []openRow
+}
+
+func (g dupGroup) sameGroup(versionID, ruleID, targetID string, sequence int32, cycleRef string) bool {
+	return g.VersionID == versionID && g.RuleID == ruleID && g.TargetID == targetID &&
+		g.Sequence == sequence && g.CycleRef == cycleRef
 }
 
 func repair(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg config) (counters, error) {
@@ -215,14 +223,21 @@ WITH open_rows AS (
   SELECT oi.protocol_version_id::text AS version_id,
          oi.rule_id::text             AS rule_id,
          oi.target_id::text           AS target_id,
+         oi."sequence"                AS sequence,
+         -- Rows already stamped with DIFFERENT causes are different cycles, and the new
+         -- indexes say so. Grouping them together would have the repair destroy rows the
+         -- identity model calls correct. Unstamped rows share the empty key, which is what
+         -- puts the pre-fix duplicates in one group.
+         coalesce(oi.repeat_cycle_source_ref, '') AS cycle_ref,
          oi.obligation_id::text       AS obligation_id,
          oi.idempotency_key,
          oi.status,
          (oi.repeat_cycle_source IS NOT NULL AND oi.repeat_cycle_source_ref IS NOT NULL) AS has_metadata,
          CASE oi.status
-           WHEN 'in_progress' THEN 3
-           WHEN 'due'         THEN 2
-           WHEN 'scheduled'   THEN 1
+           WHEN 'in_progress' THEN 4
+           WHEN 'due'         THEN 3
+           WHEN 'scheduled'   THEN 2
+           WHEN 'deferred'    THEN 1
            ELSE 0
          END AS status_rank,
          oi.created_at
@@ -241,18 +256,24 @@ WITH open_rows AS (
         END
 ),
 dups AS (
-  SELECT version_id, rule_id, target_id
+  SELECT version_id, rule_id, target_id, sequence, cycle_ref
   FROM open_rows
-  GROUP BY version_id, rule_id, target_id
-  HAVING count(*) > 1
-  ORDER BY version_id, rule_id, target_id
+  GROUP BY version_id, rule_id, target_id, sequence, cycle_ref
+  -- Every open repeat row is examined, not only the duplicated ones. A pre-fix row carries
+  -- no metadata whether or not it happens to have a twin, and until it is stamped the
+  -- partial indexes skip it and the first anchored insert after deploy lands beside it.
+  ORDER BY version_id, rule_id, target_id, sequence, cycle_ref
   LIMIT $3
 )
-SELECT o.version_id, o.rule_id, o.target_id, o.obligation_id, o.idempotency_key, o.status, o.has_metadata
+SELECT o.version_id, o.rule_id, o.target_id, o.sequence, o.cycle_ref, o.obligation_id, o.idempotency_key, o.status, o.has_metadata
 FROM open_rows o
-JOIN dups d USING (version_id, rule_id, target_id)
-ORDER BY o.version_id, o.rule_id, o.target_id,
-         o.has_metadata DESC, o.status_rank DESC, o.created_at DESC`,
+JOIN dups d USING (version_id, rule_id, target_id, sequence, cycle_ref)
+-- Status first, then metadata. Ordering metadata first would let a freshly stamped
+-- scheduled row outrank an unstamped in_progress one and cancel live work -- the
+-- exact post-deploy shape, where the new anchored insert lands beside the old row
+-- an operator is already mid-task on.
+ORDER BY o.version_id, o.rule_id, o.target_id, o.sequence, o.cycle_ref,
+         o.status_rank DESC, o.has_metadata DESC, o.created_at DESC`,
 		cfg.TenantID, cfg.Mode, cfg.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("load duplicate groups: %w", err)
@@ -261,61 +282,74 @@ ORDER BY o.version_id, o.rule_id, o.target_id,
 
 	var out []dupGroup
 	for rows.Next() {
-		var versionID, ruleID, targetID string
+		var versionID, ruleID, targetID, cycleRef string
+		var sequence int32
 		var row openRow
-		if err := rows.Scan(&versionID, &ruleID, &targetID, &row.ObligationID, &row.IdempotencyKey, &row.Status, &row.HasMetadata); err != nil {
+		if err := rows.Scan(&versionID, &ruleID, &targetID, &sequence, &cycleRef, &row.ObligationID, &row.IdempotencyKey, &row.Status, &row.HasMetadata); err != nil {
 			return nil, fmt.Errorf("scan duplicate row: %w", err)
 		}
-		if n := len(out); n > 0 && out[n-1].VersionID == versionID && out[n-1].RuleID == ruleID && out[n-1].TargetID == targetID {
+		if n := len(out); n > 0 && out[n-1].sameGroup(versionID, ruleID, targetID, sequence, cycleRef) {
 			out[n-1].Rows = append(out[n-1].Rows, row)
 			continue
 		}
-		out = append(out, dupGroup{VersionID: versionID, RuleID: ruleID, TargetID: targetID, Rows: []openRow{row}})
+		out = append(out, dupGroup{
+			VersionID: versionID, RuleID: ruleID, TargetID: targetID,
+			Sequence: sequence, CycleRef: cycleRef, Rows: []openRow{row},
+		})
 	}
 	return out, rows.Err()
 }
+
+// anchorCTE resolves the completed dose that caused a surviving cycle. Both the dry run and
+// the apply path use this one definition, so a dry run cannot report a repair the apply
+// would then decline to make.
+//
+// The anchor is scoped to the same rule AND the same protocol version, and must have been
+// given before the cycle it supposedly caused. It is only meaningful for a genuine repeat
+// rule, where the cause of each cycle is the same rule's own previous dose. A pure
+// after_previous_completion chain is caused by the UPSTREAM rule in the course, so
+// reconstructing it from the same rule would stamp a stale anchor -- and a wrong anchor is
+// worse than none, because it makes two genuinely different cycles collide.
+const anchorCTE = `
+WITH target AS (
+  SELECT oi.tenant_id, oi.obligation_id, oi.rule_id, oi.target_id,
+         oi.protocol_version_id, oi.due_at, oi.repeat_cycle_source_ref
+  FROM obligation_instances oi
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  WHERE oi.tenant_id = $1
+    AND oi.obligation_id = $2::uuid
+    AND oi.repeat_cycle_source_ref IS NULL
+    AND lower(coalesce(pr.repeat, 'none')) NOT IN ('', 'none')
+),
+anchor AS (
+  SELECT done.obligation_id, done.completed_at
+  FROM obligation_instances done
+  JOIN target ON target.tenant_id = done.tenant_id
+             AND target.rule_id = done.rule_id
+             AND target.target_id = done.target_id
+             AND target.protocol_version_id = done.protocol_version_id
+  WHERE done.status = 'completed'
+    AND done.completed_at IS NOT NULL
+    AND done.completed_at <= target.due_at
+  ORDER BY done.completed_at DESC
+  LIMIT 1
+)`
 
 // labelSurvivor stamps the surviving row with the completed dose that caused it. Reports
 // false when no such dose exists, leaving the row untouched.
 func labelSurvivor(ctx context.Context, pool *pgxpool.Pool, cfg config, survivor openRow) (bool, error) {
 	if cfg.DryRun {
-		// Still resolve the anchor, so a dry run's counts match what an apply run would do
-		// rather than optimistically assuming every row is repairable.
 		var exists bool
-		err := pool.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
-  FROM obligation_instances done
-  JOIN obligation_instances target
-    ON target.tenant_id = done.tenant_id
-   AND target.rule_id = done.rule_id
-   AND target.target_id = done.target_id
-  WHERE target.tenant_id = $1
-    AND target.obligation_id = $2::uuid
-    AND done.status = 'completed'
-    AND done.completed_at IS NOT NULL)`, cfg.TenantID, survivor.ObligationID).Scan(&exists)
-		if err != nil {
+		if err := pool.QueryRow(ctx, anchorCTE+`
+SELECT EXISTS (SELECT 1 FROM anchor)`, cfg.TenantID, survivor.ObligationID).Scan(&exists); err != nil {
 			return false, fmt.Errorf("probe anchor: %w", err)
 		}
 		return exists, nil
 	}
-	// The WHERE clause re-checks that the row is still unlabelled, so two concurrent runs
+	// The target CTE re-checks that the row is still unlabelled, so two concurrent runs
 	// cannot both claim to have labelled it.
-	tag, err := pool.Exec(ctx, `
-WITH anchor AS (
-  SELECT done.obligation_id, done.completed_at
-  FROM obligation_instances done
-  JOIN obligation_instances target
-    ON target.tenant_id = done.tenant_id
-   AND target.rule_id = done.rule_id
-   AND target.target_id = done.target_id
-  WHERE target.tenant_id = $1
-    AND target.obligation_id = $2::uuid
-    AND done.status = 'completed'
-    AND done.completed_at IS NOT NULL
-  ORDER BY done.completed_at DESC
-  LIMIT 1
-)
+	tag, err := pool.Exec(ctx, anchorCTE+`
 UPDATE obligation_instances oi
 SET repeat_cycle_source = $3,
     repeat_cycle_source_ref = anchor.obligation_id::text,
@@ -324,13 +358,28 @@ SET repeat_cycle_source = $3,
     repeat_cycle_due_at = oi.due_at,
     row_version = oi.row_version + 1,
     updated_at = now()
-FROM anchor
-WHERE oi.tenant_id = $1
-  AND oi.obligation_id = $2::uuid
-  AND oi.repeat_cycle_source_ref IS NULL`,
+FROM anchor, target
+WHERE oi.tenant_id = target.tenant_id
+  AND oi.obligation_id = target.obligation_id`,
 		cfg.TenantID, survivor.ObligationID, sourceCompletedObligation)
 	if err != nil {
+		if isRepeatCycleConflict(err) {
+			// Another open cycle already claims this cause. Leaving the row unstamped is
+			// correct: stamping it would assert two open cycles share one cause.
+			return false, nil
+		}
 		return false, fmt.Errorf("label survivor %s: %w", survivor.ObligationID, err)
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// isRepeatCycleConflict reports a rejection by the partial unique indexes that enforce one
+// open cycle per cause.
+func isRepeatCycleConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	return pgErr.ConstraintName == "obligation_repeat_cycle_open_anchor_unique_idx" ||
+		pgErr.ConstraintName == "obligation_repeat_cycle_open_source_unique_idx"
 }
