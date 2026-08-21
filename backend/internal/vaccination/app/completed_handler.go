@@ -80,7 +80,11 @@ func (h *VaccinationCompletedHandler) HandleEvent(ctx context.Context, e eventbu
 		ScopeType:         scopeType,
 		ScopeID:           scopeID,
 		PrevSequence:      sequence,
-		AdministeredAt:    completion.AdministeredAt,
+		// The obligation just completed IS the cause of the next cycle. It was already in
+		// hand here and thrown away, which left the successor with nothing stable to be
+		// identified by -- so a moved due date produced a second row instead of moving one.
+		CompletedObligationID: obligationID,
+		AdministeredAt:        completion.AdministeredAt,
 	})
 	return err
 }
