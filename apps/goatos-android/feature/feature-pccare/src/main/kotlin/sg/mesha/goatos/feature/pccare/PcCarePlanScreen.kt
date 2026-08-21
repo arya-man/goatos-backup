@@ -1,34 +1,34 @@
 package sg.mesha.goatos.feature.pccare
 
-// telemetry:exempt pure stateless renderer; PcCarePlanViewModel (in :app) owns the pc_care_*
+// telemetry:exempt pure stateless renderers; PcCarePlanViewModel (in :app) owns the pc_care_*
 // AnalyticsEvents + CrashReporter wiring for the monitor list and the create wizard.
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
@@ -42,291 +42,350 @@ import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
- * The planner tab (`/pc/tasks`, offered by the backend only to principals who plan care work):
- * a flat monitor list of tasks for the chosen category + date, plus a simple stepped create flow
- * (category -> date -> park -> pen -> operators -> review -> create). Nav offers are
- * backend-composed; this screen performs no role checks of its own.
+ * The MONITOR face of one PC Care category tab: the read-only task list a planner/monitor sees
+ * (the operator's execute face is [PcCareWorklistScreen]). Which face renders is decided by the
+ * backend's `pc_care_execute` capability flag; the plan action is offered on `pc_care_plan`.
+ * Visual language mirrors WeighingTasksScreen: header + eyebrow, date pill bar, pill-carrying
+ * cards, and a floating "Plan task" action.
  */
 @Composable
-fun PcCarePlanScreen(
+fun PcCareMonitorScreen(
     state: PcCarePlanUiState,
     rows: LazyPagingItems<PcCareTaskCardUi>,
+    planEnabled: Boolean,
+    onPlanTask: () -> Unit = {},
     onEvent: (PcCarePlanEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onEvent(PcCarePlanEvent.Refresh) }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
-        when (state.step) {
-            PcCarePlanStep.LIST -> PlanMonitorList(state, rows, onEvent)
-            else -> PlanCreateWizard(state, onEvent)
-        }
-    }
-}
-
-@Composable
-private fun PlanMonitorList(
-    state: PcCarePlanUiState,
-    rows: LazyPagingItems<PcCareTaskCardUi>,
-    onEvent: (PcCarePlanEvent) -> Unit,
-) {
-    MeshaScreenHeader(
-        title = state.title,
-        subtitle = state.monitorDate.takeIf { it.isNotBlank() },
-        actions = {
-            SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(PcCarePlanEvent.Refresh) })
-        },
-    )
-    state.message?.let { message ->
-        Text(
-            text = message,
-            color = MeshaColors.Warn,
-            style = MeshaType.caption,
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clickable { onEvent(PcCarePlanEvent.DismissMessage) },
-        )
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item(key = "new_task") {
-            Button(
-                onClick = { onEvent(PcCarePlanEvent.StartCreate) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MeshaColors.BrandD,
-                    contentColor = MeshaColors.PageBg,
-                ),
-            ) {
-                Text(text = "Plan a care task", style = MeshaType.pillStrong)
+    Box(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            MeshaScreenHeader(
+                title = state.title,
+                eyebrow = "Preventive Care",
+                eyebrowColor = MeshaColors.BrandD,
+                subtitle = pcCareFriendlyDate(state.monitorDate),
+                actions = {
+                    SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(PcCarePlanEvent.Refresh) })
+                },
+            )
+            state.message?.let { message ->
+                Text(
+                    text = message,
+                    color = MeshaColors.Warn,
+                    style = MeshaType.cardSubtitle,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MeshaColors.WarnX)
+                        .clickable { onEvent(PcCarePlanEvent.DismissMessage) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
             }
-        }
-        item(key = "category_chips") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                state.categories.forEach { option -> // compose-guard:ignore: fixed backend category set (deworming/ticks/hoof/hair — 4 chips), never park-scale data
-                    PlanChoiceChip(
-                        label = option.label,
-                        selected = option.key == state.monitorCategoryKey,
-                        onClick = { onEvent(PcCarePlanEvent.SelectMonitorCategory(option.key)) },
-                    )
-                }
-            }
-        }
-        item(key = "date_bar") {
             PcCareDateBar(
                 selectedDateIso = state.monitorDate,
                 onSelectDate = { onEvent(PcCarePlanEvent.SelectMonitorDate(it)) },
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (rows.itemCount == 0 && state.emptyMessage != null) {
+                    item(key = "empty") {
+                        EmptyState(
+                            title = state.emptyMessage,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            icon = MeshaIcons.Check,
+                            tone = EmptyTone.Neutral,
+                        )
+                    }
+                }
+                items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
+                    rows[index]?.let { card ->
+                        PcCareMonitorTaskCard(
+                            card = card,
+                            onCancel = { onEvent(PcCarePlanEvent.CancelTask(card.taskId)) },
+                        )
+                    }
+                }
+                if (rows.loadState.append is LoadState.Loading) {
+                    item(key = "loading_footer") {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = MeshaColors.BrandD)
+                        }
+                    }
+                }
+            }
+        }
+        if (planEnabled) {
+            PcCarePlanFab(
+                label = "＋ Plan task",
+                onClick = onPlanTask,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
             )
         }
-        if (rows.itemCount == 0 && state.emptyMessage != null) {
-            item(key = "empty") {
-                EmptyState(
-                    title = state.emptyMessage,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    icon = MeshaIcons.Check,
-                    tone = EmptyTone.Neutral,
-                )
-            }
+    }
+}
+
+/** One planned task, WeighingTaskCard-shaped: pills up top, pen title, people line, count pill. */
+@Composable
+private fun PcCareMonitorTaskCard(card: PcCareTaskCardUi, onCancel: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PcCareStatusChip(label = card.statusLabel, tone = card.statusTone)
+            Spacer(Modifier.weight(1f))
+            PcCareTaskPill(label = card.dueDateLabel, fg = MeshaColors.Muted, bg = MeshaColors.Surf3)
         }
-        items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
-            rows[index]?.let { card ->
-                PcCareTaskCard(
-                    card = card,
-                    onCancel = { onEvent(PcCarePlanEvent.CancelTask(card.taskId)) },
-                    onOpen = {},
-                )
-            }
+        Text(
+            // Backend-composed pen display, verbatim.
+            text = card.locationDisplay,
+            color = MeshaColors.Ink,
+            style = MeshaType.cardTitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        val peopleLine = listOf(card.parkLabel, card.assigneeLine).filter { it.isNotBlank() }.joinToString(" · ")
+        if (peopleLine.isNotBlank()) {
+            Text(
+                text = peopleLine,
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        if (rows.loadState.append is LoadState.Loading) {
-            item(key = "loading_footer") {
-                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MeshaColors.BrandD)
-                }
+        if (card.reworkReason.isNotBlank()) {
+            Text(
+                text = card.reworkReason,
+                color = MeshaColors.Danger,
+                style = MeshaType.caption,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (card.animalCountLabel.isNotBlank()) {
+                PcCareTaskPill(label = card.animalCountLabel, fg = MeshaColors.BrandD, bg = MeshaColors.Surf3)
+            }
+            Spacer(Modifier.weight(1f))
+            if (card.cancellable) {
+                Text(
+                    text = "Cancel this task",
+                    color = MeshaColors.Danger,
+                    style = MeshaType.caption,
+                    modifier = pcCareInlineActionModifier(onCancel),
+                )
             }
         }
     }
 }
 
+/**
+ * The plan-wizard drill (`/pc/plan/{category}`): day → farm → pen → people → review, category
+ * fixed by the launching tab. Chrome ports the weighing plan wizard: a segment stepper under the
+ * header and a sticky bottom action bar with a context line.
+ */
 @Composable
-private fun PlanCreateWizard(
+fun PcCarePlanWizardScreen(
     state: PcCarePlanUiState,
-    onEvent: (PcCarePlanEvent) -> Unit,
+    onEvent: (PcCarePlanEvent) -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
-    MeshaScreenHeader(
-        title = "Plan a care task",
-        subtitle = state.selectedCategoryLabel.takeIf { it.isNotBlank() },
-        onBack = { onEvent(PcCarePlanEvent.PreviousStep) },
-    )
-    state.message?.let { message ->
-        Text(
-            text = message,
-            color = MeshaColors.Warn,
-            style = MeshaType.caption,
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clickable { onEvent(PcCarePlanEvent.DismissMessage) },
+    val stepIndex = PC_CARE_WIZARD_STEPS.indexOf(state.step).coerceAtLeast(0)
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+        MeshaScreenHeader(
+            title = "Plan a care task",
+            eyebrow = "Preventive Care",
+            eyebrowColor = MeshaColors.BrandD,
+            subtitle = state.selectedCategoryLabel.takeIf { it.isNotBlank() },
+            onBack = {
+                if (state.step == PcCarePlanStep.DATE) onEvent(PcCarePlanEvent.CloseCreate)
+                else onEvent(PcCarePlanEvent.PreviousStep)
+            },
         )
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        when (state.step) {
-            PcCarePlanStep.CATEGORY -> {
-                item(key = "step_title") { WizardStepTitle("Which work?") }
-                items(count = state.categories.size, key = { state.categories[it].key }) { index ->
-                    val option = state.categories[index]
-                    WizardOptionRow(
-                        label = option.label,
-                        selected = option.key == state.selectedCategoryKey,
-                        onClick = { onEvent(PcCarePlanEvent.SelectCategory(option.key)) },
-                    )
+        PcCareStepper(stepCount = PC_CARE_WIZARD_STEPS.size, currentIndex = stepIndex)
+        state.message?.let { message ->
+            Text(
+                text = message,
+                color = MeshaColors.Warn,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MeshaColors.WarnX)
+                    .clickable { onEvent(PcCarePlanEvent.DismissMessage) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            when (state.step) {
+                PcCarePlanStep.DATE -> {
+                    item(key = "step_title") { WizardStepTitle("For which day?") }
+                    item(key = "date_bar") {
+                        PcCareDateBar(
+                            selectedDateIso = state.selectedDate,
+                            onSelectDate = { onEvent(PcCarePlanEvent.SelectDate(it)) },
+                        )
+                    }
                 }
-            }
-            PcCarePlanStep.DATE -> {
-                item(key = "step_title") { WizardStepTitle("For which day?") }
-                item(key = "date_bar") {
-                    PcCareDateBar(
-                        selectedDateIso = state.selectedDate,
-                        onSelectDate = { onEvent(PcCarePlanEvent.SelectDate(it)) },
-                    )
+                PcCarePlanStep.PARK -> {
+                    item(key = "step_title") { WizardStepTitle("At which farm?") }
+                    items(count = state.parks.size, key = { state.parks[it].key }) { index ->
+                        val option = state.parks[index]
+                        WizardOptionRow(
+                            label = option.label,
+                            selected = option.key == state.selectedParkId,
+                            onClick = { onEvent(PcCarePlanEvent.SelectPark(option.key)) },
+                        )
+                    }
                 }
-            }
-            PcCarePlanStep.PARK -> {
-                item(key = "step_title") { WizardStepTitle("At which farm?") }
-                items(count = state.parks.size, key = { state.parks[it].key }) { index ->
-                    val option = state.parks[index]
-                    WizardOptionRow(
-                        label = option.label,
-                        selected = option.key == state.selectedParkId,
-                        onClick = { onEvent(PcCarePlanEvent.SelectPark(option.key)) },
-                    )
-                }
-            }
-            PcCarePlanStep.PEN -> {
-                item(key = "step_title") { WizardStepTitle("Which pen?") }
-                items(count = state.pens.size, key = { state.pens[it].shedId }) { index ->
-                    val pen = state.pens[index]
-                    val taken = pen.existingTaskId.isNotBlank()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (pen.shedId == state.selectedShedId) MeshaColors.Surf2 else MeshaColors.Surf)
-                            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
-                            // A pen already covered by a live task is greyed out and inert.
-                            .clickable(enabled = !taken) { onEvent(PcCarePlanEvent.SelectPen(pen.shedId, pen.partitionLabel)) }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
+                PcCarePlanStep.PEN -> {
+                    item(key = "step_title") { WizardStepTitle("Which pen?") }
+                    items(count = state.pens.size, key = { state.pens[it].shedId + "|" + state.pens[it].partitionLabel }) { index ->
+                        val pen = state.pens[index]
+                        val taken = pen.existingTaskId.isNotBlank()
+                        WizardOptionRow(
                             // Backend-composed pen display, verbatim.
-                            text = pen.locationDisplay,
-                            color = if (taken) PcCareDim else MeshaColors.Ink,
-                            style = MeshaType.cardSubtitle,
-                            modifier = Modifier.weight(1f),
+                            label = pen.locationDisplay,
+                            selected = pen.shedId == state.selectedShedId && pen.partitionLabel == state.selectedPartitionLabel,
+                            enabled = !taken,
+                            trailing = if (taken) "Already planned" else "",
+                            onClick = { onEvent(PcCarePlanEvent.SelectPen(pen.shedId, pen.partitionLabel)) },
                         )
-                        if (taken) {
-                            Text(text = "Already planned", color = PcCareDim, style = MeshaType.caption)
+                    }
+                    if (!state.pensEndReached) {
+                        item(key = "pens_footer") {
+                            // Passive footer: composing it asks for the next page.
+                            LaunchedEffect(state.pens.size) { onEvent(PcCarePlanEvent.LoadMorePens) }
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = MeshaColors.BrandD)
+                            }
+                        }
+                    } else if (state.pensLoading) {
+                        item(key = "pens_loading") {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = MeshaColors.BrandD)
+                            }
                         }
                     }
                 }
-                if (!state.pensEndReached) {
-                    item(key = "pens_footer") {
-                        // Passive footer: composing it asks for the next page.
-                        LaunchedEffect(state.pens.size) { onEvent(PcCarePlanEvent.LoadMorePens) }
-                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = MeshaColors.BrandD)
-                        }
-                    }
-                } else if (state.pensLoading) {
-                    item(key = "pens_loading") {
-                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = MeshaColors.BrandD)
-                        }
-                    }
-                }
-            }
-            PcCarePlanStep.OPERATORS -> {
-                item(key = "step_title") { WizardStepTitle("Who does the work?") }
-                items(count = state.operators.size, key = { state.operators[it].key }) { index ->
-                    val option = state.operators[index]
-                    WizardOptionRow(
-                        label = option.label,
-                        selected = option.key in state.selectedOperatorIds,
-                        onClick = { onEvent(PcCarePlanEvent.ToggleOperator(option.key)) },
-                    )
-                }
-            }
-            PcCarePlanStep.REVIEW -> {
-                item(key = "step_title") { WizardStepTitle("Review") }
-                item(key = "review") {
-                    Column(
-                        modifier = pcCareCardModifier(enabled = false, onClick = null),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        ReviewLine("Work", state.selectedCategoryLabel)
-                        ReviewLine("Day", state.selectedDate)
-                        ReviewLine("Farm", state.selectedParkLabel)
-                        ReviewLine("Pen", state.selectedPenLabel)
-                        ReviewLine(
-                            "People",
-                            state.operators
-                                .filter { it.key in state.selectedOperatorIds }
-                                .joinToString(", ") { it.label },
+                PcCarePlanStep.OPERATORS -> {
+                    item(key = "step_title") { WizardStepTitle("Who does the work?") }
+                    items(count = state.operators.size, key = { state.operators[it].key }) { index ->
+                        val option = state.operators[index]
+                        WizardOptionRow(
+                            label = option.label,
+                            selected = option.key in state.selectedOperatorIds,
+                            onClick = { onEvent(PcCarePlanEvent.ToggleOperator(option.key)) },
                         )
                     }
                 }
+                PcCarePlanStep.REVIEW -> {
+                    item(key = "step_title") { WizardStepTitle("Review") }
+                    item(key = "review") {
+                        Column(
+                            modifier = pcCareCardModifier(enabled = false, onClick = null),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            ReviewLine("Work", state.selectedCategoryLabel)
+                            ReviewLine("Day", pcCareFriendlyDate(state.selectedDate) ?: state.selectedDate)
+                            ReviewLine("Farm", state.selectedParkLabel)
+                            ReviewLine("Pen", state.selectedPenLabel)
+                            ReviewLine(
+                                "People",
+                                state.operators
+                                    .filter { it.key in state.selectedOperatorIds }
+                                    .joinToString(", ") { it.label },
+                            )
+                        }
+                    }
+                }
+                PcCarePlanStep.LIST -> Unit
             }
-            PcCarePlanStep.LIST -> Unit
         }
+        PcCareWizardActionBar(contextLine = wizardContextLine(state)) {
+            PcCareGhostButton(
+                label = "Close",
+                enabled = !state.creating,
+                onClick = { onEvent(PcCarePlanEvent.CloseCreate) },
+                modifier = Modifier.weight(1f),
+            )
+            if (state.step == PcCarePlanStep.REVIEW) {
+                PcCarePrimaryButton(
+                    label = if (state.creating) "Creating…" else "Create task",
+                    enabled = !state.creating,
+                    onClick = { onEvent(PcCarePlanEvent.Create) },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                PcCarePrimaryButton(
+                    label = "Next",
+                    enabled = wizardStepComplete(state),
+                    onClick = { onEvent(PcCarePlanEvent.NextStep) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
 
-        item(key = "wizard_actions") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OutlinedButton(onClick = { onEvent(PcCarePlanEvent.CloseCreate) }, modifier = Modifier.weight(1f)) {
-                    Text(text = "Close", color = MeshaColors.Muted, style = MeshaType.pillStrong)
-                }
-                if (state.step == PcCarePlanStep.REVIEW) {
-                    Button(
-                        onClick = { onEvent(PcCarePlanEvent.Create) },
-                        enabled = !state.creating,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MeshaColors.BrandD,
-                            contentColor = MeshaColors.PageBg,
-                            disabledContainerColor = MeshaColors.Surf2,
-                            disabledContentColor = MeshaColors.Faint,
-                        ),
-                    ) {
-                        Text(text = if (state.creating) "Creating…" else "Create task", style = MeshaType.pillStrong)
-                    }
-                } else {
-                    Button(
-                        onClick = { onEvent(PcCarePlanEvent.NextStep) },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MeshaColors.BrandD,
-                            contentColor = MeshaColors.PageBg,
-                        ),
-                    ) {
-                        Text(text = "Next", style = MeshaType.pillStrong)
-                    }
-                }
-            }
-        }
+private fun wizardStepComplete(state: PcCarePlanUiState): Boolean = when (state.step) {
+    PcCarePlanStep.DATE -> state.selectedDate.isNotBlank()
+    PcCarePlanStep.PARK -> state.selectedParkId.isNotBlank()
+    PcCarePlanStep.PEN -> state.selectedShedId.isNotBlank()
+    PcCarePlanStep.OPERATORS -> state.selectedOperatorIds.isNotEmpty()
+    else -> true
+}
+
+private fun wizardContextLine(state: PcCarePlanUiState): String {
+    val chosen = listOfNotNull(
+        state.selectedCategoryLabel.takeIf { it.isNotBlank() },
+        pcCareFriendlyDate(state.selectedDate),
+        state.selectedParkLabel.takeIf { it.isNotBlank() },
+        state.selectedPenLabel.takeIf { it.isNotBlank() },
+        state.selectedOperatorIds.size.takeIf { it > 0 }?.let { count ->
+            if (count == 1) "1 person" else "$count people"
+        },
+    )
+    return when {
+        chosen.isEmpty() -> "Pick a day to begin"
+        else -> chosen.joinToString(" · ")
     }
 }
 
@@ -341,21 +400,35 @@ private fun WizardStepTitle(text: String) {
 }
 
 @Composable
-private fun WizardOptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun WizardOptionRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    trailing: String = "",
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(if (selected) MeshaColors.Surf2 else MeshaColors.Surf)
-            .border(1.dp, if (selected) MeshaColors.BrandD else MeshaColors.Hair, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(12.dp),
+            .border(1.dp, if (selected) MeshaColors.BrandD else MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = label, color = MeshaColors.Ink, style = MeshaType.cardSubtitle, modifier = Modifier.weight(1f))
-        if (selected) {
-            Text(text = "Selected", color = MeshaColors.BrandD, style = MeshaType.caption)
+        Text(
+            text = label,
+            color = if (enabled) MeshaColors.Ink else PcCareDim,
+            style = MeshaType.cardSubtitle,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        when {
+            trailing.isNotBlank() -> Text(text = trailing, color = PcCareDim, style = MeshaType.caption)
+            selected -> Text(text = "✓", color = MeshaColors.BrandD, style = MeshaType.bodyStrong)
         }
     }
 }
@@ -368,19 +441,23 @@ private fun ReviewLine(label: String, value: String) {
     }
 }
 
+/** The monitor screen's floating plan action — the weighing "New task" pill. */
 @Composable
-private fun PlanChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun PcCarePlanFab(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) MeshaColors.BrandD else MeshaColors.Surf2)
+        modifier = modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(MeshaColors.Brand)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            color = if (selected) MeshaColors.PageBg else MeshaColors.Muted,
-            style = MeshaType.pillStrong,
+            color = MeshaColors.PageBg,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W800,
         )
     }
 }

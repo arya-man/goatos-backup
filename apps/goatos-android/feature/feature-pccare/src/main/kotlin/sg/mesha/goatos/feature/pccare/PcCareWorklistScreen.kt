@@ -53,7 +53,9 @@ fun PcCareWorklistScreen(
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = state.title,
-            subtitle = state.dateLabel.takeIf { it.isNotBlank() },
+            eyebrow = "Preventive Care",
+            eyebrowColor = MeshaColors.BrandD,
+            subtitle = (pcCareFriendlyDate(state.dateLabel) ?: state.dateLabel).takeIf { it.isNotBlank() },
             below = {
                 SyncStatusIndicator(
                     isRefreshing = state.isRefreshing,

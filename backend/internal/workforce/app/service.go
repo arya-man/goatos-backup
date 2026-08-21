@@ -484,6 +484,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"vaccination_execute":         canExecuteVaccination(grants, grantedModules),
 			"weighing_execute":            canExecuteWeighing(grants, grantedModules),
 			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
+			"pc_care_execute":             canExecutePCCare(grants, grantedModules),
+			"pc_care_plan":                canPlanPCCare(grants, grantedModules),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,
