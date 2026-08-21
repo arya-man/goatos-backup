@@ -79,6 +79,9 @@ func CaptureModeForCategory(category string) string {
 type Slot struct {
 	FieldKey string
 	Label    string
+	// Description is backend-owned farm copy saying what this video must show, rendered
+	// verbatim on the capture card.
+	Description string
 	// MinDurationHintSeconds is recorder-chrome GUIDANCE (the ~10 s "during" clip), never a
 	// client-enforced cap. Zero means no hint.
 	MinDurationHintSeconds int
@@ -90,24 +93,30 @@ type Slot struct {
 func SlotsForCategory(category string) []Slot {
 	switch category {
 	case CategoryDeworming:
-		return []Slot{{FieldKey: SlotVideo, Label: "Deworming video"}}
+		return []Slot{{
+			FieldKey: SlotVideo, Label: "Deworming video",
+			Description: "Show the dose being given to this animal",
+		}}
 	case CategoryTicksRemoval:
-		return []Slot{{FieldKey: SlotVideo, Label: "Ticks removal video"}}
+		return []Slot{{
+			FieldKey: SlotVideo, Label: "Ticks removal video",
+			Description: "Show the ticks being removed from this animal",
+		}}
 	// Maintainer decision 2026-08-21 (restated in the second pass): the trimming categories keep
 	// THREE videos per animal — before, while (~10 s), and after the work. Only the capture FLOW
 	// changed to roster_pick: the operator taps the animal's RFID off the pen roster and the
 	// screen walks the three clips.
 	case CategoryHoofTrimming:
 		return []Slot{
-			{FieldKey: SlotBefore, Label: "Before trimming"},
-			{FieldKey: SlotDuring, Label: "While trimming", MinDurationHintSeconds: 10},
-			{FieldKey: SlotAfter, Label: "After trimming"},
+			{FieldKey: SlotBefore, Label: "Before trimming", Description: "Show the animal's hooves before the work"},
+			{FieldKey: SlotDuring, Label: "While trimming", Description: "Record the hooves being trimmed", MinDurationHintSeconds: 10},
+			{FieldKey: SlotAfter, Label: "After trimming", Description: "Show the trimmed hooves after the work"},
 		}
 	case CategoryHairTrimming:
 		return []Slot{
-			{FieldKey: SlotBefore, Label: "Before trimming"},
-			{FieldKey: SlotDuring, Label: "While trimming", MinDurationHintSeconds: 10},
-			{FieldKey: SlotAfter, Label: "After trimming"},
+			{FieldKey: SlotBefore, Label: "Before trimming", Description: "Show the animal's coat before the work"},
+			{FieldKey: SlotDuring, Label: "While trimming", Description: "Record the hair being trimmed", MinDurationHintSeconds: 10},
+			{FieldKey: SlotAfter, Label: "After trimming", Description: "Show the trimmed coat after the work"},
 		}
 	}
 	return nil

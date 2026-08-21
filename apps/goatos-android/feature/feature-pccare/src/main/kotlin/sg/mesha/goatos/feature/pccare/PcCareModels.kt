@@ -97,6 +97,8 @@ data class PcCareSlotChipUi(
     /** Recorder GUIDANCE only ("Record at least 10 seconds") — never a client-enforced cap. */
     val hintLabel: String = "",
     val canRecord: Boolean = false,
+    /** Backend-owned farm copy saying what this video must show, rendered verbatim. */
+    val description: String = "",
 )
 
 @Immutable
@@ -153,6 +155,11 @@ data class PcCareTaskUiState(
     val rosterRows: List<PcCareRosterRowUi> = emptyList(),
     /** Farm copy when the pen has no listed animals; blank while loading or non-roster mode. */
     val rosterEmptyNotice: String = "",
+    /**
+     * The animal the per-animal capture screen (roster drill) is focused on, with its full slot
+     * card set; null on the task screen itself.
+     */
+    val focusAnimal: PcCareAnimalUi? = null,
 )
 
 /** One tappable pen-roster row: the animal's RFID and its video state. */

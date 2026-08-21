@@ -13509,6 +13509,9 @@ components:
       properties:
         field_key: { type: string, enum: [video, before_video, during_video, after_video] }
         label: { type: string }
+        description:
+          type: string
+          description: Backend-owned farm copy saying what this video must show, rendered verbatim.
         min_duration_hint_seconds: { type: integer }
       required: [field_key, label]
     PCCareTask:

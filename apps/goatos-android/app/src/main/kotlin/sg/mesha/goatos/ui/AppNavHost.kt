@@ -428,6 +428,18 @@ object Routes {
     // prefix reuse of the L0 tabs above.
     const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
 
+    const val PC_TAG_KEY_ARG = "tag_key"
+    const val PC_TAG_VERBATIM_ARG = "tag_verbatim"
+
+    /** The roster drill: one animal's clearly-labeled video cards (Feed completion-screen shape). */
+    const val PC_ANIMAL = "/pc/animal/{$PC_TASK_ID_ARG}/{$PC_TAG_KEY_ARG}" +
+        "?$PC_TAG_VERBATIM_ARG={$PC_TAG_VERBATIM_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcAnimalRoute(taskId: String, tagKey: String, tagVerbatim: String, title: String): String =
+        "/pc/animal/${Uri.encode(taskId)}/${Uri.encode(tagKey)}" +
+            "?$PC_TAG_VERBATIM_ARG=${Uri.encode(tagVerbatim)}" +
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+
     fun pcTaskRoute(taskId: String, category: String, title: String): String =
         "/pc/task/${Uri.encode(taskId)}" +
             "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
@@ -2896,6 +2908,52 @@ fun AppNavHost(
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
                                 navController.navigate(Routes.RFID) { launchSingleTop = true }
+                            // Roster mode: a tap opens the animal's own capture drill with the
+                            // video set as clearly-labeled cards (Feed completion-screen shape).
+                            is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RosterTapped -> {
+                                val taskId = it.arguments?.getString(Routes.PC_TASK_ID_ARG).orEmpty()
+                                val title = it.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
+                                val verbatim = state.rosterRows
+                                    .firstOrNull { row -> row.key == event.tagKey }?.tagLabel
+                                    ?: event.tagKey
+                                navController.navigate(
+                                    Routes.pcAnimalRoute(taskId, event.tagKey, verbatim, title),
+                                ) { launchSingleTop = true }
+                            }
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
+        // The roster drill (L2 under the task): ONE animal's video cards. Entering records the
+        // tag into the task (the tap IS the free-flow scan); each card records its own clip
+        // through the same proof outbox pipeline.
+        composable(
+            route = Routes.PC_ANIMAL,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TAG_KEY_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TAG_VERBATIM_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: PcCareTaskViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                sg.mesha.goatos.feature.pccare.PcCareAnimalScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
                             else -> vm.onEvent(event)
                         }
                     },

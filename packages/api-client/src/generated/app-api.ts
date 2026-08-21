@@ -1952,7 +1952,7 @@ export interface paths {
         };
         /**
          * One PC Care task with its backend-owned expected slot contract.
-         * @description expected_slots is the BACKEND-OWNED proof contract for the task's category (one video per animal for every category). capture_mode is the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the pen roster to record). Clients branch on both verbatim and never hardcode a category-to-slot or category-to-mode map.
+         * @description expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for deworming/ticks removal; before/during/after for the trimming categories). capture_mode is the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the pen roster and the screen walks the animal's slots). Clients branch on both verbatim and never hardcode a category-to-slot or category-to-mode map.
          */
         get: operations["appGetPCCareTask"];
         put?: never;
@@ -5464,6 +5464,8 @@ export interface components {
             /** @enum {string} */
             field_key: "video" | "before_video" | "during_video" | "after_video";
             label: string;
+            /** @description Backend-owned farm copy saying what this video must show, rendered verbatim. */
+            description?: string;
             min_duration_hint_seconds?: number;
         };
         PCCareTask: {
