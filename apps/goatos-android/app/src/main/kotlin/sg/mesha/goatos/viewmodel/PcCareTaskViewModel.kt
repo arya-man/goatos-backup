@@ -625,7 +625,10 @@ internal fun pcCareEvaluateSubmit(
     json: Json,
 ): PcCareSubmitEvaluation {
     if (animals.isEmpty()) {
-        return PcCareSubmitEvaluation(ready = false, blockedReason = "Scan at least one animal first")
+        // Device-local offline submit gate: this state exists before any server round-trip
+        // (zero scans yet), so no backend contract can carry this copy; same class as the
+        // sync-status lines below ("Waiting for network", "still uploading").
+        return PcCareSubmitEvaluation(ready = false, blockedReason = "Scan at least one animal first") // mobile-contract:ignore: device-local pre-sync gate copy
     }
     val pendingScans = animals.count { it.scanSyncStatus != PcCareScanStatus.SYNCED }
     val proofsByAnimal = proofs.groupBy { it.fieldKey.substringBefore(':') }
