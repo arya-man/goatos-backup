@@ -490,7 +490,10 @@ internal fun pcCareProofPolicy(captureSource: String): ProofPolicy =
 
 private fun decodeServerSlots(json: Json, serverSlotsJson: String): List<PcCareAnimalSlotDto> {
     if (serverSlotsJson.isBlank()) return emptyList()
-    // A stale-shaped cached blob degrades to "no server slots yet" — the next poll repairs it.
+    // A stale-shaped cached blob degrades to "no server slots yet" — the next poll rewrites the
+    // row from the live contract, so the failure is self-repairing and carries no signal a
+    // report would add (the blob is written only by our own repository from server DTOs).
+    // exception:exempt stale cached JSON degrades to empty and the next poll rewrites the row
     return runCatching { json.decodeFromString<List<PcCareAnimalSlotDto>>(serverSlotsJson) }
         .getOrDefault(emptyList())
 }

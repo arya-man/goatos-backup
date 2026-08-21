@@ -53,6 +53,7 @@ internal fun PcCareDateBar(
     onSelectDate: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // exception:exempt a malformed date string renders no bar; the ViewModel owns the value
     val selected = runCatching { LocalDate.parse(selectedDateIso) }.getOrNull() ?: return
     Row(
         modifier = modifier
