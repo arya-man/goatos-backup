@@ -545,7 +545,7 @@ export async function SalesPage({
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
 
-  // Rendered verbatim; the drawer receives plain data and issues no fetch of its own on open.
+  // Pass plain backend data; the drawer issues no fetch of its own on open.
   const tagLocations = saleLocations.ok ? saleLocations.data : { parks: [], locations: [] };
 
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;

@@ -1,6 +1,6 @@
 "use server";
 
-import { exportWeighingWeightsCsv } from "@/lib/api/server";
+import { exportWeighingWeightsCsv as getWeighingWeightsCsvExport } from "@/lib/api/server";
 
 export type WeightsCsvExport = { ok: true; csv: string } | { ok: false };
 
@@ -27,7 +27,7 @@ export async function exportWeightsCsvAction(input: {
   parkId?: string;
   shedIds?: string[];
 }): Promise<WeightsCsvExport> {
-  const result = await exportWeighingWeightsCsv({
+  const result = await getWeighingWeightsCsvExport({
     from: input.from,
     to: input.to,
     park_id: input.parkId,
