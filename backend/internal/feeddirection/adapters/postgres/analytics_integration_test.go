@@ -568,3 +568,86 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		}
 	})
 }
+
+func TestStockExpenditureStatusBucketsPriceSameItemAtEachFarmLoad(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	parkCBE := fdiPark
+	parkCPT := "fd100000-0000-4000-8000-000000003002"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT', 'CPT', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, parkCPT); err != nil {
+		t.Fatalf("seed CPT park: %v", err)
+	}
+
+	insertPurchase := func(parkID, farm string, batch int64, date string, perKg string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numeric, 1000,
+        0, DATE '2026-08-01', 'Farm vendor', 'Paid')`,
+			fdiTenant, parkID, farm, batch, date, perKg); err != nil {
+			t.Fatalf("insert purchase %s: %v", farm, err)
+		}
+	}
+	// CPT has the later load. The old item-only lateral lookup picked this
+	// cheaper rate for BOTH farms under all-farms scope.
+	insertPurchase(parkCBE, "CBE", 10, "2026-08-01", "100")
+	insertPurchase(parkCPT, "CPT", 11, "2026-08-02", "7")
+
+	persist := func(parkID, farm, issueID, shedID string) {
+		t.Helper()
+		issuedAt := time.Date(2026, 8, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: parkID, FeedDay: "2026-08-15", Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-price-" + farm,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + parkID + ":2026-08-15:price",
+			GeneratedBy:    "test",
+			Cells: []domain.StoredCell{{
+				ParkID: parkID, ParkLabel: farm, ShedID: shedID, ShedLabel: farm + " Shed",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: "Mesha Kids Goat Concentrate", FeedItemKey: "mesha_kids_goat_concentrate",
+				QuantityKg: kg("10.000"), SessionTotalKg: "10.000",
+			}},
+		}); err != nil {
+			t.Fatalf("persist %s issue %s: %v", farm, issueID, err)
+		}
+	}
+	persist(parkCBE, "CBE", "price-cbe", fdiShedA)
+	persist(parkCPT, "CPT", "price-cpt", fdiShedB)
+
+	day := time.Date(2026, 8, 15, 0, 0, 0, 0, biztime.DefaultLocation())
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	if len(got.Expenditure) != 1 {
+		t.Fatalf("want one expenditure day, got %+v", got.Expenditure)
+	}
+	// CBE: 10 kg × ₹100 = 1000; CPT: 10 kg × ₹7 = 70. The all-farms total
+	// must sum farm-priced rows, not reprice CBE at CPT's later load.
+	if got.Expenditure[0].Rupees != "1070" {
+		t.Fatalf("all-farms expenditure must price each farm at its own latest load, got %+v", got.Expenditure[0])
+	}
+	if got.Spend.ThisYear != "1070" {
+		t.Fatalf("spend summary must use the same farm-grain pricing, got %+v", got.Spend)
+	}
+
+	cbeScoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: day,
+		DateTo:   day,
+		ParkIDs:  []uuid.UUID{uuid.MustParse(parkCBE)},
+	})
+	if err != nil {
+		t.Fatalf("StockAnalytics CBE scoped: %v", err)
+	}
+	if len(cbeScoped.Expenditure) != 1 || cbeScoped.Expenditure[0].Rupees != "1000" {
+		t.Fatalf("CBE scope must keep only CBE price and kg, got %+v", cbeScoped.Expenditure)
+	}
+}

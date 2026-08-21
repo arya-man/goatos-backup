@@ -537,12 +537,12 @@ LEFT JOIN recent r
  AND r.feed_item_key = b.feed_item_key
 ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
 
-// Expenditure: each (day, item)'s directed kg priced at the item's most recent
-// load rate on or before that day. The LATERAL probes one indexed row per
-// (day, item) pair of an already-collapsed bounded set.
+// Expenditure: each (day, farm, item)'s directed kg priced at that farm's most
+// recent load rate on or before that day. Park-less purchase rows have no
+// execution source to price and are deliberately excluded from spend.
 const stockExpenditureSQL = `
 WITH day_item AS (
-    SELECT i.feed_day, r.feed_item_key, SUM(r.quantity_kg) AS kg
+    SELECT i.feed_day, i.park_id, r.feed_item_key, SUM(r.quantity_kg) AS kg
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
@@ -550,7 +550,7 @@ WITH day_item AS (
       AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.feed_day BETWEEN $3 AND $4
-    GROUP BY i.feed_day, r.feed_item_key
+    GROUP BY i.feed_day, i.park_id, r.feed_item_key
 )
 SELECT di.feed_day::text,
        round(SUM(di.kg * price.per_kg), 0)::text AS rupees
@@ -560,6 +560,7 @@ JOIN LATERAL (
     FROM feed_purchases p
     WHERE p.tenant_id = $1
       AND ($2::uuid[] IS NULL OR p.park_id = ANY ($2::uuid[]))
+      AND p.park_id = di.park_id
       AND p.feed_item_key = di.feed_item_key
       AND p.purchase_date <= di.feed_day
     ORDER BY p.purchase_date DESC, p.batch_no DESC
@@ -568,14 +569,14 @@ JOIN LATERAL (
 GROUP BY di.feed_day
 ORDER BY di.feed_day`
 
-// Spend periods: same day_item × latest-load pricing as the daily series, one
-// scan from Jan 1 of the current IST year, bucketed by fixed period starts.
-// Every bucket's numerator and denominator (none — plain sums) range over the
-// same priced (day, item) set; feed_day < today keeps the still-executing day
+// Spend periods: same day_item × same-farm latest-load pricing as the daily
+// series, one scan from Jan 1 of the current IST year, bucketed by fixed period
+// starts. Every bucket's numerator and denominator (none — plain sums) range
+// over the same priced (day, farm, item) set; feed_day < today keeps the still-executing day
 // out, matching every other figure on the page.
 const stockSpendSQL = `
 WITH day_item AS (
-    SELECT i.feed_day, r.feed_item_key, SUM(r.quantity_kg) AS kg
+    SELECT i.feed_day, i.park_id, r.feed_item_key, SUM(r.quantity_kg) AS kg
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
@@ -584,7 +585,7 @@ WITH day_item AS (
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.feed_day >= date_trunc('year', $3::date)::date
       AND i.feed_day < $3::date
-    GROUP BY i.feed_day, r.feed_item_key
+    GROUP BY i.feed_day, i.park_id, r.feed_item_key
 ),
 priced AS (
     SELECT di.feed_day, di.kg * price.per_kg AS spend
@@ -594,6 +595,7 @@ priced AS (
         FROM feed_purchases p
         WHERE p.tenant_id = $1
           AND ($2::uuid[] IS NULL OR p.park_id = ANY ($2::uuid[]))
+          AND p.park_id = di.park_id
           AND p.feed_item_key = di.feed_item_key
           AND p.purchase_date <= di.feed_day
         ORDER BY p.purchase_date DESC, p.batch_no DESC
