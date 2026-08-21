@@ -5457,6 +5457,8 @@ export interface components {
             shed_id: string;
             shed_label: string;
             partition_label?: string;
+            /** @description Backend-composed pen display ("Castro - 2"), rendered verbatim. */
+            operational_location_display: string;
             /** Format: date */
             planned_business_date: string;
             /** Format: date */
@@ -5527,6 +5529,8 @@ export interface components {
                 shed_id: string;
                 shed_label: string;
                 partition_label?: string;
+                /** @description Backend-composed pen display, rendered verbatim. */
+                operational_location_display: string;
                 /** @description Non-empty when a live task already covers this pen for the chosen category+date. */
                 existing_task_id?: string;
             }[];
