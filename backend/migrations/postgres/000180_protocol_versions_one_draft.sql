@@ -1,5 +1,5 @@
--- +goose NO TRANSACTION
 -- +goose Up
+-- +goose NO TRANSACTION
 -- One draft at a time, enforced by the database.
 --
 -- A plan being worked on is a single thing: pressing "Start a new version" either creates
@@ -25,4 +25,5 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS protocol_versions_one_draft_per_s
   WHERE status = 'draft';
 
 -- +goose Down
+-- +goose NO TRANSACTION
 DROP INDEX CONCURRENTLY IF EXISTS protocol_versions_one_draft_per_scope_idx;
