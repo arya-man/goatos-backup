@@ -34,6 +34,8 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -182,6 +184,9 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Weighing verdict applier: weighing enqueues a verification item for every
 	// observation, so without this consumer every approve/reject is a silent drop.
 	weighingapp.NewVerificationVerdictHandler(weighingRepo, logger).Register(bus)
+	// PC Care verdict applier: pc_care enqueues a verification item per completed care
+	// task, so without this consumer every approve/reject is a silent drop.
+	pccareapp.NewPCCareVerificationHandler(pccarepg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)
