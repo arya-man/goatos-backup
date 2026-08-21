@@ -61,6 +61,12 @@ type Repository interface {
 	// the tenant's history and no caller may remove it.
 	DiscardVersion(ctx context.Context, tenantID, versionID string) error
 
+	// ReplaceDraftVersion swaps one draft for another in a single transaction. Editing a plan
+	// needs both halves to be atomic: with one-draft-per-scope enforced in the database,
+	// create-then-discard is refused outright, and discard-then-create destroys the farm's
+	// work if the create fails.
+	ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error)
+
 	CreateRule(ctx context.Context, in domain.NewRule) (ruleID string, err error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error)
 

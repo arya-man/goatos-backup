@@ -2627,6 +2627,46 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /protocols/versions/{version_id}/replace:
+    post:
+      tags:
+        - Protocol Config
+      operationId: replaceProtocolDraftVersion
+      summary: Replace a draft protocol version with an edited one, atomically.
+      description: >-
+        Swaps the named draft for the supplied one in a single transaction: the old draft
+        and its derived rules are removed and the replacement is created together, so
+        nothing ever observes two drafts for one plan and a failure anywhere leaves the
+        original untouched. This is what saving an edited plan does. Doing it as two calls
+        cannot work: creating first is refused by the one-draft-per-scope rule, and
+        discarding first destroys the farm's work if the create then fails.
+      parameters:
+        - $ref: "#/components/parameters/ProtocolVersionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceProtocolDraftVersionRequest"
+      responses:
+        "201":
+          description: Draft replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateProtocolVersionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /protocols/vaccination/impact-preview:
     post:
       tags:
@@ -22023,6 +22063,42 @@ components:
         version:
           type: integer
           description: Optional compatibility field. When omitted, the backend allocates the next scoped protocol version atomically.
+        version_label:
+          type: string
+        effective_from:
+          type: string
+          format: date-time
+        effective_to:
+          type: string
+          format: date-time
+          nullable: true
+        rule_dsl:
+          type: object
+          additionalProperties: true
+          description: Protocol rule DSL.
+        proof_policy:
+          type: object
+          additionalProperties: true
+          description: Proof policy DSL.
+        sop_version_id:
+          type: string
+          nullable: true
+    ReplaceProtocolDraftVersionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_id
+        - scope_type
+        - effective_from
+        - rule_dsl
+      properties:
+        protocol_id:
+          type: string
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+          nullable: true
         version_label:
           type: string
         effective_from:

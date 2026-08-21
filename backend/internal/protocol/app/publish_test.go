@@ -1088,6 +1088,13 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 
 // DiscardVersion mirrors the real repository: only a draft may be removed, so a
 // test that discards a published version sees the same refusal production would.
+func (f *fakeProtocolRepo) ReplaceDraftVersion(context.Context, domain.NewVersion, string) (string, error) {
+	if f.version.Status != "draft" {
+		return "", ports.ErrVersionNotDraft
+	}
+	return "version-replacement", nil
+}
+
 func (f *fakeProtocolRepo) DiscardVersion(context.Context, string, string) error {
 	if f.version.Status != "draft" {
 		return ports.ErrVersionNotDraft

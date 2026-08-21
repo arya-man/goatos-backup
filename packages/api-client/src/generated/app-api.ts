@@ -1287,6 +1287,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/protocols/versions/{version_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a draft protocol version with an edited one, atomically.
+         * @description Swaps the named draft for the supplied one in a single transaction: the old draft and its derived rules are removed and the replacement is created together, so nothing ever observes two drafts for one plan and a failure anywhere leaves the original untouched. This is what saving an edited plan does. Doing it as two calls cannot work: creating first is refused by the one-draft-per-scope rule, and discarding first destroys the farm's work if the create then fails.
+         */
+        post: operations["replaceProtocolDraftVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/protocols/vaccination/impact-preview": {
         parameters: {
             query?: never;
@@ -8928,6 +8948,25 @@ export interface components {
             };
             sop_version_id?: string | null;
         };
+        ReplaceProtocolDraftVersionRequest: {
+            protocol_id: string;
+            scope_type: string;
+            scope_id?: string | null;
+            version_label?: string;
+            /** Format: date-time */
+            effective_from: string;
+            /** Format: date-time */
+            effective_to?: string | null;
+            /** @description Protocol rule DSL. */
+            rule_dsl: {
+                [key: string]: unknown;
+            };
+            /** @description Proof policy DSL. */
+            proof_policy?: {
+                [key: string]: unknown;
+            };
+            sop_version_id?: string | null;
+        };
         CreateProtocolVersionResponse: {
             protocol_version_id: string;
         };
@@ -14771,6 +14810,38 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    replaceProtocolDraftVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceProtocolDraftVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft replaced. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateProtocolVersionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];

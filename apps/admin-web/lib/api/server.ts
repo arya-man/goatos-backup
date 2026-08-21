@@ -2399,6 +2399,41 @@ export async function discardProtocolVersion(versionId: string): Promise<ApiResu
   );
 }
 
+/**
+ * Replace a draft with an edited one, in a single backend transaction.
+ *
+ * This is what saving a plan does. It cannot be a create followed by a discard: one draft
+ * per plan is enforced in the database, so the create is refused while the old draft still
+ * exists -- and discarding first would destroy the farm's work whenever the create then
+ * failed.
+ */
+export async function replaceProtocolDraftVersion(
+  versionId: string,
+  body: {
+    protocol_id: string;
+    scope_type: string;
+    scope_id?: string;
+    version_label?: string;
+    effective_from: string;
+    rule_dsl: unknown;
+    proof_policy?: unknown;
+    sop_version_id?: string;
+  },
+): Promise<ApiResult<{ protocol_version_id: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/protocols/versions/${encodeURIComponent(versionId)}/replace` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<{ protocol_version_id: string }>(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+    }),
+  );
+}
+
 export async function getGoatVaccinationPassport(goatId: string): Promise<ApiResult<VaccinationPassport>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
