@@ -4181,3 +4181,60 @@ func TestGenerateRecoveryReplayTerminalObligationDoesNotInventSpacingDate(t *tes
 		t.Fatalf("Goat Pox due = %s, want %s; terminal PPR recovery proposal must not create spacing", goatPox.DueAt.Format("2006-01-02"), want.Format("2006-01-02"))
 	}
 }
+
+// Generation's history-driven repeat path must name the administration that caused the cycle.
+// This is the writer half of repeat-cycle identity: without it the row is identified by a due
+// date that moves every time a newer administration lands, which is how one cycle came to be
+// minted twice a day apart 207 times in the staging baseline.
+func TestGenerationStampsTheAdministrationThatCausedTheRepeat(t *testing.T) {
+	ctx := context.Background()
+	administered := time.Date(2026, time.January, 6, 9, 30, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.October, 12, 6, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2,
+			TriggerType: "after_previous_completion", OffsetDays: 274, DueWindowDays: 30, Repeat: "every_n_days",
+		}},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "repeat-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-1", ParkID: "cpt",
+		}},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"repeat-goat": {{
+				AdministeredAt: administered, VaccineCode: "FMD", VaccineType: "killed",
+				PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2,
+			}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	var stamped int
+	for _, inserted := range obl.inserted {
+		if inserted.Status == "canceled" || inserted.RuleID != "rule-fmd-repeat" {
+			continue
+		}
+		rc := inserted.RepeatCycle
+		if rc == nil {
+			t.Fatal("repeat obligation carries no cause: it is identified by a due date that moves")
+		}
+		// The same string the completion path writes for this administration, and the same
+		// one the repair job reconstructs. Diverge and one cycle becomes two open rows.
+		if want := obldomain.RepeatCycleRef("FMD", administered, 2); rc.SourceRef != want {
+			t.Fatalf("cause = %q, want %q", rc.SourceRef, want)
+		}
+		if rc.Source != obldomain.RepeatCycleSourceTrustedHistory {
+			t.Fatalf("source = %q, want %q", rc.Source, obldomain.RepeatCycleSourceTrustedHistory)
+		}
+		stamped++
+	}
+	if stamped != 1 {
+		t.Fatalf("stamped %d repeat obligations, want 1", stamped)
+	}
+}

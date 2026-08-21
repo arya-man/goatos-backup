@@ -3,6 +3,7 @@ package domain
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -70,6 +71,30 @@ func (r *RepeatCycleSource) Valid() bool {
 	return r != nil &&
 		strings.TrimSpace(r.Source) != "" &&
 		strings.TrimSpace(r.SourceRef) != ""
+}
+
+// RepeatCycleRef names the administration that causes a repeat cycle, by its own immutable
+// coordinates: which vaccine, given when, as which dose.
+//
+// Every writer of a repeat cycle must produce this same string for the same administration,
+// or the writers do not share an identity at all: the insert guard compares source and ref
+// literally, and the two partial unique indexes cannot collide across differing vocabularies.
+// One writer naming the cause by completed-obligation id and another naming it by
+// administration would leave two open rows for one cycle, each convinced it is the only one.
+//
+// The timestamp is truncated to the second. RFC3339 keeps fractional seconds when non-zero,
+// while the SQL that reconstructs this reference during repair formats whole seconds; a
+// stored microsecond would otherwise split one cause into two.
+func RepeatCycleRef(vaccineCode string, administeredAt time.Time, sequence int32) string {
+	code := strings.ToLower(strings.TrimSpace(vaccineCode))
+	if code == "" || administeredAt.IsZero() {
+		return ""
+	}
+	return strings.Join([]string{
+		code,
+		administeredAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+		strconv.Itoa(int(sequence)),
+	}, "|")
 }
 
 const (

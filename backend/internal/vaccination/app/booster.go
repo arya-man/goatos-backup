@@ -216,16 +216,28 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		due.UTC().Format(time.RFC3339), strconv.Itoa(int(candidate.Sequence)))
 	// Anchored to the administration that caused it, for repeat rules only. A one-off dose
 	// keeps its due-date identity, because its due date does not move on its own.
+	//
+	// The reference is the administration itself, not the completed obligation's id, because
+	// generation recomputes this same cycle from history and names its cause that way. Two
+	// vocabularies for one cause means two open rows, each invisible to the other. The
+	// obligation id is still recorded as the anchor, for the audit trail and for the stricter
+	// per-cause index.
+	candidateVaccineCode, err := boosterRuleVaccineCode(*candidate)
+	if err != nil {
+		return false, err
+	}
 	var repeatCycle *obldomain.RepeatCycleSource
 	if anchor := strings.TrimSpace(in.CompletedObligationID); anchor != "" && isRepeatRule(candidate) {
 		administered := in.AdministeredAt
 		nextDue := due
-		repeatCycle = &obldomain.RepeatCycleSource{
-			Source:             obldomain.RepeatCycleSourceCompletedObligation,
-			SourceRef:          anchor,
-			AnchorObligationID: &anchor,
-			AnchorAt:           &administered,
-			DueAt:              &nextDue,
+		if ref := obldomain.RepeatCycleRef(candidateVaccineCode, administered, in.PrevSequence); ref != "" {
+			repeatCycle = &obldomain.RepeatCycleSource{
+				Source:             obldomain.RepeatCycleSourceTrustedHistory,
+				SourceRef:          ref,
+				AnchorObligationID: &anchor,
+				AnchorAt:           &administered,
+				DueAt:              &nextDue,
+			}
 		}
 	}
 	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{

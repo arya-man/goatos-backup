@@ -567,3 +567,72 @@ func (f *boosterObligationWriterFake) RecordStatusEvent(_ context.Context, ev ob
 func (f *boosterObligationWriterFake) NextSuccessorSuffix(_ context.Context, _, _ string) (int, error) {
 	return 1, nil
 }
+
+// The successor a completion mints must carry the cause that produced it, in the SAME
+// vocabulary generation uses when it recomputes that cycle from history. Without this
+// assertion the whole writer half of repeat-cycle identity is unprotected: deleting the
+// metadata block leaves every other booster test green, and the duplicates come back.
+func TestScheduleNextDoseStampsTheCauseThatProducedTheSuccessor(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{
+			RuleID: "rule-et-adult", DoseCode: "et_tt_adult_revac_182d", Sequence: 3,
+			TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"ET_TT"}}`),
+		},
+	}}
+	obl := &boosterObligationWriterFake{}
+	svc := NewBoosterService(proto, obl)
+	administered := time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC)
+
+	if _, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", GoatID: "goat-1",
+		ScopeType: "shed", ScopeID: "shed-1", PrevSequence: 3, AdministeredAt: administered,
+		CompletedObligationID: "obligation-that-was-given",
+	}); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("inserted %d obligations, want 1", len(obl.inserted))
+	}
+	rc := obl.inserted[0].RepeatCycle
+	if rc == nil {
+		t.Fatal("successor carries no cause: it is identified by its due date, which moves")
+	}
+	if want := obldomain.RepeatCycleRef("ET_TT", administered, 3); rc.SourceRef != want {
+		t.Fatalf("cause = %q, want %q -- generation names the same cause this way", rc.SourceRef, want)
+	}
+	if rc.Source != obldomain.RepeatCycleSourceTrustedHistory {
+		t.Fatalf("source = %q, want %q", rc.Source, obldomain.RepeatCycleSourceTrustedHistory)
+	}
+	if rc.AnchorObligationID == nil || *rc.AnchorObligationID != "obligation-that-was-given" {
+		t.Fatalf("anchor obligation = %v, want the completed dose", rc.AnchorObligationID)
+	}
+}
+
+// A one-off dose keeps its due-date identity: its due date does not move on its own, and
+// stamping it would make two unrelated doses of one vaccine collide.
+func TestScheduleNextDoseLeavesNonRepeatDosesUnstamped(t *testing.T) {
+	ctx := context.Background()
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-et-primary", DoseCode: "et_tt_7w", Sequence: 2, TriggerType: "birth_age"},
+		{
+			RuleID: "rule-et-w2", DoseCode: "et_tt_adult_w2", Sequence: 3, TriggerType: "fixed_offset",
+			OffsetDays: 21, Repeat: "none", EligibilityJSON: []byte(`{"vaccine":{"code":"ET_TT"}}`),
+		},
+	}}
+	obl := &boosterObligationWriterFake{}
+	svc := NewBoosterService(proto, obl)
+
+	if _, err := svc.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", GoatID: "goat-1",
+		ScopeType: "shed", ScopeID: "shed-1", PrevSequence: 2,
+		AdministeredAt:        time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC),
+		CompletedObligationID: "obligation-that-was-given",
+	}); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	if len(obl.inserted) == 1 && obl.inserted[0].RepeatCycle != nil {
+		t.Fatalf("one-off dose was stamped with a repeat cause: %+v", obl.inserted[0].RepeatCycle)
+	}
+}

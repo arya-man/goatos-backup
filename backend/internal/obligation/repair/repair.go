@@ -103,12 +103,50 @@ func (g dupGroup) sameGroup(versionID, ruleID, targetID string, sequence int32, 
 }
 
 // Run performs the repair described by cfg.
+// pageSize bounds one database round trip. Limit bounds the whole run.
+const pageSize = 500
+
 func Run(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg Config) (Counters, error) {
 	var got Counters
-	groups, err := loadDuplicateGroups(ctx, pool, cfg)
-	if err != nil {
-		return got, err
+	// Paged with a keyset cursor rather than a single LIMIT window. Rows that cannot be
+	// repaired -- no reconstructable cause -- stay open and sort to the front, so a plain
+	// LIMIT would hand back the same unrepairable groups on every run and the tail of a large
+	// tenant would never be reached. The cursor steps past them.
+	var cursor groupKey
+	for got.GroupsExamined < cfg.Limit {
+		size := pageSize
+		if remaining := cfg.Limit - got.GroupsExamined; remaining < size {
+			size = remaining
+		}
+		groups, err := loadDuplicateGroups(ctx, pool, cfg, cursor, size)
+		if err != nil {
+			return got, err
+		}
+		if len(groups) == 0 {
+			return got, nil
+		}
+		cursor = groups[len(groups)-1].key()
+		if err := repairGroups(ctx, pool, repo, cfg, groups, &got); err != nil {
+			return got, err
+		}
 	}
+	return got, nil
+}
+
+// groupKey is the keyset cursor: the ordered identity of the last group processed.
+type groupKey struct {
+	VersionID string
+	RuleID    string
+	TargetID  string
+	Sequence  int32
+	CycleRef  string
+}
+
+func (g dupGroup) key() groupKey {
+	return groupKey{VersionID: g.VersionID, RuleID: g.RuleID, TargetID: g.TargetID, Sequence: g.Sequence, CycleRef: g.CycleRef}
+}
+
+func repairGroups(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg Config, groups []dupGroup, got *Counters) error {
 	now := time.Now().UTC()
 	reason := repeatReason
 	switch cfg.Mode {
@@ -124,9 +162,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg Config) (C
 		// newest row wins, because it holds the most recently computed due date.
 		survivor := g.Rows[0]
 		for _, row := range g.Rows[1:] {
-			if !!cfg.Apply {
+			if cfg.Apply {
 				if _, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, cfg.TenantID, row.IdempotencyKey, reason, now); err != nil {
-					return got, fmt.Errorf("retire duplicate %s: %w", row.ObligationID, err)
+					return fmt.Errorf("retire duplicate %s: %w", row.ObligationID, err)
 				}
 			}
 			got.DuplicatesRetired++
@@ -144,7 +182,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg Config) (C
 		}
 		labelled, err := labelSurvivor(ctx, pool, cfg, survivor)
 		if err != nil {
-			return got, err
+			return err
 		}
 		if !labelled {
 			// No completed dose under this rule for this animal, so the cycle's cause cannot
@@ -155,12 +193,12 @@ func Run(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg Config) (C
 		}
 		got.CyclesLabelled++
 	}
-	return got, nil
+	return nil
 }
 
 // loadDuplicateGroups returns groups of open obligations that share an (animal, rule,
 // protocol version) -- rows ordered survivor-first.
-func loadDuplicateGroups(ctx context.Context, pool *pgxpool.Pool, cfg Config) ([]dupGroup, error) {
+func loadDuplicateGroups(ctx context.Context, pool *pgxpool.Pool, cfg Config, after groupKey, limit int) ([]dupGroup, error) {
 	// status_rank keeps a row that is already being worked ahead of one that is merely
 	// scheduled, so the survivor is never pulled out from under an operator mid-task.
 	rows, err := pool.Query(ctx, `
@@ -215,6 +253,8 @@ dups AS (
   -- Every open repeat row is examined, not only the duplicated ones. A pre-fix row carries
   -- no metadata whether or not it happens to have a twin, and until it is stamped the
   -- partial indexes skip it and the first anchored insert after deploy lands beside it.
+  -- Keyset cursor: strictly after the last group the previous page handled.
+  HAVING (version_id, rule_id, target_id, sequence, cycle_ref) > ($4::text, $5::text, $6::text, $7::int, $8::text)
   ORDER BY version_id, rule_id, target_id, sequence, cycle_ref
   LIMIT $3
 )
@@ -227,7 +267,7 @@ JOIN dups d USING (version_id, rule_id, target_id, sequence, cycle_ref)
 -- an operator is already mid-task on.
 ORDER BY o.version_id, o.rule_id, o.target_id, o.sequence, o.cycle_ref,
          o.status_rank DESC, o.has_metadata DESC, o.created_at DESC`,
-		cfg.TenantID, cfg.Mode, cfg.Limit)
+		cfg.TenantID, cfg.Mode, limit, after.VersionID, after.RuleID, after.TargetID, after.Sequence, after.CycleRef)
 	if err != nil {
 		return nil, fmt.Errorf("load duplicate groups: %w", err)
 	}
@@ -266,8 +306,8 @@ ORDER BY o.version_id, o.rule_id, o.target_id, o.sequence, o.cycle_ref,
 const anchorCTE = `
 WITH target AS (
   SELECT oi.tenant_id, oi.obligation_id, oi.target_id, oi.due_at,
-         lower(coalesce(nullif(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
-                        nullif(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '')) AS vaccine_code
+         lower(btrim(coalesce(nullif(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+                              nullif(pv.rule_dsl -> 'vaccine' ->> 'code', ''), ''))) AS vaccine_code
   FROM obligation_instances oi
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
@@ -295,8 +335,8 @@ anchor AS (
   WHERE vc.status = 'accepted'
     AND vc.verified_at IS NOT NULL
     AND vc.administered_at <= t.due_at
-    AND lower(coalesce(nullif(done_rule.eligibility_json -> 'vaccine' ->> 'code', ''),
-                       nullif(done_version.rule_dsl -> 'vaccine' ->> 'code', ''), ''))
+    AND lower(btrim(coalesce(nullif(done_rule.eligibility_json -> 'vaccine' ->> 'code', ''),
+                             nullif(done_version.rule_dsl -> 'vaccine' ->> 'code', ''), '')))
         = t.vaccine_code
     AND t.vaccine_code <> ''
   ORDER BY vc.administered_at DESC

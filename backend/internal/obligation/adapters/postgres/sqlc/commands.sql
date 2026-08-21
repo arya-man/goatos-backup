@@ -42,9 +42,21 @@ WHERE NOT EXISTS (
       -- free its source for the next pass to mint new work rather than block it forever.
       (
         sqlc.narg('repeat_cycle_source_ref')::text IS NOT NULL
-        AND existing.repeat_cycle_source = sqlc.narg('repeat_cycle_source')::text
-        AND existing.repeat_cycle_source_ref = sqlc.narg('repeat_cycle_source_ref')::text
         AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+        AND (
+          existing.repeat_cycle_source = sqlc.narg('repeat_cycle_source')::text
+            AND existing.repeat_cycle_source_ref = sqlc.narg('repeat_cycle_source_ref')::text
+          OR
+          -- A row written before repeat-cycle metadata existed carries no cause, so it cannot
+          -- be matched by one. It is still the same open cycle: for a repeat rule, one open
+          -- obligation per dose slot IS the invariant. Without this an anchored insert would
+          -- land beside every unrepaired legacy row on the day of deploy -- including rows
+          -- whose cause the repair could not reconstruct, which are reported and left alone
+          -- rather than guessed at. Scoped to the repeat branch, so no other writer is
+          -- affected.
+          existing.repeat_cycle_source_ref IS NULL
+            AND existing."sequence" = @sequence
+        )
       )
     )
 )
