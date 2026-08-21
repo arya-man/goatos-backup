@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -503,6 +505,11 @@ WITH pens AS (
     AND shed.location_type = 'shed'
     AND shed.status = 'active'
     AND shed.retired_at IS NULL
+    -- Legacy partition-alias suppression (shared rule): the farm's pens exist twice in
+    -- locations — the canonical parent shed + shed_partitions catalog row ("Castro" + "1"),
+    -- and an old still-active shed row literally named "Castro 1". Without this every pen
+    -- lists twice in the picker ("Castro 1, Castro 1, Castro 2, Castro 2 …").
+    AND `+oploc.PartitionAliasExclusionSQL("shed")+`
 )
 SELECT p.shed_id::text, p.shed_name, p.partition_label,
        COALESCE(t.task_id::text, '')
