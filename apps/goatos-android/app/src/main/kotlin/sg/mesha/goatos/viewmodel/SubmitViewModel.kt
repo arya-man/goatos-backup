@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.capture.vaccinationSessionGroupKey
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
@@ -710,12 +711,18 @@ class SubmitViewModel @Inject constructor(
                     snackbarMessage = null,
                 )
             }
-            // groupKey = the shed/scope this submission belongs to, so the outbox drains all
-            // of a shed's writes in order (TRD: outbox is "ordered per shed").
-            val groupKey = listOf(
-                activeShedId ?: current.scopeId.ifBlank { current.taskId },
-                activePartitionLabel()?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole",
-            ).joinToString("|")
+            // groupKey = the ONE lane this vaccination session's writes share, so the
+            // outbox holds this Submit behind any of the session's scans that have not
+            // reached the server yet.
+            //
+            // It used to be built here from the shed id and a differently-normalised
+            // partition label, which put it in a different lane from the scans
+            // (CaptureRepository enqueues under taskId + executionPartitionKey). Nothing
+            // ordered the two, so a Submit could drain while an animal's scan was still
+            // FAILED and close the shed one animal short -- and the shed then read as
+            // complete, so nobody went looking. Both sides now derive the key from one
+            // tested helper instead of re-typing it, which is how they drifted apart.
+            val groupKey = vaccinationSessionGroupKey(current.taskId, activePartitionLabel())
             val request = SubmitTaskRequestDto(
                 sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() },
                 idempotencyKey = key,

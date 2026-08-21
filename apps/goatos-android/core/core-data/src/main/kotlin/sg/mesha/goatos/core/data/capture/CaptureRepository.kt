@@ -264,7 +264,7 @@ class DefaultScanCaptureRepository(
         val syncKey = scanCaptureIdempotencyKey(taskId, partitionKey, fieldKey, tag, obligationId, obligationRowVersion)
         when (val result = syncRepository?.enqueueScanCapture(
             taskId = taskId,
-            groupKey = "$taskId|$partitionKey",
+            groupKey = vaccinationSessionGroupKey(taskId, partitionKey),
             idempotencyKey = syncKey,
             partitionKey = partitionKey,
             request = ScanCaptureRequestDto(

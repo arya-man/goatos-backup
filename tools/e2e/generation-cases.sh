@@ -24,7 +24,8 @@ PORT="${E2E_PG_PORT:-15432}"
 DB="${E2E_DB:-goatos_e2e}"
 TENANT="${E2E_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 
-q() { psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 -tA -F'|' -c "$1"; }
+USER_NAME="${E2E_PG_USER:-postgres}"
+q() { psql -h "$HOST" -p "$PORT" -U "$USER_NAME" -d "$DB" -v ON_ERROR_STOP=1 -tA -F'|' -c "$1"; }
 
 case "${1:-}" in
   seed)

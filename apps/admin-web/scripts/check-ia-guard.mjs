@@ -93,7 +93,7 @@ function hasCommandSegment(route) {
 // weighing.session library documents). The original 2026-08-18 record follows (recorded in
 // backend/internal/adminui/app/service.go, PC nav-group note, and AGENTS.md): the top-level
 // Admin/Data Ops SOP Library (/sops) is RETIRED, and each module owns its SOP documents as a
-// module-surface — /vaccination/sops (vaccination), /counts/sops (Herd Operations: birth / death /
+// module-surface — /counts/sops (Herd Operations: birth / death /
 // shifting), /feed/sops (distribution / packing / transport). They are not duplicates of a
 // top-level lens: no /sops route exists any more, /config remains the single generic authority
 // screen, and no command lens (Control Tower, Action Center, Calendar, Protocol Adherence,
@@ -102,7 +102,6 @@ function hasCommandSegment(route) {
 const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   "/feed/config",
   "/health/config",
-  "/vaccination/sops",
   "/counts/sops",
   "/feed/sops",
   "/milk/sops",
@@ -516,7 +515,7 @@ if (findings.length > 0) {
   console.error(
     "\nAllowed pattern: /action-center?domain=<vertical>, /protocol-adherence?domain=<vertical>, " +
       "/calendar?owner_key=<owner>, /workflows?domain=<vertical>, /workflows/{row_id}?domain=<vertical>, " +
-      "or /config?category=<module>. SOP pages are per-module surfaces: /vaccination/sops, /counts/sops, /feed/sops.\n" +
+      "Vaccination config lives at /vaccination/plan. SOP pages are per-module surfaces: /counts/sops, /feed/sops.\n" +
       "Vertical route trees should contain operational screens only.",
   );
   process.exit(1);
