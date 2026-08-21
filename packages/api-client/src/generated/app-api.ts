@@ -4604,12 +4604,40 @@ export interface components {
              */
             median_verify_latency_minutes?: number | null;
         };
+        /** @description One MISMATCH between what the frozen sheet directed a pen-session to pack for one feed item and what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). Any difference pops -- there is no tolerance band. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
+        FeedAnalyticsPackingVarianceRow: {
+            /** Format: date */
+            feed_day: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The pen ("2", "Part 3"); absent for an undivided shed. */
+            partition_label?: string;
+            /** @description Backend-composed shed+pen label; render verbatim, never compose on the client. */
+            operational_location_display: string;
+            /** Format: int32 */
+            session_no: number;
+            /** @description The sheet's session name ("Morning"); absent when the frozen row is gone. */
+            session_label?: string;
+            workflow: string;
+            feed_item_key: string;
+            feed_item_label: string;
+            /** @description The frozen sheet's summed quantity as a decimal string; EMPTY when the sheet carried no resolved quantity for this item -- blank and zero are never conflated. */
+            planned_kg: string;
+            /** @description The verifier's entered reading. "0" is a real observation. */
+            verified_kg: string;
+            /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
+            variance_kg: string;
+        };
         FeedAnalyticsExecutionResponse: {
             /** Format: date */
             date_from: string;
             /** Format: date */
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
+            /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
+            packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
         };
         /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
         FeedAnalyticsExperimentItem: {
@@ -10240,6 +10268,15 @@ export interface components {
             required_for_approve: boolean;
             /** @description Label for an accompanying whole-number field (a lump-sum shed proof's head count). PRESENT ONLY on the ref types that carry one — absent means render the value field alone. An individual animal's proof carries no count, and the write path refuses one. */
             count_label?: string;
+            /** @description The ordered per-item entry-box list for items whose approve carries one value PER FIELD (a feed packing item: one box per feed item of that pen-session, NAMES ONLY — the planned quantities are deliberately hidden so the verifier enters blind; maintainer decision 2026-08-21). Present and non-empty means render one labelled numeric box per field INSTEAD of the single value field, keep Approve disabled until every box is filled (required_for_approve is true for these categories), and send the verdict's measurement as `entries` echoing each field's key. Absent means the single-value contract. */
+            fields?: components["schemas"]["VerificationMeasurementField"][];
+        };
+        /** @description One per-item entry box on a verification item. */
+        VerificationMeasurementField: {
+            /** @description The producing module's stable token for this field (a normalized feed item key). Post it back VERBATIM as the entry's key; never parse or display it. */
+            key: string;
+            /** @description Backend-owned caption for the box ("Maize"). Rendered verbatim. */
+            label: string;
         };
         VerificationQueueItem: {
             /** Format: uuid */
@@ -10409,14 +10446,22 @@ export interface components {
             row_version: number;
             measurement?: components["schemas"]["VerificationVerdictMeasurement"];
         };
-        /** @description The number the verifier read off the video, carried BY the approve (maintainer decision 2026-08-20, replacing the separate save step). Send it ONLY on an item whose measurement_correction block is present. Absent is the normal weighing case: blank means the operator's recorded weight is right. IGNORED on a reject, because rejection sends the work back to be recorded again and a value written onto a record about to be redone is a number nobody will use. The record it lands on comes from the item's own source, never from this request. */
+        /** @description The number(s) the verifier read off the video, carried BY the approve (maintainer decision 2026-08-20, replacing the separate save step). Send it ONLY on an item whose measurement_correction block is present. Single-value items (weighing, wastage) send `value`; per-field items (measurement_correction.fields present — feed packing) send `entries` with one reading per declared field, every field filled. Absent is the normal weighing case: blank means the operator's recorded weight is right. IGNORED on a reject, because rejection sends the work back to be recorded again and a value written onto a record about to be redone is a number nobody will use. The record it lands on comes from the item's own source, never from this request. */
         VerificationVerdictMeasurement: {
-            /** @description The reading in the category's own unit (kg for weighing and wastage). ZERO IS VALID for wastage — an empty trough is a real measurement — so omit the whole block rather than sending 0 to mean "not entered". */
-            value: number;
+            /** @description The single-value reading in the category's own unit (kg for weighing and wastage). ZERO IS VALID for wastage — an empty trough is a real measurement — so omit the whole block rather than sending 0 to mean "not entered". Omit on per-field items; the readings travel on entries. */
+            value?: number;
             /** @description The accompanying whole-number field, allowed ONLY where the item's measurement_correction carries a count_label (a lump-sum shed weigh's head count). Omit to leave the recorded count alone. Sending one where the item carries none is refused rather than dropped. */
             count?: number;
             /** @description The verifier's optional note on why the recorded number was wrong. */
             reason?: string;
+            /** @description One reading per measurement_correction.fields entry, keys echoed VERBATIM. Every declared field must be present for the approve to land (422 measurement_required names the missing box); a key the item never declared is refused rather than dropped. ZERO IS VALID — "this item was not packed" is a real observation. */
+            entries?: components["schemas"]["VerificationVerdictMeasurementEntry"][];
+        };
+        VerificationVerdictMeasurementEntry: {
+            /** @description The field's key, echoed verbatim from measurement_correction.fields. */
+            key: string;
+            /** @description The reading for this field in the category's own unit (kg). */
+            value: number;
         };
         VerificationVerdictResponse: {
             item: components["schemas"]["VerificationQueueItem"];

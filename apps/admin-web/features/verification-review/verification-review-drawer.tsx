@@ -284,6 +284,24 @@ function VerificationReviewDrawerPanel({
     (value: string) => setMeasurement({ itemId: item.item_id, value }),
     [item.item_id],
   );
+  // Per-field readings for items whose measurement_correction carries `fields` (feed packing: one
+  // box per feed item, blind entry -- the backend deliberately sends NAMES ONLY, never the planned
+  // quantities). Controlled and KEYED BY item_id for the same reasons `measurement` above is: the
+  // Accept button's enabled-ness depends on every box being filled, and stepping to the next item
+  // must never carry one pen's readings onto another pen's Accept.
+  const [entryValues, setEntryValues] = useState<{ itemId: string; values: Record<string, string> }>({
+    itemId: item.item_id,
+    values: {},
+  });
+  const entriesForItem = entryValues.itemId === item.item_id ? entryValues.values : {};
+  const setEntryValue = useCallback(
+    (key: string, value: string) =>
+      setEntryValues((prev) => ({
+        itemId: item.item_id,
+        values: { ...(prev.itemId === item.item_id ? prev.values : {}), [key]: value },
+      })),
+    [item.item_id],
+  );
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const reasonReady = reason.trim().length > 0;
 
@@ -446,17 +464,24 @@ function VerificationReviewDrawerPanel({
   // The backend attaches this only to items carrying a number the verifier may correct, and owns
   // every word of the control. Absent -- every category but weighing today -- means no control.
   const correction = item.measurement_correction;
-  const measurementReasonSupported = correction?.ref_type !== "feed_wastage_completion";
+  // Per-field items (feed packing) render one box per field instead of the single value field; the
+  // "why was the number wrong" note only makes sense where a prior recorded number exists, so
+  // neither wastage (born here) nor a per-field item offers it.
+  const correctionFields = correction?.fields ?? [];
+  const perFieldEntry = correctionFields.length > 0;
+  const measurementReasonSupported = correction?.ref_type !== "feed_wastage_completion" && !perFieldEntry;
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
   // Blank means she has typed nothing. It is NOT a zero: for wastage an empty trough is a real
   // reading, so the two must stay distinguishable all the way to the server action.
   const measurementEntered = measurementValue.trim() !== "";
+  const everyEntryFilled = correctionFields.every((field) => (entriesForItem[field.key] ?? "").trim() !== "");
   // Feed wastage cannot be approved without a number -- the operator submits only a video, so the
   // reading is born on this screen. The backend refuses it too (422 measurement_required); doing it
   // here as well means she is told before she loses a round-trip. Weighing's flag is false, so a
-  // verifier who agrees with the operator's weight still approves in one press.
-  const measurementMissing = Boolean(correction?.required_for_approve) && !measurementEntered;
+  // verifier who agrees with the operator's weight still approves in one press. A per-field item
+  // (feed packing) holds Accept until EVERY box is filled -- zero is a valid entry, blank is not.
+  const measurementMissing = Boolean(correction?.required_for_approve) && (perFieldEntry ? !everyEntryFilled : !measurementEntered);
 
   return (
       <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
@@ -635,26 +660,52 @@ function VerificationReviewDrawerPanel({
                 <b>{correction.title}</b>
                 <div className="small muted">{correction.help}</div>
               </div>
-              <label className="fld" style={{ marginBottom: 0 }}>
-                <span>{correction.value_label}</span>
-                {/* min is 0, never 0.001: for wastage an empty trough is a real, good measurement
-                    and zero must stay enterable. Deliberately NOT `required` -- the field is
-                    optional for weighing, and where it IS required the Accept button below carries
-                    the rule, so she is never blocked by a browser message on a form she also uses
-                    to Reject. */}
-                <input
-                  form="verdict-form"
-                  type="number"
-                  name="measurement_value"
-                  step="0.001"
-                  min="0"
-                  max="100000"
-                  inputMode="decimal"
-                  value={measurementValue}
-                  onChange={(e) => setMeasurementValue(e.target.value)}
-                  disabled={verdictSettled}
-                />
-              </label>
+              {perFieldEntry ? (
+                /* BLIND PER-ITEM ENTRY (maintainer decision 2026-08-21): one labelled box per feed
+                   item, names only -- the backend deliberately withholds the planned quantities so
+                   the verifier's readings are independent. Zero is a valid entry ("this item was
+                   not packed"); blank means not entered, and Accept below stays held until every
+                   box is filled. The intended-vs-entered comparison surfaces only on the
+                   leadership feed analytics execution view, never here. */
+                correctionFields.map((field) => (
+                  <label key={`${item.item_id}:${field.key}`} className="fld" style={{ marginBottom: 0 }}>
+                    <span>{field.label}</span>
+                    <input
+                      form="verdict-form"
+                      type="number"
+                      name={`measurement_entry:${field.key}`}
+                      step="0.001"
+                      min="0"
+                      max="100000"
+                      inputMode="decimal"
+                      value={entriesForItem[field.key] ?? ""}
+                      onChange={(e) => setEntryValue(field.key, e.target.value)}
+                      disabled={verdictSettled}
+                    />
+                  </label>
+                ))
+              ) : (
+                <label className="fld" style={{ marginBottom: 0 }}>
+                  <span>{correction.value_label}</span>
+                  {/* min is 0, never 0.001: for wastage an empty trough is a real, good measurement
+                      and zero must stay enterable. Deliberately NOT `required` -- the field is
+                      optional for weighing, and where it IS required the Accept button below carries
+                      the rule, so she is never blocked by a browser message on a form she also uses
+                      to Reject. */}
+                  <input
+                    form="verdict-form"
+                    type="number"
+                    name="measurement_value"
+                    step="0.001"
+                    min="0"
+                    max="100000"
+                    inputMode="decimal"
+                    value={measurementValue}
+                    onChange={(e) => setMeasurementValue(e.target.value)}
+                    disabled={verdictSettled}
+                  />
+                </label>
+              )}
               {correction.count_label ? (
                 <label className="fld" style={{ marginBottom: 0 }}>
                   <span>{correction.count_label}</span>

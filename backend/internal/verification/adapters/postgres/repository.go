@@ -88,13 +88,13 @@ func verdictLockKey(tenantID, itemID string) int64 {
 }
 
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
-  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs, context_rows,
+  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs, context_rows, measurement_fields,
   status, verdict_reason, operator_id::text, shed_id::text, partition_label, park_id::text, captured_at, verified_by::text,
   verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
   row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
-  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs, vi.context_rows,
+  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs, vi.context_rows, vi.measurement_fields,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.partition_label, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
   vi.row_version, vi.created_at, vi.updated_at,
@@ -114,6 +114,10 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	if err != nil {
 		return domain.CreateItemResult{}, fmt.Errorf("verification: marshal context_rows: %w", err)
 	}
+	fieldsJSON, err := json.Marshal(nonNilMeasurementFields(in.MeasurementFields))
+	if err != nil {
+		return domain.CreateItemResult{}, fmt.Errorf("verification: marshal measurement_fields: %w", err)
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return domain.CreateItemResult{}, err
@@ -124,12 +128,12 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	err = tx.QueryRow(ctx, `
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
-  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, context_rows, status, operator_id, shed_id, partition_label, park_id,
+  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, context_rows, measurement_fields, status, operator_id, shed_id, partition_label, park_id,
   captured_at, idempotency_key, applier_ack_expected
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
   nullif($18, ''),
-  $11::jsonb, $20::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, ''), nullif($14, '')::uuid, $15, $16, $17
+  $11::jsonb, $20::jsonb, $21::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, ''), nullif($14, '')::uuid, $15, $16, $17
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
@@ -137,7 +141,7 @@ RETURNING item_id::text`,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
 		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
 		in.CapturedAt.UTC(), in.IdempotencyKey, in.ApplierAckExpected, derefStr(in.SubjectNote),
-		derefStr(in.PartitionLabel), string(contextJSON),
+		derefStr(in.PartitionLabel), string(contextJSON), string(fieldsJSON),
 	).Scan(&itemID)
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -2409,14 +2413,14 @@ func scanItem(row rowScanner) (domain.Item, error) {
 		sourceTaskID, sourceSubmissionID                                                *string
 		operatorID, shedID, partitionLabel, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel, subjectNote                                                       *string
-		mediaJSON, contextJSON                                                          []byte
+		mediaJSON, contextJSON, fieldsJSON                                              []byte
 		appliedByModule                                                                 *string
 		verifiedAt, closedAt, appliedAt                                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &fieldsJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
@@ -2451,6 +2455,11 @@ func scanItem(row rowScanner) (domain.Item, error) {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal context_rows: %w", err)
 		}
 	}
+	if len(fieldsJSON) > 0 {
+		if err := json.Unmarshal(fieldsJSON, &item.MeasurementFields); err != nil {
+			return domain.Item{}, fmt.Errorf("verification: unmarshal measurement_fields: %w", err)
+		}
+	}
 	return item, nil
 }
 
@@ -2462,13 +2471,13 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		subjectLabel, subjectNote                                                       *string
 		operatorName, verifiedByName, shedLabel, parkLabel                              *string
 		appliedByModule                                                                 *string
-		mediaJSON, contextJSON                                                          []byte
+		mediaJSON, contextJSON, fieldsJSON                                              []byte
 		verifiedAt, closedAt, appliedAt                                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &fieldsJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
@@ -2508,6 +2517,11 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal context_rows: %w", err)
 		}
 	}
+	if len(fieldsJSON) > 0 {
+		if err := json.Unmarshal(fieldsJSON, &item.MeasurementFields); err != nil {
+			return domain.Item{}, fmt.Errorf("verification: unmarshal measurement_fields: %w", err)
+		}
+	}
 	return item, nil
 }
 
@@ -2540,6 +2554,19 @@ func nonNilContextRows(rows []domain.ContextRow) []domain.ContextRow {
 			continue
 		}
 		out = append(out, row)
+	}
+	return out
+}
+
+// nonNilMeasurementFields keeps a nil slice out of the jsonb column (same CHECK as context_rows)
+// and drops fields with a blank key -- a keyless entry box could never be posted back.
+func nonNilMeasurementFields(fields []domain.MeasurementField) []domain.MeasurementField {
+	out := make([]domain.MeasurementField, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.Key) == "" {
+			continue
+		}
+		out = append(out, field)
 	}
 	return out
 }

@@ -492,3 +492,58 @@ Permission: `feed_wastage.read` gates the worklist and the phone's fourth Feed t
 second differing video refused; measurement stores/replaces/replays, zero accepted, out-of-range
 and unknown-completion refused; pens kept apart. Registered in the domain-event registry as the
 `feed.wastage.completed` producer plus feeddirection consumers under the verdict events.
+
+## Packing review is BLIND PER-ITEM ENTRY — 2026-08-21, SUPERSEDING the visible "Expected ration" context row
+
+Maintainer decision 2026-08-21. Feed packing verification changes shape: the verifier no longer
+judges the video against a printed expected ration. Her item now shows, below the video on BOTH
+surfaces (admin-web `/verify` drawer and the Android Verify detail), **one numeric entry box per
+feed item of that pen-session — names only**. She watches the clip, types the packed weight she can
+see for each item, and presses **Accept once**; the approve carries every reading (the 2026-08-20
+"THE APPROVE CARRIES THE NUMBER" rule, extended from one value to one value per field). A verifier
+who cannot see a usable video **rejects**, which sends the bag to rework exactly as before.
+
+The load-bearing choices:
+
+- **BLIND ENTRY.** The planned quantities are deliberately absent from the verifier's item — the
+  "Expected ration" / "Animals in this pen" context rows the item used to carry are gone, because a
+  verifier who can see the sheet can copy it, and a copied number confirms nothing. The
+  intended-vs-entered comparison is computed by the producing module and surfaces ONLY on the
+  leadership Feed Analytics execution section (`/feed/analytics`), which the verifier lens can never
+  open. Do not put the planned figures, or the variance, on any verifier surface.
+- **The field list rides the ITEM.** New generic column `verification_items.measurement_fields`
+  (migration `000181`): an ordered `[{key,label}]` the producer composes at enqueue from the FROZEN
+  issued sheet — `key` is the normalized feed item key (`NormalizeConfigKey`, the same key the sheet
+  rows carry), `label` the display caption. Composed at enqueue and stored, like `context_rows`, so
+  re-authoring the config cannot change which boxes an already-submitted bag is judged with. Served
+  to clients inside `measurement_correction.fields`; the verdict's measurement carries `entries`
+  echoing each key.
+- **Every box must be filled to Accept.** `MeasurementCorrectionSpec` on category `feed_packing`:
+  `RequiredForApprove: true`, `PerItemFields: true`. Verification enforces completeness against the
+  item's OWN fields before the verdict (422 `measurement_required` naming the missing box), refuses
+  unknown keys, and — the one deliberate exemption — lets a FIELDS-LESS packing item approve as a
+  plain judge-the-video item, because the enqueue composes fields fail-open (an unreadable sheet
+  must never fail the operator's submit, and a required control with no boxes would strand the item
+  unapprovable). ZERO IS A VALID ENTRY ("this item was not packed"); blank is not entered.
+- **The producer owns the readings.** New table `feed_packing_verified_quantities` (migration
+  `000182`), PK `(tenant_id, completion_id, feed_item_key)`, written only through
+  `RecordPackingVerifiedQuantities` via the registered `PackingMeasurementApplier` — BEFORE the
+  verdict, so a refusal (unknown completion, out-of-range weight; ceiling 10000 kg like wastage)
+  stops the whole approve. REPLACE semantics per completion: a rework re-submit's fresh approve
+  overwrites the previous reading set, and keys it no longer names are removed.
+- **A REJECT never carries the readings** — same as the 2026-08-20 rule: rejection sends the bag
+  back to be packed and filmed again.
+- **Variance pops on ANY mismatch — no tolerance band.** The execution analytics read joins the
+  readings to the frozen sheet on the completion's own natural-key coordinates plus
+  `feed_item_key`, pre-aggregating the ration-grain side (the same summation `BuildPackingRows`
+  does for the packer's worklist) before comparing. Only `status='completed'` rows count — a
+  pending or reworked completion's readings are not yet a finding. A planned quantity the sheet
+  never resolved renders blank, never zero.
+
+Pinned by `verdict_measurement_entries_test.go` (completeness, unknown key, fields-less exemption,
+reject-drops-entries, entries-refused-on-single-value-items),
+`TestMeasurementFieldsRoundTripThroughBothReadPaths_RealPostgres`,
+`TestPackingVerifiedQuantitiesUpsertAndVariance`, and
+`TestPackingVarianceOneToManyParkScopeStatusMatrixPageBoundary` (grain, scope, status and window
+adversarial proofs), plus the packing enqueue tests asserting the item carries entry boxes and
+NEVER the planned quantities.

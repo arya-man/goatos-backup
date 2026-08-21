@@ -68,13 +68,14 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 			RefType: feeddirectiondomain.VerificationRefTypePacking,
 			RefID:   in.CompletionID,
 		},
-		// What the verifier is judging the video AGAINST: the frozen ration for THIS SESSION
-		// ("Maize 12.5 kg · Soya 4 kg") and the head count it was computed from. One session's
-		// figures, because one clip proves one bag -- handing her the day total would show twice what
-		// the video should contain. Composed by the producer (dumb-renderer rule) and rendered
-		// verbatim. Omitted when the sheet could not be read -- never a placeholder, which would read
-		// as "no feed expected" rather than "not known".
-		ContextRows: packingContextRows(in.RationSummary, in.HeadCountSummary),
+		// BLIND PER-ITEM ENTRY (maintainer decision 2026-08-21, superseding the visible "Expected
+		// ration" context row): the item carries the pen-session's feed item NAMES as one entry box
+		// per item, and the verifier types the packed weight she can see for each before her
+		// approve. The PLANNED quantities are deliberately absent from the item -- she must not be
+		// able to copy them; the intended-vs-entered variance surfaces only on the leadership feed
+		// analytics execution view. Empty when the frozen sheet was unreadable at submit, which the
+		// verification service treats as a judge-the-video approve rather than stranding the item.
+		MeasurementFields: packingMeasurementFields(in.MeasurementFields),
 		// One media ref: the packing video.
 		MediaRefs:  []string{in.PackingProofRef},
 		OperatorID: ptrIfSet(in.OperatorID),
@@ -90,18 +91,16 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 	return err
 }
 
-// packingContextRows is the verifier's "what was expected" block for a packing proof.
-//
-// A row is emitted only when its value is known: a blank ration means the issued sheet could not be
-// read, and rendering "Expected ration: —" would state that nothing was expected rather than that
-// nothing is known. Labels are farm language, composed here because the backend owns visible copy.
-func packingContextRows(rationSummary, headCountSummary string) []verificationdomain.ContextRow {
-	rows := make([]verificationdomain.ContextRow, 0, 2)
-	if strings.TrimSpace(rationSummary) != "" {
-		rows = append(rows, verificationdomain.ContextRow{Label: "Expected ration", Value: rationSummary})
+// packingMeasurementFields maps the producer's feed-item field list onto the verification item's
+// generic per-item entry boxes, dropping any field without a key -- a keyless box could never be
+// posted back. Labels are farm language composed by the producer (backend owns visible copy).
+func packingMeasurementFields(fields []feeddirectionapp.PackingMeasurementField) []verificationdomain.MeasurementField {
+	out := make([]verificationdomain.MeasurementField, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.Key) == "" {
+			continue
+		}
+		out = append(out, verificationdomain.MeasurementField{Key: field.Key, Label: field.Label})
 	}
-	if strings.TrimSpace(headCountSummary) != "" {
-		rows = append(rows, verificationdomain.ContextRow{Label: "Animals in this pen", Value: headCountSummary})
-	}
-	return rows
+	return out
 }

@@ -82,6 +82,22 @@ data class VerificationMeasurementCorrectionDto(
      * the write path refuses one, so offering the field there would invite a rejected value.
      */
     @SerialName("count_label") val countLabel: String? = null,
+    /**
+     * The ordered per-item entry-box list for items whose approve carries one value PER FIELD --
+     * a feed packing item: one box per feed item of that pen-session, NAMES ONLY (the planned
+     * quantities are deliberately hidden so the verifier enters blind; maintainer decision
+     * 2026-08-21). Non-empty means render one labelled numeric box per field INSTEAD of the single
+     * value field, keep Approve disabled until every box is filled, and send the verdict's
+     * measurement as `entries` echoing each field's key. Empty means the single-value contract.
+     */
+    @SerialName("fields") val fields: List<VerificationMeasurementFieldDto> = emptyList(),
+)
+
+/** One per-item entry box: the producer's stable key posted back verbatim, and its caption. */
+@Serializable
+data class VerificationMeasurementFieldDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
 )
 
 /**
@@ -249,12 +265,19 @@ data class VerificationVerdictRequestDto(
 @Serializable
 data class VerificationVerdictMeasurementDto(
     /**
-     * The number in the category's own unit (kg for weighing and wastage).
+     * The single-value reading in the category's own unit (kg for weighing and wastage).
      *
      * ZERO IS VALID for wastage -- an empty trough is a real measurement -- so "she typed nothing"
-     * is carried by a NULL measurement block, never by a 0 in this field.
+     * is carried by a NULL measurement block, never by a 0 in this field. Null on a per-field item
+     * (feed packing), whose readings travel on [entries] instead.
      */
-    @SerialName("value") val value: Double,
+    @SerialName("value") val value: Double? = null,
+    /**
+     * One reading per measurement_correction.fields entry, keys echoed VERBATIM. Every declared
+     * field must be filled for the approve to land; the backend refuses a partial set and a key
+     * the item never declared. ZERO IS VALID -- "this item was not packed" is a real observation.
+     */
+    @SerialName("entries") val entries: List<VerificationVerdictMeasurementEntryDto> = emptyList(),
     /**
      * The accompanying whole-number field, allowed only where the item's correction carries a
      * count label (a lump-sum shed weigh's head count). Null leaves the recorded count alone,
@@ -263,6 +286,13 @@ data class VerificationVerdictMeasurementDto(
      */
     @SerialName("count") val count: Int? = null,
     @SerialName("reason") val reason: String? = null,
+)
+
+/** One filled entry box on an approve: the field's key plus the reading. */
+@Serializable
+data class VerificationVerdictMeasurementEntryDto(
+    @SerialName("key") val key: String,
+    @SerialName("value") val value: Double,
 )
 
 @Serializable

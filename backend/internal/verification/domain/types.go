@@ -106,6 +106,19 @@ type ContextRow struct {
 	Value string `json:"value"`
 }
 
+// MeasurementField is one per-item entry box the verifier must fill while reviewing the proof --
+// for a feed packing item, one per feed item of that pen-session's frozen sheet (maintainer
+// decision 2026-08-21: blind entry, the planned quantities are hidden from her).
+//
+// Key is the PRODUCER's stable token (the normalized feed item key), echoed back verbatim on the
+// verdict's measurement entries and resolved by the producer's measurement applier; verification
+// never interprets it. Label is the backend-owned caption the box is rendered with. Order is the
+// producer's and is preserved, exactly like ContextRows.
+type MeasurementField struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
 	ItemID       string
@@ -120,16 +133,20 @@ type Item struct {
 	SubjectNote *string
 	// ContextRows is what the work was EXPECTED to be, composed by the producing module at enqueue
 	// and rendered verbatim. See ContextRow.
-	ContextRows    []ContextRow
-	Source         SourceRef
-	MediaRefs      []string // proof_artifact IDs; signed URLs resolved at read time.
-	Status         string
-	VerdictReason  *string
-	OperatorID     *string
-	OperatorName   *string // backend-owned display label for OperatorID
-	ShedID         *string
-	ShedLabel      *string // backend-owned display label for ShedID
-	PartitionLabel *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
+	ContextRows []ContextRow
+	// MeasurementFields is the ordered per-item entry-box list the producing module attached at
+	// enqueue (see MeasurementField). Empty for categories whose measurement is a single value or
+	// absent.
+	MeasurementFields []MeasurementField
+	Source            SourceRef
+	MediaRefs         []string // proof_artifact IDs; signed URLs resolved at read time.
+	Status            string
+	VerdictReason     *string
+	OperatorID        *string
+	OperatorName      *string // backend-owned display label for OperatorID
+	ShedID            *string
+	ShedLabel         *string // backend-owned display label for ShedID
+	PartitionLabel    *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
 	// NOTE: there is deliberately NO OperationalLocationDisplay field here. The composed
 	// display is built at the WIRE boundary (adapters/http/handler.go) from ShedLabel +
 	// PartitionLabel via oploc.Display(), so there is one composition site rather than a
@@ -190,15 +207,18 @@ type CreateItem struct {
 	// ContextRows is what this work was EXPECTED to be, for the verifier to judge the proof
 	// against. Compose it in farm language; it is rendered verbatim. Nil is valid -- a producer
 	// with no expectation to state simply attaches none.
-	ContextRows    []ContextRow
-	Source         SourceRef
-	MediaRefs      []string
-	OperatorID     *string
-	ShedID         *string
-	PartitionLabel *string // operational location partition (e.g. "Part 3"); NULL for undivided sheds
-	ParkID         *string
-	CapturedAt     time.Time
-	IdempotencyKey string
+	ContextRows []ContextRow
+	// MeasurementFields is the ordered per-item entry-box list for categories whose approve
+	// carries one value PER FIELD (feed packing: one per feed item). Nil for everything else.
+	MeasurementFields []MeasurementField
+	Source            SourceRef
+	MediaRefs         []string
+	OperatorID        *string
+	ShedID            *string
+	PartitionLabel    *string // operational location partition (e.g. "Part 3"); NULL for undivided sheds
+	ParkID            *string
+	CapturedAt        time.Time
+	IdempotencyKey    string
 	// ApplierAckExpected: set true only if this producer actually runs an applier
 	// that calls MarkVerdictApplied. Setting it true without wiring the ack would
 	// park every decided item of yours in VerdictStateApplying permanently.
@@ -246,6 +266,18 @@ type VerdictMeasurement struct {
 	Count *int
 	// Reason is her optional note on why the recorded number was wrong.
 	Reason string
+	// Entries carries one value per MeasurementField for items that declare per-item fields
+	// (feed packing: one packed weight per feed item). Key echoes the field's Key verbatim.
+	// Empty for the single-value categories, whose reading travels on Value.
+	Entries []MeasurementEntry
+}
+
+// MeasurementEntry is one filled per-item entry box on an approve: the field's key plus the
+// value the verifier read off the video. ZERO IS VALID -- "this item was not packed" is a real
+// observation.
+type MeasurementEntry struct {
+	Key   string
+	Value float64
 }
 
 // CloseAction is the leadership authority transition applied only after verifier approval.

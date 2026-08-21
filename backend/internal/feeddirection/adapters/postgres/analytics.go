@@ -223,6 +223,84 @@ FROM (
 ) verdicts
 GROUP BY 1`
 
+// projection-review: membership=feed_packing_verified_quantities at its (tenant_id, completion_id,
+// feed_item_key) natural key, joined 1:1 to its owning feed_packing_completions row by (tenant_id,
+// completion_id) -- the readings table's PK prefix -- restricted to status='completed' so only
+// verdicts that stand are compared; group_key=the planned CTE groups issue-row cells to (feed_day,
+// park_id, shed_id, partition_key, session_no, workflow, feed_item_key), exactly the completion's
+// own natural-key coordinates plus the item, pre-aggregating the N ration-grain side (SUM of the
+// already-rounded session quantities, the same summation BuildPackingRows does for the packer's
+// worklist) BEFORE the join, so readings LEFT JOIN planned is 1:0..1 per reading and can never fan
+// out; join_cardinality=readings:completions 1:1 by PK prefix, readings:planned 1:0..1 by the full
+// grain; producer unique columns (tenant, completion, feed_item_key) vs consumer match columns
+// (feed_day=target_date, park, shed, partition_key, session_no, workflow, feed_item_key) -- the
+// numerator (entered_kg) and the compared-against planned_kg both range over that one grain, no
+// ratio spans key sets; pagination=none, whole-window mismatch list bounded by the park's pens x
+// sessions x items x window days -- physical infrastructure, never herd size; scope=tenant_id on
+// every table plus the caller's authorized park set on both sides.
+//
+// MISMATCHES ONLY (any difference pops -- maintainer decision 2026-08-21, no tolerance band), and
+// this comparison must NEVER reach a verifier surface: she enters blind, and the page serving this
+// payload is leadership-gated.
+//
+// scale-guard:ignore: 5k-50k-envelope -- bounded windowed comparison over the
+// same indexed date columns as the status counts above.
+const executionPackingVarianceSQL = `
+WITH readings AS (
+    SELECT c.completion_id, c.target_date, c.park_id, c.shed_id, c.partition_key, c.session_no,
+           c.workflow, q.feed_item_key, q.feed_item_label, q.entered_kg
+    FROM feed_packing_verified_quantities q
+    JOIN feed_packing_completions c
+      ON c.tenant_id = q.tenant_id AND c.completion_id = q.completion_id
+    WHERE q.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
+      AND c.target_date BETWEEN $3 AND $4
+      AND c.status = 'completed'
+),
+planned AS (
+    SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
+           r.feed_item_key,
+           SUM(r.quantity_kg)                       AS planned_kg,
+           MAX(r.park_label)                        AS park_label,
+           MAX(r.shed_label)                        AS shed_label,
+           MAX(COALESCE(r.partition_label, ''))     AS partition_label,
+           MAX(r.session_label)                     AS session_label
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.feed_day BETWEEN $3 AND $4
+      AND i.state IN ('issued', 'amended', 'locked')
+      AND i.workflow IN ('normal', 'experiment')
+    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
+)
+SELECT rd.target_date::text,
+       COALESCE(p.park_label, ''),
+       rd.shed_id::text,
+       COALESCE(p.shed_label, ''),
+       COALESCE(p.partition_label, ''),
+       rd.session_no,
+       COALESCE(p.session_label, ''),
+       rd.workflow,
+       rd.feed_item_key,
+       rd.feed_item_label,
+       COALESCE(p.planned_kg::text, ''),
+       rd.entered_kg::text,
+       (rd.entered_kg - COALESCE(p.planned_kg, 0))::text
+FROM readings rd
+LEFT JOIN planned p
+  ON p.feed_day = rd.target_date
+ AND p.park_id = rd.park_id
+ AND p.shed_id = rd.shed_id
+ AND p.partition_key = rd.partition_key
+ AND p.session_no = rd.session_no
+ AND p.workflow = rd.workflow
+ AND p.feed_item_key = rd.feed_item_key
+WHERE rd.entered_kg <> COALESCE(p.planned_kg, 0)
+ORDER BY rd.target_date DESC, p.park_label, p.shed_label, p.partition_label, rd.session_no, rd.feed_item_label`
+
 // ExecutionAnalytics merges the three status streams and the latency series by
 // date. Four set-based reads, no per-day fan-out.
 func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExecutionAnalytics, error) {
@@ -328,6 +406,32 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	sort.Strings(keys)
 	for _, k := range keys {
 		out.Days = append(out.Days, *days[k])
+	}
+
+	varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg)
+	if err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
+	}
+	defer varRows.Close()
+	out.PackingVariance = []domain.PackingVarianceRow{}
+	for varRows.Next() {
+		var v domain.PackingVarianceRow
+		if err := varRows.Scan(
+			&v.FeedDay, &v.ParkLabel, &v.ShedID, &v.ShedLabel, &v.PartitionLabel,
+			&v.SessionNo, &v.SessionLabel, &v.Workflow, &v.FeedItemKey, &v.FeedItemLabel,
+			&v.PlannedKg, &v.VerifiedKg, &v.VarianceKg,
+		); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance scan: %w", err)
+		}
+		// Canonical composition, never hand-rolled (operational-location rule).
+		v.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       v.ShedLabel,
+			PartitionLabel: v.PartitionLabel,
+		}.Display()
+		out.PackingVariance = append(out.PackingVariance, v)
+	}
+	if err := varRows.Err(); err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance rows: %w", err)
 	}
 	return out, nil
 }

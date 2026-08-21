@@ -125,9 +125,42 @@ type ExecutionDay struct {
 	MedianVerifyLatencyMinutes *int64
 }
 
+// PackingVarianceRow is one MISMATCH between what the frozen sheet directed a pen-session to pack
+// for one feed item and what the verifier read off the packing video (maintainer decision
+// 2026-08-21: blind per-item entry -- she never sees the planned figure, so this comparison lives
+// ONLY on the leadership execution view, never on any verifier surface). Any difference pops; there
+// is no tolerance band.
+type PackingVarianceRow struct {
+	FeedDay   string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the pen ("2", "Part 3"), empty for an undivided shed.
+	PartitionLabel string
+	// OperationalLocationDisplay is the oploc-composed shed+pen label, same as every surface.
+	OperationalLocationDisplay string
+	SessionNo                  int32
+	// SessionLabel is the sheet's session name ("Morning"); empty when the frozen sheet row is gone.
+	SessionLabel  string
+	Workflow      string
+	FeedItemKey   string
+	FeedItemLabel string
+	// PlannedKg is the frozen sheet's summed quantity for this (pen, session, item) as a decimal
+	// string; "" when the sheet carried no resolved quantity (blocked cell or missing row) -- blank
+	// and zero are never conflated.
+	PlannedKg string
+	// VerifiedKg is the verifier's entered reading. "0" is a real observation.
+	VerifiedKg string
+	// VarianceKg is VerifiedKg minus the resolved planned quantity (0 when unresolved), signed.
+	VarianceKg string
+}
+
 // ExecutionAnalytics is the /feed-analytics/execution payload.
 type ExecutionAnalytics struct {
 	Days []ExecutionDay
+	// PackingVariance lists every intended-vs-entered packing mismatch in the window, newest feed
+	// day first. Leadership-only by page contract; the verifier lens never receives this payload.
+	PackingVariance []PackingVarianceRow
 }
 
 // ---------------------------------------------------------------------------

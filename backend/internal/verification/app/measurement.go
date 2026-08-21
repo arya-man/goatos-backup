@@ -56,6 +56,13 @@ type MeasurementApply struct {
 	Value      float64
 	Count      *int
 	Reason     string
+	// Entries is the per-field readings for items that declare MeasurementFields (feed packing:
+	// one packed weight per feed item). Keys are the item's own field keys, already validated
+	// against them -- complete, no unknowns, no duplicates. Empty for single-value categories.
+	Entries []domain.MeasurementEntry
+	// Fields is the item's own declared field list (key + display label), handed along so the
+	// producer can store display labels without re-reading its frozen source.
+	Fields []domain.MeasurementField
 	// IdempotencyKey is derived from the verdict's own key, so a replayed approve re-applies the
 	// same reading instead of writing a second one.
 	IdempotencyKey string
@@ -117,6 +124,62 @@ func validateMeasurement(m *domain.VerdictMeasurement) *Error {
 			"measurement.count", "count_out_of_range", "enter how many animals were on the scale",
 		)
 	}
+	seen := map[string]bool{}
+	for _, entry := range m.Entries {
+		key := strings.TrimSpace(entry.Key)
+		if key == "" {
+			return UnprocessableField(
+				"invalid_measurement", "a measurement entry is missing its field key",
+				"measurement.entries", "key_required", "",
+			)
+		}
+		if seen[key] {
+			return UnprocessableField(
+				"invalid_measurement", "a measurement entry names the same field twice",
+				"measurement.entries", "duplicate_key", "",
+			)
+		}
+		seen[key] = true
+		if math.IsNaN(entry.Value) || math.IsInf(entry.Value, 0) || entry.Value < 0 || entry.Value > maxMeasurementValue {
+			return UnprocessableField(
+				"invalid_measurement", "a measurement entry is not a usable number",
+				"measurement.entries", "value_out_of_range", "enter the number you can read in the video",
+			)
+		}
+	}
+	return nil
+}
+
+// validateMeasurementEntriesAgainstFields checks a per-field approve against the ITEM's own
+// declared entry boxes: every field filled (the client keeps Approve disabled until they are, and
+// the backend refuses the same state rather than trust it), and no entry naming a field the item
+// never declared -- an unknown key would silently vanish inside the producer instead of landing
+// anywhere the verifier could see.
+func validateMeasurementEntriesAgainstFields(entries []domain.MeasurementEntry, fields []domain.MeasurementField) *Error {
+	byKey := map[string]bool{}
+	for _, entry := range entries {
+		byKey[strings.TrimSpace(entry.Key)] = true
+	}
+	for _, field := range fields {
+		if !byKey[field.Key] {
+			return UnprocessableField(
+				"measurement_required", "record every value before approving",
+				"measurement.entries", "required", field.Label,
+			)
+		}
+	}
+	declared := map[string]bool{}
+	for _, field := range fields {
+		declared[field.Key] = true
+	}
+	for _, entry := range entries {
+		if !declared[strings.TrimSpace(entry.Key)] {
+			return UnprocessableField(
+				"invalid_measurement", "a measurement entry names a field this proof does not carry",
+				"measurement.entries", "unknown_key", strings.TrimSpace(entry.Key),
+			)
+		}
+	}
 	return nil
 }
 
@@ -154,9 +217,37 @@ func (s *Service) applyVerdictMeasurement(ctx context.Context, in domain.Verdict
 			"measurement.count", "not_supported", "",
 		)
 	}
+	// Per-field vs single-value is decided by the ITEM (its enqueued MeasurementFields), not the
+	// category spec: the field list varies per item (a pen-session's own feed items), and an item
+	// with none keeps today's single-value contract byte for byte.
+	if in.Measurement != nil && len(in.Measurement.Entries) > 0 && len(item.MeasurementFields) == 0 {
+		return false, UnprocessableField(
+			"measurement_not_supported", "this kind of proof does not carry per-item values",
+			"measurement.entries", "not_supported", "",
+		)
+	}
+	if in.Measurement != nil && len(item.MeasurementFields) > 0 {
+		if len(in.Measurement.Entries) == 0 {
+			// A bare single value on a per-field item has no field to land on; name the real ask.
+			return false, UnprocessableField(
+				"measurement_required", "record every value before approving",
+				"measurement.entries", "required", spec.ValueLabel,
+			)
+		}
+		if err := validateMeasurementEntriesAgainstFields(in.Measurement.Entries, item.MeasurementFields); err != nil {
+			return false, err
+		}
+	}
 	if in.Measurement == nil {
 		if !spec.RequiredForApprove {
 			// The normal weighing case: blank means the operator's recorded number is right.
+			return false, nil
+		}
+		if spec.PerItemFields && len(item.MeasurementFields) == 0 {
+			// A per-field category whose item advertises NO boxes: the producer's frozen sheet was
+			// unreadable at enqueue (a deliberate fail-open on the operator's submit), so there is
+			// nothing to require -- refusing would strand the item unapprovable with no field the
+			// verifier could fill.
 			return false, nil
 		}
 		// Born-on-the-verifier's-screen categories still let through an item that was measured
@@ -186,6 +277,8 @@ func (s *Service) applyVerdictMeasurement(ctx context.Context, in domain.Verdict
 		Value:      in.Measurement.Value,
 		Count:      in.Measurement.Count,
 		Reason:     in.Measurement.Reason,
+		Entries:    in.Measurement.Entries,
+		Fields:     item.MeasurementFields,
 		// Derived from the verdict's own key so a replayed approve re-applies the SAME reading
 		// rather than writing a second one. An approve with no key of its own gets none here
 		// either, and each producer's own idempotency rules take over.

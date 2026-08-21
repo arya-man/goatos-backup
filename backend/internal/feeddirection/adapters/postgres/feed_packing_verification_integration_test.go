@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 // Feed PACKING verification gate -- proofs of the maintainer-2026-07-26 rule (SUPERSEDING the "packing
@@ -582,5 +584,150 @@ SELECT status FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $
 	if len(again.ReopenedCompletionIDs) != 0 {
 		t.Errorf("second run reopened %v, want nothing — a row already in rework is already back with the operator",
 			again.ReopenedCompletionIDs)
+	}
+}
+
+// THE VERIFIER RECORDS WHAT WAS PACKED, PER FEED ITEM (maintainer decision 2026-08-21) -- proofs of
+// the readings store and the leadership-only intended-vs-entered variance against the REAL schema.
+//
+// The rule under test, end to end: her readings UPSERT per (completion, feed_item_key); a replayed
+// approve replaces rather than duplicates; a completion this tenant does not have is refused; an
+// implausible weight is refused; and the execution analytics variance lists ONLY the items whose
+// entered reading differs from the frozen sheet's summed quantity -- a matching item never pops,
+// because a match is independent confirmation, not a finding.
+func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupFeedDirectionDB(t, ctx)
+
+	// The FROZEN sheet the variance compares against: one pen-session with two items. Same tenant,
+	// park, shed, undivided pen and session the packing completion below is keyed by.
+	issuedAt := time.Date(2026, 7, 21, 9, 0, 0, 0, biztime.DefaultLocation())
+	conc := "2.000"
+	hay := "1.000"
+	cells := []domain.StoredCell{
+		{
+			ParkID: fdPark, ParkLabel: "CBE", ShedID: fdShedA, ShedLabel: "Castro",
+			PartitionLabel: "", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", QuantityKg: &conc,
+			SessionTotalKg: "3.000", RowSeq: 0, ItemSeq: 0,
+		},
+		{
+			ParkID: fdPark, ParkLabel: "CBE", ShedID: fdShedA, ShedLabel: "Castro",
+			PartitionLabel: "", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Hay", FeedItemKey: "hay", QuantityKg: &hay,
+			SessionTotalKg: "3.000", RowSeq: 0, ItemSeq: 1,
+		},
+	}
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdTenant, ParkID: fdPark, FeedDay: "2026-07-22", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-variance",
+		IdempotencyKey: "issue:variance:1", GeneratedBy: "test", Cells: cells,
+	}); err != nil {
+		t.Fatalf("PersistIssue: %v", err)
+	}
+
+	pending, err := repo.CompletePacking(ctx, packingParams())
+	if err != nil {
+		t.Fatalf("CompletePacking: %v", err)
+	}
+
+	// A completion that does not exist for this tenant is refused by name.
+	if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+		TenantID: fdTenant, CompletionID: "fd000000-0000-4000-8000-00000000dead",
+		Entries:    []ports.PackingVerifiedQuantity{{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 1}},
+		RecordedBy: fdActor,
+	}); !errors.Is(err, ports.ErrPackingCompletionNotFound) {
+		t.Fatalf("unknown completion: want ErrPackingCompletionNotFound, got %v", err)
+	}
+	// A fat-fingered 125000 must be refused, never recorded.
+	if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+		TenantID: fdTenant, CompletionID: pending.CompletionID,
+		Entries:    []ports.PackingVerifiedQuantity{{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 125000}},
+		RecordedBy: fdActor,
+	}); !errors.Is(err, ports.ErrPackingQuantityOutOfRange) {
+		t.Fatalf("out-of-range: want ErrPackingQuantityOutOfRange, got %v", err)
+	}
+	if recorded, err := repo.PackingVerifiedQuantitiesRecorded(ctx, fdTenant, pending.CompletionID); err != nil || recorded {
+		t.Fatalf("before any write: recorded=%v err=%v, want false/nil", recorded, err)
+	}
+
+	// First reading: concentrate matches the sheet exactly; hay is short by half. ZERO would also
+	// be a real reading -- the store must accept the full 0..10000 range.
+	first := ports.RecordPackingVerifiedQuantitiesParams{
+		TenantID: fdTenant, CompletionID: pending.CompletionID,
+		Entries: []ports.PackingVerifiedQuantity{
+			{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 2},
+			{FeedItemKey: "hay", FeedItemLabel: "Hay", EnteredKg: 0.5},
+		},
+		RecordedBy: fdActor, IdempotencyKey: "verdict-key-1:measurement", TraceID: "trace-q-1",
+	}
+	if err := repo.RecordPackingVerifiedQuantities(ctx, first); err != nil {
+		t.Fatalf("RecordPackingVerifiedQuantities: %v", err)
+	}
+	if recorded, err := repo.PackingVerifiedQuantitiesRecorded(ctx, fdTenant, pending.CompletionID); err != nil || !recorded {
+		t.Fatalf("after write: recorded=%v err=%v, want true/nil", recorded, err)
+	}
+	// The verdict lands after the readings (the approve carries both), and variance counts ONLY
+	// completed rows -- a pending or reworked completion's readings are not yet a finding.
+	if _, err := repo.ApplyVerifiedPacking(ctx, ports.ApplyPackingParams{
+		TenantID: fdTenant, CompletionID: pending.CompletionID, VerifiedBy: fdActor, TraceID: "trace-q-2",
+	}); err != nil {
+		t.Fatalf("ApplyVerifiedPacking: %v", err)
+	}
+
+	window := domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 7, 22, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   time.Date(2026, 7, 22, 0, 0, 0, 0, biztime.DefaultLocation()),
+	}
+	exec, err := repo.ExecutionAnalytics(ctx, fdTenant, window)
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics: %v", err)
+	}
+	if len(exec.PackingVariance) != 1 {
+		t.Fatalf("variance rows = %+v, want ONLY the mismatched hay -- a matching concentrate must not pop", exec.PackingVariance)
+	}
+	row := exec.PackingVariance[0]
+	if row.FeedItemKey != "hay" || row.FeedItemLabel != "Hay" {
+		t.Errorf("variance item = %q/%q, want hay/Hay", row.FeedItemKey, row.FeedItemLabel)
+	}
+	if row.PlannedKg != "1.000" {
+		t.Errorf("planned = %q, want the frozen sheet's 1.000", row.PlannedKg)
+	}
+	if row.VerifiedKg != "0.500" {
+		t.Errorf("verified = %q, want her 0.500 reading", row.VerifiedKg)
+	}
+	if row.VarianceKg != "-0.500" {
+		t.Errorf("variance = %q, want -0.500 (short by half)", row.VarianceKg)
+	}
+	if row.FeedDay != "2026-07-22" || row.SessionNo != 1 || row.SessionLabel != "Morning" {
+		t.Errorf("row identity = %+v, want the pen-session the reading was taken on", row)
+	}
+	if row.ParkLabel != "CBE" || row.ShedLabel != "Castro" || row.OperationalLocationDisplay != "Castro" {
+		t.Errorf("row labels = park %q shed %q display %q, want the sheet's own labels with the oploc display", row.ParkLabel, row.ShedLabel, row.OperationalLocationDisplay)
+	}
+
+	// REPLACE semantics on a replayed/re-cast approve: the new set stands, keys it no longer names
+	// are removed, and the variance follows the readings that stand.
+	second := first
+	second.Entries = []ports.PackingVerifiedQuantity{
+		{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 2.5},
+		{FeedItemKey: "hay", FeedItemLabel: "Hay", EnteredKg: 1},
+	}
+	if err := repo.RecordPackingVerifiedQuantities(ctx, second); err != nil {
+		t.Fatalf("RecordPackingVerifiedQuantities (replace): %v", err)
+	}
+	exec, err = repo.ExecutionAnalytics(ctx, fdTenant, window)
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics (after replace): %v", err)
+	}
+	if len(exec.PackingVariance) != 1 {
+		t.Fatalf("variance after replace = %+v, want ONLY concentrate now (hay matches)", exec.PackingVariance)
+	}
+	if got := exec.PackingVariance[0]; got.FeedItemKey != "concentrate" || got.VarianceKg != "0.500" {
+		t.Errorf("variance after replace = %+v, want concentrate over by 0.500", got)
 	}
 }

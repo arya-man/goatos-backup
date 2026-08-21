@@ -49,19 +49,27 @@ type FeedPackingVerificationEnqueueRequest struct {
 	OperatorID      string
 	CapturedAt      time.Time
 	IdempotencyKey  string
-	// RationSummary is the FROZEN expected ration for this pen-SESSION -- "Maize 12.5 kg · Soya 4 kg"
-	// -- carried onto the verifier's item so she can judge the video against what should have been
-	// packed. Without it the queue item carried the shed, pen, session, operator and clip and nothing
-	// about the feed, so a verifier could confirm a video EXISTED but not that the work was RIGHT
-	// (STG 2026-08-09).
+	// MeasurementFields is the pen-session's feed item list -- KEY (normalized config key) plus
+	// display LABEL, NAMES ONLY, in the frozen sheet's order -- carried onto the verifier's item as
+	// one entry box per feed item (maintainer decision 2026-08-21, superseding the visible
+	// "Expected ration" context row). The verifier types the packed weight she can see for each
+	// item and the approve carries the numbers; the PLANNED quantities are deliberately absent so
+	// she cannot copy them -- the intended-vs-entered variance belongs to the leadership feed
+	// analytics execution view, never to her screen.
 	//
 	// Read from the ISSUED sheet at submit time and stored on the item, so re-authoring the feed
-	// config afterwards cannot rewrite what the verifier is judging against. Blank when the sheet
-	// cannot be read: a completion must never fail because its decoration could not be composed.
-	RationSummary string
-	// HeadCountSummary is the pen's projected head count for that session, the denominator the
-	// ration was computed from. Blank when unknown.
-	HeadCountSummary string
+	// config afterwards cannot change which boxes she is asked to fill. Empty when the sheet
+	// cannot be read: a completion must never fail because its decoration could not be composed,
+	// and a fields-less item degrades to a judge-the-video approve.
+	MeasurementFields []PackingMeasurementField
+}
+
+// PackingMeasurementField is one entry box on the verifier's packing item: the normalized feed
+// item key (NormalizeConfigKey output, the same key the frozen sheet rows carry) and the display
+// label the box is captioned with.
+type PackingMeasurementField struct {
+	Key   string
+	Label string
 }
 
 // CompletePackingInput is the app-level packing completion request the HTTP handler builds from the
@@ -179,22 +187,21 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// idempotent on (completion_id + row_version), so a retry after a prior enqueue failure heals rather
 	// than duplicates: the completion is not "done" for the operator until the item is queued.
 	if result.NewlyPending {
-		ration, heads := s.packingExpectation(ctx, in)
+		fields := s.packingMeasurementFields(ctx, in)
 		if enqErr := s.packingEnqueuer.EnqueueFeedPackingVerification(ctx, FeedPackingVerificationEnqueueRequest{
-			TenantID:         in.TenantID,
-			CompletionID:     result.CompletionID,
-			ParkID:           in.ParkID,
-			ShedID:           in.ShedID,
-			ShedName:         result.ShedName,
-			PartitionLabel:   result.PartitionLabel,
-			SessionNo:        in.SessionNo,
-			Workflow:         in.Workflow,
-			TargetDate:       in.TargetDate,
-			PackingProofRef:  in.PackingProofRef,
-			OperatorID:       strings.TrimSpace(in.CompletedBy),
-			RationSummary:    ration,
-			HeadCountSummary: heads,
-			CapturedAt:       s.now().UTC(),
+			TenantID:          in.TenantID,
+			CompletionID:      result.CompletionID,
+			ParkID:            in.ParkID,
+			ShedID:            in.ShedID,
+			ShedName:          result.ShedName,
+			PartitionLabel:    result.PartitionLabel,
+			SessionNo:         in.SessionNo,
+			Workflow:          in.Workflow,
+			TargetDate:        in.TargetDate,
+			PackingProofRef:   in.PackingProofRef,
+			OperatorID:        strings.TrimSpace(in.CompletedBy),
+			MeasurementFields: fields,
+			CapturedAt:        s.now().UTC(),
 			// Keyed to the completion + its row_version so a rework re-submit (row_version bumped) enqueues a
 			// fresh item while a retry of the same submit collapses onto one queue item.
 			IdempotencyKey: "feed-packing-verification:" + result.CompletionID + ":" + strconv.Itoa(int(result.RowVersion)),
@@ -205,31 +212,31 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	return result, nil
 }
 
-// packingExpectation reads the FROZEN issued sheet and composes what this PEN-SESSION was expected
-// to be packed with: the ration ("Maize 12.5 kg · Soya 4 kg") and the head count it was computed
-// from. Both are display strings for the verifier's screen (dumb-renderer rule).
+// packingMeasurementFields reads the FROZEN issued sheet and lists this PEN-SESSION's feed items --
+// NAMES ONLY, one entry box per item for the verifier to fill (maintainer decision 2026-08-21,
+// superseding the visible expected-ration summary this function used to compose). The planned
+// quantities are deliberately NOT carried: the verifier enters what she can see packed, blind, and
+// the intended-vs-entered variance surfaces only on the leadership feed analytics execution view.
 //
-// ONE SESSION'S figures, not the day's. The verifier is judging one video of one bag, so the day
-// total would be the wrong yardstick -- she would see twice the quantity the clip should show. The
-// "Morning: ... | Evening: ..." breakdown that lived here between 2026-08-10 and 2026-08-11 existed
-// only because one clip then covered both bags; with two clips again, each carries its own figure.
+// ONE SESSION'S items, not the day's -- one clip proves one bag. A blocked item is still listed:
+// whatever is in the bag is what she reports, and a box for an item the sheet could not price
+// still records what was actually packed.
 //
 // FAIL-OPEN, deliberately. A completion is the operator's work reaching the server; it must never
-// fail because a decoration could not be composed. An unreadable or never-issued sheet yields blank
-// strings and the item simply carries no expectation -- exactly the state every item was in before
-// this existed.
+// fail because a decoration could not be composed. An unreadable or never-issued sheet yields no
+// fields and the item degrades to a judge-the-video approve (the verification service exempts a
+// fields-less per-item item from the entries requirement for exactly this case).
 //
-// It reads the same frozen rows the packing worklist serves, so the verifier sees byte-for-byte what
-// the packer was shown, and reads them ONCE per completion (a submit, not a list) bounded by the
-// park's pens x sessions x items -- never by herd size.
-func (s *Service) packingExpectation(ctx context.Context, in CompletePackingInput) (ration string, heads string) {
+// It reads the same frozen rows the packing worklist serves, ONCE per completion (a submit, not a
+// list), bounded by the park's pens x sessions x items -- never by herd size.
+func (s *Service) packingMeasurementFields(ctx context.Context, in CompletePackingInput) []PackingMeasurementField {
 	if s.issues == nil {
-		return "", ""
+		return nil
 	}
 	feedDay := biztime.BusinessDate(in.TargetDate)
 	scopeRows, _, served, err := s.loadServedRows(ctx, in.TenantID, in.ParkID, feedDay, in.Workflow)
 	if err != nil || !served {
-		return "", ""
+		return nil
 	}
 	// Match on the SAME identity the completion is keyed by -- shed + pen + session -- with the pen
 	// normalized the way the natural key normalizes it, so "Part 3" and "part 3" are one pen.
@@ -241,23 +248,16 @@ func (s *Service) packingExpectation(ctx context.Context, in CompletePackingInpu
 		if domain.PartitionMatchKey(row.PartitionLabel) != wantPartition {
 			continue
 		}
-		parts := make([]string, 0, len(row.Items))
+		fields := make([]PackingMeasurementField, 0, len(row.Items))
 		for _, item := range row.Items {
-			// A blocked item has no resolved quantity. Naming it without one still tells the
-			// verifier it was expected in the bag, which is more useful than dropping it silently.
-			if item.QuantityKg == nil {
-				parts = append(parts, item.FeedItem)
-				continue
-			}
-			parts = append(parts, item.FeedItem+" "+*item.QuantityKg+" kg")
+			fields = append(fields, PackingMeasurementField{
+				// The SAME normalization the worklist and the frozen sheet use, so the verifier's
+				// reading lands on the key the variance read joins by.
+				Key:   domain.NormalizeConfigKey(item.FeedItem),
+				Label: item.FeedItem,
+			})
 		}
-		if len(parts) > 0 {
-			ration = strings.Join(parts, " · ")
-		}
-		if row.HeadCount > 0 {
-			heads = strconv.FormatInt(row.HeadCount, 10)
-		}
-		return ration, heads
+		return fields
 	}
-	return "", ""
+	return nil
 }

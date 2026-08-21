@@ -9,12 +9,12 @@ import (
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
-// A feed packing item must tell the verifier what the pen was EXPECTED to be packed with.
-//
-// Before this, the item carried the shed, pen, session, operator and video and NOTHING about the
-// feed, so the verifier could confirm a video existed but not that the right feed was packed in the
-// right amount (STG 2026-08-09). These assertions are on the values reaching CreateItem because a
-// "does the field exist" check passed throughout that outage.
+// A feed packing item carries the pen-session's feed items as BLIND ENTRY BOXES (maintainer
+// decision 2026-08-21, superseding the visible "Expected ration" context row): names only, one box
+// per item, and NEVER the planned quantities -- the verifier must not be able to copy them, and the
+// intended-vs-entered variance belongs to the leadership execution view alone. These assertions are
+// on the values reaching CreateItem because a "does the field exist" check passed throughout the
+// STG 2026-08-09 outage this file was born from.
 
 type capturingCreator struct{ last verificationdomain.CreateItem }
 
@@ -52,36 +52,56 @@ func basePackingRequest() feeddirectionapp.FeedPackingVerificationEnqueueRequest
 	}
 }
 
-func TestPackingItemCarriesTheExpectedRation(t *testing.T) {
+func TestPackingItemCarriesEntryBoxesAndNeverThePlannedQuantities(t *testing.T) {
 	req := basePackingRequest()
-	// THIS SESSION's figures, not the day's (maintainer decision 2026-08-11). One clip proves one bag,
-	// so handing the verifier a day total would show twice what the video should contain. See
-	// packingExpectation.
-	req.RationSummary = "Maize 12.5 kg · Soya 4 kg"
-	req.HeadCountSummary = "38"
+	// THIS SESSION's items, in the frozen sheet's order (one clip proves one bag). Names only.
+	req.MeasurementFields = []feeddirectionapp.PackingMeasurementField{
+		{Key: "maize", Label: "Maize"},
+		{Key: "soya", Label: "Soya"},
+	}
 
 	got := enqueuePacking(t, req)
 
-	if len(got.ContextRows) != 2 {
-		t.Fatalf("context rows = %+v, want the ration and the head count", got.ContextRows)
+	if len(got.MeasurementFields) != 2 {
+		t.Fatalf("measurement fields = %+v, want one entry box per feed item", got.MeasurementFields)
 	}
-	// Order matters: the ration is what the verifier checks the video against, so it leads.
-	if got.ContextRows[0].Label != "Expected ration" ||
-		got.ContextRows[0].Value != "Maize 12.5 kg · Soya 4 kg" {
-		t.Errorf("row 0 = %+v, want this session's expected ration first", got.ContextRows[0])
+	if got.MeasurementFields[0] != (verificationdomain.MeasurementField{Key: "maize", Label: "Maize"}) ||
+		got.MeasurementFields[1] != (verificationdomain.MeasurementField{Key: "soya", Label: "Soya"}) {
+		t.Errorf("measurement fields = %+v, want the sheet's items in order, names only", got.MeasurementFields)
 	}
-	if got.ContextRows[1].Value != "38" {
-		t.Errorf("row 1 = %+v, want the pen's head count", got.ContextRows[1])
+	// BLIND ENTRY: no planned quantity may reach the verifier's item through any side door. The
+	// context rows used to carry "Expected ration: Maize 12.5 kg · Soya 4 kg"; they must stay empty.
+	if len(got.ContextRows) != 0 {
+		t.Errorf("context rows = %+v, want none -- the planned ration is leadership-only now", got.ContextRows)
 	}
 }
 
-// An unreadable sheet must yield NO row rather than a placeholder: "Expected ration: —" states that
-// nothing was expected, which is a different and wronger claim than saying nothing.
-func TestPackingItemOmitsUnknownExpectationRatherThanFakingIt(t *testing.T) {
+// An unreadable sheet yields NO boxes rather than invented ones; the verification service treats a
+// fields-less packing item as a judge-the-video approve, so the item is not stranded.
+func TestPackingItemOmitsBoxesWhenTheSheetCouldNotBeRead(t *testing.T) {
 	got := enqueuePacking(t, basePackingRequest())
 
+	if len(got.MeasurementFields) != 0 {
+		t.Errorf("measurement fields = %+v, want none when the issued sheet could not be read", got.MeasurementFields)
+	}
 	if len(got.ContextRows) != 0 {
-		t.Errorf("context rows = %+v, want none when the issued sheet could not be read", got.ContextRows)
+		t.Errorf("context rows = %+v, want none", got.ContextRows)
+	}
+}
+
+// A field without a key is dropped rather than shipped: a keyless box could never be posted back
+// on the verdict, so it would render as an unfillable requirement.
+func TestPackingItemDropsKeylessFields(t *testing.T) {
+	req := basePackingRequest()
+	req.MeasurementFields = []feeddirectionapp.PackingMeasurementField{
+		{Key: "  ", Label: "Ghost"},
+		{Key: "maize", Label: "Maize"},
+	}
+
+	got := enqueuePacking(t, req)
+
+	if len(got.MeasurementFields) != 1 || got.MeasurementFields[0].Key != "maize" {
+		t.Fatalf("measurement fields = %+v, want only the keyed field", got.MeasurementFields)
 	}
 }
 

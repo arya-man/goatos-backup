@@ -150,11 +150,25 @@ type measurementCorrectionResponse struct {
 	// True for feed wastage, where the operator sends a video only and the reading is born on the
 	// verifier's screen; false for weighing, where blank means the operator's weight is right.
 	RequiredForApprove bool `json:"required_for_approve"`
+	// Fields is the ordered per-item entry-box list for items whose approve carries one value PER
+	// FIELD (a feed packing item: one per feed item of that pen-session, names only -- the planned
+	// quantities are deliberately hidden). Present and non-empty means the client renders one
+	// labelled box per field instead of the single value field, and the verdict's measurement
+	// carries `entries` echoing each field's key. Absent means the single-value contract.
+	Fields []measurementFieldResponse `json:"fields,omitempty"`
+}
+
+// measurementFieldResponse is one per-item entry box on the wire: the producer's stable key the
+// client posts back verbatim, and the backend-owned caption it renders.
+type measurementFieldResponse struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
 }
 
 // toMeasurementCorrectionResponse resolves the category's declaration for one item, or nil when the
-// category declared none. Pure copy plus an echo of the item's own source -- no read, no join.
-func toMeasurementCorrectionResponse(spec *domain.MeasurementCorrectionSpec, source domain.SourceRef) *measurementCorrectionResponse {
+// category declared none. Pure copy plus an echo of the item's own source and its own enqueued
+// per-item fields -- no read, no join.
+func toMeasurementCorrectionResponse(spec *domain.MeasurementCorrectionSpec, source domain.SourceRef, fields []domain.MeasurementField) *measurementCorrectionResponse {
 	if spec == nil {
 		return nil
 	}
@@ -170,6 +184,9 @@ func toMeasurementCorrectionResponse(spec *domain.MeasurementCorrectionSpec, sou
 	}
 	if spec.HasCountField(source.RefType) {
 		out.CountLabel = spec.CountLabel
+	}
+	for _, field := range fields {
+		out.Fields = append(out.Fields, measurementFieldResponse{Key: field.Key, Label: field.Label})
 	}
 	return out
 }
@@ -285,7 +302,7 @@ func toQueueItemResponse(row domain.QueueRow, correction *domain.MeasurementCorr
 			RefType:      row.Item.Source.RefType,
 			RefID:        row.Item.Source.RefID,
 		},
-		MeasurementCorrection: toMeasurementCorrectionResponse(correction, row.Item.Source),
+		MeasurementCorrection: toMeasurementCorrectionResponse(correction, row.Item.Source, row.Item.MeasurementFields),
 	}
 }
 
@@ -493,18 +510,46 @@ type verdictMeasurementRequest struct {
 	Value  *float64 `json:"value"`
 	Count  *int     `json:"count,omitempty"`
 	Reason string   `json:"reason,omitempty"`
+	// Entries is the per-field readings for an item whose measurement_correction carries
+	// `fields` (feed packing: one packed weight per feed item). Each key echoes a field's key
+	// verbatim; every declared field must be present for the approve to land.
+	Entries []verdictMeasurementEntryRequest `json:"entries,omitempty"`
+}
+
+// verdictMeasurementEntryRequest is one filled entry box: the field's key plus the reading.
+type verdictMeasurementEntryRequest struct {
+	Key string `json:"key"`
+	// Value is a pointer for the same omitted-vs-zero reason as the single value above: "0 kg
+	// packed of this item" is a real observation, distinct from a box left empty.
+	Value *float64 `json:"value"`
 }
 
 // toDomainMeasurement maps the wire block to the domain, or nil when the client sent no number.
 func (r *verdictRequest) toDomainMeasurement() *domain.VerdictMeasurement {
-	if r.Measurement == nil || r.Measurement.Value == nil {
+	if r.Measurement == nil {
 		return nil
 	}
-	return &domain.VerdictMeasurement{
-		Value:  *r.Measurement.Value,
-		Count:  r.Measurement.Count,
-		Reason: strings.TrimSpace(r.Measurement.Reason),
+	entries := make([]domain.MeasurementEntry, 0, len(r.Measurement.Entries))
+	for _, entry := range r.Measurement.Entries {
+		if entry.Value == nil {
+			// A keyed box with no value is "not entered", not zero; dropping it here lets the
+			// service's completeness check name the missing field instead of recording a guess.
+			continue
+		}
+		entries = append(entries, domain.MeasurementEntry{Key: strings.TrimSpace(entry.Key), Value: *entry.Value})
 	}
+	if r.Measurement.Value == nil && len(entries) == 0 {
+		return nil
+	}
+	out := &domain.VerdictMeasurement{
+		Count:   r.Measurement.Count,
+		Reason:  strings.TrimSpace(r.Measurement.Reason),
+		Entries: entries,
+	}
+	if r.Measurement.Value != nil {
+		out.Value = *r.Measurement.Value
+	}
+	return out
 }
 
 type verdictResponse struct {

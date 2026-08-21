@@ -81,6 +81,13 @@ type MeasurementCorrectionSpec struct {
 	// recorded a number and the verifier is correcting it: weighing's blank field means "the
 	// operator's weight is right", which is the normal case and must stay a single tap.
 	RequiredForApprove bool
+	// PerItemFields declares that this category's measurement is one value PER FIELD, with the
+	// field list carried on each ITEM (CreateItem.MeasurementFields -- e.g. one per feed item of
+	// a packing pen-session) rather than a single value. RequiredForApprove then binds to the
+	// item's own fields: every declared box must be filled to approve, and an item enqueued with
+	// NO fields (the producer's frozen sheet was unreadable at submit -- a deliberate fail-open)
+	// stays approvable rather than stranded behind a requirement it cannot render.
+	PerItemFields bool
 	// CountLabel names an accompanying whole-number field ("Goats on the scale"), and
 	// is rendered ONLY for the ref types in CountRefTypes. A lump-sum shed proof
 	// carries a head count that scales its average; a single animal's proof does not,

@@ -69,6 +69,16 @@ func (f *fakeFeedStore) ReopenPackingForFeedChange(context.Context, feedports.Re
 	return feedports.ReopenPackingResult{}, nil
 }
 
+// The verifier's packed-quantity readings land through the verification measurement seam BEFORE
+// the verdict, never from this bus. Present only to satisfy the store interface.
+func (f *fakeFeedStore) RecordPackingVerifiedQuantities(context.Context, feedports.RecordPackingVerifiedQuantitiesParams) error {
+	return nil
+}
+
+func (f *fakeFeedStore) PackingVerifiedQuantitiesRecorded(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeFeedStore) CompleteWastage(context.Context, feedports.CompleteWastageParams) (feedports.CompleteWastageResult, error) {
 	return feedports.CompleteWastageResult{}, nil
 }

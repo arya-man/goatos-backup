@@ -724,3 +724,131 @@ VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numer
 		t.Fatalf("CBE scope must keep only CBE price and kg, got %+v", cbeScoped.Expenditure)
 	}
 }
+
+// Packing intended-vs-entered variance -- the adversarial grain proofs the aggregate rules demand
+// (maintainer decision 2026-08-21), on top of the happy-path round trip in
+// feed_packing_verification_integration_test.go:
+//
+//	OneToMany     one pen-session-item spanning TWO ration grains must compare against their SUM,
+//	              once -- never one row per grain and never a doubled numerator;
+//	StatusMatrix  readings on a completion that is not yet 'completed' are not a finding;
+//	ParkScope     a park-filtered read never leaks another park's mismatches;
+//	PageBoundary  the window bounds the comparison -- a day outside it contributes nothing.
+func TestPackingVarianceOneToManyParkScopeStatusMatrixPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	// CompletePacking refuses a shed that is not an active shed of the addressed park, so the
+	// fixture park/shed must exist as real location rows.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'park', 'CBE-V', 'CBE', 'active', NULL, 1),
+       ($3::uuid, $1::uuid, 'shed', 'S-VAR', 'Castro', 'active', $2::uuid, 1)
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, fdiPark, fdiShedA); err != nil {
+		t.Fatalf("seed locations: %v", err)
+	}
+	// The pen must exist in the shed's partition catalog for the completion's partition to resolve.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, '1', $3, 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
+		fdiTenant, fdiShedA, domain.PartitionMatchKey("1")); err != nil {
+		t.Fatalf("seed partition: %v", err)
+	}
+
+	// TWO ration grains (two breeds) of ONE pen-session-item, 1.000 kg each: the planned side must
+	// pre-aggregate to 2.000 before the join.
+	one := "1.000"
+	grain := func(breed string, rowSeq int32) domain.StoredCell {
+		return domain.StoredCell{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: breed,
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", QuantityKg: &one,
+			SessionTotalKg: "2.000", RowSeq: rowSeq, ItemSeq: 0,
+		}
+	}
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-07-30", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-variance-grains",
+		IdempotencyKey: "issue:variance-grains:1", GeneratedBy: "test",
+		Cells: []domain.StoredCell{grain("Beetal", 0), grain("Sojat", 1)},
+	}); err != nil {
+		t.Fatalf("PersistIssue: %v", err)
+	}
+
+	target := time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+	complete := func(session int32, idem string) string {
+		t.Helper()
+		res, err := repo.CompletePacking(ctx, ports.CompletePackingParams{
+			TenantID: fdiTenant, ParkID: fdiPark, ShedID: fdiShedA, PartitionLabel: "1",
+			SessionNo: session, TargetDate: target, Workflow: domain.WorkflowNormal,
+			PackingProofRef: "proof-" + idem, CompletedBy: fdActor,
+			IdempotencyKey: idem, ActorID: fdActor, ActorType: "operator", TraceID: "trace-" + idem,
+		})
+		if err != nil {
+			t.Fatalf("CompletePacking(%s): %v", idem, err)
+		}
+		return res.CompletionID
+	}
+	record := func(completionID string, kg float64) {
+		t.Helper()
+		if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+			TenantID: fdiTenant, CompletionID: completionID,
+			Entries:    []ports.PackingVerifiedQuantity{{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: kg}},
+			RecordedBy: fdActor,
+		}); err != nil {
+			t.Fatalf("RecordPackingVerifiedQuantities(%s): %v", completionID, err)
+		}
+	}
+
+	// Session 1: verified, entered 1.500 against the 2.000 grain SUM.
+	completed := complete(1, "pack-var-s1")
+	record(completed, 1.5)
+	if _, err := repo.ApplyVerifiedPacking(ctx, ports.ApplyPackingParams{
+		TenantID: fdiTenant, CompletionID: completed, VerifiedBy: fdActor, TraceID: "trace-apply-s1",
+	}); err != nil {
+		t.Fatalf("ApplyVerifiedPacking: %v", err)
+	}
+	// Session 2: readings recorded but the completion stays pending_verification -- its mismatch is
+	// not yet a finding, because the verdict it rode on has not settled the work.
+	pending := complete(2, "pack-var-s2")
+	record(pending, 0.25)
+
+	window := domain.DirectedAnalyticsQuery{DateFrom: target, DateTo: target}
+	exec, err := repo.ExecutionAnalytics(ctx, fdiTenant, window)
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics: %v", err)
+	}
+	if len(exec.PackingVariance) != 1 {
+		t.Fatalf("variance = %+v, want ONE row: the two grains pre-aggregate (never a row per grain) and the pending session 2 is excluded", exec.PackingVariance)
+	}
+	row := exec.PackingVariance[0]
+	if row.SessionNo != 1 || row.PlannedKg != "2.000" || row.VerifiedKg != "1.500" || row.VarianceKg != "-0.500" {
+		t.Errorf("row = %+v, want session 1 compared against the 2.000 grain SUM, short 0.500", row)
+	}
+
+	// ParkScope: a park the fixture never fed sees nothing.
+	foreign, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		ParkIDs: []uuid.UUID{uuid.New()}, DateFrom: target, DateTo: target,
+	})
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics(foreign park): %v", err)
+	}
+	if len(foreign.PackingVariance) != 0 {
+		t.Errorf("foreign park variance = %+v, want empty", foreign.PackingVariance)
+	}
+
+	// PageBoundary: a window that ends the day BEFORE the feed day contributes nothing.
+	before, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: target.AddDate(0, 0, -2), DateTo: target.AddDate(0, 0, -1),
+	})
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics(before window): %v", err)
+	}
+	if len(before.PackingVariance) != 0 {
+		t.Errorf("out-of-window variance = %+v, want empty", before.PackingVariance)
+	}
+}
