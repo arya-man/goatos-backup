@@ -50,9 +50,12 @@ const interiorTickIdx = (n: number) => {
   return out;
 };
 
-// Interior ticks drop the year (the endpoints carry it) so more of them fit;
-// a label that is not a plain YYYY-MM-DD date renders unchanged.
-const shortDay = (label: string) => (/^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5) : label);
+// Axis dates render dd-mm-yy (maintainer request 2026-08-21); a label that is
+// not a plain YYYY-MM-DD date renders unchanged.
+const fmtDay = (label: string) => {
+  const m = /^\d{2}(\d{2})-(\d{2})-(\d{2})$/.exec(label);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : label;
+};
 
 export type StackedDay = {
   key: string;
@@ -163,23 +166,23 @@ export function StackedColumns({
           </g>
         );
       })}
-      <text x={padX} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
-        {days[0].label}
+      <text x={padX} y={VIEW_H - 4} fontSize="8" fill="var(--faint)">
+        {fmtDay(days[0].label)}
       </text>
       {interiorTickIdx(days.length).map((i) => (
         <text
           key={days[i].key}
           x={padX + i * slot + slot / 2}
           y={VIEW_H - 4}
-          fontSize="8"
+          fontSize="7"
           textAnchor="middle"
           fill="var(--faint)"
         >
-          {shortDay(days[i].label)}
+          {fmtDay(days[i].label)}
         </text>
       ))}
-      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
-        {days[days.length - 1].label}
+      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="8" textAnchor="end" fill="var(--faint)">
+        {fmtDay(days[days.length - 1].label)}
       </text>
     </svg>
   );
@@ -298,23 +301,23 @@ export function SeriesLines({
           />
         );
       })}
-      <text x={padX} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
-        {dayLabels[0]}
+      <text x={padX} y={VIEW_H - 4} fontSize="8" fill="var(--faint)">
+        {fmtDay(dayLabels[0])}
       </text>
       {interiorTickIdx(dayLabels.length).map((i) => (
         <text
           key={dayLabels[i]}
           x={padX + i * stepX}
           y={VIEW_H - 4}
-          fontSize="8"
+          fontSize="7"
           textAnchor="middle"
           fill="var(--faint)"
         >
-          {shortDay(dayLabels[i])}
+          {fmtDay(dayLabels[i])}
         </text>
       ))}
-      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
-        {dayLabels[dayLabels.length - 1]}
+      <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="8" textAnchor="end" fill="var(--faint)">
+        {fmtDay(dayLabels[dayLabels.length - 1])}
       </text>
     </svg>
   );
