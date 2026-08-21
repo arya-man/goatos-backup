@@ -169,7 +169,20 @@ data class PcCarePlanPenUi(
     val existingTaskId: String,
 )
 
-enum class PcCarePlanStep { LIST, CATEGORY, DATE, PARK, PEN, OPERATORS, REVIEW }
+/**
+ * Wizard steps. LIST is the monitor face of a category tab; the wizard itself runs
+ * DATE -> PARK -> PEN -> OPERATORS -> REVIEW with the category fixed by the launching tab.
+ */
+enum class PcCarePlanStep { LIST, DATE, PARK, PEN, OPERATORS, REVIEW }
+
+/** The wizard's ordered steps, in stepper order. */
+val PC_CARE_WIZARD_STEPS: List<PcCarePlanStep> = listOf(
+    PcCarePlanStep.DATE,
+    PcCarePlanStep.PARK,
+    PcCarePlanStep.PEN,
+    PcCarePlanStep.OPERATORS,
+    PcCarePlanStep.REVIEW,
+)
 
 @Immutable
 data class PcCarePlanUiState(
@@ -199,17 +212,16 @@ data class PcCarePlanUiState(
     val selectedPenLabel: String = "",
     val selectedOperatorIds: Set<String> = emptySet(),
     val creating: Boolean = false,
+    /** Non-blank once the wizard's create landed — the wizard screen pops back on it. */
+    val createdTaskId: String = "",
     val message: String? = null,
 )
 
 sealed interface PcCarePlanEvent {
     data object Refresh : PcCarePlanEvent
-    data class SelectMonitorCategory(val key: String) : PcCarePlanEvent
     data class SelectMonitorDate(val date: LocalDate) : PcCarePlanEvent
     data class CancelTask(val taskId: String) : PcCarePlanEvent
-    data object StartCreate : PcCarePlanEvent
     data object CloseCreate : PcCarePlanEvent
-    data class SelectCategory(val key: String) : PcCarePlanEvent
     data class SelectDate(val date: LocalDate) : PcCarePlanEvent
     data class SelectPark(val parkId: String) : PcCarePlanEvent
     data class SelectPen(val shedId: String, val partitionLabel: String) : PcCarePlanEvent

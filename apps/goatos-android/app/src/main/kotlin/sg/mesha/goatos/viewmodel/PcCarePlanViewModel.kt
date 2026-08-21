@@ -38,9 +38,10 @@ import java.util.UUID
 import javax.inject.Inject
 
 /**
- * Planner (`/pc/tasks`) state holder: monitor list + create wizard (module pc_care, maintainer
- * decision 2026-08-21). The tab is offered only by the backend's nav composition — no client-side
- * role checks live here.
+ * Planner state holder for BOTH faces of a PC Care category (module pc_care, maintainer decision
+ * 2026-08-21): the monitor list a category tab shows to a non-executor (bindMonitor), and the
+ * plan wizard drill (bindWizard) whose category is fixed by the launching tab. Nav offers and the
+ * pc_care_execute / pc_care_plan capability flags are backend-composed — no role checks here.
  *
  * The wizard's create idempotency key is minted ONCE per wizard session and REUSED on retry, so a
  * flaky-network double-tap can never create two tasks; a fresh wizard session mints a new key.
@@ -92,12 +93,9 @@ class PcCarePlanViewModel @Inject constructor(
     fun onEvent(event: PcCarePlanEvent) {
         when (event) {
             PcCarePlanEvent.Refresh -> refresh()
-            is PcCarePlanEvent.SelectMonitorCategory -> selectMonitorCategory(event.key)
             is PcCarePlanEvent.SelectMonitorDate -> selectMonitorDate(event.date)
             is PcCarePlanEvent.CancelTask -> cancelTask(event.taskId)
-            PcCarePlanEvent.StartCreate -> startCreate()
-            PcCarePlanEvent.CloseCreate -> closeCreate()
-            is PcCarePlanEvent.SelectCategory -> selectCategory(event.key)
+            PcCarePlanEvent.CloseCreate -> Unit // navigation-owned: the wizard screen pops itself
             is PcCarePlanEvent.SelectDate -> selectCreateDate(event.date)
             is PcCarePlanEvent.SelectPark -> selectPark(event.parkId)
             is PcCarePlanEvent.SelectPen -> selectPen(event.shedId, event.partitionLabel)
@@ -110,17 +108,52 @@ class PcCarePlanViewModel @Inject constructor(
         }
     }
 
+    // ---- Binding -----------------------------------------------------------------------------
+
+    /** The monitor face of one category tab. Category + title come from the backend-composed tab. */
+    fun bindMonitor(categoryKey: String, title: String) {
+        _state.update {
+            it.copy(
+                title = title,
+                step = PcCarePlanStep.LIST,
+                monitorCategoryKey = categoryKey,
+                monitorCategoryLabel = title,
+            )
+        }
+        monitorSelection.value = monitorSelection.value.copy(category = categoryKey)
+    }
+
+    /** The plan-wizard drill. The launching tab fixes the category; the wizard starts at DATE. */
+    fun bindWizard(categoryKey: String, title: String) {
+        // A NEW wizard session is a NEW act: fresh key, cleared choices.
+        createIdempotencyKey = UUID.randomUUID().toString()
+        _state.update {
+            it.copy(
+                title = title,
+                step = PcCarePlanStep.DATE,
+                selectedCategoryKey = categoryKey,
+                selectedCategoryLabel = title,
+                selectedDate = todayIso(),
+                selectedParkId = "",
+                selectedParkLabel = "",
+                pens = emptyList(),
+                pensEndReached = true,
+                selectedShedId = "",
+                selectedPartitionLabel = "",
+                selectedPenLabel = "",
+                selectedOperatorIds = emptySet(),
+                creating = false,
+                createdTaskId = "",
+                message = null,
+            )
+        }
+    }
+
     // ---- Monitor -----------------------------------------------------------------------------
 
     private fun refresh() {
         loadCatalog()
         monitorSelection.value = monitorSelection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
-    }
-
-    private fun selectMonitorCategory(key: String) {
-        val label = _state.value.categories.firstOrNull { it.key == key }?.label.orEmpty()
-        _state.update { it.copy(monitorCategoryKey = key, monitorCategoryLabel = label) }
-        monitorSelection.value = monitorSelection.value.copy(category = key)
     }
 
     private fun selectMonitorDate(date: LocalDate) {
@@ -159,18 +192,11 @@ class PcCarePlanViewModel @Inject constructor(
                 catalog = loaded
                 val categories = loaded.categories.map { PcCarePlanOption(it.key, it.label) }
                 _state.update { current ->
-                    val monitorKey = current.monitorCategoryKey.ifBlank { categories.firstOrNull()?.key.orEmpty() }
                     current.copy(
                         categories = categories,
                         parks = loaded.parks.map { PcCarePlanOption(it.parkId, it.parkLabel) },
                         operators = loaded.operators.map { PcCarePlanOption(it.userId, it.displayName) },
-                        monitorCategoryKey = monitorKey,
-                        monitorCategoryLabel = categories.firstOrNull { it.key == monitorKey }?.label.orEmpty(),
                     )
-                }
-                val monitorKey = _state.value.monitorCategoryKey
-                if (monitorKey.isNotBlank() && monitorSelection.value.category.isBlank()) {
-                    monitorSelection.value = monitorSelection.value.copy(category = monitorKey)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -188,47 +214,6 @@ class PcCarePlanViewModel @Inject constructor(
     }
 
     // ---- Create wizard -----------------------------------------------------------------------
-
-    private fun startCreate() {
-        // A NEW wizard session is a NEW act: fresh key, cleared choices.
-        createIdempotencyKey = UUID.randomUUID().toString()
-        _state.update {
-            it.copy(
-                step = PcCarePlanStep.CATEGORY,
-                selectedCategoryKey = "",
-                selectedCategoryLabel = "",
-                selectedDate = todayIso(),
-                selectedParkId = "",
-                selectedParkLabel = "",
-                pens = emptyList(),
-                pensEndReached = true,
-                selectedShedId = "",
-                selectedPartitionLabel = "",
-                selectedPenLabel = "",
-                selectedOperatorIds = emptySet(),
-                message = null,
-            )
-        }
-    }
-
-    private fun closeCreate() {
-        _state.update { it.copy(step = PcCarePlanStep.LIST, message = null) }
-    }
-
-    private fun selectCategory(key: String) {
-        val label = _state.value.categories.firstOrNull { it.key == key }?.label.orEmpty()
-        _state.update {
-            it.copy(
-                selectedCategoryKey = key,
-                selectedCategoryLabel = label,
-                // Category changes invalidate the pen list (dedup is per category+date).
-                pens = emptyList(),
-                selectedShedId = "",
-                selectedPartitionLabel = "",
-                selectedPenLabel = "",
-            )
-        }
-    }
 
     private fun selectCreateDate(date: LocalDate) {
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
@@ -264,7 +249,6 @@ class PcCarePlanViewModel @Inject constructor(
     private fun nextStep() {
         val current = _state.value
         val next = when (current.step) {
-            PcCarePlanStep.CATEGORY -> if (current.selectedCategoryKey.isBlank()) null else PcCarePlanStep.DATE
             PcCarePlanStep.DATE -> if (current.selectedDate.isBlank()) null else PcCarePlanStep.PARK
             PcCarePlanStep.PARK -> if (current.selectedParkId.isBlank()) null else PcCarePlanStep.PEN
             PcCarePlanStep.PEN -> if (current.selectedShedId.isBlank()) null else PcCarePlanStep.OPERATORS
@@ -281,8 +265,7 @@ class PcCarePlanViewModel @Inject constructor(
 
     private fun previousStep() {
         val previous = when (_state.value.step) {
-            PcCarePlanStep.CATEGORY -> PcCarePlanStep.LIST
-            PcCarePlanStep.DATE -> PcCarePlanStep.CATEGORY
+            PcCarePlanStep.DATE -> PcCarePlanStep.DATE
             PcCarePlanStep.PARK -> PcCarePlanStep.DATE
             PcCarePlanStep.PEN -> PcCarePlanStep.PARK
             PcCarePlanStep.OPERATORS -> PcCarePlanStep.PEN
@@ -352,7 +335,7 @@ class PcCarePlanViewModel @Inject constructor(
         _state.update { it.copy(creating = true) }
         viewModelScope.launch {
             try {
-                repository.createTask(
+                val created = repository.createTask(
                     // REUSED on retry: a network blip + second tap replays the SAME planned task.
                     idempotencyKey = createIdempotencyKey,
                     request = PcCareCreateTaskRequestDto(
@@ -371,18 +354,10 @@ class PcCarePlanViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         creating = false,
-                        step = PcCarePlanStep.LIST,
-                        message = "Task created",
-                        monitorCategoryKey = current.selectedCategoryKey,
-                        monitorCategoryLabel = current.selectedCategoryLabel,
-                        monitorDate = current.selectedDate,
+                        createdTaskId = created.taskId.ifBlank { "created" },
+                        message = null,
                     )
                 }
-                monitorSelection.value = MonitorSelection(
-                    category = current.selectedCategoryKey,
-                    date = current.selectedDate,
-                    refreshNonce = monitorSelection.value.refreshNonce + 1,
-                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

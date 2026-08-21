@@ -77,7 +77,8 @@ import sg.mesha.goatos.feature.feed.FeedWastageCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedWastageCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedWastageEvent
 import sg.mesha.goatos.feature.feed.FeedWastageScreen
-import sg.mesha.goatos.feature.pccare.PcCarePlanScreen
+import sg.mesha.goatos.feature.pccare.PcCareMonitorScreen
+import sg.mesha.goatos.feature.pccare.PcCarePlanWizardScreen
 import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
 import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
 import sg.mesha.goatos.feature.pccare.PcCareWorklistScreen
@@ -418,7 +419,6 @@ object Routes {
     const val PC_TICKS = "/pc/ticks"
     const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
     const val PC_HAIR_TRIMMING = "/pc/hair-trimming"
-    const val PC_TASKS = "/pc/tasks"
     const val PC_TASK_ID_ARG = "task_id"
     const val PC_TASK_CATEGORY_ARG = "category"
     const val PC_TASK_TITLE_ARG = "title"
@@ -432,6 +432,14 @@ object Routes {
         "/pc/task/${Uri.encode(taskId)}" +
             "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
             "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+
+    // The L1 plan-wizard drill (maintainer feedback 2026-08-21): "Plan a care task" opens as its
+    // own hosted destination with Up/Back and NO root chrome, launched from a category tab's plan
+    // action. The category is fixed by the launching tab — the wizard never asks for it again.
+    const val PC_PLAN = "/pc/plan/{$PC_TASK_CATEGORY_ARG}?$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcPlanRoute(category: String, title: String): String =
+        "/pc/plan/${Uri.encode(category)}?$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
     const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
     // [lifecycleStatus] is the task's backend-owned status AT THE MOMENT the row was tapped — only a
     // FIRST-PAINT hint for FeedTransportCaptureViewModel; see its ARG_LIFECYCLE_STATUS kdoc.
@@ -1034,6 +1042,8 @@ fun AppNavHost(
     showProtocolAdherenceCard: Boolean = false,
     canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
+    canExecutePcCare: Boolean = false,
+    canPlanPcCare: Boolean = false,
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -2811,35 +2821,42 @@ fun AppNavHost(
         }
 
         // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------
-        // Four L0 category worklist tabs, one shared composable. Each route binds its category
-        // constant + backend tab label; tapping a card pushes the hosted task drill.
+        // Four L0 category tabs — THE bar (the Feed shape, maintainer feedback 2026-08-21).
+        // Each route binds its category constant + backend tab label. What a tab renders is the
+        // backend's `pc_care_execute` capability: an executor gets the scan worklist, everyone
+        // else the read-only monitor list with the plan wizard offered on `pc_care_plan`.
         // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
         // header and the bottom-bar tab read identically.
-        pcCareWorklistComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController)
-        pcCareWorklistComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController)
-        pcCareWorklistComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController)
-        pcCareWorklistComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController)
+        pcCareCategoryComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController, canExecutePcCare, canPlanPcCare)
 
-        // The CEO planner tab — reachable only when the backend offers it (nav is
-        // backend-composed; no client-side role checks).
-        composable(Routes.PC_TASKS) {
+        // The L1 plan-wizard drill: category fixed by the launching tab, steps day → farm →
+        // pen → people → review, hosted with Up/Back and no root chrome.
+        composable(
+            route = Routes.PC_PLAN,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_CATEGORY_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { entry ->
+            val category = entry.arguments?.getString(Routes.PC_TASK_CATEGORY_ARG).orEmpty()
+            val title = entry.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
             val vm: PcCarePlanViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bindWizard(category, title) }
             val state by vm.state.collectAsStateWithLifecycle()
-            val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            LaunchedEffect(state.createdTaskId) {
+                if (state.createdTaskId.isNotBlank()) navController.popBackStack()
             }
-            PcCarePlanScreen(
+            PcCarePlanWizardScreen(
                 state = state,
-                rows = rows,
                 onEvent = { event ->
                     when (event) {
-                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh -> {
-                            vm.onEvent(event)
-                            rows.refresh()
-                        }
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.CloseCreate -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
                 },
@@ -3247,14 +3264,13 @@ private val supportedRootDestinations = setOf(
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
     // PC Care roots (maintainer decision 2026-08-21): the four backend-composed category tabs
-    // plus the CEO planner tab. Each is an L0 bottom-bar destination exactly like its siblings —
-    // registering the composable alone would leave a notification or deep link naming one
-    // treated as unhosted and bounced to home.
+    // ARE the module bar (the Feed shape) — there is no fifth planner tab. Each is an L0
+    // bottom-bar destination exactly like its siblings; what a tab renders is decided by the
+    // backend pc_care_execute / pc_care_plan capability flags, never by a role string.
     Routes.PC_DEWORMING,
     Routes.PC_TICKS,
     Routes.PC_HOOF_TRIMMING,
     Routes.PC_HAIR_TRIMMING,
-    Routes.PC_TASKS,
 )
 
 /**
@@ -3325,41 +3341,75 @@ private fun executionRoutePattern(base: String): String =
  * [PcCareWorklistViewModel] instance (VMs are scoped per NavBackStackEntry, so the tabs never
  * share state), and a card tap pushes the hosted task drill carrying the same category + title.
  */
-private fun NavGraphBuilder.pcCareWorklistComposable(
+private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,
     category: String,
     title: String,
     navController: NavHostController,
+    canExecutePcCare: Boolean,
+    canPlanPcCare: Boolean,
 ) {
     composable(route) {
-        val vm: PcCareWorklistViewModel = hiltViewModel()
-        LaunchedEffect(vm) { vm.bind(category, title) }
-        val state by vm.state.collectAsStateWithLifecycle()
-        val rows = vm.rows.collectAsLazyPagingItems()
-        val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-        val appendError = (rows.loadState.append as? LoadState.Error)?.error
-        LaunchedEffect(refreshError, appendError) {
-            (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
-        }
-        PcCareWorklistScreen(
-            state = state,
-            rows = rows,
-            onEvent = { event ->
-                when (event) {
-                    PcCareWorklistEvent.Refresh -> {
-                        vm.onEvent(event)
-                        rows.refresh()
-                    }
-                    is PcCareWorklistEvent.OpenTask -> {
-                        vm.onEvent(event)
-                        navController.navigate(Routes.pcTaskRoute(event.taskId, category, title)) {
-                            launchSingleTop = true
+        if (canExecutePcCare) {
+            // Executor face: the scan worklist for tasks assigned to this person.
+            val vm: PcCareWorklistViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCareWorklistScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        PcCareWorklistEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
                         }
+                        is PcCareWorklistEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.pcTaskRoute(event.taskId, category, title)) {
+                                launchSingleTop = true
+                            }
+                        }
+                        else -> vm.onEvent(event)
                     }
-                    else -> vm.onEvent(event)
-                }
-            },
-        )
+                },
+            )
+        } else {
+            // Monitor face (CEO / PC Director oversight): the read-only task list for this
+            // category, with the plan wizard offered only on the backend's pc_care_plan flag.
+            val vm: PcCarePlanViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bindMonitor(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCareMonitorScreen(
+                state = state,
+                rows = rows,
+                planEnabled = canPlanPcCare,
+                onPlanTask = {
+                    navController.navigate(Routes.pcPlanRoute(category, title)) { launchSingleTop = true }
+                },
+                onEvent = { event ->
+                    when (event) {
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
     }
 }
 

@@ -356,14 +356,16 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          8,
 		contributions: []moduleNavContribution{
-			{key: "pc_deworming", labelKey: "nav.pc_deworming", href: "/pc/deworming", shared_key: "", priority: 1, requiredPermission: permissions.PCCareExecute},             //nav-composition:ignore: registry entry
-			{key: "pc_ticks", labelKey: "nav.pc_ticks", href: "/pc/ticks", shared_key: "", priority: 2, requiredPermission: permissions.PCCareExecute},                         //nav-composition:ignore: registry entry
-			{key: "pc_hoof_trimming", labelKey: "nav.pc_hoof_trimming", href: "/pc/hoof-trimming", shared_key: "", priority: 3, requiredPermission: permissions.PCCareExecute}, //nav-composition:ignore: registry entry
-			{key: "pc_hair_trimming", labelKey: "nav.pc_hair_trimming", href: "/pc/hair-trimming", shared_key: "", priority: 4, requiredPermission: permissions.PCCareExecute}, //nav-composition:ignore: registry entry
-			// The CEO's planner surface (create/cancel/monitor). Reuses the translated
-			// "nav.tasks" key weighing's planner tab already carries.
-			{key: "pc_tasks", labelKey: "nav.tasks", href: "/pc/tasks", shared_key: "", priority: 5, requiredPermission: permissions.PCCarePlan}, //nav-composition:ignore: registry entry
-			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                    //nav-composition:ignore: registry entry
+			// The FOUR CATEGORIES ARE THE BAR (maintainer decision 2026-08-21, matching Feed's
+			// four-tab shape). Every module holder sees the same four tabs; what each tab RENDERS
+			// is capability-driven through the `pc_care_execute` / `pc_care_plan` bootstrap flags
+			// (an operator gets the scan worklist, a planner/monitor gets the read-only task list
+			// with the plan wizard) — never a fifth per-persona tab.
+			{key: "pc_deworming", labelKey: "nav.pc_deworming", href: "/pc/deworming", shared_key: "", priority: 1},             //nav-composition:ignore: registry entry
+			{key: "pc_ticks", labelKey: "nav.pc_ticks", href: "/pc/ticks", shared_key: "", priority: 2},                         //nav-composition:ignore: registry entry
+			{key: "pc_hoof_trimming", labelKey: "nav.pc_hoof_trimming", href: "/pc/hoof-trimming", shared_key: "", priority: 3}, //nav-composition:ignore: registry entry
+			{key: "pc_hair_trimming", labelKey: "nav.pc_hair_trimming", href: "/pc/hair-trimming", shared_key: "", priority: 4}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                   //nav-composition:ignore: registry entry
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/pc_care", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
@@ -696,6 +698,18 @@ func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []
 
 func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
 	return isLeadershipPrincipal(grants)
+}
+
+// canExecutePCCare mirrors canExecuteWeighing: it decides which face the four PC Care category
+// tabs show. TRUE renders the operator scan worklist; FALSE renders the read-only monitor list.
+func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.PCCareExecute) && canUseModule(grants, grantedModules, "pc_care")
+}
+
+// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
+// pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
+func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.PCCarePlan) && canUseModule(grants, grantedModules, "pc_care")
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
