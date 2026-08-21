@@ -122,7 +122,7 @@ func (s *SaleAllocationService) ListSaleCandidates(ctx context.Context, input Li
 	if err != nil {
 		return nil, nil, mapRepoErr(err)
 	}
-	today := biztime.BusinessDate(time.Now().UTC())
+	today := biztime.BusinessDate(time.Now().In(biztime.DefaultLocation()))
 	out := make([]ports.SaleCandidate, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, judge(row, today))
@@ -259,7 +259,7 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 		DeclaredAnimalCount:  deal.DeclaredAnimalCount,
 		Rows:                 rows,
 		Reason:               reason,
-		OccurredAt:           time.Now().UTC(),
+		OccurredAt:           time.Now(),
 	})
 	if err != nil {
 		return nil, mapRepoErr(err)
@@ -277,7 +277,7 @@ func (s *SaleAllocationService) judgeNamedAnimals(ctx context.Context, tenantID,
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	today := biztime.BusinessDate(time.Now().UTC())
+	today := biztime.BusinessDate(time.Now().In(biztime.DefaultLocation()))
 	out := make([]ports.SaleCandidate, 0, len(goatIDs))
 	for _, id := range goatIDs {
 		row, ok := rows[id]
