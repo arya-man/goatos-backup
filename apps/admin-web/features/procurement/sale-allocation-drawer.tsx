@@ -94,6 +94,7 @@ export function SaleAllocationDrawer({
 
   // Reset every time a different sale is opened, so one sale's picks can never be confirmed
   // against another.
+  /* eslint-disable react-hooks/set-state-in-effect -- URL-controlled drawer state must be reset synchronously when the selected sale changes. */
   useEffect(() => {
     if (!open) return;
     setDealId(selection);
@@ -109,6 +110,7 @@ export function SaleAllocationDrawer({
     setError("");
     closeButtonRef.current?.focus();
   }, [open, selection]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (!open) return undefined;
@@ -147,11 +149,13 @@ export function SaleAllocationDrawer({
     [parkId, locationKey, locations, query],
   );
 
+  /* eslint-disable react-hooks/set-state-in-effect -- filter changes must immediately replace the picker page; the async action owns the resulting state. */
   useEffect(() => {
     if (!open || !parkId) return;
     loadCandidates();
     // loadCandidates already closes over every filter, so this reloads on any filter change.
   }, [open, parkId, locationKey, query, loadCandidates]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!open || !deal) return null;
 

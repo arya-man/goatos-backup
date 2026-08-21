@@ -132,7 +132,12 @@ class BackendAnalyticsAdapter(
         val CRITICAL_EVENT_ALLOWLIST = setOf(
             // core-data's CaptureRepository tracks this by string literal (proofProcessingFailedEvent)
             // rather than an AnalyticsEvents constant; the wire value is pinned here to match.
+            "proof_capture_completed",
             "proof_processing_failed",
+            "proof_upload_started",
+            "proof_upload_completed",
+            "proof_upload_failed",
+            "proof_upload_registered",
             AnalyticsEvents.SYNC_WRITE_DEAD,
             AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED,
             AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ,

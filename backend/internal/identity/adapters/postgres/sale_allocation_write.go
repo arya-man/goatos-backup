@@ -81,6 +81,10 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 		return nil, fmt.Errorf("identity: record sale allocations: reserve idempotency: %w", err)
 	}
 
+	if err := r.lockAndCheckSaleAllocationCapacity(ctx, tx, cmd); err != nil {
+		return nil, err
+	}
+
 	// The allocation SNAPSHOT is written BEFORE the exits, while the animals still carry
 	// their location. Once ExitGoatInTx has run, reading park/shed/tag back off the goat
 	// would describe an animal that has already left.
@@ -139,6 +143,27 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 		return nil, fmt.Errorf("identity: record sale allocations: commit: %w", err)
 	}
 	return saleAllocationResult(cmd.SalesDealID, groups), nil
+}
+
+func (r *Repository) lockAndCheckSaleAllocationCapacity(ctx context.Context, tx pgx.Tx, cmd ports.RecordSaleAllocationsCommand) error {
+	if cmd.DeclaredAnimalCount <= 0 {
+		return ports.ErrSaleDealNoAnimalCount
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, cmd.TenantID+":"+cmd.SalesDealID); err != nil {
+		return fmt.Errorf("identity: record sale allocations: lock sale: %w", err)
+	}
+	var alreadyTagged int
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)::int
+FROM goat_sale_allocations
+WHERE tenant_id = $1::uuid AND sales_deal_id = $2::uuid AND status = 'tagged'`,
+		cmd.TenantID, cmd.SalesDealID).Scan(&alreadyTagged); err != nil {
+		return fmt.Errorf("identity: record sale allocations: count sale allocations: %w", err)
+	}
+	if alreadyTagged+len(cmd.Rows) != cmd.DeclaredAnimalCount {
+		return ports.ErrSaleAllocationCountChanged
+	}
+	return nil
 }
 
 // insertSaleAllocations writes every allocation row in ONE set-based statement, snapshotting

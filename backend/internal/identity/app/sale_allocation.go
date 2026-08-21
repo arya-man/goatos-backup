@@ -256,6 +256,7 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 		StoredIdempotencyKey: strings.Join([]string{tenantID, "sale_allocation", dealID, clientKey}, ":"),
 		TraceID:              input.TraceID,
 		SalesDealID:          dealID,
+		DeclaredAnimalCount:  deal.DeclaredAnimalCount,
 		Rows:                 rows,
 		Reason:               reason,
 		OccurredAt:           time.Now().UTC(),

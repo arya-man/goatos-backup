@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.database.capture.ScanUpsertResult
 import sg.mesha.goatos.core.database.capture.ProofProcessingState
 import sg.mesha.goatos.core.data.sync.GalleryProofSaver
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.syncJson
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -919,6 +920,7 @@ class DefaultProofCaptureRepository(
         }
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
+        telemetry.track(proofCaptureCompletedEvent, proofAnalyticsProps(entity))
         if (awaitUploadEnqueue) {
             enqueueRegistrationNow(entity, scopeType, scopeId, uploadGroupKey)
             AppResult.Ok((dao.findById(id) ?: entity).toRow())
@@ -1712,7 +1714,13 @@ class DefaultProofCaptureRepository(
                     .collect { item ->
                         when {
                             item.status == SyncItemStatus.IN_FLIGHT ->
-                                dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
+                                if (dao.findById(rowId)?.syncStatus != EntitySyncStatus.IN_FLIGHT.name) {
+                                    dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
+                                    dao.findById(rowId)?.let {
+                                        recordProofEvent(it, "upload_started", EntitySyncStatus.IN_FLIGHT.name, it.stateAttempt)
+                                        telemetry.track(proofUploadStartedEvent, proofAnalyticsProps(it, proofUploadStatus = "in_flight"))
+                                    }
+                                }
                             item.status == SyncItemStatus.SUCCEEDED -> {
                                 val proofId = decodeServerProofId(item.resultJson)
                                 if (proofId.isNullOrBlank()) {
@@ -1738,10 +1746,21 @@ class DefaultProofCaptureRepository(
                                     // driving sync to completion then reading) deterministically
                                     // observes retirement as part of that SAME awaited call, in Room's
                                     // actual write order, with nothing left to race.
+                                    dao.findById(rowId)?.let {
+                                        recordProofEvent(it, "upload_completed", EntitySyncStatus.SYNCED.name, it.stateAttempt)
+                                        telemetry.track(proofUploadCompletedEvent, proofAnalyticsProps(it, proofUploadStatus = "synced"))
+                                    }
                                 }
                             }
                             item.isDeadLetter || item.conflict -> {
                                 dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
+                                dao.findById(rowId)?.let {
+                                    recordProofEvent(it, "upload_failed", EntitySyncStatus.FAILED.name, it.stateAttempt, errorClass = item.proofUploadFailureReason(), retryable = false)
+                                    telemetry.track(
+                                        proofUploadFailedEvent,
+                                        proofAnalyticsProps(it, proofUploadStatus = "failed") + ("reason" to item.proofUploadFailureReason()),
+                                    )
+                                }
                                 // P1 fix: a terminal FAILED new row must leave the old occupant(s)
                                 // untouched — drop the pending action rather than ever firing it.
                                 pendingSlotRetirement.remove(rowId)
@@ -1829,11 +1848,17 @@ class DefaultProofCaptureRepository(
                                     val newStatus = EntitySyncStatus.FAILED.name
                                     if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != corruptProofUploadResultMessage) {
                                         dao.updateStatus(row.id, newStatus, null, corruptProofUploadResultMessage)
+                                        dao.findById(row.id)?.let {
+                                            telemetry.track(proofUploadFailedEvent, proofAnalyticsProps(it, proofUploadStatus = "failed") + ("reason" to "missing_server_proof_id"))
+                                        }
                                     }
                                 } else {
                                     val newStatus = EntitySyncStatus.SYNCED.name
                                     if (row.syncStatus != newStatus || row.serverProofId != proofId || row.lastError != null) {
                                         dao.updateStatus(row.id, newStatus, proofId, null)
+                                        dao.findById(row.id)?.let {
+                                            telemetry.track(proofUploadCompletedEvent, proofAnalyticsProps(it, proofUploadStatus = "synced"))
+                                        }
                                     }
                                     retired += fireSlotRetirementIfPending(row.id)
                                     // P1 fix (CRITICAL follow-up): durable-marker path, alongside
@@ -1847,12 +1872,21 @@ class DefaultProofCaptureRepository(
                                 val newStatus = EntitySyncStatus.IN_FLIGHT.name
                                 if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != null) {
                                     dao.updateStatus(row.id, newStatus, null, null)
+                                    dao.findById(row.id)?.let {
+                                        telemetry.track(proofUploadStartedEvent, proofAnalyticsProps(it, proofUploadStatus = "in_flight"))
+                                    }
                                 }
                             }
                             item.isDeadLetter || item.conflict -> {
                                 val newStatus = EntitySyncStatus.FAILED.name
                                 if (row.syncStatus != newStatus || row.serverProofId != null || row.lastError != item.lastError) {
                                     dao.updateStatus(row.id, newStatus, null, item.lastError)
+                                    dao.findById(row.id)?.let {
+                                        telemetry.track(
+                                            proofUploadFailedEvent,
+                                            proofAnalyticsProps(it, proofUploadStatus = "failed") + ("reason" to item.proofUploadFailureReason()),
+                                        )
+                                    }
                                 }
                                 pendingSlotRetirement.remove(row.id)
                             }
@@ -1906,6 +1940,7 @@ private const val corruptProofUploadResultMessage = "Proof upload finished witho
 private const val proofProcessingStartedEvent = "proof_processing_started"
 private const val proofProcessingCompletedEvent = "proof_processing_completed"
 private const val proofProcessingFailedEvent = "proof_processing_failed"
+private const val proofCaptureCompletedEvent = "proof_capture_completed"
 private const val proofGallerySaveStartedEvent = "proof_gallery_save_started"
 private const val proofGallerySaveCompletedEvent = "proof_gallery_save_completed"
 private const val proofGallerySaveFailedEvent = "proof_gallery_save_failed"
@@ -1913,11 +1948,15 @@ private const val gallerySaveCompletedStage = "gallery_save_completed"
 private const val PROOF_PROCESSING_WAIT_POLLS = 240
 private const val PROOF_PROCESSING_WAIT_MS = 500L
 private const val proofUploadRegisteredEvent = "proof_upload_registered"
+private const val proofUploadStartedEvent = "proof_upload_started"
+private const val proofUploadCompletedEvent = "proof_upload_completed"
+private const val proofUploadFailedEvent = "proof_upload_failed"
 
 private fun proofAnalyticsProps(
     entity: ProofCaptureEntity,
     attempt: Int = entity.stateAttempt,
     uploadOriginal: Boolean = entity.uploadOriginal,
+    proofUploadStatus: String = entity.syncStatus.lowercase(),
 ): Map<String, String> = buildMap {
     put("proof_id", entity.id)
     put("task_id", entity.taskId)
@@ -1935,6 +1974,7 @@ private fun proofAnalyticsProps(
     put("mime_type", entity.mimeType)
     put("processing_state", entity.processingState)
     put("processing_attempt", attempt.toString())
+    put("proof_upload_status", proofUploadStatus)
     put("upload_original", uploadOriginal.toString())
     put("duration_bucket", durationBucket(entity.durationMs ?: (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0)))
     entity.originalBytes?.let { put("original_size_bucket", byteBucket(it)) }
@@ -1955,6 +1995,12 @@ private fun humanRfidTag(entity: ProofCaptureEntity): String? =
     entity.rfidTag
         ?.takeIf { entity.fieldKey in rfidBurnOverlayFieldKeys }
         ?.takeIf { it.isNotBlank() }
+
+private fun SyncQueueItem.proofUploadFailureReason(): String = when {
+    conflict -> "conflict"
+    isDeadLetter -> "attempts_exhausted"
+    else -> "retryable_failure"
+}
 
 private val rfidBurnOverlayFieldKeys = setOf(
     "vaccination_goat_proof",
