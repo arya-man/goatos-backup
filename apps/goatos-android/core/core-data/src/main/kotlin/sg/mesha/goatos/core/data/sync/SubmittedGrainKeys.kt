@@ -7,6 +7,7 @@ import sg.mesha.goatos.core.network.dto.FeedTransportTaskDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.network.dto.FeedWastageRowDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 
 /**
  * The ONE definition of "which list row does this queued submit belong to".
@@ -76,6 +77,11 @@ private fun decodeGrainKey(type: OutboxOpTypeName, payloadJson: String, json: Js
             // Farm-day grain: one preparation per park per day.
             taskGrainKey("milk-preparation", p.parkId + "|" + p.preparationDate)
         }
+        OutboxOpTypeName.PC_CARE_TASK_SUBMIT -> {
+            val p = json.decodeFromString<PcCareTaskSubmitPayload>(payloadJson)
+            // Task grain: a PC Care submit covers the whole task, and the id is already unique.
+            taskGrainKey("pc-care", p.taskId)
+        }
     }
 }
 
@@ -89,6 +95,7 @@ internal enum class OutboxOpTypeName {
     FEED_TRANSPORT_SUBMIT,
     MILK_FEEDING_SUBMIT,
     MILK_PREPARATION_SUBMIT,
+    PC_CARE_TASK_SUBMIT,
 }
 
 /** 0 means "queued by the pen-day build" and is dispatched as session 1 — normalise it ONCE. */
@@ -168,3 +175,6 @@ fun MilkFeedingTaskDto.submittedGrainKey(): String = taskGrainKey("milk-feeding"
 /** [preparationDate] is the day the list is showing; one preparation per park per day. */
 fun MilkPreparationFarmTaskDto.submittedGrainKey(preparationDate: String): String =
     taskGrainKey("milk-preparation", parkId + "|" + preparationDate)
+
+/** Task-grain: a PC Care submit covers the whole task the row already names. */
+fun PcCareTaskDto.submittedGrainKey(): String = taskGrainKey("pc-care", taskId)

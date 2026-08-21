@@ -2104,6 +2104,95 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             truncated = false,
             capped_at = null,
         )
+
+    override suspend fun getPcCareWorklist(
+        category: String,
+        date: String,
+        limit: Int?,
+        offset: Int?,
+    ): PcCareTaskPageDto = PcCareTaskPageDto()
+
+    override suspend fun getPcCareTasks(
+        date: String,
+        parkId: String?,
+        category: String?,
+        limit: Int?,
+        offset: Int?,
+    ): PcCareTaskPageDto = PcCareTaskPageDto()
+
+    override suspend fun getPcCareTask(taskId: String): PcCareTaskDto = PcCareTaskDto(
+        taskId = taskId,
+        category = "deworming",
+        parkId = "park-1",
+        parkLabel = "CPT",
+        shedId = "shed-1",
+        shedLabel = "Castro",
+        plannedBusinessDate = "2026-08-21",
+        dueBusinessDate = "2026-08-21",
+        workState = "scheduled",
+        status = "open",
+        rowVersion = 1,
+    )
+
+    override suspend fun getPcCareTaskCaptures(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareCapturesDto = PcCareCapturesDto()
+
+    override suspend fun scanPcCareAnimal(
+        taskId: String,
+        idempotencyKey: String,
+        request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto = PcCareScanResponseDto(animalRowId = "row-${request.scannedIdentifier}")
+
+    override suspend fun registerPcCareSlotProof(
+        taskId: String,
+        animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = Unit
+
+    override suspend fun submitPcCareTask(
+        taskId: String,
+        idempotencyKey: String,
+    ): PcCareSubmitResponseDto = PcCareSubmitResponseDto(
+        taskId = taskId,
+        status = "pending_verification",
+        rowVersion = 2,
+    )
+
+    override suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto = PcCarePlannerCatalogDto()
+
+    override suspend fun getPcCarePlannerParkSheds(
+        parkId: String,
+        category: String,
+        date: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCarePlannerShedsDto = PcCarePlannerShedsDto()
+
+    override suspend fun createPcCareTask(
+        idempotencyKey: String,
+        request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto = PcCareTaskDto(
+        taskId = "pc-care-task-1",
+        category = request.category,
+        parkId = request.parkId,
+        parkLabel = request.parkId,
+        shedId = request.shedId,
+        shedLabel = request.shedId,
+        partitionLabel = request.partitionLabel,
+        plannedBusinessDate = request.plannedBusinessDate,
+        dueBusinessDate = request.plannedBusinessDate,
+        workState = "scheduled",
+        status = "open",
+        rowVersion = 1,
+        assigneeUserIds = request.assigneeUserIds,
+    )
+
+    override suspend fun cancelPcCareTask(taskId: String) = Unit
 }
 
 /**
