@@ -62,6 +62,21 @@ export async function startNewVersion(): Promise<PlanActionResult> {
   const configs = await listProtocolConfigs(CATEGORY);
   if (!configs.ok) return failure("could not read the current plan", configs.error);
 
+  // ONE draft at a time. If a draft already exists, this returns it instead of
+  // making a second: a plan being worked on is a single thing, and two competing
+  // drafts have no meaning -- whichever was published second would silently
+  // discard the other's edits.
+  //
+  // The list screen hides this action while a draft exists, but that is not the
+  // guard: a tab loaded BEFORE the draft was created still shows the button, and
+  // pressing it created a second draft (reproduced: V2 and V3 side by side). The
+  // check belongs here, where every caller passes.
+  const existing = configs.data.items?.find((item) => item.status === "draft");
+  if (existing) {
+    revalidatePath(PLAN_ROUTE);
+    return { ok: true, versionId: existing.protocol_version_id };
+  }
+
   const live = configs.data.items?.find((item) => item.status === "published");
   if (!live) {
     return { ok: false, error: "There is no published vaccination plan to copy from." };
