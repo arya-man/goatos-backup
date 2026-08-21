@@ -495,6 +495,20 @@ object AppModule {
     ): FeedRepository =
         DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao, wastageMetaDao)
 
+    @Provides
+    @Singleton
+    fun providePcCareRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        syncRepository: sg.mesha.goatos.core.data.sync.SyncRepository,
+    ): sg.mesha.goatos.core.data.PcCareRepository = sg.mesha.goatos.core.data.DefaultPcCareRepository(
+        api = api,
+        database = database,
+        detailDao = database.pcCareTaskDetailCacheDao(),
+        animalDao = database.pcCareAnimalRowDao(),
+        syncRepository = syncRepository,
+    )
+
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.
     @Provides
@@ -755,6 +769,7 @@ object AppModule {
         shiftingPendingRepository: ShiftingPendingRepository,
         workflowsRepository: WorkflowsRepository,
         healthRepository: HealthRepository,
+        pcCareRepository: sg.mesha.goatos.core.data.PcCareRepository,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -769,6 +784,10 @@ object AppModule {
         // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
         feedRepository = feedRepository,
         feedTransportRepository = feedTransportRepository,
+        // Same rationale as feedRepository above: nullable constructor defaults silently no-op
+        // PC_CARE_SCAN_ADD/PC_CARE_TASK_SUBMIT reconciliation in production without this wiring.
+        pcCareAnimalRowDao = database.pcCareAnimalRowDao(),
+        pcCareRepository = pcCareRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",
@@ -794,6 +813,9 @@ object AppModule {
             // Health operations
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
             OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteRefreshHook(healthRepository),
+            // PC Care: a successful slot registration re-polls the task's captures so the server's
+            // per-slot truth (proof ref, attribution) lands back in the Room rows screens observe.
+            OutboxOpType.PC_CARE_SLOT_REGISTER to sg.mesha.goatos.core.data.sync.pcCareSlotRegisterRefreshHook(pcCareRepository),
         ),
         preSuccessRefreshHooks = mapOf(
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),

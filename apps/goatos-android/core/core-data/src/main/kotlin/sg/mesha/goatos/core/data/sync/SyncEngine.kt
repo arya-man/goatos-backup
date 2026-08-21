@@ -136,6 +136,11 @@ class SyncEngine(
     private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
     private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
     private val feedTransportRepository: sg.mesha.goatos.core.data.FeedTransportRepository? = null,
+    // PC Care (module pc_care): the durable scanned-animal rows this engine reconciles directly
+    // (scan SYNCED/DUPLICATE/FAILED, and the server row id a slot registration dispatch resolves),
+    // and the repository whose task caches a successful submit reconciles.
+    private val pcCareAnimalRowDao: sg.mesha.goatos.core.data.cache.PcCareAnimalRowDao? = null,
+    private val pcCareRepository: sg.mesha.goatos.core.data.PcCareRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -447,6 +452,9 @@ class SyncEngine(
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
+        OutboxOpType.PC_CARE_SCAN_ADD -> dispatchPcCareScanAdd(item)
+        OutboxOpType.PC_CARE_SLOT_REGISTER -> dispatchPcCareSlotRegister(item)
+        OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -571,6 +579,41 @@ class SyncEngine(
                     }
                 }
             }
+            OutboxOpType.PC_CARE_SCAN_ADD -> {
+                val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    // POST-dispatch result, never the pre-dispatch entity: the server row id only
+                    // exists in the response this successful dispatch just returned.
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PcCareScanResponseDto>(resultJson)
+                    // Same rationale as FEED_PACKING_COMPLETE above: never let a local cache-write
+                    // failure look like (or behave like) a dispatch failure — reported, not thrown.
+                    runCatching {
+                        pcCareAnimalRowDao?.updateScanSynced(
+                            taskId = payload.taskId,
+                            normalizedTag = payload.normalizedTag,
+                            animalRowId = response.animalRowId,
+                            updatedAt = clock(),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.PC_CARE_TASK_SUBMIT -> {
+                val payload = syncJson.decodeFromString<PcCareTaskSubmitPayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // Same rationale as FEED_WASTAGE_COMPLETE above.
+                        runCatching {
+                            pcCareRepository?.persistTaskSubmitResult(
+                                taskId = payload.taskId,
+                                status = response.status,
+                                rowVersion = response.rowVersion,
+                                animalCount = response.animalCount,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
             else -> Unit
         }
         // Whole-page-blob opTypes (no server-truth row to write directly into a Room table) — run
@@ -587,6 +630,16 @@ class SyncEngine(
                 reportCacheReconcileFailure(item, it)
                 return
             }
+        if (opType == OutboxOpType.PC_CARE_SCAN_ADD) {
+            // The durable animal row is the scan screen's model, so a terminally failed scan must
+            // stop reading as still-queued work. PENDING-guarded: a DUPLICATE verdict (written by
+            // the dispatch before the 409 terminalized this row) is never overwritten. Replayed
+            // from the durable terminal row after process death like every reconcile here.
+            runCatching {
+                val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
+                pcCareAnimalRowDao?.markScanFailedIfPending(payload.taskId, payload.normalizedTag, clock())
+            }.onFailure { reportCacheReconcileFailure(item, it) }
+        }
         postTerminalFailureHooks[opType]?.let { hook ->
             runCatching { hook.onTerminalFailure(item.payloadJson) }
                 .onFailure { reportCacheReconcileFailure(item, it) }
@@ -994,6 +1047,88 @@ class SyncEngine(
     private suspend fun dispatchFeedWastageMeasurement(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<FeedWastageMeasurementPayload>(item.payloadJson)
         val response = api.recordFeedWastageMeasurement(payload.completionId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * One PC Care RFID scan (module pc_care). Same idempotent-replay contract as every other
+     * `dispatch*` — the row's STORED key is passed verbatim, never a new key on retry. A `409
+     * duplicate_scan` (another phone already scanned this tag) is terminal by [recordFailure]'s
+     * `isTerminalAppApiError` check; before rethrowing, the durable Room animal row is marked
+     * DUPLICATE so the scan screen shows the server's verdict instead of a forever-pending row.
+     * The server's own farm-language sentence rides the rethrown error into the outbox row's
+     * lastError. A `409 task_locked` (submitted while this scan was queued) is likewise terminal,
+     * surfaced with the server's copy through the generic terminal-failure reconcile.
+     */
+    private suspend fun dispatchPcCareScanAdd(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
+        try {
+            val response = api.scanPcCareAnimal(
+                payload.taskId,
+                item.idempotencyKey,
+                sg.mesha.goatos.core.network.dto.PcCareScanRequestDto(scannedIdentifier = payload.tagVerbatim),
+            )
+            return syncJson.encodeToString(response)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            if (error.appApiStatusCode() == 409 && error.serverErrorText()?.code == "duplicate_scan") {
+                // Room write failure here must not change the dispatch outcome; reported like
+                // every other post-dispatch cache reconcile miss.
+                runCatching {
+                    pcCareAnimalRowDao?.markScanDuplicate(payload.taskId, payload.normalizedTag, clock())
+                }.onFailure { reportCacheReconcileFailure(item, it) }
+            }
+            throw error
+        }
+    }
+
+    /**
+     * One PC Care slot proof registration. The animal's SERVER row id is re-resolved from the
+     * durable Room animal row at dispatch time — it may have been blank at enqueue while the scan
+     * was still syncing. Still blank is a plain retryable wait (the scan's own group drains
+     * independently), never terminal. The video resolves through its coupled PROOF_UPLOAD row on
+     * the same group exactly like [dispatchFeedPackingComplete]'s single video.
+     */
+    private suspend fun dispatchPcCareSlotRegister(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareSlotRegisterPayload>(item.payloadJson)
+        val animalRowId = payload.animalRowId.ifBlank {
+            val row = pcCareAnimalRowDao?.getByTag(payload.taskId, payload.normalizedTag)
+            when {
+                row == null ->
+                    throw NonRetryableSyncException("This animal's scan is missing. Please scan it again.")
+                row.scanSyncStatus == sg.mesha.goatos.core.data.cache.PcCareScanStatus.DUPLICATE ->
+                    // The server refused the scan as already recorded by another phone; this
+                    // phone's clip cannot attach to a row it does not own. Terminal with a
+                    // farm-language reason instead of waiting on a sync that will never come.
+                    throw NonRetryableSyncException("This animal was already scanned on another phone. Its video is recorded there.")
+                row.animalRowId.isBlank() ->
+                    throw IllegalStateException("Waiting for this animal's scan to finish syncing.")
+                else -> row.animalRowId
+            }
+        }
+        api.registerPcCareSlotProof(
+            payload.taskId,
+            animalRowId,
+            payload.slotFieldKey,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        // The route returns no body; store an empty JSON object like other body-less successes.
+        return "{}"
+    }
+
+    /**
+     * The WHOLE-task PC Care submit. Drains after every coupled PROOF_UPLOAD and
+     * [dispatchPcCareSlotRegister] row on the same task group, so the server holds every slot
+     * before the gate check runs. A `422 proof_incomplete` / `422 no_animals` is terminal by
+     * [recordFailure]'s check and surfaces the server's own sentence to the operator.
+     */
+    private suspend fun dispatchPcCareTaskSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareTaskSubmitPayload>(item.payloadJson)
+        val response = api.submitPcCareTask(payload.taskId, item.idempotencyKey)
         return syncJson.encodeToString(response)
     }
 
