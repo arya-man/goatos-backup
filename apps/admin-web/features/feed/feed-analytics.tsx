@@ -705,8 +705,10 @@ function ExperimentTab({
         </section>
       )}
       <section className="card" aria-label={fa(pageContract, "wastage.title")}>
-        <h2 className="h">{fa(pageContract, "wastage.title")}</h2>
-        <p className="muted small">{fa(pageContract, "wastage.hint")}</p>
+        <div className="hd">
+          <h3>{fa(pageContract, "wastage.title")}</h3>
+          <span className="small muted">{fa(pageContract, "wastage.hint")}</span>
+        </div>
         <FeedFilters
           basePath={PAGE_PATH}
           pageParam="fa_offset"
@@ -813,10 +815,14 @@ function StockCards({
         </section>
       )}
       <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.farms.title")}>
-        <h2 className="h">{fa(pageContract, "stock.farms.title")}</h2>
-        <p className="muted small">{fa(pageContract, "stock.farms.hint")}</p>
+        <div className="hd">
+          <h3>{fa(pageContract, "stock.farms.title")}</h3>
+          <span className="small muted">{fa(pageContract, "stock.farms.hint")}</span>
+        </div>
         {farmItems.length === 0 ? (
-          <p className="muted small">{fa(pageContract, "stock.farms.empty")}</p>
+          <div className="bd">
+            <p className="muted small">{fa(pageContract, "stock.farms.empty")}</p>
+          </div>
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
             <table className="tbl">
@@ -848,22 +854,10 @@ function StockCards({
                           `${fa(pageContract, "stock.farms.batch")} ${row.last_load_batch_no}`,
                           row.last_load_date,
                           `${nf(num(row.last_load_quantity_kg))} ${fa(pageContract, "unit.kg")}`,
-                          row.last_load_per_kg_cost === ""
-                            ? null
-                            : `${fa(pageContract, "unit.rupees")}${row.last_load_per_kg_cost}/${fa(pageContract, "unit.kg")}`,
-                        ]
-                          .filter((part) => part !== null)
-                          .join(" · ")}
+                        ].join(" · ")}
                       </div>
-                      {row.last_load_vendor !== "" || row.last_load_payment_status !== "" ? (
-                        <div className="muted small">
-                          {[
-                            row.last_load_vendor === "" ? null : row.last_load_vendor,
-                            row.last_load_payment_status === "" ? null : row.last_load_payment_status,
-                          ]
-                            .filter((part) => part !== null)
-                            .join(" · ")}
-                        </div>
+                      {row.last_load_vendor !== "" ? (
+                        <div className="muted small">{row.last_load_vendor}</div>
                       ) : null}
                     </td>
                   </tr>
