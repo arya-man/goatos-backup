@@ -195,6 +195,7 @@ data class PcCarePlanUiState(
     val pensLoading: Boolean = false,
     val pensEndReached: Boolean = true,
     val selectedShedId: String = "",
+    val selectedPartitionLabel: String = "",
     val selectedPenLabel: String = "",
     val selectedOperatorIds: Set<String> = emptySet(),
     val creating: Boolean = false,
@@ -211,7 +212,7 @@ sealed interface PcCarePlanEvent {
     data class SelectCategory(val key: String) : PcCarePlanEvent
     data class SelectDate(val date: LocalDate) : PcCarePlanEvent
     data class SelectPark(val parkId: String) : PcCarePlanEvent
-    data class SelectPen(val shedId: String) : PcCarePlanEvent
+    data class SelectPen(val shedId: String, val partitionLabel: String) : PcCarePlanEvent
     data object LoadMorePens : PcCarePlanEvent
     data class ToggleOperator(val userId: String) : PcCarePlanEvent
     data object NextStep : PcCarePlanEvent

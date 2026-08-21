@@ -100,7 +100,7 @@ class PcCarePlanViewModel @Inject constructor(
             is PcCarePlanEvent.SelectCategory -> selectCategory(event.key)
             is PcCarePlanEvent.SelectDate -> selectCreateDate(event.date)
             is PcCarePlanEvent.SelectPark -> selectPark(event.parkId)
-            is PcCarePlanEvent.SelectPen -> selectPen(event.shedId)
+            is PcCarePlanEvent.SelectPen -> selectPen(event.shedId, event.partitionLabel)
             PcCarePlanEvent.LoadMorePens -> loadPens(append = true)
             is PcCarePlanEvent.ToggleOperator -> toggleOperator(event.userId)
             PcCarePlanEvent.NextStep -> nextStep()
@@ -203,6 +203,7 @@ class PcCarePlanViewModel @Inject constructor(
                 pens = emptyList(),
                 pensEndReached = true,
                 selectedShedId = "",
+                selectedPartitionLabel = "",
                 selectedPenLabel = "",
                 selectedOperatorIds = emptySet(),
                 message = null,
@@ -223,6 +224,7 @@ class PcCarePlanViewModel @Inject constructor(
                 // Category changes invalidate the pen list (dedup is per category+date).
                 pens = emptyList(),
                 selectedShedId = "",
+                selectedPartitionLabel = "",
                 selectedPenLabel = "",
             )
         }
@@ -231,18 +233,25 @@ class PcCarePlanViewModel @Inject constructor(
     private fun selectCreateDate(date: LocalDate) {
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
         if (date < today || date > today.plusDays(FUTURE_WINDOW_DAYS)) return
-        _state.update { it.copy(selectedDate = date.toString(), pens = emptyList(), selectedShedId = "", selectedPenLabel = "") }
+        _state.update { it.copy(selectedDate = date.toString(), pens = emptyList(), selectedShedId = "", selectedPartitionLabel = "", selectedPenLabel = "") }
     }
 
     private fun selectPark(parkId: String) {
         val label = _state.value.parks.firstOrNull { it.key == parkId }?.label.orEmpty()
-        _state.update { it.copy(selectedParkId = parkId, selectedParkLabel = label, pens = emptyList(), selectedShedId = "", selectedPenLabel = "") }
+        _state.update { it.copy(selectedParkId = parkId, selectedParkLabel = label, pens = emptyList(), selectedShedId = "", selectedPartitionLabel = "", selectedPenLabel = "") }
     }
 
-    private fun selectPen(shedId: String) {
-        val pen = _state.value.pens.firstOrNull { it.shedId == shedId } ?: return
+    private fun selectPen(shedId: String, partitionLabel: String) {
+        // Pens are one row PER PARTITION, so shedId alone is not unique (Castro 1/2/3 share it).
+        val pen = _state.value.pens.firstOrNull { it.shedId == shedId && it.partitionLabel == partitionLabel } ?: return
         if (pen.existingTaskId.isNotBlank()) return
-        _state.update { it.copy(selectedShedId = shedId, selectedPenLabel = pen.locationDisplay) }
+        _state.update {
+            it.copy(
+                selectedShedId = shedId,
+                selectedPartitionLabel = pen.partitionLabel,
+                selectedPenLabel = pen.locationDisplay,
+            )
+        }
     }
 
     private fun toggleOperator(userId: String) {
@@ -343,7 +352,6 @@ class PcCarePlanViewModel @Inject constructor(
         _state.update { it.copy(creating = true) }
         viewModelScope.launch {
             try {
-                val pen = current.pens.firstOrNull { it.shedId == current.selectedShedId }
                 repository.createTask(
                     // REUSED on retry: a network blip + second tap replays the SAME planned task.
                     idempotencyKey = createIdempotencyKey,
@@ -351,7 +359,7 @@ class PcCarePlanViewModel @Inject constructor(
                         category = current.selectedCategoryKey,
                         parkId = current.selectedParkId,
                         shedId = current.selectedShedId,
-                        partitionLabel = pen?.partitionLabel.orEmpty(),
+                        partitionLabel = current.selectedPartitionLabel,
                         plannedBusinessDate = current.selectedDate,
                         assigneeUserIds = current.selectedOperatorIds.toList(),
                     ),

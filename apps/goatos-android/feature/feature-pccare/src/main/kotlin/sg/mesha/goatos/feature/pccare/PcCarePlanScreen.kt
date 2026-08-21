@@ -225,7 +225,7 @@ private fun PlanCreateWizard(
                             .background(if (pen.shedId == state.selectedShedId) MeshaColors.Surf2 else MeshaColors.Surf)
                             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
                             // A pen already covered by a live task is greyed out and inert.
-                            .clickable(enabled = !taken) { onEvent(PcCarePlanEvent.SelectPen(pen.shedId)) }
+                            .clickable(enabled = !taken) { onEvent(PcCarePlanEvent.SelectPen(pen.shedId, pen.partitionLabel)) }
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
