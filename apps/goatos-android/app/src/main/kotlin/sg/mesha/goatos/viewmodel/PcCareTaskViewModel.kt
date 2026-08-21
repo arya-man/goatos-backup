@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.PcCareRepository
 import sg.mesha.goatos.core.data.PcCareScanOutcome
+import sg.mesha.goatos.core.data.normalizePcCareTag
 import sg.mesha.goatos.core.data.cache.PcCareAnimalRowEntity
 import sg.mesha.goatos.core.data.cache.PcCareScanStatus
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
@@ -42,11 +43,13 @@ import sg.mesha.goatos.core.network.dto.PcCareAnimalSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.feature.pccare.PcCareAnimalUi
+import sg.mesha.goatos.feature.pccare.PcCareRosterRowUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotChipUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotState
 import sg.mesha.goatos.feature.pccare.PcCareTaskEvent
 import sg.mesha.goatos.feature.pccare.PcCareTaskUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.rfid.RfidReaderStatus
 import javax.inject.Inject
 
 /**
@@ -90,6 +93,9 @@ class PcCareTaskViewModel @Inject constructor(
         val isRefreshing: Boolean = false,
         /** The (tag:slot) key whose camera is open right now — [onRecordSlot]'s single-flight guard. */
         val capturingSlotKey: String? = null,
+        val readerName: String = "",
+        val readerStatusLabel: String = "",
+        val readerConnected: Boolean = false,
     )
 
     private val local = MutableStateFlow(LocalBits())
@@ -99,14 +105,17 @@ class PcCareTaskViewModel @Inject constructor(
     private var latestDetail: PcCareTaskDto? = null
     private var latestAnimals: List<PcCareAnimalRowEntity> = emptyList()
     private var latestProofs: List<ProofCaptureRow> = emptyList()
+    private var latestRoster: List<String> = emptyList()
+    private var rosterRefreshRequested = false
 
     val state: StateFlow<PcCareTaskUiState> = combine(
         repository.observeTaskDetail(taskId),
         repository.observeAnimals(taskId),
         proofCaptureRepository.observeProofs(taskId),
+        repository.observeRoster(taskId),
         local,
-    ) { detail, animals, proofs, bits ->
-        buildState(detail, animals, proofs, bits)
+    ) { detail, animals, proofs, roster, bits ->
+        buildState(detail, animals, proofs, roster, bits)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PcCareTaskUiState(title = categoryTitle))
 
     init {
@@ -117,8 +126,15 @@ class PcCareTaskViewModel @Inject constructor(
         viewModelScope.launch {
             repository.observeTaskDetail(taskId).collect { detail ->
                 latestDetail = detail
+                // The roster tap list exists only for roster_pick work — fetch it once the mode is
+                // known (the mode rides the task contract, so it may arrive after screen entry).
+                if (detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER && !rosterRefreshRequested) {
+                    rosterRefreshRequested = true
+                    viewModelScope.launch { repository.refreshRoster(taskId) }
+                }
             }
         }
+        viewModelScope.launch { repository.observeRoster(taskId).collect { latestRoster = it } }
         viewModelScope.launch {
             repository.observeTaskDetail(taskId)
                 .map { it?.status.orEmpty() }
@@ -139,6 +155,24 @@ class PcCareTaskViewModel @Inject constructor(
         // during an in-flight recording still records the ANIMAL — it must never retarget the
         // pending capture (that identity is fixed at Record-tap time, see [onRecordSlot]).
         viewModelScope.launch { reader.reads.collect { read -> handleScan(read.tag) } }
+        // Reader banner: the same status + paired-device mapping the weighing capture screen shows.
+        viewModelScope.launch {
+            combine(reader.status, reader.devices) { readerStatus, devices ->
+                Triple(
+                    devices.firstOrNull()?.name ?: "RFID reader",
+                    when (readerStatus) {
+                        RfidReaderStatus.READY -> "Reader connected"
+                        RfidReaderStatus.PAIRED_NOT_READY -> "Reader disconnected"
+                        RfidReaderStatus.NOT_PAIRED -> "Reader not paired"
+                        RfidReaderStatus.PERMISSION_NEEDED -> "Bluetooth permission needed"
+                        RfidReaderStatus.BLUETOOTH_OFF -> "Bluetooth off"
+                    },
+                    readerStatus == RfidReaderStatus.READY,
+                )
+            }.collect { (name, label, connected) ->
+                local.update { it.copy(readerName = name, readerStatusLabel = label, readerConnected = connected) }
+            }
+        }
         // Peer-visibility poll, BOUNDED (a bare while(isActive) delay-loop hangs any
         // advanceUntilIdle in tests — see FeedDistributionCompleteViewModel's same-shaped loop).
         viewModelScope.launch {
@@ -164,7 +198,10 @@ class PcCareTaskViewModel @Inject constructor(
             PcCareTaskEvent.ConfirmSubmit -> confirmSubmit()
             PcCareTaskEvent.DismissSubmitConfirmation ->
                 local.update { it.copy(showSubmitConfirmation = false) }
+            is PcCareTaskEvent.RosterTapped -> onRosterTapped(event.tagKey)
             PcCareTaskEvent.Refresh -> refresh()
+            // Handled by the host (navigates to the reader pairing screen).
+            PcCareTaskEvent.ReconnectReader -> Unit
             PcCareTaskEvent.Back -> Unit
         }
     }
@@ -183,6 +220,9 @@ class PcCareTaskViewModel @Inject constructor(
                 is PcCareScanOutcome.Queued -> {
                     analytics.track(AnalyticsEvents.PC_CARE_SCAN_ACCEPTED)
                     if (fromTypedEntry) local.update { it.copy(scanInput = "") }
+                    // Scan-and-record (deworming / ticks removal): the recorder opens the moment a
+                    // NEW tag lands — the scan IS the start of that animal's video.
+                    autoRecordAfterScan(verbatim)
                 }
                 is PcCareScanOutcome.Duplicate -> {
                     analytics.track(AnalyticsEvents.PC_CARE_SCAN_DUPLICATE)
@@ -195,6 +235,55 @@ class PcCareTaskViewModel @Inject constructor(
                         mapOf(AnalyticsEvents.Params.REASON to outcome.reason.take(MAX_REASON_CHARS)),
                     )
                     local.update { it.copy(message = "Couldn't add this tag. Try again.") }
+                }
+            }
+        }
+    }
+
+    /**
+     * Scan-and-record: opens the recorder for the freshly scanned animal's video. Skips silently
+     * when a recording is already in flight (the scan itself is durable; the operator records
+     * that animal from its row) and does nothing in roster mode, where the tap owns recording.
+     */
+    private fun autoRecordAfterScan(tagVerbatim: String) {
+        val detail = latestDetail ?: return
+        if (detail.captureMode == PC_CARE_CAPTURE_MODE_ROSTER) return
+        if (local.value.capturingSlotKey != null) return
+        val slotFieldKey = detail.expectedSlots.firstOrNull()?.fieldKey ?: return
+        onRecordSlot(normalizePcCareTag(tagVerbatim), slotFieldKey, tagVerbatimFallback = tagVerbatim)
+    }
+
+    /**
+     * Roster mode: a tap on a pen-roster row records that animal. A tag not yet in the task is
+     * scanned in first (the SAME free-flow scan write), then the recorder opens.
+     */
+    private fun onRosterTapped(tagKey: String) {
+        val detail = latestDetail ?: return
+        if (isLifecycleLocked(detail)) return
+        if (local.value.capturingSlotKey != null) {
+            local.update { it.copy(message = "Finish the current video first.") }
+            return
+        }
+        val slotFieldKey = detail.expectedSlots.firstOrNull()?.fieldKey ?: return
+        val animal = latestAnimals.firstOrNull { it.normalizedTag == tagKey }
+        if (animal != null) {
+            onRecordSlot(tagKey, slotFieldKey)
+            return
+        }
+        // The tap IS the scan: record the tag into the task, then open the recorder.
+        val verbatim = latestRoster.firstOrNull { normalizePcCareTag(it) == tagKey } ?: tagKey
+        viewModelScope.launch {
+            when (val outcome = repository.recordScan(taskId, verbatim)) {
+                is PcCareScanOutcome.Queued, is PcCareScanOutcome.Duplicate -> {
+                    analytics.track(AnalyticsEvents.PC_CARE_SCAN_ACCEPTED)
+                    onRecordSlot(tagKey, slotFieldKey, tagVerbatimFallback = verbatim)
+                }
+                is PcCareScanOutcome.Failed -> {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_FAILURE,
+                        mapOf(AnalyticsEvents.Params.REASON to outcome.reason.take(MAX_REASON_CHARS)),
+                    )
+                    local.update { it.copy(message = "Couldn't add this animal. Try again.") }
                 }
             }
         }
@@ -218,7 +307,7 @@ class PcCareTaskViewModel @Inject constructor(
      * being recorded records that animal into the task but can NEVER retarget this capture (the
      * weighing mid-recording defect class).
      */
-    private fun onRecordSlot(tagKey: String, slotFieldKey: String) {
+    private fun onRecordSlot(tagKey: String, slotFieldKey: String, tagVerbatimFallback: String? = null) {
         val bits = local.value
         if (bits.capturingSlotKey != null) {
             local.update { it.copy(message = "Finish the current video first.") }
@@ -227,7 +316,11 @@ class PcCareTaskViewModel @Inject constructor(
         val detail = latestDetail
         if (detail == null || isLifecycleLocked(detail)) return
         val slotDto = detail.expectedSlots.firstOrNull { it.fieldKey == slotFieldKey } ?: return
-        val animal = latestAnimals.firstOrNull { it.normalizedTag == tagKey } ?: return
+        // A just-scanned animal's Room row may not have re-emitted yet — the caller supplies the
+        // verbatim tag so an auto-record straight off the scan never loses the race.
+        val animalTagVerbatim = latestAnimals.firstOrNull { it.normalizedTag == tagKey }?.tagVerbatim
+            ?: tagVerbatimFallback
+            ?: return
         val slotKey = pcCareSlotProofFieldKey(tagKey, slotFieldKey)
         local.update { it.copy(capturingSlotKey = slotKey, message = null) }
         analytics.track(
@@ -242,7 +335,7 @@ class PcCareTaskViewModel @Inject constructor(
                             // Backend-owned slot label leads the recorder chrome; the duration
                             // hint is GUIDANCE only — never a client-enforced cap.
                             title = slotDto.label,
-                            primaryTag = animal.tagVerbatim,
+                            primaryTag = animalTagVerbatim,
                             workLabel = pcCareSlotHintLabel(slotDto.minDurationHintSeconds),
                             headerTitle = categoryTitle.ifBlank { null },
                         ),
@@ -267,8 +360,8 @@ class PcCareTaskViewModel @Inject constructor(
                         subjectId = tagKey,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
-                        caption = "${slotDto.label} · ${animal.tagVerbatim}",
-                        rfidTag = animal.tagVerbatim,
+                        caption = "${slotDto.label} · $animalTagVerbatim",
+                        rfidTag = animalTagVerbatim,
                         scopeType = "pc_care_task",
                         scopeId = taskId,
                         capturedStartMs = captured.startedAtMs,
@@ -406,10 +499,17 @@ class PcCareTaskViewModel @Inject constructor(
         detail: PcCareTaskDto?,
         animals: List<PcCareAnimalRowEntity>,
         proofs: List<ProofCaptureRow>,
+        roster: List<String>,
         bits: LocalBits,
     ): PcCareTaskUiState {
         val locked = isLifecycleLocked(detail) || bits.submitQueued
         val expectedSlots = detail?.expectedSlots.orEmpty()
+        val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
+        val rosterRows = if (rosterMode) {
+            pcCareBuildRosterRows(expectedSlots, roster, animals, proofs, bits.capturingSlotKey, json)
+        } else {
+            emptyList()
+        }
         val evaluation = pcCareEvaluateSubmit(expectedSlots, animals, proofs, json)
         return PcCareTaskUiState(
             title = categoryTitle.ifBlank { detail?.category.orEmpty() },
@@ -428,9 +528,19 @@ class PcCareTaskViewModel @Inject constructor(
             scanNotice = bits.scanNotice,
             animals = pcCareBuildAnimalUis(expectedSlots, animals, proofs, bits.capturingSlotKey, json),
             animalCountLabel = when {
+                rosterMode && rosterRows.isNotEmpty() ->
+                    "${rosterRows.count { it.done }} of ${rosterRows.size} recorded"
+                rosterMode -> ""
                 animals.isEmpty() -> ""
                 animals.size == 1 -> "1 animal"
                 else -> "${animals.size} animals"
+            },
+            rosterMode = rosterMode,
+            rosterRows = rosterRows,
+            rosterEmptyNotice = if (rosterMode && rosterRows.isEmpty() && !bits.isRefreshing) {
+                "No tagged animals listed for this pen yet — scan tags instead."
+            } else {
+                ""
             },
             submitEnabled = evaluation.ready && !locked,
             submitBlockedReason = if (!evaluation.ready && !locked) evaluation.blockedReason else "",
@@ -439,6 +549,9 @@ class PcCareTaskViewModel @Inject constructor(
             submitQueued = bits.submitQueued,
             message = bits.message,
             isRefreshing = bits.isRefreshing,
+            readerName = bits.readerName,
+            readerStatusLabel = bits.readerStatusLabel,
+            readerConnected = bits.readerConnected,
         )
     }
 
@@ -452,6 +565,9 @@ class PcCareTaskViewModel @Inject constructor(
     }
 
     companion object {
+        /** Backend capture_mode token for the roster-tap flow (trimming work). */
+        internal const val PC_CARE_CAPTURE_MODE_ROSTER = "roster_pick"
+
         const val ARG_TASK_ID = "task_id"
         const val ARG_CATEGORY = "category"
         const val ARG_TITLE = "title"
@@ -604,6 +720,51 @@ internal fun pcCareBuildAnimalUis(
             },
         )
     }
+}
+
+/**
+ * Derives the roster-tap rows: one per pen-roster RFID, in roster order, each carrying the video
+ * state of the FIRST expected slot (roster categories are one video per animal). Animals scanned
+ * into the task but absent from the roster append after, so no recorded work is ever hidden.
+ */
+internal fun pcCareBuildRosterRows(
+    expectedSlots: List<PcCareSlotDto>,
+    roster: List<String>,
+    animals: List<PcCareAnimalRowEntity>,
+    proofs: List<ProofCaptureRow>,
+    capturingSlotKey: String?,
+    json: Json,
+): List<PcCareRosterRowUi> {
+    val slot = expectedSlots.firstOrNull() ?: return emptyList()
+    val proofsByAnimal = proofs.groupBy { it.fieldKey.substringBefore(':') }
+    val animalsByTag = animals.associateBy { it.normalizedTag }
+
+    fun rowFor(tagKey: String, tagVerbatim: String): PcCareRosterRowUi {
+        val animal = animalsByTag[tagKey]
+            ?: return PcCareRosterRowUi(key = tagKey, tagLabel = tagVerbatim)
+        val chip = pcCareSlotChip(
+            slot = slot,
+            normalizedTag = tagKey,
+            animalProofs = proofsByAnimal[tagKey].orEmpty(),
+            serverSlots = decodeServerSlots(json, animal.serverSlotsJson),
+            capturingSlotKey = capturingSlotKey,
+        )
+        return PcCareRosterRowUi(
+            key = tagKey,
+            tagLabel = animal.tagVerbatim,
+            statusLabel = chip.statusLabel,
+            done = chip.state == PcCareSlotState.SYNCED || chip.state == PcCareSlotState.PEER,
+            working = chip.state == PcCareSlotState.WORKING,
+        )
+    }
+
+    val rosterKeys = LinkedHashMap<String, String>()
+    roster.forEach { id -> rosterKeys.putIfAbsent(normalizePcCareTag(id), id) }
+    val rows = rosterKeys.map { (key, verbatim) -> rowFor(key, verbatim) }
+    val extras = animals
+        .filter { it.normalizedTag !in rosterKeys }
+        .map { rowFor(it.normalizedTag, it.tagVerbatim) }
+    return rows + extras
 }
 
 internal data class PcCareSubmitEvaluation(

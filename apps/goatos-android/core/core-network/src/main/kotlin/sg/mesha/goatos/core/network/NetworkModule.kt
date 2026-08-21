@@ -60,6 +60,7 @@ import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -747,6 +748,13 @@ interface AppApiService {
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): PcCareCapturesDto
+
+    @GET("app/pc-care/tasks/{task_id}/roster")
+    suspend fun getPcCareTaskRoster(
+        @Path("task_id") taskId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCareTaskRosterDto
 
     @POST("app/pc-care/tasks/{task_id}/animals")
     suspend fun scanPcCareAnimal(
@@ -1539,6 +1547,12 @@ class RetrofitAppApi(
         cursor: String?,
         limit: Int?,
     ): PcCareCapturesDto = service.getPcCareTaskCaptures(taskId, cursor, limit)
+
+    override suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareTaskRosterDto = service.getPcCareTaskRoster(taskId, cursor, limit)
 
     override suspend fun scanPcCareAnimal(
         taskId: String,

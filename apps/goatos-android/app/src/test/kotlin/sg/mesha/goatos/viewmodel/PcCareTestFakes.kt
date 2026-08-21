@@ -102,6 +102,16 @@ internal class FakePcCareRepository : PcCareRepository {
 
     override fun observeAnimals(taskId: String): Flow<List<PcCareAnimalRowEntity>> = animalsFlow
 
+    val rosterFlow = MutableStateFlow<List<String>>(emptyList())
+    var rosterRefreshCount = 0
+        private set
+
+    override fun observeRoster(taskId: String): Flow<List<String>> = rosterFlow
+
+    override suspend fun refreshRoster(taskId: String) {
+        rosterRefreshCount++
+    }
+
     override suspend fun pollTaskOnce(taskId: String) {
         pollCount++
     }

@@ -139,6 +139,35 @@ data class PcCareTaskUiState(
     val submitQueued: Boolean = false,
     val message: String? = null,
     val isRefreshing: Boolean = false,
+    /** Bluetooth RFID reader banner: name + farm-worded status; tap reconnects/pairs. */
+    val readerName: String = "",
+    val readerStatusLabel: String = "",
+    val readerConnected: Boolean = false,
+    /**
+     * True for the roster-tap capture flow (backend `capture_mode` = roster_pick — the trimming
+     * work): the screen lists the pen's RFIDs and tapping one records that animal's video. False
+     * is scan-and-record: scanning a tag opens the recorder immediately.
+     */
+    val rosterMode: Boolean = false,
+    /** The pen's tap list, one row per RFID (roster mode only). */
+    val rosterRows: List<PcCareRosterRowUi> = emptyList(),
+    /** Farm copy when the pen has no listed animals; blank while loading or non-roster mode. */
+    val rosterEmptyNotice: String = "",
+)
+
+/** One tappable pen-roster row: the animal's RFID and its video state. */
+@Immutable
+data class PcCareRosterRowUi(
+    /** Stable row key — the normalized tag. */
+    val key: String,
+    /** The RFID, verbatim. */
+    val tagLabel: String,
+    /** Live status ("Video sent", "Uploading…", "Captured by X"); blank when not yet recorded. */
+    val statusLabel: String = "",
+    /** True once this animal's video is durably captured (this phone or a peer). */
+    val done: Boolean = false,
+    /** True while this row's camera is open or its clip is mid-pipeline. */
+    val working: Boolean = false,
 )
 
 sealed interface PcCareTaskEvent {
@@ -150,6 +179,12 @@ sealed interface PcCareTaskEvent {
     data object DismissSubmitConfirmation : PcCareTaskEvent
     data object Refresh : PcCareTaskEvent
     data object Back : PcCareTaskEvent
+
+    /** Tap on the reader banner — the host navigates to the reader pairing screen. */
+    data object ReconnectReader : PcCareTaskEvent
+
+    /** Tap on a pen-roster row (roster mode): record this animal's video. */
+    data class RosterTapped(val tagKey: String) : PcCareTaskEvent
 }
 
 // ---------------------------------------------------------------------------

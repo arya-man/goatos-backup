@@ -55,6 +55,25 @@ const (
 	SlotAfter  = "after_video"
 )
 
+// Capture modes (maintainer decision 2026-08-21, second pass). The quick jobs — deworming and
+// ticks removal — are SCAN-AND-RECORD: the operator scans a tag and the phone opens the video
+// recorder immediately. The trimming jobs are ROSTER-PICK: the screen lists the RFIDs of the
+// animals currently in the task's pen and the operator taps one to record. These are
+// STORAGE/CONTRACT tokens; the client branches on the task contract's capture_mode verbatim.
+const (
+	CaptureModeScanRecord = "scan_record"
+	CaptureModeRosterPick = "roster_pick"
+)
+
+// CaptureModeForCategory maps a work category to its capture mode.
+func CaptureModeForCategory(category string) string {
+	switch category {
+	case CategoryHoofTrimming, CategoryHairTrimming:
+		return CaptureModeRosterPick
+	}
+	return CaptureModeScanRecord
+}
+
 // Slot describes one expected proof slot for a category, as served to clients on the task
 // detail contract. Label is backend-owned farm copy rendered verbatim.
 type Slot struct {
@@ -74,18 +93,14 @@ func SlotsForCategory(category string) []Slot {
 		return []Slot{{FieldKey: SlotVideo, Label: "Deworming video"}}
 	case CategoryTicksRemoval:
 		return []Slot{{FieldKey: SlotVideo, Label: "Ticks removal video"}}
+	// Maintainer decision 2026-08-21 (second pass): the trimming categories are ONE video per
+	// animal — the operator taps the animal's RFID off the pen roster and records. The
+	// before/during/after slot keys and columns remain valid storage for historical rows but are
+	// no longer part of any category's expected set.
 	case CategoryHoofTrimming:
-		return []Slot{
-			{FieldKey: SlotBefore, Label: "Before trimming"},
-			{FieldKey: SlotDuring, Label: "While trimming", MinDurationHintSeconds: 10},
-			{FieldKey: SlotAfter, Label: "After trimming"},
-		}
+		return []Slot{{FieldKey: SlotVideo, Label: "Hoof trimming video"}}
 	case CategoryHairTrimming:
-		return []Slot{
-			{FieldKey: SlotBefore, Label: "Before trimming"},
-			{FieldKey: SlotDuring, Label: "While trimming", MinDurationHintSeconds: 10},
-			{FieldKey: SlotAfter, Label: "After trimming"},
-		}
+		return []Slot{{FieldKey: SlotVideo, Label: "Hair trimming video"}}
 	}
 	return nil
 }

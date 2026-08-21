@@ -386,6 +386,74 @@ LIMIT $4`, tenantID, taskID, strings.TrimSpace(cursor), limit+1)
 	return out, nextCursor, nil
 }
 
+// TaskShedRoster pages the active RFIDs of alive animals currently resident in the task's shed,
+// narrowed to the task's pen when it has a partition. Keyset on identifier value. This is a
+// READ-ONLY tap list for the roster-pick capture mode: a tap records a normal free-flow scan, so
+// this query never gates capture, submit, or what a scanned string may store.
+func (r *Repository) TaskShedRoster(ctx context.Context, tenantID, taskID, cursor string, limit int) (ports.TaskRosterPage, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var shedID, partitionLabel string
+	err := r.pool.QueryRow(ctx, `
+SELECT shed_id::text, coalesce(partition_label, '')
+FROM pc_care_tasks
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, tenantID, taskID).Scan(&shedID, &partitionLabel)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.TaskRosterPage{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return ports.TaskRosterPage{}, fmt.Errorf("pccare: read task pen: %w", err)
+	}
+
+	// Partition residency comes from goat_shed_partitions (per-goat pen), matched on the same
+	// lower(btrim()) normalization pc_care_tasks.partition_key uses; a whole-shed task lists the
+	// whole shed. 'whole' in goat_shed_partitions is a matching key meaning "no pen".
+	partitionKey := domain.PartitionMatchKey(partitionLabel)
+
+	// scale-guard:ignore: one keyset page of ONE pen's resident RFIDs, bounded by limit and covered by goats(tenant_id, shed_id) + goat_identifiers(tenant_id, goat_id) + goat_shed_partitions_shed_partition_idx.
+	rows, err := r.pool.Query(ctx, `
+SELECT gi.identifier_value
+FROM goats g
+JOIN goat_identifiers gi
+  ON gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+ AND gi.identifier_type = 'rfid' AND gi.status = 'active'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid
+  AND g.shed_id = $2::uuid
+  AND g.lifecycle_status = 'alive'
+  AND ($3::text = 'whole' OR lower(btrim(coalesce(gsp.partition_label, ''))) = $3::text)
+  AND ($4::text = '' OR gi.identifier_value > $4::text)
+ORDER BY gi.identifier_value
+LIMIT $5`, tenantID, shedID, partitionKey, strings.TrimSpace(cursor), limit+1)
+	if err != nil {
+		return ports.TaskRosterPage{}, fmt.Errorf("pccare: list pen roster: %w", err)
+	}
+	defer rows.Close()
+
+	page := ports.TaskRosterPage{Identifiers: make([]string, 0, limit)}
+	for rows.Next() {
+		var identifier string
+		if err := rows.Scan(&identifier); err != nil {
+			return ports.TaskRosterPage{}, fmt.Errorf("pccare: scan roster row: %w", err)
+		}
+		page.Identifiers = append(page.Identifiers, identifier)
+	}
+	if err := rows.Err(); err != nil {
+		return ports.TaskRosterPage{}, err
+	}
+	if len(page.Identifiers) > limit {
+		page.Identifiers = page.Identifiers[:limit]
+		page.NextCursor = page.Identifiers[len(page.Identifiers)-1]
+	}
+	return page, nil
+}
+
 // memberNames resolves user ids to display names in one bounded read.
 func (r *Repository) memberNames(ctx context.Context, tenantID string, idSet map[string]struct{}) (map[string]string, error) {
 	names := map[string]string{}

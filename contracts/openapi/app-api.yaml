@@ -4981,9 +4981,11 @@ paths:
       operationId: appGetPCCareTask
       summary: One PC Care task with its backend-owned expected slot contract.
       description: >-
-        expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for
-        deworming/ticks removal; before/during/after for the trimming categories). Clients iterate
-        it verbatim and never hardcode a category-to-slot map.
+        expected_slots is the BACKEND-OWNED proof contract for the task's category (one video per
+        animal for every category). capture_mode is the BACKEND-OWNED capture flow: scan_record
+        (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick
+        (the trimming categories — tap an RFID off the pen roster to record). Clients branch on
+        both verbatim and never hardcode a category-to-slot or category-to-mode map.
       parameters:
         - in: path
           name: task_id
@@ -4993,6 +4995,37 @@ paths:
         "200":
           description: The task.
           content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTask" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/tasks/{task_id}/roster:
+    get:
+      tags: [PC Care]
+      operationId: appPCCareTaskRoster
+      summary: The roster-pick tap list — RFIDs of animals currently in the task's pen.
+      description: >-
+        Read-only, for capture_mode roster_pick (the trimming categories). Lists the active RFIDs
+        of alive animals resident in the task's shed, narrowed to the task's pen when it has a
+        partition. Tapping one records a normal free-flow scan; this list never gates what a scan
+        may store. Keyset-paged on identifier value.
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: One page of the pen's resident RFIDs.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCareTaskRoster" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
@@ -13506,6 +13539,13 @@ components:
           type: array
           items: { type: string }
         animal_count: { type: integer }
+        capture_mode:
+          type: string
+          enum: [scan_record, roster_pick]
+          description: >-
+            Backend-owned capture flow for this task's category. scan_record — scanning a tag
+            opens the video recorder immediately. roster_pick — the screen lists the pen's
+            resident RFIDs (GET .../roster) and tapping one records that animal.
         expected_slots:
           type: array
           items: { $ref: "#/components/schemas/PCCareSlot" }
@@ -13525,7 +13565,20 @@ components:
         - assignee_user_ids
         - assignee_names
         - animal_count
+        - capture_mode
         - expected_slots
+    PCCareTaskRoster:
+      type: object
+      description: >-
+        One keyset page of the RFIDs of animals currently resident in a task's pen — the
+        roster-pick capture mode's tap list. Identifiers are verbatim; the list never gates a
+        scan.
+      properties:
+        identifiers:
+          type: array
+          items: { type: string }
+        next_cursor: { type: string }
+      required: [identifiers]
     PCCareTaskPage:
       type: object
       properties:

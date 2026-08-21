@@ -934,6 +934,8 @@ private class DeferredPcCareRepository(
     override fun observeTaskRowStatus(taskId: String) = delegate.observeTaskRowStatus(taskId)
     override suspend fun refreshTaskDetail(taskId: String) = delegate.refreshTaskDetail(taskId)
     override fun observeAnimals(taskId: String) = delegate.observeAnimals(taskId)
+    override fun observeRoster(taskId: String) = delegate.observeRoster(taskId)
+    override suspend fun refreshRoster(taskId: String) = delegate.refreshRoster(taskId)
     override suspend fun pollTaskOnce(taskId: String) = delegate.pollTaskOnce(taskId)
     override suspend fun recordScan(taskId: String, tagVerbatim: String) = delegate.recordScan(taskId, tagVerbatim)
     override suspend fun registerSlotProof(
