@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -140,12 +141,19 @@ class PcCareTaskViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { repository.observeRoster(taskId).collect { latestRoster = it } }
-        // Per-animal capture drill: entering the screen records the tag into the task (the SAME
-        // free-flow scan write; a tag already present is a Duplicate no-op).
-        if (focusTagVerbatim.isNotBlank()) {
-            viewModelScope.launch {
-                if (!isLifecycleLocked(latestDetail)) {
-                    repository.recordScan(taskId, focusTagVerbatim)
+        // Self-healing registration reconcile: a clip whose UPLOAD row is durable but whose slot
+        // registration enqueue was lost (back-press or process death between the upload enqueue
+        // and the registration write) is re-enqueued here under the SAME stable idempotency key,
+        // so a duplicate is a no-op and a lost one is repaired on every screen open.
+        viewModelScope.launch {
+            val proofs = proofCaptureRepository.observeProofs(taskId).first()
+            proofs.forEach { row ->
+                val outboxId = row.outboxItemId
+                if (outboxId.isNullOrBlank() || row.syncStatus == CaptureSyncStatus.FAILED) return@forEach
+                val tag = row.fieldKey.substringBefore(':')
+                val slot = row.fieldKey.substringAfter(':')
+                if (tag.isNotBlank() && slot.isNotBlank() && slot != row.fieldKey) {
+                    repository.registerSlotProof(taskId, tag, slot, outboxId)
                 }
             }
         }
@@ -298,9 +306,11 @@ class PcCareTaskViewModel @Inject constructor(
         if (detail == null || isLifecycleLocked(detail)) return
         val slotDto = detail.expectedSlots.firstOrNull { it.fieldKey == slotFieldKey } ?: return
         // A just-scanned animal's Room row may not have re-emitted yet — the caller supplies the
-        // verbatim tag so an auto-record straight off the scan never loses the race.
+        // verbatim tag (or it is this drill's focus animal) so a record straight off the roster
+        // tap never loses the race.
         val animalTagVerbatim = latestAnimals.firstOrNull { it.normalizedTag == tagKey }?.tagVerbatim
             ?: tagVerbatimFallback
+            ?: focusTagVerbatim.takeIf { tagKey == focusTagKey && it.isNotBlank() }
             ?: return
         val slotKey = pcCareSlotProofFieldKey(tagKey, slotFieldKey)
         local.update { it.copy(capturingSlotKey = slotKey, message = null) }
@@ -326,6 +336,17 @@ class PcCareTaskViewModel @Inject constructor(
                     null
                 }
                 if (captured == null) return@launch
+                // Everything after a REAL recording is durable bookkeeping — the animal's scan,
+                // the clip's processing/upload enqueue, and the slot registration. It runs
+                // NonCancellable so backing out of the screen (which cancels this ViewModel's
+                // scope) can never orphan a clip the operator actually shot: that exact
+                // cancellation left uploads with no slot registration on 2026-08-21.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                // The FIRST record for a roster animal records its scan (the tap IS the free-flow
+                // scan). A tag already in the task is a Duplicate no-op.
+                if (latestAnimals.none { it.normalizedTag == tagKey }) {
+                    repository.recordScan(taskId, animalTagVerbatim)
+                }
                 val slot = EvidenceSlot(
                     identity = ProofIdentity(
                         flow = ProofFlow.PC_CARE,
@@ -361,7 +382,7 @@ class PcCareTaskViewModel @Inject constructor(
                         val proofOutboxId = result.value.outboxItemId
                         if (proofOutboxId.isNullOrBlank()) {
                             local.update { it.copy(message = "Video didn't save. Record again.") }
-                            return@launch
+                            return@withContext
                         }
                         // Durable draft: re-entering the screen after process death still knows
                         // which slot this queued clip belongs to.
@@ -399,6 +420,7 @@ class PcCareTaskViewModel @Inject constructor(
                         local.update { it.copy(message = result.message) }
                     }
                 }
+                } // NonCancellable
             } finally {
                 local.update { it.copy(capturingSlotKey = null) }
             }
@@ -617,10 +639,12 @@ internal fun pcCareProofPolicy(captureSource: String): ProofPolicy =
         subjectScope = ProofSubject.OTHER.wireValue,
         expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
         captureSource = captureSource,
-        // One active clip per (animal, slot); an animal's slots pool under the per-subject cap,
-        // which comfortably covers the largest slot set (3) plus a transient replacement row.
+        // One active clip per (animal, slot) is the REAL bound (the field key carries the animal
+        // tag). The per-subject budget pools the WHOLE task, because the proof platform requires
+        // a UUID subject and that subject is the TASK — so it must cover a large pen's full
+        // triple (hundreds of clips) plus transient replacement rows, never a per-animal 5.
         maximumCountPerField = 1,
-        maximumCountPerSubject = 5,
+        maximumCountPerSubject = 1200,
     )
 
 private fun decodeServerSlots(json: Json, serverSlotsJson: String): List<PcCareAnimalSlotDto> {
