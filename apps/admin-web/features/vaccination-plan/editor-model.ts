@@ -148,9 +148,24 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
     const code = String(asObject(r.vaccine).code ?? r.row_id ?? "");
     const edited = byCode.get(code);
     if (!edited) return r;
-    r.schedule = edited.on
-      ? applyEdits(Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [], edited, code)
-      : [];
+    // Switching a vaccine OFF must not destroy it. dose_amount, dose_unit,
+    // route_site, catch_up and course_lapse_policy live ONLY on these rules, and
+    // nothing in the editor carries them -- so emptying the schedule threw away
+    // clinical values the farm chose, and switching the vaccine back on later
+    // rebuilt doses that had lost them. The rules are parked instead, and taken
+    // back out when the vaccine returns to the plan.
+    //
+    // "Off" still means an EMPTY schedule, which is what generation reads; the
+    // parked copy is inert to it.
+    const parked = Array.isArray(r.parked_schedule) ? (r.parked_schedule as ScheduleRule[]) : [];
+    const live = Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [];
+    if (edited.on) {
+      r.schedule = applyEdits(live.length > 0 ? live : parked, edited, code);
+      delete r.parked_schedule;
+    } else {
+      if (live.length > 0) r.parked_schedule = live;
+      r.schedule = [];
+    }
     return r;
   });
 

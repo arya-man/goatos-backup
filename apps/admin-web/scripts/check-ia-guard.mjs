@@ -28,7 +28,6 @@ const TOP_LEVEL_COMMAND_ROUTES = new Set([
   "/workflows",
   "/workflows/{param}",
   "/calendar/drive/{param}",
-  "/config",
 ]);
 
 function walk(dir, out, predicate) {
@@ -66,13 +65,14 @@ function hasCommandSegment(route) {
 // segment but which are not a duplicate of that top-level lens.
 //
 // `/feed/config`, approved by explicit maintainer decision recorded in
-// backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It is NOT a
-// second Config authority screen: `/config` remains the single generic protocol-rule authority
-// surface, and `/feed/config` authors the ration grid, per-shed factors, session template and
-// dispatch clock that ONLY Feed consumes — a different data model, different endpoints
-// (/feed-config/*), and something `/config?category=feed_direction` cannot render, since that shows
-// protocol rules rather than the ration grid. The backend contract classifies it "module-surface",
-// not "authority-screen", and ships it as a Feed nav leaf.
+// backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It authors
+// the ration grid, per-shed factors, session template and dispatch clock that ONLY Feed consumes —
+// its own data model and endpoints (/feed-config/*). The backend contract classifies it
+// "module-surface", not "authority-screen", and ships it as a Feed nav leaf.
+//
+// The generic `/config` screen it was once contrasted against no longer exists: it authored
+// protocol rules for a category set that turned out to be vaccination-only, and Preventive Care /
+// Vaccination plan replaced it. Each module now owns its own config surface.
 //
 // `/health/config`, approved by explicit maintainer decision 2026-08-06 and recorded in
 // docs/decisions/health-config-authoring.md plus the "health" nav group comment in the same backend

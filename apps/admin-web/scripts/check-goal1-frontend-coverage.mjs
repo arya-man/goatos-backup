@@ -26,40 +26,12 @@ function functionBody(source, name) {
   throw new Error(`${name} body did not close`);
 }
 
-const ruleEditor = read("features/config/rule-editor-modal.tsx");
-assert.match(ruleEditor, /export function RuleEditorModal/, "RuleEditorModal must be the exported config authoring surface");
-assert.match(ruleEditor, /buildVaccinationMatrixPreview\(input, activeScopedMatrixRows\)/, "RuleEditorModal must preview the shared vaccination matrix rule_dsl builder for the active company/park + animal scope");
-assert.doesNotMatch(ruleEditor, /validatePublish\(input\.source|publishableSourceKeys|sourceSystemOptions|reviewStatusOptions/, "RuleEditorModal must not gate publish on source review metadata");
-assert.match(ruleEditor, /const dirty = versionId !== "" && inputSig !== savedSig/, "RuleEditorModal must block stale publish after form edits");
-assert.match(ruleEditor, /disabled=\{publishDisabled\}/, "RuleEditorModal publish button must use the computed publish gate");
-assert.match(ruleEditor, /stageBlockReason/, "RuleEditorModal must block on failed animal-stage lookup reads");
-assert.match(ruleEditor, /sopBlockReason/, "RuleEditorModal must block on failed SOP-version reads");
-assert.match(ruleEditor, /!sopVersionId/, "RuleEditorModal must gate publish on executable SOP binding");
-assert.match(ruleEditor, /!proofOk/, "RuleEditorModal must gate publish on proof requirements");
-assert.doesNotMatch(ruleEditor, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "RuleEditorModal must not resurrect dead next_due_basis fields");
-assert.doesNotMatch(ruleEditor, /optionKeyOrFallback/, "RuleEditorModal source presets must not invent taxonomy by falling back to the first option");
-assert.doesNotMatch(ruleEditor, /VALID_VACCINE_TYPES|VALID_PATHOGEN_CLASSES|VALID_COURSE_TYPES|vaccine-taxonomy/, "RuleEditorModal vaccine taxonomy validation must use backend option groups, not frontend mirrors");
-assert.match(ruleEditor, /requireOptionKey\(\s*vaccineTypeOptions,[\s\S]*"vaccine_types"[\s\S]*requireOptionKey\(\s*pathogenClassOptions,[\s\S]*"vaccine_pathogen_classes"[\s\S]*requireOptionKey\(\s*courseTypeOptions,[\s\S]*"vaccine_course_types"/, "RuleEditorModal source presets must strictly require backend-emitted vaccine taxonomy");
-const ruleEditorSave = functionBody(ruleEditor, "save");
-const vaccineValidationLoop = ruleEditorSave.indexOf("for (const row of activeScopedMatrixRows)");
-assert.notEqual(vaccineValidationLoop, -1, "RuleEditorModal save must validate vaccination matrix rows");
-const vaccinationCategoryGate = ruleEditorSave.lastIndexOf('if (category === "vaccination")', vaccineValidationLoop);
-assert.notEqual(vaccinationCategoryGate, -1, "RuleEditorModal vaccine validation must be inside a vaccination-category gate");
-const nonVaccinationSaveCall = ruleEditorSave.indexOf("category === \"vaccination\" ? activeScopedMatrixRows : matrixRows");
-assert.ok(
-  nonVaccinationSaveCall > vaccineValidationLoop,
-  "RuleEditorModal non-vaccination saves must reach saveDraftBatch without stale vaccination taxonomy validation",
-);
-
-const ruleDsl = read("features/config/rule-dsl.ts");
-assert.match(ruleDsl, /sop_label:\s*d\.sopVersion/, "schedule SOP text remains a display label");
-assert.doesNotMatch(ruleDsl, /sop_version:\s*d\.sopVersion/, "display SOP label must not be emitted as executable schedule[].sop_version");
-assert.match(ruleDsl, /export function hasProofRequirement/, "publish UI must share proof requirement gate");
-assert.doesNotMatch(ruleDsl, /source:\s*sourceDsl|export function validatePublish|hasSourceEvidenceFields|isPublishableSourceFields/, "rule_dsl must not resurrect source-review publish gates");
-assert.doesNotMatch(ruleDsl, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "rule_dsl builder must not emit dead next_due_basis fields");
-
-const protocolRulesPage = read("features/config/protocol-rules-page.tsx");
-assert.doesNotMatch(protocolRulesPage, /function sourceSystemOption/, "protocol rows must not duplicate source-system lookup logic");
+// The Config screen's assertions used to live here. They were removed with the
+// screen itself: /config authored protocol rules for a category set that turned
+// out to be vaccination-only, and Preventive Care / Vaccination plan replaced it.
+// Nothing here asserts the plan console yet -- its behaviour is covered end to
+// end by tools/e2e/suite.mjs, which drives the real screen rather than matching
+// source text.
 
 const herdUI = read("features/counts/herd-actions-ui.tsx");
 const failedRows = functionBody(herdUI, "downloadFailedRows");
