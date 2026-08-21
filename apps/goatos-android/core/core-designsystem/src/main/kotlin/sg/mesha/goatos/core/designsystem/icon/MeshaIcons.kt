@@ -243,6 +243,48 @@ object MeshaIcons {
         "M8 3.5h8v4.5h4.5v8H16v4.5H8V16H3.5V8H8z",
     )
 
+    // Preventive Care module + its four category tabs (module_key pc_care, maintainer decision
+    // 2026-08-21). Each tab's glyph names the WORK, and none repeats a sibling on the same bar.
+    // The syringe stays Vaccination's mark, so DEWORMING takes the other dose form: the pill.
+    /** Shield with a plus: protection before illness — the Preventive Care drawer row. */
+    val PcCare: ImageVector = strokeIcon(
+        "pc_care",
+        "M12 3l7.5 3v5.2c0 4.6-3.2 8-7.5 9.8-4.3-1.8-7.5-5.2-7.5-9.8V6z",
+        "M12 8v5M9.5 10.5h5",
+    )
+
+    /** A capsule split by its seam — the oral dose (deworming), never the syringe. */
+    val Deworming: ImageVector = strokeIcon(
+        "deworming",
+        "M19.07 4.93a4.95 4.95 0 0 0-7 0L4.93 12.07a4.95 4.95 0 1 0 7 7l7.14-7.14a4.95 4.95 0 0 0 0-7z",
+        "M8.5 8.5l7 7",
+    )
+
+    /** The tick itself: capsule body, antennae, splayed legs. */
+    val Tick: ImageVector = strokeIcon(
+        "tick",
+        "M12 20a4 4 0 0 0 4-4v-5a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4z",
+        "M10 7.3 8.5 5M14 7.3 15.5 5",
+        "M8 12H4.5M8 16l-3 1.5M16 12h3.5M16 16l3 1.5",
+    )
+
+    /** A cloven hoof print: two toes over two dew-claw dots. */
+    val HoofTrimming: ImageVector = strokeIcon(
+        "hoof",
+        "M8.1 3.5c1.6 0 2.8 1.4 2.6 3l-.7 5.4a2 2 0 0 1-3.8 0l-.7-5.4c-.2-1.6 1-3 2.6-3z",
+        "M15.9 3.5c-1.6 0-2.8 1.4-2.6 3l.7 5.4a2 2 0 0 0 3.8 0l.7-5.4c.2-1.6-1-3-2.6-3z",
+        "M7.1 18.7a1.5 1.5 0 1 0 3 0 1.5 1.5 0 0 0-3 0z",
+        "M13.9 18.7a1.5 1.5 0 1 0 3 0 1.5 1.5 0 0 0-3 0z",
+    )
+
+    /** Scissors — the trim. */
+    val HairTrimming: ImageVector = strokeIcon(
+        "hair",
+        "M3 6a3 3 0 1 0 6 0 3 3 0 0 0-6 0z",
+        "M3 18a3 3 0 1 0 6 0 3 3 0 0 0-6 0z",
+        "M20 4 8.12 15.88M14.47 14.48 20 20M8.12 9.12 12 13",
+    )
+
     /**
      * Maps a backend nav-item OR module key to its mock icon. Keys are the stable backend
      * identifiers from `moduleNavRegistry` (bootstrap_copy.go); an unknown key falls back to
@@ -307,6 +349,13 @@ object MeshaIcons {
         // Breeding is a mating-pair concept, not the herd-at-large -- see [Breeding] doc comment.
         "breeding" -> Breeding
         "aas_health", "health_adults", "health_kids" -> Health
+        // Preventive Care module + its four category tabs. The module wears the shield-plus;
+        // each tab names its own work so four tabs on one bar never share a mark.
+        "pc_care" -> PcCare
+        "pc_deworming" -> Deworming
+        "pc_ticks" -> Tick
+        "pc_hoof_trimming" -> HoofTrimming
+        "pc_hair_trimming" -> HairTrimming
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). The tab is
         // a DECISION queue, so it takes the same CheckCircle as "approvals" above rather than the
         // Video glyph: video is the evidence, not the job, and the camcorder both restated the one
