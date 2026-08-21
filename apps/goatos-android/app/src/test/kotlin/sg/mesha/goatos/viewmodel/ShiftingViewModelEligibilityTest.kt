@@ -48,6 +48,8 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingEvent
+import sg.mesha.goatos.rfid.FakeScanSource
+import sg.mesha.goatos.rfid.ScanSource
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShiftingViewModelEligibilityTest {
@@ -69,7 +71,7 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
 
         assertTrue(vm.state.value.animalMatches.isEmpty())
-        assertNull(vm.state.value.selectedAnimal)
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
         assertFalse(vm.state.value.canSubmit)
         assertEquals("This animal is no longer active and cannot be shifted.", vm.state.value.animalLookupMessage)
     }
@@ -128,7 +130,7 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
 
         assertEquals("", vm.state.value.animalQuery)
-        assertNull(vm.state.value.selectedAnimal)
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
         // A successful child form returns to Actions; it must not leave its success banner on the
         // now-empty form, which is the current broken behaviour.
         assertNull(vm.state.value.lastRecordedMessage)
@@ -178,7 +180,7 @@ class ShiftingViewModelEligibilityTest {
         // The DTO -> UI mapping preserves the animal's current partition rather than dropping it,
         // which is the root cause of the reported "Coimbatore · Yashoda" FROM chip that could not
         // say which partition the animal was actually in.
-        assertEquals("1", vm.state.value.selectedAnimal?.partitionLabel)
+        assertEquals("1", vm.state.value.selectedAnimals.single().partitionLabel)
     }
 
     @Test
@@ -386,13 +388,119 @@ class ShiftingViewModelEligibilityTest {
         matches: List<GoatSearchItemDto>,
         syncRepository: NoopShiftingSyncRepository = NoopShiftingSyncRepository(),
         destinations: List<CountsDestinationParkDto>? = null,
+        scanSource: ScanSource = FakeScanSource(),
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
         countsRepository = FakeShiftingCountsRepository(matches, destinations),
         analytics = NoopShiftingAnalytics(),
         crashReporter = NoopShiftingCrashReporter(),
+        scanSource = scanSource,
         savedStateHandle = SavedStateHandle(),
     )
+
+    // -----------------------------------------------------------------------
+    // Bulk shifting (maintainer decision 2026-08-21): scanning APPENDS.
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `selecting several animals builds one movement carrying every goat id`() = runTest(dispatcher) {
+        val first = animal("alive")
+        val second = animal("alive").copy(goatId = SECOND_GOAT_ID, displayId = "G-000326")
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(first, second), sync)
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectAnimal(SECOND_GOAT_ID))
+        // Re-scanning an animal already in the basket must not duplicate it: on a crowded pen the
+        // same tag really does get read twice, and a duplicate goat id is a movement of one animal
+        // counted as two.
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        advanceUntilIdle()
+
+        assertEquals(2, vm.state.value.selectedAnimals.size)
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        vm.onEvent(ShiftingEvent.RequestSubmitConfirmation)
+        advanceUntilIdle()
+        // Nothing is recorded by opening the confirmation: the read-back is a gate, not a submit.
+        assertTrue(vm.state.value.showSubmitConfirmation)
+        assertNull(sync.lastShiftingRequest)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(listOf(GOAT_ID, SECOND_GOAT_ID), sync.lastShiftingRequest?.goatIds)
+    }
+
+    @Test
+    fun `removing an animal drops only that one from the movement`() = runTest(dispatcher) {
+        val first = animal("alive")
+        val second = animal("alive").copy(goatId = SECOND_GOAT_ID, displayId = "G-000326")
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(first, second), sync)
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectAnimal(SECOND_GOAT_ID))
+        vm.onEvent(ShiftingEvent.RemoveAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(listOf(SECOND_GOAT_ID), sync.lastShiftingRequest?.goatIds)
+    }
+
+    @Test
+    fun `an animal on another farm is refused rather than joining the movement`() = runTest(dispatcher) {
+        val here = animal("alive")
+        val elsewhere = animal("alive").copy(
+            goatId = SECOND_GOAT_ID,
+            locationPath = GoatLocationPathDto(
+                operationalLocationDisplay = "Channapatna / Gandhi 1",
+                parkId = CPT_PARK_ID,
+                parkName = "Channapatna",
+                shedId = YASHODA_SHED_ID,
+                shedName = "Gandhi 1",
+                partitionLabel = null,
+            ),
+        )
+        val vm = newViewModel(listOf(here, elsewhere))
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectAnimal(SECOND_GOAT_ID))
+        advanceUntilIdle()
+
+        // Goats never move between farms, so the second animal never joins the basket, and the
+        // operator is told why in farm words.
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals(
+            "That animal is on another farm. A movement can only carry animals from one farm.",
+            vm.state.value.animalLookupMessage,
+        )
+    }
+
+    @Test
+    fun `a scanned tag lands in the lookup field and releases the reader`() = runTest(dispatcher) {
+        val scanSource = FakeScanSource()
+        val vm = newViewModel(listOf(animal("alive")), scanSource = scanSource)
+        vm.onEvent(ShiftingEvent.ToggleRfidScan)
+        advanceUntilIdle()
+        assertTrue(scanSource.isStarted)
+
+        scanSource.emit("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+
+        assertEquals("CBE-ASSUMED-RFID-00001", vm.state.value.animalQuery)
+        // The reader is app-wide: leaving it enabled would swallow the comment field's typing.
+        assertFalse(scanSource.isStarted)
+        assertFalse(vm.state.value.scanningAnimalTag)
+        // Scanning an animal means wanting to find it, so the lookup ran without a second tap.
+        assertEquals(listOf(GOAT_ID), vm.state.value.animalMatches.map { it.goatId })
+    }
 
     private fun animal(
         lifecycle: String,
@@ -416,6 +524,7 @@ class ShiftingViewModelEligibilityTest {
 
     private companion object {
         const val GOAT_ID = "d8337607-6e21-41c9-a703-a7b73ae4e545"
+        const val SECOND_GOAT_ID = "f1a2b3c4-6e21-41c9-a703-a7b73ae4e546"
         const val CBE_PARK_ID = "00000000-0000-4000-8000-000000003001"
         const val CBE_SHED_ID = "43071c6e-3b00-47a9-860c-1bbacb570575"
         const val CPT_PARK_ID = "00000000-0000-4000-8000-000000003002"

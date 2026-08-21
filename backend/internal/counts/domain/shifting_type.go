@@ -29,7 +29,7 @@ import (
 // handler supplies catalog + goat facts; this file answers with either a decision (target stage +
 // optional pen adoption) or a refusal carrying backend-owned farm copy.
 
-// Shift types. Stored in shifting_events.category (vocabulary widened by migration 000177).
+// Shift types. Stored in shifting_events.category (vocabulary widened by migration 000179).
 const (
 	ShiftTypeHealth   = "health"
 	ShiftTypeGrowth   = "growth"

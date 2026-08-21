@@ -40,6 +40,7 @@ import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
+import sg.mesha.goatos.rfid.ScanSource
 import javax.inject.Inject
 
 /**
@@ -66,6 +67,7 @@ class ShiftingViewModel @Inject constructor(
     private val countsRepository: CountsRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val scanSource: ScanSource,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -80,6 +82,7 @@ class ShiftingViewModel @Inject constructor(
     val state: StateFlow<ShiftingUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var scanJob: Job? = null
 
     init {
         outboxItemId.value?.let(::observeOutboxItem)
@@ -92,6 +95,11 @@ class ShiftingViewModel @Inject constructor(
         when (event) {
             is ShiftingEvent.EditAnimalQuery -> onEditAnimalQuery(event.value)
             ShiftingEvent.LookupAnimals -> lookupAnimals()
+            ShiftingEvent.ToggleRfidScan -> toggleRfidScan()
+            is ShiftingEvent.RemoveAnimal -> onRemoveAnimal(event.goatId)
+            ShiftingEvent.RequestSubmitConfirmation -> onRequestSubmitConfirmation()
+            ShiftingEvent.DismissSubmitConfirmation ->
+                _state.update { it.copy(showSubmitConfirmation = false) }
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
@@ -214,6 +222,58 @@ class ShiftingViewModel @Inject constructor(
     }
 
     /**
+     * Starts or stops the Bluetooth reader for the animal lookup field.
+     *
+     * The reader is a keyboard wedge and an APP-WIDE SINGLETON: while capture is on it swallows
+     * hardware key events everywhere, so a leaked listener would eat the comment field's typing or
+     * another screen's input. It is therefore started only on an explicit tap and stopped the
+     * moment it has done its job — on the first tag, on leaving the screen, and before submit.
+     *
+     * A captured tag is fed through [onEditAnimalQuery], the SAME path a typed tag takes, and then
+     * the lookup runs automatically: the operator scanned an animal because they want to find it,
+     * so making them tap "Find animal" afterwards would be asking twice.
+     */
+    private fun toggleRfidScan() {
+        if (_state.value.scanningAnimalTag) {
+            stopRfidScan()
+            return
+        }
+        if (!beginEdit()) return
+        _state.update { it.copy(scanningAnimalTag = true) }
+        scanSource.start()
+        analytics.track(
+            AnalyticsEvents.COUNTS_RFID_SCAN_STARTED,
+            mapOf(AnalyticsEvents.Params.KIND to "shifting", AnalyticsEvents.Params.FIELD to "animal_lookup"),
+        )
+        scanJob = viewModelScope.launch {
+            scanSource.tags.collect { tag ->
+                onEditAnimalQuery(tag)
+                analytics.track(
+                    AnalyticsEvents.COUNTS_RFID_SCAN_CAPTURED,
+                    mapOf(AnalyticsEvents.Params.KIND to "shifting", AnalyticsEvents.Params.FIELD to "animal_lookup"),
+                )
+                stopRfidScan()
+                lookupAnimals()
+            }
+        }
+    }
+
+    private fun stopRfidScan() {
+        if (!_state.value.scanningAnimalTag) return
+        scanSource.stop()
+        scanJob?.cancel()
+        scanJob = null
+        _state.update { it.copy(scanningAnimalTag = false) }
+    }
+
+    override fun onCleared() {
+        // Leaving the screen must release the reader: capture consumes hardware key events
+        // app-wide while enabled, so a leaked listener would eat another screen's input.
+        stopRfidScan()
+        super.onCleared()
+    }
+
+    /**
      * Resolves the typed/scanned tag to real animals. The tag itself is NOT a goat id, so this
      * round trip is what keeps an RFID string out of `goat_ids`.
      *
@@ -262,24 +322,46 @@ class ShiftingViewModel @Inject constructor(
     }
 
     /**
-     * Selects THE animal being moved. Single selection: this REPLACES any previous choice rather
-     * than appending to a list, so the screen can never carry an animal the operator stopped
-     * looking at. A tap on the already-selected row is a no-op, not a deselect — clearing the
-     * selection is not a state an operator ever wants on the way to submitting a movement.
+     * ADDS an animal to the movement (maintainer decision 2026-08-21, reversing the single-animal
+     * rule so a group can be scanned one tag at a time).
+     *
+     * Two invariants survive the reversal:
+     *  - **Idempotent**: an animal already in the basket is not added twice, so re-scanning a tag
+     *    on a crowded pen is harmless rather than a duplicate in `goat_ids`.
+     *  - **Intra-farm**: a movement never crosses parks. The FIRST animal fixes the destination
+     *    farm; an animal from another park is refused with farm-worded copy instead of silently
+     *    widening the move, and the destination shed is cleared only when that farm actually changes
+     *    (re-clearing it on every scan would wipe a destination the operator already chose).
      */
     private fun onSelectAnimal(goatId: String) {
         if (!beginEdit()) return
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId }
                 ?: return@update current
+            if (current.selectedAnimals.any { it.goatId == match.goatId }) return@update current
+            val farm = current.selectedAnimals.firstOrNull()?.parkId
+            if (farm != null && farm != match.parkId) {
+                return@update current.copy(animalLookupMessage = FARM_MISMATCH_MESSAGE)
+            }
+            val farmChanged = current.destinationParkId != match.parkId
             current.copy(
-                selectedAnimal = match,
+                selectedAnimals = current.selectedAnimals + match,
+                animalLookupMessage = null,
                 // A shed move is intra-farm by contract. The animal's current park is canonical,
-                // so selecting the animal also selects the only legal destination farm.
+                // so the first selected animal also selects the only legal destination farm.
                 destinationParkId = match.parkId,
-                destinationShedId = "",
-                destinationPartitionLabel = null,
+                destinationShedId = if (farmChanged) "" else current.destinationShedId,
+                destinationPartitionLabel = if (farmChanged) null else current.destinationPartitionLabel,
             )
+        }
+        recomputeSubmitGate()
+    }
+
+    /** Removes one animal from the basket — how a mis-scan is undone before it becomes a movement. */
+    private fun onRemoveAnimal(goatId: String) {
+        if (!beginEdit()) return
+        _state.update { current ->
+            current.copy(selectedAnimals = current.selectedAnimals.filterNot { it.goatId == goatId })
         }
         recomputeSubmitGate()
     }
@@ -295,7 +377,7 @@ class ShiftingViewModel @Inject constructor(
     private fun onSelectDestinationPark(parkId: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            val currentFarm = current.selectedAnimal?.parkId.orEmpty()
+            val currentFarm = current.selectedAnimals.firstOrNull()?.parkId.orEmpty()
             if (parkId == currentFarm) current.copy(destinationParkId = currentFarm) else current
         }
         recomputeSubmitGate()
@@ -380,9 +462,24 @@ class ShiftingViewModel @Inject constructor(
     // Submit
     // -----------------------------------------------------------------------
 
+    /**
+     * Opens the read-back before anything is recorded. The reader is stopped here rather than at
+     * submit: once the operator is reading the list, a tag arriving from a still-live scanner would
+     * change what they are confirming while they look at it.
+     */
+    private fun onRequestSubmitConfirmation() {
+        if (!_state.value.canSubmit) return
+        stopRfidScan()
+        _state.update { it.copy(showSubmitConfirmation = true) }
+    }
+
     private fun submit() {
         val current = _state.value
         if (!current.canSubmit) return
+        // The movement is being recorded: a reader still listening would drop the next animal's tag
+        // into a form that has already left the operator's hands.
+        stopRfidScan()
+        _state.update { it.copy(showSubmitConfirmation = false) }
         val key = idempotencyKey.current()
         viewModelScope.launch {
             val result = syncRepository.enqueueCountsShifting(
@@ -461,9 +558,9 @@ class ShiftingViewModel @Inject constructor(
         // and sending "" for one of them would change the request fingerprint of an otherwise
         // identical resubmission.
         comment = comment.trim().ifBlank { null },
-        // A list of exactly one: the contract's shape is a list and the client does not narrow a
-        // server contract it does not own.
-        goatIds = listOfNotNull(selectedAnimal?.goatId),
+        // Every animal in the basket, in the order they were gathered. The wire contract was always
+        // a list; bulk shifting is what finally fills it with more than one.
+        goatIds = selectedAnimals.map { it.goatId },
     )
 
     private fun observeOutboxItem(itemId: String) {
@@ -532,20 +629,27 @@ class ShiftingViewModel @Inject constructor(
         // the backend is certain to reject with `missing_goat_ids` — durable in the outbox,
         // terminal on first dispatch, and only visible as a failure long after they walked away
         // from the shed.
-        val animal = state.selectedAnimal ?: return "Find and select the animal that moved."
-        if (!animal.lifecycleStatus.equals("alive", ignoreCase = true)) {
+        if (state.selectedAnimals.isEmpty()) return "Find and select the animals that moved."
+        // EVERY animal is checked, not just the first: a bulk basket is gathered a tag at a time,
+        // and one ineligible or out-of-farm animal among twenty would otherwise ride along unseen
+        // into a write the backend then rejects whole.
+        if (state.selectedAnimals.any { !it.lifecycleStatus.equals("alive", ignoreCase = true) }) {
             return INELIGIBLE_ANIMAL_MESSAGE
         }
-        if (animal.parkId.isBlank() || state.destinationParkId != animal.parkId) {
-            return "This animal's current farm is unavailable. Refresh and try again."
+        if (state.selectedAnimals.any { it.parkId.isBlank() || it.parkId != state.destinationParkId }) {
+            return FARM_MISMATCH_MESSAGE
         }
-        if (state.destinationShedId.isBlank()) return "Choose the shed the animal moved to."
+        if (state.destinationShedId.isBlank()) return "Choose the shed the animals moved to."
         return null
     }
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsShifting.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsShifting.outboxItemId"
+        // Farm-worded, because the operator reads it: goats never move between farms, so an animal
+        // from another park cannot join this movement.
+        const val FARM_MISMATCH_MESSAGE =
+            "That animal is on another farm. A movement can only carry animals from one farm."
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         const val SYNCED_MESSAGE = "Movement submitted for review."
 
