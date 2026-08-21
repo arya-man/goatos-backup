@@ -3,6 +3,7 @@ import { TrendingDown, Warehouse } from "lucide-react";
 
 import { GrowthDirectorSection } from "./growth-director";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
+import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
@@ -529,8 +530,8 @@ export async function WeighingWeightsPage({
   //
   // The park chips are the DISTINCT parks across the load's sheds: a load bought once
   // and split across two parks is a real shape, and naming only the first would be a
-  // quiet lie. Shed labels are the backend-composed operational display, rendered
-  // verbatim.
+  // quiet lie. Shed labels are the backend-composed operational display, passed
+  // through as data.
   const loadPlacementRows = byLoad
     .filter((load) => (load.placements ?? []).length > 0)
     .map((load) => {
@@ -549,8 +550,37 @@ export async function WeighingWeightsPage({
     })
     .sort((a, b) => b.animals - a.animals);
 
+  // The download drawer's shed list: every shed the page knows about, at the same
+  // location grain the backend filter takes. The park id travels with each shed so
+  // the list follows the drawer's own park select; parks are unique by name within
+  // a tenant, so the name→id hop cannot merge two parks.
+  const parkIdByName = new Map(parks.map((park) => [park.name, park.park_id]));
+  const exportShedsById = new Map<string, WeightsExportShed>();
+  for (const row of rows) {
+    if (exportShedsById.has(row.location_id)) continue;
+    exportShedsById.set(row.location_id, {
+      location_id: row.location_id,
+      label: row.operational_location_display || row.shed_display_name,
+      park_id: parkIdByName.get(row.park_name) ?? "",
+    });
+  }
+  const exportSheds = [...exportShedsById.values()].sort((a, b) => a.label.localeCompare(b.label));
+
   return (
     <div className="weights-page">
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <WeightsExportControl
+          pageContract={pageContract}
+          parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
+          sheds={exportSheds}
+          initialParkId={parkFilter}
+          initialFrom={window.from}
+          initialTo={window.to}
+          today={today}
+          openHref={hrefWith(params, { wt_export: "1" })}
+          closeHref={hrefWith(params, { wt_export: null })}
+        />
+      </div>
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"

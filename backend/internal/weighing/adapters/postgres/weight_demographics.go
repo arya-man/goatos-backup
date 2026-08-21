@@ -372,6 +372,84 @@ SELECT
 	return out, nil
 }
 
+// exportGoatIdentity carries the same-animal reporting facts the whole-window CSV
+// export prints beside a scanned tag: the goat's register id, its other active tag,
+// and the breed/sex chips the Weights screen already shows. Reporting only — no
+// write path, no gate, and a tag that resolves to nothing simply exports blank.
+type exportGoatIdentity struct {
+	DisplayID string
+	SecondTag string
+	Breed     string
+	Sex       string
+}
+
+// exportGoatIdentities resolves every DISTINCT tag weighed in the window to its
+// same-animal reporting facts, in ONE set-based query, so the CSV export can be
+// enriched without a per-row lookup. It lives in THIS file because this is the one
+// weighing file the free-flow guard permits to read goats/goat_identifiers
+// (maintainer decisions 2026-08-07/2026-08-19; the whole-window CSV export is the
+// same Weights reporting surface, same tables, read-only).
+//
+// projection-review: membership=one row per DISTINCT lower(btrim(scanned_identifier)) weighed in the window; group_key=the normalized tag; join_cardinality=ident 0..1 per tag (DISTINCT ON newest identifier row), goats 1 per goat_id (PK), second-tag LATERAL 0..1 per goat (LIMIT 1, newest first); pagination=NONE, bounded by distinct tags weighed in the window; scope=tenant_id + park_id = ANY($2), optional shed filter $5
+func (r *Repository) exportGoatIdentities(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time) (map[string]exportGoatIdentity, error) {
+	out := map[string]exportGoatIdentity{}
+	if len(parkIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH scoped AS (
+  SELECT cs.campaign_shed_id, cs.tenant_id
+  FROM weighing_campaign_sheds cs
+  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
+  WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
+    AND (cardinality($5::uuid[]) = 0 OR cs.location_id = ANY($5::uuid[]))
+),
+tags AS (
+  SELECT DISTINCT lower(btrim(o.scanned_identifier)) AS tag
+  FROM weighing_observations o
+  JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
+  WHERE o.tenant_id = $1::uuid
+    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+    AND btrim(o.scanned_identifier) <> ''
+),
+ident AS (
+  SELECT DISTINCT ON (lower(btrim(gi.identifier_value)))
+         lower(btrim(gi.identifier_value)) AS tag, gi.goat_id
+  FROM goat_identifiers gi
+  WHERE gi.tenant_id = $1::uuid
+  ORDER BY lower(btrim(gi.identifier_value)), gi.created_at DESC
+)
+SELECT t.tag,
+       COALESCE(g.display_id, ''),
+       COALESCE(second_tag.identifier_value, ''),
+       COALESCE(g.breed, ''),
+       COALESCE(g.sex, '')
+FROM tags t
+JOIN ident i ON i.tag = t.tag
+JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+LEFT JOIN LATERAL (
+  SELECT gi2.identifier_value
+  FROM goat_identifiers gi2
+  WHERE gi2.tenant_id = $1::uuid AND gi2.goat_id = i.goat_id
+    AND lower(btrim(gi2.identifier_value)) <> t.tag
+  ORDER BY gi2.created_at DESC
+  LIMIT 1
+) second_tag ON true`, tenantID, parkIDs, periodStart, periodEnd, shedLocationIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tag string
+		var identity exportGoatIdentity
+		if err := rows.Scan(&tag, &identity.DisplayID, &identity.SecondTag, &identity.Breed, &identity.Sex); err != nil {
+			return nil, err
+		}
+		out[tag] = identity
+	}
+	return out, rows.Err()
+}
+
 // decodeWeightDemographicBuckets reads the [label, animals, average] triples the
 // query aggregates. A null label cannot occur — every branch filters IS NOT NULL —
 // but a malformed row is skipped rather than rendered as an empty category.

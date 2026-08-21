@@ -2436,6 +2436,11 @@ select:disabled { opacity: .45; }
    metric rows included — sits flush against the next with a literal 0px between
    them. Scoped to this page so the shared container is untouched. */
 .weights-page{display:flex;flex-direction:column;gap:16px}
+.weights-page .wt-export-spin{animation:wt-export-spin 900ms linear infinite}
+@keyframes wt-export-spin{to{transform:rotate(360deg)}}
+.weights-page .wt-export-shed-list{max-height:220px;overflow-y:auto;display:grid;gap:4px;margin-top:6px}
+.weights-page .wt-export-shed-row{display:flex;gap:8px;align-items:center;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);margin:0}
+.weights-page .wt-export-shed-row input{width:auto;margin:0;accent-color:var(--brand)}
 /* Chart cards carry their own inset. `.card` on this page resolves to 0 padding, so the
    title, caption, bars and footnote all sat 1px off the border — the bar labels and the
    "N sheds are not counted" line read as touching the frame. Scoped to the chart cards
