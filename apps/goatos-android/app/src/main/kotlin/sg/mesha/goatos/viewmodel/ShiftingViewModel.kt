@@ -29,8 +29,10 @@ import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_BREEDING
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_DELIVERY
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_FLUSHING
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_GROWTH
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_SPACING
 import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_HIGH
 import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_LOW
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
@@ -675,6 +677,8 @@ class ShiftingViewModel @Inject constructor(
             SHIFTING_CATEGORY_HEALTH,
             SHIFTING_CATEGORY_BREEDING,
             SHIFTING_CATEGORY_DELIVERY,
+            SHIFTING_CATEGORY_SPACING,
+            SHIFTING_CATEGORY_FLUSHING,
         )
 
         /** The tag toggle's two positions; a value outside it is never stored. */

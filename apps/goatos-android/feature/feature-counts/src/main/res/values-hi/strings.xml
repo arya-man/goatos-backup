@@ -100,6 +100,15 @@
     <string name="counts_group_comment">टिप्पणी</string>
     <string name="counts_field_comment">यह पशु क्यों ले जाया जा रहा है?</string>
     <string name="counts_hint_comment">वैकल्पिक। इस बदलाव को मंज़ूरी देने वाले फ़ार्म प्रमुख और आपका वीडियो जाँचने वाला समीक्षक इसे पढ़ेंगे।</string>
+    <string name="counts_category_spacing">जगह बनाना</string>
+    <string name="counts_category_flushing">फ्लशिंग</string>
+    <string name="counts_shifting_selected_count">स्थानांतरित किए जा रहे पशु (%1$d)</string>
+    <string name="counts_shifting_remove_animal">इस पशु को स्थानांतरण से हटाएँ</string>
+    <string name="counts_shifting_confirm_title">%1$d पशु ले जाएँ?</string>
+    <string name="counts_shifting_confirm_body">फ़ार्म प्रमुख की मंज़ूरी के बाद ये पशु %1$s में ले जाए जाएँगे।</string>
+    <string name="counts_shifting_confirm_body_no_destination">यह स्थानांतरण दर्ज करने से पहले गंतव्य शेड चुनें।</string>
+    <string name="counts_shifting_confirm_action">हाँ, %1$d ले जाएँ</string>
+    <string name="counts_shifting_confirm_cancel">वापस जाएँ</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">पशु पहचानकर्ता 1</string>

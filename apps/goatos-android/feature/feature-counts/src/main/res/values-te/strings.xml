@@ -100,6 +100,15 @@
     <string name="counts_group_comment">వ్యాఖ్య</string>
     <string name="counts_field_comment">ఈ జంతువును ఎందుకు తరలిస్తున్నారు?</string>
     <string name="counts_hint_comment">ఐచ్ఛికం. ఈ తరలింపును ఆమోదించే ఫారం హెడ్ మరియు మీ వీడియోను తనిఖీ చేసే సమీక్షకుడు దీన్ని చదువుతారు.</string>
+    <string name="counts_category_spacing">స్థలం చేయడం</string>
+    <string name="counts_category_flushing">ఫ్లషింగ్</string>
+    <string name="counts_shifting_selected_count">తరలిస్తున్న జంతువులు (%1$d)</string>
+    <string name="counts_shifting_remove_animal">ఈ జంతువును తరలింపు నుండి తీసివేయండి</string>
+    <string name="counts_shifting_confirm_title">%1$d జంతువులను తరలించాలా?</string>
+    <string name="counts_shifting_confirm_body">ఫారం హెడ్ ఆమోదించిన తర్వాత ఈ జంతువులు %1$s కు తరలించబడతాయి.</string>
+    <string name="counts_shifting_confirm_body_no_destination">ఈ తరలింపును నమోదు చేసే ముందు గమ్య శెడ్ ఎంచుకోండి.</string>
+    <string name="counts_shifting_confirm_action">అవును, %1$d తరలించండి</string>
+    <string name="counts_shifting_confirm_cancel">వెనక్కి వెళ్లండి</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">జంతువు గుర్తింపుదారు 1</string>

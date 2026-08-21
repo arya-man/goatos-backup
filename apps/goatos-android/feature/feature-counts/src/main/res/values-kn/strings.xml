@@ -100,6 +100,15 @@
     <string name="counts_group_comment">ಟಿಪ್ಪಣಿ</string>
     <string name="counts_field_comment">ಈ ಪ್ರಾಣಿಯನ್ನು ಏಕೆ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತಿದೆ?</string>
     <string name="counts_hint_comment">ಐಚ್ಛಿಕ. ಈ ಸ್ಥಳಾಂತರವನ್ನು ಅನುಮೋದಿಸುವ ಫಾರ್ಮ್ ಮುಖ್ಯಸ್ಥರು ಮತ್ತು ನಿಮ್ಮ ವೀಡಿಯೊ ಪರಿಶೀಲಿಸುವವರು ಇದನ್ನು ಓದುತ್ತಾರೆ.</string>
+    <string name="counts_category_spacing">ಜಾಗ ಮಾಡುವುದು</string>
+    <string name="counts_category_flushing">ಫ್ಲಷಿಂಗ್</string>
+    <string name="counts_shifting_selected_count">ಸ್ಥಳಾಂತರವಾಗುತ್ತಿರುವ ಪ್ರಾಣಿಗಳು (%1$d)</string>
+    <string name="counts_shifting_remove_animal">ಈ ಪ್ರಾಣಿಯನ್ನು ಸ್ಥಳಾಂತರದಿಂದ ತೆಗೆದುಹಾಕಿ</string>
+    <string name="counts_shifting_confirm_title">%1$d ಪ್ರಾಣಿಗಳನ್ನು ಸ್ಥಳಾಂತರಿಸಬೇಕೇ?</string>
+    <string name="counts_shifting_confirm_body">ಫಾರ್ಮ್ ಮುಖ್ಯಸ್ಥರು ಅನುಮೋದಿಸಿದ ನಂತರ ಈ ಪ್ರಾಣಿಗಳನ್ನು %1$s ಗೆ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="counts_shifting_confirm_body_no_destination">ಈ ಸ್ಥಳಾಂತರವನ್ನು ದಾಖಲಿಸುವ ಮೊದಲು ಗಮ್ಯ ಶೆಡ್ ಆಯ್ಕೆಮಾಡಿ.</string>
+    <string name="counts_shifting_confirm_action">ಹೌದು, %1$d ಸ್ಥಳಾಂತರಿಸಿ</string>
+    <string name="counts_shifting_confirm_cancel">ಹಿಂದೆ ಹೋಗಿ</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 1</string>

@@ -1,3 +1,4 @@
+-- +goose NO TRANSACTION
 -- +goose Up
 -- Shifting rewrite: the shift TYPE (category) decides what happens to the animals' tag
 -- (maintainer decisions 2026-08-20, docs/features/shifting/shifting-rewrite-tag-rules.md).
@@ -18,15 +19,18 @@
 --    configuration the apply will write, and lets the apply transaction re-validate it under the
 --    row lock instead of re-deriving a decision nobody approved.
 --
--- The CHECK swap follows the baseline's own pattern for this constraint (drop + re-add NOT VALID +
--- VALIDATE) so the table is never rewritten and existing rows are validated without a long lock.
+-- The CHECK swaps follow the lock-safe hot-table shape: each ADD CONSTRAINT takes only a short
+-- metadata lock, then VALIDATE runs after that lock has been released by goose's autocommit mode.
 
+SET lock_timeout = '5s';
 ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_category_check;
 ALTER TABLE public.shifting_events
     ADD CONSTRAINT shifting_events_category_check
     CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text, 'spacing'::text, 'flushing'::text]))) NOT VALID;
 ALTER TABLE public.shifting_events VALIDATE CONSTRAINT shifting_events_category_check;
+RESET lock_timeout;
 
+SET lock_timeout = '5s';
 ALTER TABLE public.shifting_events
     ADD COLUMN IF NOT EXISTS adopt_pen_tag text;
 ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_adopt_pen_tag_check;
@@ -34,17 +38,21 @@ ALTER TABLE public.shifting_events
     ADD CONSTRAINT shifting_events_adopt_pen_tag_check
     CHECK ((adopt_pen_tag IS NULL) OR (btrim(adopt_pen_tag) <> '')) NOT VALID;
 ALTER TABLE public.shifting_events VALIDATE CONSTRAINT shifting_events_adopt_pen_tag_check;
+RESET lock_timeout;
 
 COMMENT ON COLUMN public.shifting_events.adopt_pen_tag IS
     'Tag the destination pen itself adopts when this movement applies (spacing/delivery/flushing into an empty pen). NULL: the movement configures no pen. Snapshotted at raise so approval and apply see the same decision.';
 
 -- +goose Down
+-- +goose NO TRANSACTION
 -- Reverting the vocabulary requires no data rewrite: rows raised as spacing/flushing keep their
 -- stored category (they record what really happened), so the narrower CHECK is re-added NOT VALID
 -- and deliberately NOT validated -- validating would fail on those historical rows.
+SET lock_timeout = '5s';
 ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_adopt_pen_tag_check;
 ALTER TABLE public.shifting_events DROP COLUMN IF EXISTS adopt_pen_tag;
 ALTER TABLE public.shifting_events DROP CONSTRAINT IF EXISTS shifting_events_category_check;
 ALTER TABLE public.shifting_events
     ADD CONSTRAINT shifting_events_category_check
     CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text]))) NOT VALID;
+RESET lock_timeout;
