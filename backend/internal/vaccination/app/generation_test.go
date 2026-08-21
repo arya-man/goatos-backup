@@ -3255,6 +3255,12 @@ func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ contex
 	return "obligation-1", true, nil
 }
 
+// Returns every animal asked about, so the generation tests exercise the supersede path
+// rather than silently skipping it.
+func (o *generationObligationFake) GoatsWithVaccinationObligationsOutsideVersions(_ context.Context, _ string, goatIDs, _ []string) ([]string, error) {
+	return goatIDs, nil
+}
+
 func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatExceptVersions(_ context.Context, _, _ string, versionIDs []string, reason string, _ time.Time) (int, error) {
 	o.canceledExceptVersions = append(o.canceledExceptVersions, append([]string(nil), versionIDs...))
 	o.cancelReasons = append(o.cancelReasons, reason)

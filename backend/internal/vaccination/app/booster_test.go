@@ -547,6 +547,10 @@ func (f *boosterObligationWriterFake) CancelOpenObligationByIdempotencyKey(conte
 	return "", false, nil
 }
 
+func (f *boosterObligationWriterFake) GoatsWithVaccinationObligationsOutsideVersions(context.Context, string, []string, []string) ([]string, error) {
+	return nil, nil
+}
+
 func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatExceptVersions(context.Context, string, string, []string, string, time.Time) (int, error) {
 	return 0, nil
 }

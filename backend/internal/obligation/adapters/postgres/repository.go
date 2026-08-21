@@ -1655,6 +1655,59 @@ WHERE ob.tenant_id = $1
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
 // version is no longer effective for the goat after a recheck. Terminal and in-progress work are left
 // untouched; each changed row gets the same cancellation status event and outbox used by SM-3.
+// GoatsWithVaccinationObligationsOutsideVersions returns which of the given animals still hold
+// open vaccination work under a protocol version that is no longer effective for them.
+//
+// A plan replacement retires the old version in the same transaction that publishes the new one,
+// but the retired version's already-generated obligations stay open and keep appearing on
+// operators' lists forever, beside the replacement plan's own work. The per-animal generation
+// path already supersedes them; the tenant-wide scan did not, which is the path that actually
+// runs after a publish.
+//
+// This is the cheap pre-filter for that: one query per page instead of one cancel per animal,
+// so the common case -- nothing to supersede -- costs a single indexed read.
+func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(goatIDs) == 0 {
+		return nil, nil
+	}
+	if effectiveVersionIDs == nil {
+		effectiveVersionIDs = []string{}
+	}
+	if _, err := pgconv.UUID(tenantID); err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT oi.target_id::text
+FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND pd.category = 'vaccination'
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))`, tenantID, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: goats with non-effective vaccination obligations: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("obligation: scan non-effective goat: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
