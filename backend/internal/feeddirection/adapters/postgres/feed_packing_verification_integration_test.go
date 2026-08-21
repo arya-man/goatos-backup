@@ -708,8 +708,10 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	if row.FeedDay != "2026-07-22" || row.SessionNo != 1 || row.SessionLabel != "Morning" {
 		t.Errorf("row identity = %+v, want the pen-session the reading was taken on", row)
 	}
-	if row.ParkLabel != "CBE" || row.ShedLabel != "Castro" || row.OperationalLocationDisplay != "Castro" {
-		t.Errorf("row labels = park %q shed %q display %q, want the sheet's own labels with the oploc display", row.ParkLabel, row.ShedLabel, row.OperationalLocationDisplay)
+	// Labels come from the completion's own canonical locations rows, NOT the sheet's copies, so a
+	// reading whose planned row is absent ("not on sheet") still names its farm and shed.
+	if row.ParkLabel != "CPT" || row.ShedLabel != "Shed A" || row.OperationalLocationDisplay != "Shed A" {
+		t.Errorf("row labels = park %q shed %q display %q, want the completion's canonical location names with the oploc display", row.ParkLabel, row.ShedLabel, row.OperationalLocationDisplay)
 	}
 
 	// REPLACE semantics on a replayed/re-cast approve: the new set stands, keys it no longer names
