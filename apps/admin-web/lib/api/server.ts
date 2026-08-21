@@ -666,6 +666,27 @@ export async function getShedWeights(params: {
   );
 }
 
+// The Weights download drawer's file. The backend streams `text/csv` in the operations
+// Weight-check sheet's shape (minus its video-link column); the client hands the returned
+// text to the browser as a download. Gated on the same WeighingMonitor permission as the
+// page itself.
+export async function exportWeighingWeightsCsv(params: {
+  from?: string;
+  to?: string;
+  park_id?: string;
+  shed_id?: readonly string[];
+}): Promise<ApiResult<string>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<string>("/weighing/export.csv", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
 // Average weight by breed, sex and stage. The one weighing read that resolves a scanned tag
 // to its animal, so these three dimensions can exist at all.
 export async function getWeightDemographics(params: {
