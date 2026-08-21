@@ -78,6 +78,9 @@ type ObligationWriter interface {
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
+	// Bounded pre-filter for plan replacement: which of these animals still hold open work
+	// under a version that is no longer effective for them. Usually none, for one indexed read.
+	GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
@@ -555,6 +558,17 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			return res, err
 		}
 
+		// Plan replacement: publishing a new matrix retires the old version in the same
+		// transaction, but its already-generated obligations stay open and keep appearing on
+		// operators' lists beside the replacement plan's own work. The per-animal path
+		// superseded them; this scan -- the one that actually runs after a publish -- did not.
+		//
+		// Work already in progress is deliberately left alone: the cancel path covers
+		// scheduled, due and deferred only, so an animal being worked right now is never
+		// pulled out from under the operator by a publish.
+		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			for _, versionID := range effectiveVersionsByPark[generationParkCacheKey(g.ParkID)] {
@@ -1091,6 +1105,17 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			}
 		}
 		effectiveVersionSets := make(map[string]map[string]struct{})
+		// Plan replacement: publishing a new matrix retires the old version in the same
+		// transaction, but its already-generated obligations stay open and keep appearing on
+		// operators' lists beside the replacement plan's own work. The per-animal path
+		// superseded them; this scan -- the one that actually runs after a publish -- did not.
+		//
+		// Work already in progress is deliberately left alone: the cancel path covers
+		// scheduled, due and deferred only, so an animal being worked right now is never
+		// pulled out from under the operator by a publish.
+		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
@@ -2757,4 +2782,40 @@ func historyRepeatCycle(admin domain.RecentVaccineAdministration) *obldomain.Rep
 		}, "|"),
 		AnchorAt: &at,
 	}
+}
+
+// supersedeRetiredPlanWork cancels open vaccination obligations belonging to a version that is
+// no longer effective for the animal, one park at a time.
+func (s *GenerationService) supersedeRetiredPlanWork(
+	ctx context.Context,
+	tenantID string,
+	goats []domain.EligibleGoat,
+	effectiveVersionsByPark map[string][]string,
+	asOf time.Time,
+) error {
+	byPark := make(map[string][]string, len(effectiveVersionsByPark))
+	for _, g := range goats {
+		key := generationParkCacheKey(g.ParkID)
+		byPark[key] = append(byPark[key], g.GoatID)
+	}
+	for parkKey, goatIDs := range byPark {
+		versionIDs := effectiveVersionsByPark[parkKey]
+		if len(versionIDs) == 0 {
+			// No effective plan for this park. Cancelling everything here would be
+			// indistinguishable from a misconfigured lookup, so leave the work alone.
+			continue
+		}
+		stale, err := s.obl.GoatsWithVaccinationObligationsOutsideVersions(ctx, tenantID, goatIDs, versionIDs)
+		if err != nil {
+			return err
+		}
+		for _, goatID := range stale {
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatExceptVersions(
+				ctx, tenantID, goatID, versionIDs, "protocol_version_replaced", asOf,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
