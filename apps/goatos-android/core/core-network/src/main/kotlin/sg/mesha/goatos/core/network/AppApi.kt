@@ -42,6 +42,7 @@ import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -1171,6 +1172,17 @@ interface AppApi {
     ): PcCareCapturesDto
 
     /**
+     * GET /app/pc-care/tasks/{task_id}/roster — the roster_pick tap list: the active RFIDs of
+     * alive animals currently in the task's pen. Read-only; tapping one records a normal
+     * free-flow scan, so this list never gates what a scan may store.
+     */
+    suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): PcCareTaskRosterDto
+
+    /**
      * POST /app/pc-care/tasks/{task_id}/animals — scan one RFID into the task, VERBATIM. A tag
      * already in the task is `409 duplicate_scan` (terminal — surface "Already scanned", never
      * re-enqueue under a new key); a locked task is `409 task_locked`.
@@ -2139,6 +2151,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
         limit: Int?,
     ): PcCareCapturesDto = PcCareCapturesDto()
+
+    override suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareTaskRosterDto = PcCareTaskRosterDto()
 
     override suspend fun scanPcCareAnimal(
         taskId: String,

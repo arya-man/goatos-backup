@@ -35,6 +35,7 @@ type Service interface {
 	ScanAnimal(ctx context.Context, actor domain.Actor, in app.ScanAnimalInput) (ports.ScanAnimalResult, error)
 	RegisterSlotProof(ctx context.Context, actor domain.Actor, in app.RegisterSlotProofInput) error
 	SubmitTask(ctx context.Context, actor domain.Actor, in app.SubmitTaskInput) (ports.SubmitTaskResult, error)
+	TaskRoster(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) (ports.TaskRosterPage, error)
 }
 
 // Handler renders the PC Care HTTP surface.
@@ -61,6 +62,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// The peer-visibility poll: which animals are scanned and which slots each already holds,
 	// by ANY assignee. Read-only; it is what lets several phones split one task's videos.
 	mux.HandleFunc("GET /app/pc-care/tasks/{task_id}/captures", h.GetTaskCaptures)
+	// The roster-pick tap list: the RFIDs of animals currently in the task's pen (trimming
+	// categories). Read-only; tapping one records a normal free-flow scan.
+	mux.HandleFunc("GET /app/pc-care/tasks/{task_id}/roster", h.GetTaskRoster)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/animals", h.PostScanAnimal)
 	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", h.PutSlotProof)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/submit", h.PostSubmitTask)
@@ -98,6 +102,10 @@ type taskDTO struct {
 	AssigneeUserIDs            []string   `json:"assignee_user_ids"`
 	AssigneeNames              []string   `json:"assignee_names"`
 	AnimalCount                int32      `json:"animal_count"`
+	// CaptureMode is the BACKEND-OWNED capture flow for this task's category: "scan_record"
+	// (scan a tag → the recorder opens immediately) or "roster_pick" (tap an RFID off the pen
+	// roster → record). Clients branch on it verbatim and never hardcode a category→mode map.
+	CaptureMode string `json:"capture_mode"`
 	// ExpectedSlots is the BACKEND-OWNED slot contract for this task's category: clients
 	// iterate it verbatim and never hardcode a category→slot map (proof grain is backend-owned).
 	ExpectedSlots []slotDTO `json:"expected_slots"`
@@ -138,6 +146,7 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		AssigneeUserIDs:     assigneeIDs,
 		AssigneeNames:       assigneeNames,
 		AnimalCount:         t.AnimalCount,
+		CaptureMode:         domain.CaptureModeForCategory(t.Category),
 		ExpectedSlots:       slotDTOs,
 	}
 }
@@ -494,6 +503,34 @@ func (h *Handler) GetTaskCaptures(w http.ResponseWriter, r *http.Request) {
 		resp.Animals = append(resp.Animals, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+type rosterResponse struct {
+	// Identifiers are the pen's resident RFIDs, verbatim, in identifier order.
+	Identifiers []string `json:"identifiers"`
+	NextCursor  string   `json:"next_cursor,omitempty"`
+}
+
+func (h *Handler) GetTaskRoster(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.service.TaskRoster(
+		r.Context(), a,
+		r.PathValue("task_id"),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
+		intQuery(r, "limit", 50),
+	)
+	if err != nil {
+		h.writeServiceError(w, r, "pc care task roster", err)
+		return
+	}
+	identifiers := page.Identifiers
+	if identifiers == nil {
+		identifiers = []string{}
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, rosterResponse{Identifiers: identifiers, NextCursor: page.NextCursor})
 }
 
 func (h *Handler) PostScanAnimal(w http.ResponseWriter, r *http.Request) {

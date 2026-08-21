@@ -1952,9 +1952,29 @@ export interface paths {
         };
         /**
          * One PC Care task with its backend-owned expected slot contract.
-         * @description expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for deworming/ticks removal; before/during/after for the trimming categories). Clients iterate it verbatim and never hardcode a category-to-slot map.
+         * @description expected_slots is the BACKEND-OWNED proof contract for the task's category (one video per animal for every category). capture_mode is the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the pen roster to record). Clients branch on both verbatim and never hardcode a category-to-slot or category-to-mode map.
          */
         get: operations["appGetPCCareTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The roster-pick tap list — RFIDs of animals currently in the task's pen.
+         * @description Read-only, for capture_mode roster_pick (the trimming categories). Lists the active RFIDs of alive animals resident in the task's shed, narrowed to the task's pen when it has a partition. Tapping one records a normal free-flow scan; this list never gates what a scan may store. Keyset-paged on identifier value.
+         */
+        get: operations["appPCCareTaskRoster"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5475,7 +5495,17 @@ export interface components {
             assignee_user_ids: string[];
             assignee_names: string[];
             animal_count: number;
+            /**
+             * @description Backend-owned capture flow for this task's category. scan_record — scanning a tag opens the video recorder immediately. roster_pick — the screen lists the pen's resident RFIDs (GET .../roster) and tapping one records that animal.
+             * @enum {string}
+             */
+            capture_mode: "scan_record" | "roster_pick";
             expected_slots: components["schemas"]["PCCareSlot"][];
+        };
+        /** @description One keyset page of the RFIDs of animals currently resident in a task's pen — the roster-pick capture mode's tap list. Identifiers are verbatim; the list never gates a scan. */
+        PCCareTaskRoster: {
+            identifiers: string[];
+            next_cursor?: string;
         };
         PCCareTaskPage: {
             items: components["schemas"]["PCCareTask"][];
@@ -15420,6 +15450,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareTaskRoster: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the pen's resident RFIDs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskRoster"];
                 };
             };
             401: components["responses"]["Unauthorized"];

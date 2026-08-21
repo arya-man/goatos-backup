@@ -11,10 +11,14 @@ each: **Deworming**, **Ticks Removal**, **Hoof Trimming**, **Hair Trimming**.
 
 ```
 CEO plans a task: category + park + shed(/pen) + business date + ONE OR MORE assigned operators
-assigned operators scan RFIDs free-flow (tag stored VERBATIM, no herd lookup) to add animals
-per animal they record mandatory live-camera videos:
-  deworming / ticks_removal      -> ONE video            (slot: video)
-  hoof_trimming / hair_trimming  -> THREE videos          (slots: before_video, during_video ~10s, after_video)
+per animal the operators record ONE mandatory live-camera video (slot: video), by capture mode:
+  deworming / ticks_removal      -> SCAN-AND-RECORD (capture_mode scan_record): scan an RFID
+                                    free-flow (tag stored VERBATIM, no herd lookup) and the
+                                    recorder opens immediately — the 2-second jobs
+  hoof_trimming / hair_trimming  -> ROSTER-PICK (capture_mode roster_pick): the screen lists the
+                                    pen's resident RFIDs (GET .../roster, read-only) and tapping
+                                    one records that animal (the tap records the same free-flow
+                                    scan first)
 any assignee may fill any missing slot on any scanned animal ("Captured by X" attribution)
 any assignee submits the WHOLE task once every animal's slot set is complete
 submit -> pending_verification -> ONE verification item per task (all clips)

@@ -503,6 +503,7 @@ var protectedRoutes = []Route{
 	// The peer-visibility poll: which animals are scanned and which video slots each already
 	// holds, by ANY assignee. A READ — seeing that a slot is done is not authority to record.
 	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appScanPCCareAnimal", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/animals", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appSubmitPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/submit", Permissions: []string{PCCareExecute}},

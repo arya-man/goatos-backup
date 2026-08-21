@@ -54,6 +54,13 @@ private const val PC_CARE_ANIMAL_LIST_LIMIT = 300 // mobile-guard:ignore: hard c
 private const val PC_CARE_CAPTURES_PAGE_LIMIT = 20
 private const val PC_CARE_CAPTURES_MAX_PAGES = 50
 
+/** Roster fetch page size and page cap — a pen holds well under 300 tagged animals. */
+private const val PC_CARE_ROSTER_PAGE_LIMIT = 50
+private const val PC_CARE_ROSTER_MAX_PAGES = 6 // mobile-guard:ignore: bounded write-through fill of ONE pen's tap roster into Room (hard 300 ceiling), mirroring PC_CARE_ANIMAL_LIST_LIMIT's rationale
+
+/** Namespaces the roster blob beside the task-detail blob in the same bounded cache table. */
+private fun rosterCacheKey(taskId: String): String = "roster:$taskId"
+
 /** Bump whenever the cached task-row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's
  *  kdoc in FeedRepository.kt for why a stale-shape row must be orphaned, never leniently decoded). */
 private const val PC_CARE_CACHE_SHAPE = "task-v1"
@@ -114,6 +121,15 @@ interface PcCareRepository {
 
     /** One task's scanned animals from Room, newest first, bounded. */
     fun observeAnimals(taskId: String): Flow<List<PcCareAnimalRowEntity>>
+
+    /**
+     * The roster_pick tap list from Room: the RFIDs of animals currently in the task's pen.
+     * Empty while nothing is cached yet.
+     */
+    fun observeRoster(taskId: String): Flow<List<String>>
+
+    /** Network -> Room roster refresh (roster_pick tasks). A failure leaves the cache serving. */
+    suspend fun refreshRoster(taskId: String)
 
     /**
      * ONE peer-visibility poll pass: fetches the task detail plus the captures pages and writes
@@ -222,6 +238,48 @@ class DefaultPcCareRepository(
 
     override fun observeAnimals(taskId: String): Flow<List<PcCareAnimalRowEntity>> =
         animalDao.observeAnimals(taskId, PC_CARE_ANIMAL_LIST_LIMIT)
+
+    override fun observeRoster(taskId: String): Flow<List<String>> =
+        detailDao.observe(rosterCacheKey(taskId))
+            .map { entity ->
+                readCachedJson<List<String>>(
+                    json = json,
+                    cacheKey = rosterCacheKey(taskId),
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { detailDao.delete(it) },
+                ).data.orEmpty()
+            }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun refreshRoster(taskId: String) {
+        // exception:exempt expected refresh failure (offline/timeout/5xx); the cached roster keeps
+        // serving and the next open/refresh repairs it — the non-blocking refresh contract.
+        runCatching {
+            val identifiers = mutableListOf<String>()
+            var cursor: String? = null
+            var pages = 0
+            // Write-through per page so a big pen shows its first tags immediately.
+            while (pages < PC_CARE_ROSTER_MAX_PAGES) {
+                val page = api.getPcCareTaskRoster(taskId, cursor, PC_CARE_ROSTER_PAGE_LIMIT)
+                identifiers += page.identifiers
+                detailDao.upsert(
+                    PcCareTaskDetailCacheEntity(
+                        cacheKey = rosterCacheKey(taskId),
+                        dtoJson = json.encodeToString(identifiers.toList()),
+                        updatedAt = clock(),
+                    ),
+                )
+                cursor = page.nextCursor.ifBlank { null } ?: break
+                pages++
+            }
+            detailDao.enforceCacheBounds()
+        }.onFailure {
+            if (it is CancellationException) throw it
+            android.util.Log.w(LOG_TAG, "pc_care_roster_refresh_failed task=$taskId", it)
+        }
+    }
 
     override suspend fun pollTaskOnce(taskId: String) {
         // exception:exempt expected poll failure (offline/timeout/5xx); Room keeps serving what it

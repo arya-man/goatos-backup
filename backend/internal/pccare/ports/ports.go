@@ -261,6 +261,14 @@ type PlannerParkSheds struct {
 	NextCursor string
 }
 
+// TaskRosterPage is one keyset page of the RFIDs of animals currently resident in a task's pen —
+// the roster-pick capture mode's tap list. Identifiers are served verbatim; tapping one records a
+// normal free-flow scan, so the roster NEVER gates what a scan may store.
+type TaskRosterPage struct {
+	Identifiers []string
+	NextCursor  string
+}
+
 // TaskStore owns the three pc_care_* tables. All writes are transactional with audit +
 // request-level idempotency, mirroring the feed packing store contract.
 type TaskStore interface {
@@ -293,6 +301,11 @@ type TaskStore interface {
 	// ListTaskAnimals pages one task's scanned animals with their slot maps (the peer
 	// visibility poll). Keyset on animal_row_id.
 	ListTaskAnimals(ctx context.Context, tenantID, taskID, cursor string, limit int) ([]AnimalRow, string, error)
+
+	// TaskShedRoster pages the active RFIDs of alive animals currently in the task's shed
+	// (narrowed to the task's partition when one is set), keyset on identifier value — the
+	// roster-pick capture list for the trimming categories.
+	TaskShedRoster(ctx context.Context, tenantID, taskID, cursor string, limit int) (TaskRosterPage, error)
 
 	// SubmitTask flips open/rework -> pending_verification when every scanned animal carries
 	// its full slot set, stamps submitted_by/at on the task and submitted_at on the animal

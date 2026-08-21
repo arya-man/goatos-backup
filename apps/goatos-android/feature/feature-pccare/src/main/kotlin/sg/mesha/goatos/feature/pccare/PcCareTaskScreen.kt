@@ -5,6 +5,7 @@ package sg.mesha.goatos.feature.pccare
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -69,6 +71,20 @@ fun PcCareTaskScreen(
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Bluetooth RFID reader banner — the weighing capture screen's shape: green when the
+            // reader is live (scans flow straight in), otherwise the farm-worded status with a
+            // tap-to-reconnect action. Roster mode records by tapping a listed RFID, so the
+            // reader banner and scan row stay off that face.
+            if (state.readerStatusLabel.isNotBlank() && !state.isLocked && !state.rosterMode) {
+                item(key = "reader_banner") {
+                    PcCareReaderBanner(
+                        name = state.readerName,
+                        statusLabel = state.readerStatusLabel,
+                        connected = state.readerConnected,
+                        onReconnect = { onEvent(PcCareTaskEvent.ReconnectReader) },
+                    )
+                }
+            }
             if (state.assigneeLine.isNotBlank()) {
                 item(key = "assignees") {
                     Text(
@@ -90,7 +106,12 @@ fun PcCareTaskScreen(
                 item(key = "lock_banner") { PcCareBanner(text = state.lockNotice, danger = false) }
             }
 
-            if (!state.isLocked) {
+            // Scan entry drives the scan-and-record flow; in roster mode it appears only as the
+            // fallback when the pen lists no animals (so the operator is never stuck).
+            if (!state.isLocked && (!state.rosterMode || state.rosterRows.isEmpty())) {
+                if (state.rosterEmptyNotice.isNotBlank()) {
+                    item(key = "roster_empty") { PcCareBanner(text = state.rosterEmptyNotice, danger = false) }
+                }
                 item(key = "scan_row") {
                     PcCareScanRow(
                         input = state.scanInput,
@@ -115,19 +136,33 @@ fun PcCareTaskScreen(
                 }
             }
 
-            items(
-                count = state.animals.size,
-                // Stable per-animal key: the normalized tag, unique in this task by the
-                // duplicate rule (bounded list — the repository caps the observed window).
-                key = { index -> state.animals[index].key },
-            ) { index ->
-                PcCareAnimalRow(
-                    animal = state.animals[index],
-                    locked = state.isLocked,
-                    onRecordSlot = { fieldKey ->
-                        onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
-                    },
-                )
+            if (state.rosterMode) {
+                // Roster mode: one tappable row per RFID in the pen — tap to record that animal.
+                items(
+                    count = state.rosterRows.size,
+                    key = { index -> "roster_${state.rosterRows[index].key}" },
+                ) { index ->
+                    PcCareRosterRow(
+                        row = state.rosterRows[index],
+                        locked = state.isLocked,
+                        onTap = { onEvent(PcCareTaskEvent.RosterTapped(state.rosterRows[index].key)) },
+                    )
+                }
+            } else {
+                items(
+                    count = state.animals.size,
+                    // Stable per-animal key: the normalized tag, unique in this task by the
+                    // duplicate rule (bounded list — the repository caps the observed window).
+                    key = { index -> state.animals[index].key },
+                ) { index ->
+                    PcCareAnimalRow(
+                        animal = state.animals[index],
+                        locked = state.isLocked,
+                        onRecordSlot = { fieldKey ->
+                            onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
+                        },
+                    )
+                }
             }
         }
 
@@ -360,4 +395,89 @@ private fun PcCareSubmitConfirmationDialog(
         },
         containerColor = MeshaColors.Surf,
     )
+}
+
+/**
+ * One roster-tap row: the animal's RFID, its live video state, and the tap-to-record affordance.
+ * The whole row is tappable while the task is open; a recorded row stays tappable so the
+ * operator can re-record (the durable replacement rule).
+ */
+@Composable
+private fun PcCareRosterRow(
+    row: PcCareRosterRowUi,
+    locked: Boolean,
+    onTap: () -> Unit,
+) {
+    Row(
+        modifier = pcCareCardModifier(enabled = !locked && !row.working, onClick = onTap.takeIf { !locked && !row.working }),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = row.tagLabel,
+                color = MeshaColors.Ink,
+                style = MeshaType.cardTitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (row.statusLabel.isNotBlank()) {
+                Text(
+                    text = row.statusLabel,
+                    color = when {
+                        row.done -> MeshaColors.Ok
+                        row.working -> MeshaColors.Warn
+                        else -> MeshaColors.Muted
+                    },
+                    style = MeshaType.caption,
+                )
+            }
+        }
+        if (!locked) {
+            Text(
+                text = when {
+                    row.working -> "Recording…"
+                    row.done -> "Record again"
+                    else -> "Record"
+                },
+                color = if (row.done) MeshaColors.Muted else MeshaColors.BrandD,
+                style = MeshaType.pillStrong,
+            )
+        }
+    }
+}
+
+/** Bluetooth reader status banner; tapping it (or its action) opens the reader pairing screen. */
+@Composable
+private fun PcCareReaderBanner(
+    name: String,
+    statusLabel: String,
+    connected: Boolean,
+    onReconnect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (connected) MeshaColors.OkX else MeshaColors.DangerX)
+            .border(1.dp, if (connected) MeshaColors.Ok else MeshaColors.Danger, RoundedCornerShape(10.dp))
+            .clickable(onClick = onReconnect)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "$statusLabel · $name",
+            color = if (connected) MeshaColors.Ok else MeshaColors.Danger,
+            style = MeshaType.cardSubtitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (connected) "Scanning" else "Connect",
+            color = if (connected) MeshaColors.Ok else MeshaColors.Danger,
+            style = MeshaType.pillStrong,
+        )
+    }
 }

@@ -2894,6 +2894,8 @@ fun AppNavHost(
                     onEvent = { event ->
                         when (event) {
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
+                                navController.navigate(Routes.RFID) { launchSingleTop = true }
                             else -> vm.onEvent(event)
                         }
                     },

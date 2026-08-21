@@ -405,6 +405,22 @@ func (s *Service) ListTaskAnimals(ctx context.Context, actor domain.Actor, taskI
 	return s.store.ListTaskAnimals(ctx, actor.TenantID, strings.TrimSpace(taskID), strings.TrimSpace(cursor), limit)
 }
 
+// TaskRoster pages the RFIDs of animals currently in the task's pen — the roster-pick capture
+// mode's tap list. Read-gated exactly like the captures poll (any principal who can read the
+// task); it never gates a scan.
+func (s *Service) TaskRoster(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) (ports.TaskRosterPage, error) {
+	if _, err := s.GetTask(ctx, actor, taskID); err != nil {
+		return ports.TaskRosterPage{}, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.store.TaskShedRoster(ctx, actor.TenantID, strings.TrimSpace(taskID), strings.TrimSpace(cursor), limit)
+}
+
 func clampLimit(limit int) int {
 	if limit <= 0 {
 		return 25
