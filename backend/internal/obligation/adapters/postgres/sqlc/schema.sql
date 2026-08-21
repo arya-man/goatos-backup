@@ -13263,7 +13263,7 @@ CREATE INDEX obligation_operator_config_replan_watermarks_status_idx ON public.o
 -- Name: obligation_repeat_cycle_open_anchor_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX obligation_repeat_cycle_open_anchor_unique_idx ON public.obligation_instances USING btree (tenant_id, repeat_cycle_anchor_obligation_id) WHERE ((repeat_cycle_anchor_obligation_id IS NOT NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text])));
+CREATE UNIQUE INDEX obligation_repeat_cycle_open_anchor_unique_idx ON public.obligation_instances USING btree (tenant_id, rule_id, repeat_cycle_anchor_obligation_id) WHERE ((repeat_cycle_anchor_obligation_id IS NOT NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text])));
 
 
 --
