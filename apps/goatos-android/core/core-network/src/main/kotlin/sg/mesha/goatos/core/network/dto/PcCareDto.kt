@@ -30,6 +30,8 @@ data class PcCareTaskDto(
     @SerialName("shed_id") val shedId: String,
     @SerialName("shed_label") val shedLabel: String,
     @SerialName("partition_label") val partitionLabel: String = "",
+    /** Backend-composed pen display ("Castro - 2") — rendered VERBATIM, never re-derived. */
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("planned_business_date") val plannedBusinessDate: String,
     @SerialName("due_business_date") val dueBusinessDate: String,
     /** Kernel dimension: scheduled | delayed | completed | closed | canceled. */
@@ -142,6 +144,8 @@ data class PcCarePlannerShedDto(
     @SerialName("shed_id") val shedId: String,
     @SerialName("shed_label") val shedLabel: String,
     @SerialName("partition_label") val partitionLabel: String = "",
+    /** Backend-composed pen display — rendered VERBATIM. */
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     /** Non-empty when a live task already covers this pen for the chosen category+date. */
     @SerialName("existing_task_id") val existingTaskId: String = "",
 )

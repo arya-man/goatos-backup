@@ -19,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // Service is the app boundary this handler renders.
@@ -77,23 +78,26 @@ type slotDTO struct {
 }
 
 type taskDTO struct {
-	TaskID              string     `json:"task_id"`
-	Category            string     `json:"category"`
-	ParkID              string     `json:"park_id"`
-	ParkLabel           string     `json:"park_label"`
-	ShedID              string     `json:"shed_id"`
-	ShedLabel           string     `json:"shed_label"`
-	PartitionLabel      string     `json:"partition_label,omitempty"`
-	PlannedBusinessDate string     `json:"planned_business_date"`
-	DueBusinessDate     string     `json:"due_business_date"`
-	WorkState           string     `json:"work_state"`
-	Status              string     `json:"status"`
-	ReworkReason        string     `json:"rework_reason,omitempty"`
-	RowVersion          int32      `json:"row_version"`
-	SubmittedAt         *time.Time `json:"submitted_at,omitempty"`
-	AssigneeUserIDs     []string   `json:"assignee_user_ids"`
-	AssigneeNames       []string   `json:"assignee_names"`
-	AnimalCount         int32      `json:"animal_count"`
+	TaskID         string `json:"task_id"`
+	Category       string `json:"category"`
+	ParkID         string `json:"park_id"`
+	ParkLabel      string `json:"park_label"`
+	ShedID         string `json:"shed_id"`
+	ShedLabel      string `json:"shed_label"`
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the backend-composed "Castro - 2" (oploc.Display) — the
+	// Operational Location convention's mandatory display half; clients render it verbatim.
+	OperationalLocationDisplay string     `json:"operational_location_display"`
+	PlannedBusinessDate        string     `json:"planned_business_date"`
+	DueBusinessDate            string     `json:"due_business_date"`
+	WorkState                  string     `json:"work_state"`
+	Status                     string     `json:"status"`
+	ReworkReason               string     `json:"rework_reason,omitempty"`
+	RowVersion                 int32      `json:"row_version"`
+	SubmittedAt                *time.Time `json:"submitted_at,omitempty"`
+	AssigneeUserIDs            []string   `json:"assignee_user_ids"`
+	AssigneeNames              []string   `json:"assignee_names"`
+	AnimalCount                int32      `json:"animal_count"`
 	// ExpectedSlots is the BACKEND-OWNED slot contract for this task's category: clients
 	// iterate it verbatim and never hardcode a category→slot map (proof grain is backend-owned).
 	ExpectedSlots []slotDTO `json:"expected_slots"`
@@ -114,13 +118,16 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		assigneeNames = []string{}
 	}
 	return taskDTO{
-		TaskID:              t.TaskID,
-		Category:            t.Category,
-		ParkID:              t.ParkID,
-		ParkLabel:           t.ParkName,
-		ShedID:              t.ShedID,
-		ShedLabel:           t.ShedName,
-		PartitionLabel:      t.PartitionLabel,
+		TaskID:         t.TaskID,
+		Category:       t.Category,
+		ParkID:         t.ParkID,
+		ParkLabel:      t.ParkName,
+		ShedID:         t.ShedID,
+		ShedLabel:      t.ShedName,
+		PartitionLabel: t.PartitionLabel,
+		OperationalLocationDisplay: oploc.OperationalLocation{
+			ShedName: t.ShedName, PartitionLabel: t.PartitionLabel,
+		}.Display(),
 		PlannedBusinessDate: t.PlannedBusinessDate,
 		DueBusinessDate:     t.DueBusinessDate,
 		WorkState:           t.WorkState,
@@ -189,7 +196,9 @@ type plannerShedDTO struct {
 	ShedID         string `json:"shed_id"`
 	ShedLabel      string `json:"shed_label"`
 	PartitionLabel string `json:"partition_label,omitempty"`
-	ExistingTaskID string `json:"existing_task_id,omitempty"`
+	// OperationalLocationDisplay is the backend-composed pen display (oploc.Display).
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	ExistingTaskID             string `json:"existing_task_id,omitempty"`
 }
 
 type plannerShedsResponse struct {
@@ -333,7 +342,11 @@ func (h *Handler) GetPlannerParkSheds(w http.ResponseWriter, r *http.Request) {
 	for _, shed := range page.Sheds {
 		resp.Sheds = append(resp.Sheds, plannerShedDTO{
 			ShedID: shed.ShedID, ShedLabel: shed.ShedName,
-			PartitionLabel: shed.PartitionLabel, ExistingTaskID: shed.ExistingTaskID,
+			PartitionLabel: shed.PartitionLabel,
+			OperationalLocationDisplay: oploc.OperationalLocation{
+				ShedName: shed.ShedName, PartitionLabel: shed.PartitionLabel,
+			}.Display(),
+			ExistingTaskID: shed.ExistingTaskID,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)

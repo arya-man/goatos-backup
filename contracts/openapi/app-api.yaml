@@ -13487,6 +13487,9 @@ components:
         shed_id: { type: string, format: uuid }
         shed_label: { type: string }
         partition_label: { type: string }
+        operational_location_display:
+          type: string
+          description: Backend-composed pen display ("Castro - 2"), rendered verbatim.
         planned_business_date: { type: string, format: date }
         due_business_date: { type: string, format: date }
         work_state: { type: string, enum: [scheduled, delayed, completed, closed, canceled] }
@@ -13513,6 +13516,7 @@ components:
         - park_label
         - shed_id
         - shed_label
+        - operational_location_display
         - planned_business_date
         - due_business_date
         - work_state
@@ -13602,10 +13606,13 @@ components:
               shed_id: { type: string, format: uuid }
               shed_label: { type: string }
               partition_label: { type: string }
+              operational_location_display:
+                type: string
+                description: Backend-composed pen display, rendered verbatim.
               existing_task_id:
                 type: string
                 description: Non-empty when a live task already covers this pen for the chosen category+date.
-            required: [shed_id, shed_label]
+            required: [shed_id, shed_label, operational_location_display]
         next_cursor: { type: string }
       required: [sheds]
     PCCareCreateTaskRequest:
