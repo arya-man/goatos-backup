@@ -14,10 +14,11 @@ import {
   type FeedAnalyticsStockResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ChartHover } from "@/components/chart-hover";
+import { RangeCoverageNote } from "./range-coverage-note";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { SegmentedLinks } from "@/components/segmented-links";
@@ -275,6 +276,7 @@ export async function FeedAnalyticsPage({
       {directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
         <DirectedTabs
           tab={tab}
+          range={range}
           data={directed.data}
           execution={execution?.ok ? execution.data : null}
           stock={stock?.ok ? stock.data : null}
@@ -307,12 +309,14 @@ export async function FeedAnalyticsPage({
 
 function DirectedTabs({
   tab,
+  range,
   data,
   execution,
   stock,
   pageContract,
 }: {
   tab: Tab;
+  range: Range;
   data: FeedAnalyticsDirectedResponse;
   execution: FeedAnalyticsExecutionResponse | null;
   stock: FeedAnalyticsStockResponse | null;
@@ -321,6 +325,17 @@ function DirectedTabs({
   const view = buildDirectedView(data, fa(pageContract, "series.other"));
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
+
+  // Transient coverage note (maintainer request 2026-08-21): a wider window
+  // than the sheets cover shows "data covers only N days" for two seconds.
+  // 2-month range notes at ≤30 covered days, 3-month at ≤60; the 30-day range
+  // never notes. Covered days = feed days with an issued sheet in the window.
+  const coveredDays = data.days.length;
+  const coverageFloor = range === "61" ? 30 : range === "92" ? 60 : 0;
+  const coverageNote =
+    coveredDays > 0 && coverageFloor > 0 && coveredDays <= coverageFloor
+      ? fa(pageContract, "range.coverage_note").replace("{days}", String(coveredDays))
+      : null;
 
   if (empty) {
     return (
@@ -350,6 +365,9 @@ function DirectedTabs({
 
   return (
     <>
+      {coverageNote !== null ? (
+        <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
+      ) : null}
       {tab === "overview" ? (
         <section className="grid g4 kpi-row" aria-label={fa(pageContract, "chart.daily.title")}>
           <div className="kpi card">
@@ -845,8 +863,8 @@ function StockCards({
                   <tr key={`${row.feed_item_key}|${row.farm_label}`}>
                     <td>{row.feed_item_label}</td>
                     <td>{row.farm_label}</td>
-                    <td>{row.first_purchase_date}</td>
-                    <td>{row.first_directed_day === "" ? fa(pageContract, "stock.never_directed") : row.first_directed_day}</td>
+                    <td>{fmtDate(row.first_purchase_date)}</td>
+                    <td>{row.first_directed_day === "" ? fa(pageContract, "stock.never_directed") : fmtDate(row.first_directed_day)}</td>
                     <td>
                       {row.avg_daily_kg === ""
                         ? "—"
@@ -856,7 +874,7 @@ function StockCards({
                       <div>
                         {[
                           `${fa(pageContract, "stock.farms.batch")} ${row.last_load_batch_no}`,
-                          row.last_load_date,
+                          fmtDate(row.last_load_date),
                           `${nf(num(row.last_load_quantity_kg))} ${fa(pageContract, "unit.kg")}`,
                         ].join(" · ")}
                       </div>

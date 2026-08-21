@@ -42,19 +42,25 @@ export function joinParts(parts: Array<string | null | undefined>): string {
   return filtered.length > 0 ? filtered.join(" · ") : "—";
 }
 
-// IST ISO-shaped formatters used by vaccination / parks process-integrity screens. Distinct from
-// the locale-based `dateTime` above on purpose: these mirror the mock's compact presentation while
-// preserving Goat OS' Asia/Kolkata business calendar.
-// Defined once so every screen renders dates identically.
+// IST formatters used across admin-web screens, defined once so every screen
+// renders dates identically, preserving Goat OS' Asia/Kolkata business calendar.
+//
+// DATE DISPLAY RULE (maintainer decision 2026-08-21): every VISIBLE date in an
+// admin-web table, card, or drawer renders DD-MM-YYYY through fmtDate. Chart
+// axes use the compact dd-mm-yy in components/svg-series.tsx. Wire formats —
+// query params, API payloads, keys — stay ISO YYYY-MM-DD (todayIso/istDayPlus).
+// Machine gate: make admin-web-date-format-guard.
 
-// "YYYY-MM-DD", or "—" when missing, or the raw string when unparseable.
+// "DD-MM-YYYY", or "—" when missing, or the raw string when unparseable.
 export function fmtDate(iso?: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : istDate(d);
+  if (Number.isNaN(d.getTime())) return iso;
+  const parts = partsByType(d, { year: "numeric", month: "2-digit", day: "2-digit" });
+  return `${parts.day}-${parts.month}-${parts.year}`;
 }
 
-// "YYYY-MM-DD HH:MM", or "" when missing, or the raw string when unparseable.
+// "DD-MM-YYYY HH:MM", or "" when missing, or the raw string when unparseable.
 export function fmtDateTime(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -67,7 +73,7 @@ export function fmtDateTime(iso?: string): string {
     minute: "2-digit",
     hourCycle: "h23",
   });
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+  return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
 // "YYYY-MM-DD" for the current Goat OS business day (Asia/Kolkata). Call at module scope in RSC

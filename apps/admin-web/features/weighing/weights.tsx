@@ -8,7 +8,7 @@ import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
   getGrowthDirector,
@@ -986,7 +986,7 @@ export async function WeighingWeightsPage({
                         </Tag>
                       </td>
                       <td className="num">{Math.round(animal.days_between)}</td>
-                      <td className="num">{animal.latest_weigh_date}</td>
+                      <td className="num">{fmtDate(animal.latest_weigh_date)}</td>
                     </tr>
                   ))}
                 </tbody>
