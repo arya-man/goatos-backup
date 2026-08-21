@@ -34,7 +34,38 @@ type NewObligation struct {
 	IdempotencyKey       string
 	GeneratedByTriggerID *string
 	Sequence             int32
+
+	// RepeatCycle records WHICH VACCINATION CAUSED this obligation, for a repeat dose.
+	//
+	// A repeat is anchored to when the previous dose was actually given, so its due date
+	// legitimately moves -- which is why the due date cannot be part of its identity. The
+	// cause can: one completed dose mints exactly one open successor. Nil for everything
+	// else, and the partial unique indexes apply only where it is set, so non-repeat work
+	// is untouched.
+	RepeatCycle *RepeatCycleSource
 }
+
+// RepeatCycleSource identifies the administration a repeat obligation descends from.
+//
+// Source is "completed_obligation" when the previous dose was completed inside Goat OS, or
+// "trusted_history" / "imported_history" when it came from accepted or imported records.
+// Those have no obligation row to point at, which is why SourceRef exists alongside
+// AnchorObligationID rather than instead of it -- and why uniqueness needs both indexes.
+type RepeatCycleSource struct {
+	Source             string
+	SourceRef          string
+	AnchorObligationID *string
+	AnchorAt           *time.Time
+	DueAt              *time.Time
+}
+
+// Repeat-cycle source kinds. Stored verbatim and half of the source-uniqueness key, so they
+// are constants rather than literals retyped at each call site.
+const (
+	RepeatCycleSourceCompletedObligation = "completed_obligation"
+	RepeatCycleSourceTrustedHistory      = "trusted_history"
+	RepeatCycleSourceImportedHistory     = "imported_history"
+)
 
 // RecoveryReschedule replans a health-deferred obligation on recovery: align to a nearby planned
 // drive within the policy window, or due immediately for a micro-drive.
