@@ -239,9 +239,11 @@ GROUP BY 1`
 // sessions x items x window days -- physical infrastructure, never herd size; scope=tenant_id on
 // every table plus the caller's authorized park set on both sides.
 //
-// MISMATCHES ONLY (any difference pops -- maintainer decision 2026-08-21, no tolerance band), and
-// this comparison must NEVER reach a verifier surface: she enters blind, and the page serving this
-// payload is leadership-gated.
+// MISMATCHES BEYOND TOLERANCE ONLY (maintainer decision 2026-08-21, second same-day decision
+// superseding the initial any-mismatch rule): a row pops only when |entered - planned| exceeds
+// domain.PackingVarianceToleranceKg ($5), strictly greater-than so a difference of exactly 0.2 kg
+// stays quiet. This comparison must NEVER reach a verifier surface: she enters blind, and the page
+// serving this payload is leadership-gated.
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded windowed comparison over the
 // same indexed date columns as the status counts above.
@@ -298,7 +300,7 @@ LEFT JOIN planned p
  AND p.session_no = rd.session_no
  AND p.workflow = rd.workflow
  AND p.feed_item_key = rd.feed_item_key
-WHERE rd.entered_kg <> COALESCE(p.planned_kg, 0)
+WHERE abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) > $5
 ORDER BY rd.target_date DESC, p.park_label, p.shed_label, p.partition_label, rd.session_no, rd.feed_item_label`
 
 // ExecutionAnalytics merges the three status streams and the latency series by
@@ -408,7 +410,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		out.Days = append(out.Days, *days[k])
 	}
 
-	varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg)
+	varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg)
 	if err != nil {
 		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
 	}

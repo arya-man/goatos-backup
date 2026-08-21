@@ -533,7 +533,12 @@ The load-bearing choices:
   overwrites the previous reading set, and keys it no longer names are removed.
 - **A REJECT never carries the readings** — same as the 2026-08-20 rule: rejection sends the bag
   back to be packed and filmed again.
-- **Variance pops on ANY mismatch — no tolerance band.** The execution analytics read joins the
+- **Variance pops beyond a 0.2 kg tolerance** (maintainer decision 2026-08-21, second same-day
+  decision SUPERSEDING the initial any-mismatch rule stated that morning): a reading taken off a
+  video is honest to a couple hundred grams, so a difference of 0.2 kg or less is treated as the
+  same number and stays off the execution view; strictly more than 0.2 kg pops. The threshold is
+  `feeddirection/domain.PackingVarianceToleranceKg` — one constant, bound into the SQL as a
+  parameter, never re-hardcoded. The execution analytics read joins the
   readings to the frozen sheet on the completion's own natural-key coordinates plus
   `feed_item_key`, pre-aggregating the ration-grain side (the same summation `BuildPackingRows`
   does for the packer's worklist) before comparing. Only `status='completed'` rows count — a

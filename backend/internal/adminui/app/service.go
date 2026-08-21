@@ -3494,7 +3494,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.latency.title":            "Verification latency",
 			"chart.latency.hint":             "Median minutes from proof submission to verdict, per day",
 			"variance.title":                 "Packing quantity mismatches",
-			"variance.hint":                  "Bags where the verifier's measured quantities differ from the directed sheet. The verifier enters readings without seeing the sheet, so a match is independent confirmation.",
+			"variance.hint":                  "Bags where the verifier's measured quantities differ from the directed sheet by more than 0.2 kg. The verifier enters readings without seeing the sheet, so a match is independent confirmation.",
 			"variance.empty":                 "Every verified bag matched the directed quantities.",
 			"col.variance.day":               "Feed day",
 			"col.variance.park":              "Farm",

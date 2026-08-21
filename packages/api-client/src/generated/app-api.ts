@@ -4604,7 +4604,7 @@ export interface components {
              */
             median_verify_latency_minutes?: number | null;
         };
-        /** @description One MISMATCH between what the frozen sheet directed a pen-session to pack for one feed item and what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). Any difference pops -- there is no tolerance band. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
+        /** @description One MISMATCH between what the frozen sheet directed a pen-session to pack for one feed item and what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). A row exists only when the difference exceeds the 0.2 kg tolerance -- a scale read off a video is honest to a couple hundred grams. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
         FeedAnalyticsPackingVarianceRow: {
             /** Format: date */
             feed_day: string;
