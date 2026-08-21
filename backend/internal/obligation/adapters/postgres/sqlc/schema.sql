@@ -6362,6 +6362,35 @@ CREATE TABLE public.goat_ownership (
 
 
 --
+-- Name: goat_sale_allocations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_sale_allocations (
+    allocation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    sales_deal_id uuid NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    partition_label text,
+    tag_number text,
+    status text DEFAULT 'tagged'::text NOT NULL,
+    allocated_at timestamp with time zone DEFAULT now() NOT NULL,
+    allocated_by uuid,
+    released_at timestamp with time zone,
+    released_by uuid,
+    release_reason text,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT goat_sale_allocations_released_check CHECK ((((status = 'tagged'::text) AND (released_at IS NULL)) OR ((status = 'released'::text) AND (released_at IS NOT NULL)))),
+    CONSTRAINT goat_sale_allocations_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT goat_sale_allocations_status_check CHECK ((status = ANY (ARRAY['tagged'::text, 'released'::text])))
+);
+
+
+--
 -- Name: health_cases; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -9447,6 +9476,14 @@ ALTER TABLE ONLY public.goat_ownership
 
 
 --
+-- Name: goat_sale_allocations goat_sale_allocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_sale_allocations
+    ADD CONSTRAINT goat_sale_allocations_pkey PRIMARY KEY (allocation_id);
+
+
+--
 -- Name: goat_shed_partitions goat_shed_partitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12243,6 +12280,13 @@ CREATE INDEX goat_identifiers_source_idx ON public.goat_identifiers USING btree 
 
 
 --
+-- Name: goat_identifiers_value_trgm_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identifiers_value_trgm_idx ON public.goat_identifiers USING gin (identifier_value public.gin_trgm_ops);
+
+
+--
 -- Name: goat_identity_events_goat_timeline_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -12348,6 +12392,27 @@ CREATE INDEX goat_ownership_owner_idx ON public.goat_ownership USING btree (owne
 
 
 --
+-- Name: goat_sale_allocations_deal_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_sale_allocations_deal_idx ON public.goat_sale_allocations USING btree (tenant_id, sales_deal_id, shed_id);
+
+
+--
+-- Name: goat_sale_allocations_idempotency_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX goat_sale_allocations_idempotency_uq ON public.goat_sale_allocations USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: goat_sale_allocations_live_goat_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX goat_sale_allocations_live_goat_uq ON public.goat_sale_allocations USING btree (tenant_id, goat_id) WHERE (status = 'tagged'::text);
+
+
+--
 -- Name: goat_shed_partitions_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -12380,6 +12445,13 @@ CREATE INDEX goats_cohort_lifecycle_idx ON public.goats USING btree (cohort_id, 
 --
 
 CREATE INDEX goats_current_location_lifecycle_idx ON public.goats USING btree (current_location_id, lifecycle_status);
+
+
+--
+-- Name: goats_display_id_trgm_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_display_id_trgm_idx ON public.goats USING gin (display_id public.gin_trgm_ops);
 
 
 --
@@ -16620,6 +16692,14 @@ ALTER TABLE ONLY public.goat_ownership
 
 ALTER TABLE ONLY public.goat_ownership
     ADD CONSTRAINT goat_ownership_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: goat_sale_allocations goat_sale_allocations_goat_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_sale_allocations
+    ADD CONSTRAINT goat_sale_allocations_goat_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
 
 
 --

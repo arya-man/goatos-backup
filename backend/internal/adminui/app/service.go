@@ -4526,9 +4526,9 @@ func pageSpecificCopy(id string) map[string]string {
 		// protocol category that exists is vaccination, and Feed and Health each author
 		// their own config on their own screens.
 		return map[string]string{
-			"crumb":       "Preventive Care",
-			"page.title":  "Vaccination plan",
-			"page.subtitle": "One plan decides which animal gets which vaccine, and when. Only you and the COO can publish it.",
+			"crumb":                                                     "Preventive Care",
+			"page.title":                                                "Vaccination plan",
+			"page.subtitle":                                             "One plan decides which animal gets which vaccine, and when. Only you and the COO can publish it.",
 			"capacity.title":                                            "Operator animal capacity",
 			"capacity.note":                                             "How many unique animals one available operator can handle in one day",
 			"capacity.info.label":                                       "About operator capacity",
@@ -4861,7 +4861,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.label.rule_plural":                       "rules",
 			"modal.rule_editor.label.tenant":                            "tenant",
 			"modal.rule_editor.label.park_scope_prefix":                 "park:",
-				}
+		}
 	case "people":
 		// Backend-owned copy for the People/HRMS directory + Add Person drawer.
 		// The client renders these verbatim; per the golden rule it must not

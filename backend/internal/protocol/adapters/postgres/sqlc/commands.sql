@@ -49,8 +49,35 @@ WHERE tenant_id = @tenant_id
   AND protocol_version_id = @protocol_version_id
   AND status = 'draft';
 
+-- name: DeleteDraftProtocolRules :execrows
+-- protocol_rules_version_tenant_fk has NO ON DELETE CASCADE, so a version row cannot
+-- be deleted while rules reference it. They are removed explicitly, in the same
+-- transaction as the version, and only ever for a DRAFT.
+DELETE FROM protocol_rules r
+WHERE r.tenant_id = @tenant_id
+  AND r.protocol_version_id = @protocol_version_id
+  AND EXISTS (
+    SELECT 1 FROM protocol_versions v
+    WHERE v.tenant_id = @tenant_id
+      AND v.protocol_version_id = @protocol_version_id
+      AND v.status = 'draft'
+  );
+
+-- name: DeleteDraftProtocolTriggers :execrows
+-- Same reason as the rules above: protocol_triggers_version_tenant_fk does not cascade.
+DELETE FROM protocol_triggers t
+WHERE t.tenant_id = @tenant_id
+  AND t.protocol_version_id = @protocol_version_id
+  AND EXISTS (
+    SELECT 1 FROM protocol_versions v
+    WHERE v.tenant_id = @tenant_id
+      AND v.protocol_version_id = @protocol_version_id
+      AND v.status = 'draft'
+  );
+
 -- name: DiscardProtocolVersion :execrows
--- Deletes a DRAFT version and, by cascade, its rules. The status predicate is the
+-- Deletes a DRAFT version. Its rules and triggers must already be gone (see the two
+-- statements above) because neither foreign key cascades. The status predicate is the
 -- safety property: a published or retired version can never be removed by this
 -- statement, so history stays complete no matter what id is supplied. A draft has
 -- never reached the field -- no obligation references it -- so deleting it destroys

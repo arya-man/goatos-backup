@@ -104,7 +104,16 @@ export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown): EditorPlan 
 function readVaccine(row: unknown): EditorVaccine {
   const r = asObject(row);
   const vaccine = asObject(r.vaccine);
-  const schedule = Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [];
+  const live = Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [];
+  const parked = Array.isArray(r.parked_schedule) ? (r.parked_schedule as ScheduleRule[]) : [];
+
+  // A switched-off vaccine keeps its course on parked_schedule. Reading only
+  // `schedule` made the editor believe it had no doses: switching it back on then
+  // demanded a dose the farm had already chosen, wrote that dose's timing onto the
+  // first parked rule, resurrected the rest invisibly, and -- because repeatDays
+  // read as null -- deleted the repeat cadence entirely. The parked course is what
+  // the editor edits; `on` is still decided by the LIVE schedule.
+  const schedule = live.length > 0 ? live : parked;
   const repeats = schedule.filter((s) => s.repeat && s.repeat !== "none");
   const firsts = schedule.filter((s) => !s.repeat || s.repeat === "none");
 
@@ -113,7 +122,7 @@ function readVaccine(row: unknown): EditorVaccine {
     name: String(vaccine.name ?? vaccine.code ?? ""),
     vaccineClass: String(vaccine.type ?? ""),
     disease: String(vaccine.disease ?? ""),
-    on: schedule.length > 0,
+    on: live.length > 0,
     kidDoses: firsts.filter((s) => s.trigger_type === "birth_age").map(toDose),
     driveDoses: firsts.filter((s) => s.trigger_type !== "birth_age").map(toDose),
     // Every dose in a course carries the same window in this document; the

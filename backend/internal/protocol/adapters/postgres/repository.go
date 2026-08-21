@@ -580,13 +580,23 @@ func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID str
 	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, idempotencyKey...)
 }
 
-// DiscardVersion permanently deletes a DRAFT version and its rules.
+// DiscardVersion permanently deletes a DRAFT version together with its rules and
+// triggers.
 //
-// The SQL carries a status = 'draft' predicate, so this cannot remove a published or
-// retired version whatever id is passed: history stays complete by construction rather
-// than by the caller remembering to check. Zero rows affected therefore means either
-// "no such version" or "not a draft", and the two are distinguished by reading the row
-// back so the caller can say which one happened.
+// All three deletes run in ONE transaction, and each carries the same status='draft'
+// predicate, so a published or retired version cannot be touched whatever id is
+// supplied: history stays complete by construction rather than by the caller
+// remembering to check. A draft has never reached the field -- no obligation
+// references it -- so this destroys only unpublished authoring work.
+//
+// The rules and triggers are deleted EXPLICITLY because neither
+// protocol_rules_version_tenant_fk nor protocol_triggers_version_tenant_fk carries
+// ON DELETE CASCADE. Relying on a cascade that does not exist made this endpoint
+// answer 500 for every draft that had been authored -- which is every draft anyone
+// would want to discard.
+//
+// Zero rows affected on the version delete means either "no such version" or "not a
+// draft"; the row is read back to tell the caller which.
 func (r *Repository) DiscardVersion(ctx context.Context, tenantID, versionID string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -598,15 +608,34 @@ func (r *Repository) DiscardVersion(ctx context.Context, tenantID, versionID str
 	if err != nil {
 		return fmt.Errorf("protocol: version id: %w", err)
 	}
-	rows, err := r.queries.DiscardProtocolVersion(ctx, protocoldb.DiscardProtocolVersionParams{TenantID: tenant, ProtocolVersionID: vid})
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("protocol: begin discard: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	if _, err := qtx.DeleteDraftProtocolRules(ctx, protocoldb.DeleteDraftProtocolRulesParams{TenantID: tenant, ProtocolVersionID: vid}); err != nil {
+		return fmt.Errorf("protocol: discard rules: %w", err)
+	}
+	if _, err := qtx.DeleteDraftProtocolTriggers(ctx, protocoldb.DeleteDraftProtocolTriggersParams{TenantID: tenant, ProtocolVersionID: vid}); err != nil {
+		return fmt.Errorf("protocol: discard triggers: %w", err)
+	}
+	rows, err := qtx.DiscardProtocolVersion(ctx, protocoldb.DiscardProtocolVersionParams{TenantID: tenant, ProtocolVersionID: vid})
 	if err != nil {
 		return fmt.Errorf("protocol: discard version: %w", err)
 	}
 	if rows == 0 {
+		// Nothing was deleted, so the transaction is rolled back by the defer and the
+		// caller is told which of the two reasons applies.
 		if _, err := r.GetVersion(ctx, tenantID, versionID); err != nil {
 			return err
 		}
 		return ports.ErrVersionNotDraft
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("protocol: commit discard: %w", err)
 	}
 	return nil
 }

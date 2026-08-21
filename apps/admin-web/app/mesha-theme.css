@@ -3568,8 +3568,11 @@ select:disabled { opacity: .45; }
 .vp .sub { color: var(--muted); font-size: 14px; margin: 7px 0 0; max-width: 62ch; }
 .vp .hactions { display: flex; gap: 9px; flex-wrap: wrap; }
 
+/* The app's own `.pill` sets a dark background and its own weight/colour. Only the
+   properties this rule restates are overridden, so any it omits leak through --
+   the same failure mode as the `.dot` overflow. Every one is set explicitly. */
 .vp .pill { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 5px 13px;
-  font-size: 12px; font-weight: 600; white-space: nowrap;
+  font-size: 12px; font-weight: 600; white-space: nowrap; letter-spacing: normal; text-transform: none;
   border: 1px solid var(--warn); background: var(--warnx); color: var(--warn); }
 .vp .pill.live { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d); }
 /* The app already uses `.dot` for an ABSOLUTELY POSITIONED notification badge
@@ -3617,8 +3620,11 @@ select:disabled { opacity: .45; }
   color: var(--faint); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .vp .tabl td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .vp .tabl tr:last-child td { border-bottom: none; }
+/* Same reasoning as `.vp .pill`: the app's `.tag` adds letter-spacing and its own
+   padding/radius, which this rule must state rather than inherit. */
 .vp .tag { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 8px;
-  border: 1px solid var(--line); color: var(--faint); white-space: nowrap; }
+  border: 1px solid var(--line); color: var(--faint); white-space: nowrap;
+  letter-spacing: normal; text-transform: none; background: transparent; }
 .vp .tag.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d); }
 .vp .tag.no { border-color: var(--warn); background: var(--warnx); color: var(--warn); }
 .vp .vst { margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
