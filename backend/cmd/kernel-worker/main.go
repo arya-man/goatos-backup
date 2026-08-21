@@ -181,6 +181,9 @@ func run(ctx context.Context, args []string) error {
 			// notification naming them, not five. Same lane as the weighing kernel
 			// because the debounce it drains is measured in minutes.
 			kernelstages.NewWeighingReworkDigestStage(deps, tenantID),
+			// PC Care roll-forward: an unfinished deworming/ticks/hoof/hair task slides to
+			// today as 'delayed' shortly after the business-day boundary (weighing twin).
+			kernelstages.NewPcCareKernelStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),

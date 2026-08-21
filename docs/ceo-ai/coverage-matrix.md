@@ -1240,3 +1240,24 @@ coverage row against a new aggregate — not these helpers.
 | `func:ParseRecordedPenAnswer`, `func:FormatRecordedPenAnswer` (`tasks/domain`) | EXCLUDED | The `"<shed_id>\|<partition_label>"` encoding of the Record shed step's stored answer, and its inverse. Pure string handling over a value the operator selected from the same excluded picker; it reports nothing and reads nothing. Same class as the other workflow-action answer helpers already excluded with the Birth/Death row-level detail. |
 | `func:TemplateBirthKidAt`, `func:TemplateByKeyAt` (`tasks/domain`) | EXCLUDED | Existing birth-template constructors, unchanged in kind: they gain one parameter that adds the Record shed step to the kid track when the kid is not already in a kid pen. The kid track is the per-animal OPERATOR work list whose rows are already excluded above (`GET /workflows/{row_id}`, and the colostrum day lens for the same reason); one more step on it introduces no new leadership fact. |
 | `func:WithIdentityTxWriter` (`tasks/adapters/postgres`) | EXCLUDED | Dependency-injection seam, the exact twin of the identically-named `counts/adapters/postgres` injector this matrix already carries: it hands the tasks repository identity's transaction-scoped relocation writer so the Record shed placement commits with the action row. Wiring only — no table, event, read path, or fact. |
+
+## PC Care module: excluded operator execution surfaces (2026-08-21)
+
+`docs/decisions/pc-care-module.md` adds the PC Care module (module_key `pc_care`):
+planner-assigned deworming / ticks removal / hoof trimming / hair trimming tasks
+with per-animal live-camera video proof and a verifier gate. Everything it adds
+today is OPERATOR EXECUTION AND EVIDENCE STATE, the same class as the excluded
+feed/weighing completion tables: leadership sees pending evidence through the
+already-covered verification queue surfaces, and pc_director's oversight rides
+the module's own monitor endpoints on the phone. A leadership KPI ("how many pens
+were dewormed last month", care-cadence adherence) becomes a real coverage row
+against a governed aggregate when the maintainer asks for one — not these raw
+rows.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| pc_care_tasks | EXCLUDED — planner-assigned task state (category, pen, planned/due business dates, kernel work_state, verification status). Execution/evidence state, not a CEO KPI; leadership pending-evidence answers stay on verification_queue_status. |
+| pc_care_task_assignees | EXCLUDED — per-task operator assignment rows (who may work a task). Pure authorization/execution state. |
+| pc_care_task_animals | EXCLUDED — per-scan RFID rows with slot proof refs and capture attribution. Evidence state behind the verification item; the tag is stored verbatim and derives no herd fact. |
+| `GET/POST /app/pc-care/*` (planner catalog/sheds, tasks, worklist, captures, animals, proofs, submit) | EXCLUDED — operator/planner execution surfaces (the mobile module's own screens). No leadership read API or aggregate; the verifier reviews through the existing generic verification routes already covered here. |
+| event `pc_care.task.completed` | EXCLUDED — the module's single canonical completion event, consumed today by nothing (registered producer-only in the domain-event registry). Becomes a coverage row when a governed care-adherence aggregate is built over it. |

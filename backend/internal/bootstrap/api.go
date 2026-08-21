@@ -73,6 +73,12 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
+	pccarehttp "github.com/vgoats/goatos/backend/internal/pccare/adapters/http"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
+	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	pccaredomain "github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformaudit "github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -590,6 +596,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithAlertsRepository(feedDirectionRepo).
 		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
+	// ticks removal / hoof trimming / hair trimming tasks with per-animal live-camera video
+	// proof. The verification enqueue seam is wired below, once verificationService exists.
+	pcCareRepo := pccarepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	pcCareService := pccareapp.NewService(pcCareRepo).
+		WithProofValidator(pccareproof.NewValidator(proofRepo))
+	pcCareHandler := pccarehttp.NewHandler(pcCareService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	// The vendor register shares procurement's postgres repository (it owns procurement_vendors)
@@ -878,6 +891,28 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	// PC Care verification (maintainer decision 2026-08-21): a PC Care task is completed only
+	// when a verifier approves the operators' whole video set, so pc_care is a verification
+	// producer like feed and weighing. ONE module (pc_care) with FOUR categories — one per work
+	// category — all sharing NavigationModule "pc_care" so the verifier gets ONE Verify tab and
+	// the categories split as queue page filters (never one tab per category). All four share
+	// ref_type pc_care_task; the verdict consumer filters on module+ref_type.
+	for order, workCategory := range pccaredomain.Categories {
+		if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+			Vertical: pccaredomain.VerificationVerticalPreventiveCare, Module: pccaredomain.VerificationModulePCCare,
+			Category: pccaredomain.VerificationCategoryFor(workCategory),
+			// The media set is DYNAMIC (animals x slots), so no positional ExpectedMedia /
+			// MediaLabels contract: every clip is a video and carries its animal's tag, the
+			// operator, and the capture time burned into its overlay.
+			NavigationModule: "pc_care", NavigationModuleLabel: "PC",
+			PageKey:   pccaredomain.VerificationCategoryFor(workCategory),
+			PageLabel: pccaredomain.CategoryLabel(workCategory), PageOrder: order + 1,
+		}); err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+	pcCareService.WithVerificationEnqueuer(pccareverificationbridge.New(verificationService))
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as
@@ -1013,7 +1048,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -1160,6 +1195,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
+	pccarehttp.Register(protectedMux, pcCareHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 	verificationhttp.Register(protectedMux, verificationHandler)
 	ceoService.Register(protectedMux)
