@@ -221,3 +221,24 @@ SELECT repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligat
        repeat_cycle_anchor_at, repeat_cycle_due_at
 FROM obligation_instances
 WHERE tenant_id = @tenant_id AND obligation_id = @obligation_id;
+
+-- name: GetOpenObligationForRepeatCycle :one
+-- Finds the open row that already holds a repeat cycle, by its CAUSE rather than its due
+-- date. A repeat's due date moves, so a sibling of the same cycle sitting on a different date
+-- is invisible to a due-date lookup -- and that sibling is precisely what the insert guard
+-- suppresses against.
+SELECT obligation_id::text
+FROM obligation_instances
+WHERE tenant_id = @tenant_id
+  AND protocol_version_id = @protocol_version_id
+  AND rule_id = @rule_id
+  AND target_type = @target_type
+  AND target_id = @target_id
+  AND "sequence" = @sequence
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND (
+    (repeat_cycle_source_ref IS NOT NULL AND repeat_cycle_source_ref = sqlc.narg('repeat_cycle_source_ref')::text)
+    OR repeat_cycle_source_ref IS NULL
+  )
+ORDER BY (repeat_cycle_source_ref IS NULL), due_at
+LIMIT 1;

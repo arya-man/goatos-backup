@@ -1360,6 +1360,24 @@ func (r *Repository) insertReworkObligationForMissed(
 			Sequence:          sequence,
 			DueAt:             pgconv.Timestamptz(dueAt),
 		})
+		if errors.Is(lookupErr, pgx.ErrNoRows) && inherited.RepeatCycleSourceRef.Valid {
+			// The suppressing row is a sibling of the SAME repeat cycle sitting on a
+			// different due date, which the due-date lookup above cannot see. That is still
+			// an idempotent success -- the cycle exists and is open -- so find it by its
+			// cause instead of reporting an internal error to the operator rescheduling.
+			byCause, causeErr := qtx.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+				TenantID:             tenant,
+				ProtocolVersionID:    protocolVersion,
+				RuleID:               rule,
+				TargetType:           targetType,
+				TargetID:             target,
+				Sequence:             sequence,
+				RepeatCycleSourceRef: inherited.RepeatCycleSourceRef,
+			})
+			if causeErr == nil {
+				return byCause, nil
+			}
+		}
 		if lookupErr != nil {
 			return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
 		}
