@@ -1563,7 +1563,7 @@ export interface paths {
         };
         /**
          * Feed stock positions and daily expenditure for the Feed Analytics page.
-         * @description Per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time sheet import; entry screens arrive with the Procurement vertical) plus the window's daily expenditure series.
+         * @description Per-farm, per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time sheet import; entry screens arrive with the Procurement vertical) plus the window's daily expenditure series.
          *
          *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 7 most recent locked feed days; a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
          */
@@ -4650,8 +4650,10 @@ export interface components {
             /** @description Verifier-recorded leftover kg as a decimal string; blank until recorded. */
             wastage_kg: string;
         };
-        /** @description One feed item's current stock position off the purchase ledger. */
+        /** @description One FARM's current stock position for one feed item, off the purchase ledger. Each farm keeps its own physical store, so there is deliberately no tenant-wide combined balance (maintainer decision 2026-08-21) — under an all-parks scope every card names its farm. */
         FeedAnalyticsStockItem: {
+            /** @description The farm whose store this position describes (e.g. CBE, CPT). */
+            farm_label: string;
             feed_item_label: string;
             feed_item_key: string;
             /** @description May be negative -- the ledger is missing a load, never clamped. */

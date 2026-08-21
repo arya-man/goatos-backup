@@ -3941,7 +3941,7 @@ paths:
       operationId: getFeedAnalyticsStock
       summary: Feed stock positions and daily expenditure for the Feed Analytics page.
       description: >-
-        Per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time
+        Per-farm, per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time
         sheet import; entry screens arrive with the Procurement vertical) plus the window's daily
         expenditure series.
 
@@ -11828,9 +11828,15 @@ components:
           description: Verifier-recorded leftover kg as a decimal string; blank until recorded.
     FeedAnalyticsStockItem:
       type: object
-      description: One feed item's current stock position off the purchase ledger.
-      required: [feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
+      description: >-
+        One FARM's current stock position for one feed item, off the purchase ledger. Each farm
+        keeps its own physical store, so there is deliberately no tenant-wide combined balance
+        (maintainer decision 2026-08-21) — under an all-parks scope every card names its farm.
+      required: [farm_label, feed_item_label, feed_item_key, balance_kg, avg_daily_kg, latest_batch_no, low_stock]
       properties:
+        farm_label:
+          type: string
+          description: The farm whose store this position describes (e.g. CBE, CPT).
         feed_item_label:
           type: string
         feed_item_key:

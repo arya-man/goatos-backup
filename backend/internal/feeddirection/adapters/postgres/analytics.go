@@ -469,50 +469,59 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, and locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=feed_item_key on every side — purchases, depletion and the recent-day average all collapse to the item before joining, so the three sides meet strictly 1:1; join_cardinality=bought LEFT JOIN directed LEFT JOIN recent, each pre-aggregated to one row per item; pagination=none, a tenant's feed catalog is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, and locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
-// scale-guard:ignore: 5k-50k-envelope — bounded per-item aggregates over the
+// PER-FARM GRAIN (maintainer decision 2026-08-21): each farm keeps its own
+// physical feed store, so a tenant-wide balance/days-left is a number nobody's
+// store holds. Every stock card is one (farm, item) and names its farm.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded per-farm-item aggregates over the
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
 const stockItemsSQL = `
 WITH bought AS (
-    SELECT feed_item_key,
+    SELECT farm_label, feed_item_key,
            MAX(feed_item_label)                          AS feed_item_label,
+           MIN(park_id::text)                            AS park_id_text,
            SUM(quantity_kg - consumed_at_import_kg)      AS net_kg,
            MAX(batch_no)                                 AS latest_batch,
            MIN(depletes_from)                            AS depletes_from
     FROM feed_purchases
     WHERE tenant_id = $1
       AND ($2::uuid[] IS NULL OR park_id = ANY ($2::uuid[]))
-    GROUP BY feed_item_key
+    GROUP BY farm_label, feed_item_key
 ),
 locked_cells AS (
-    SELECT r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+    SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
     WHERE i.tenant_id = $1
       AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
       AND i.state = 'locked'
-    GROUP BY r.feed_item_key, i.feed_day
+    GROUP BY i.park_id, r.feed_item_key, i.feed_day
 ),
 directed AS (
-    SELECT b.feed_item_key, COALESCE(SUM(lc.kg), 0) AS kg
+    SELECT b.farm_label, b.feed_item_key, COALESCE(SUM(lc.kg), 0) AS kg
     FROM bought b
     LEFT JOIN locked_cells lc
-      ON lc.feed_item_key = b.feed_item_key AND lc.feed_day >= b.depletes_from
-    GROUP BY b.feed_item_key
+      ON b.park_id_text IS NOT NULL
+     AND lc.park_id = b.park_id_text::uuid
+     AND lc.feed_item_key = b.feed_item_key
+     AND lc.feed_day >= b.depletes_from
+    GROUP BY b.farm_label, b.feed_item_key
 ),
 recent AS (
-    SELECT feed_item_key, AVG(kg) AS avg_kg
+    SELECT park_id, feed_item_key, AVG(kg) AS avg_kg
     FROM (
-        SELECT feed_item_key, kg,
-               ROW_NUMBER() OVER (PARTITION BY feed_item_key ORDER BY feed_day DESC) AS rn
+        SELECT park_id, feed_item_key, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
         FROM locked_cells
     ) ranked
     WHERE rn <= 7
-    GROUP BY feed_item_key
+    GROUP BY park_id, feed_item_key
 )
-SELECT b.feed_item_label,
+SELECT b.farm_label,
+       b.feed_item_label,
        b.feed_item_key,
        round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
        COALESCE(round(r.avg_kg, 1)::text, '')             AS avg_daily_kg,
@@ -521,9 +530,12 @@ SELECT b.feed_item_label,
        END                                                AS days_left,
        b.latest_batch
 FROM bought b
-JOIN directed d USING (feed_item_key)
-LEFT JOIN recent r USING (feed_item_key)
-ORDER BY days_left NULLS LAST, b.feed_item_label`
+JOIN directed d USING (farm_label, feed_item_key)
+LEFT JOIN recent r
+  ON b.park_id_text IS NOT NULL
+ AND r.park_id = b.park_id_text::uuid
+ AND r.feed_item_key = b.feed_item_key
+ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
 
 // Expenditure: each (day, item)'s directed kg priced at the item's most recent
 // load rate on or before that day. The LATERAL probes one indexed row per
@@ -686,7 +698,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	defer itemRows.Close()
 	for itemRows.Next() {
 		var it domain.StockItem
-		if err := itemRows.Scan(&it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
+		if err := itemRows.Scan(&it.FarmLabel, &it.FeedItemLabel, &it.FeedItemKey, &it.BalanceKg, &it.AvgDailyKg, &it.DaysLeft, &it.LatestBatchNo); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock scan: %w", err)
 		}
 		it.LowStock = it.DaysLeft != nil && *it.DaysLeft < domain.LowStockDays
