@@ -769,8 +769,14 @@ object AppModule {
         shiftingPendingRepository: ShiftingPendingRepository,
         workflowsRepository: WorkflowsRepository,
         healthRepository: HealthRepository,
-        pcCareRepository: sg.mesha.goatos.core.data.PcCareRepository,
-    ): SyncEngine = SyncEngine(
+        // Provider, NOT the repository: PcCareRepository -> SyncRepository -> SyncEngine would
+        // otherwise be a Dagger dependency cycle (PC Care is the one module whose repository
+        // enqueues its own outbox writes). The handle defers provider.get() to CALL time, after
+        // the graph is fully built, so construction never recurses.
+        pcCareRepositoryProvider: javax.inject.Provider<sg.mesha.goatos.core.data.PcCareRepository>,
+    ): SyncEngine {
+        val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
+        return SyncEngine(
         store = store,
         api = api,
         connectivityGate = connectivityGate,
@@ -825,7 +831,8 @@ object AppModule {
             OutboxOpType.WORKFLOW_ACTION_ANSWER to workflowActionAnswerFailureHook(workflowsRepository),
             OutboxOpType.WORKFLOW_ACTION_COMPLETE to workflowActionCompleteFailureHook(workflowsRepository),
         ),
-    )
+        )
+    }
 
     /**
      * Queue-lifecycle visibility (W-23). Bound unconditionally — unlike the network reporter
@@ -907,4 +914,43 @@ object AppModule {
             }
         }
     }
+}
+
+/**
+ * Call-time-deferred [sg.mesha.goatos.core.data.PcCareRepository] handle that breaks the ONE
+ * legitimate loop in the sync graph: PC Care's repository enqueues its own outbox writes
+ * (SyncRepository), SyncRepository wraps SyncEngine, and SyncEngine reconciles PC Care rows
+ * back through the repository. Every method resolves the real singleton via [provider] at the
+ * moment it is CALLED — never during construction — so Dagger sees no cycle and the first
+ * engine callback still lands on the fully wired repository.
+ */
+private class DeferredPcCareRepository(
+    private val provider: javax.inject.Provider<sg.mesha.goatos.core.data.PcCareRepository>,
+) : sg.mesha.goatos.core.data.PcCareRepository {
+    private val delegate: sg.mesha.goatos.core.data.PcCareRepository by lazy { provider.get() }
+
+    override fun worklistRows(query: sg.mesha.goatos.core.data.PcCareWorklistQuery) = delegate.worklistRows(query)
+    override fun observeTaskDetail(taskId: String) = delegate.observeTaskDetail(taskId)
+    override fun observeTaskRowStatus(taskId: String) = delegate.observeTaskRowStatus(taskId)
+    override suspend fun refreshTaskDetail(taskId: String) = delegate.refreshTaskDetail(taskId)
+    override fun observeAnimals(taskId: String) = delegate.observeAnimals(taskId)
+    override suspend fun pollTaskOnce(taskId: String) = delegate.pollTaskOnce(taskId)
+    override suspend fun recordScan(taskId: String, tagVerbatim: String) = delegate.recordScan(taskId, tagVerbatim)
+    override suspend fun registerSlotProof(
+        taskId: String,
+        normalizedTag: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ) = delegate.registerSlotProof(taskId, normalizedTag, slotFieldKey, proofOutboxItemId)
+    override suspend fun submitTask(taskId: String, rowVersion: Int) = delegate.submitTask(taskId, rowVersion)
+    override suspend fun persistTaskSubmitResult(taskId: String, status: String, rowVersion: Int, animalCount: Int) =
+        delegate.persistTaskSubmitResult(taskId, status, rowVersion, animalCount)
+    override suspend fun plannerCatalog() = delegate.plannerCatalog()
+    override suspend fun plannerParkSheds(parkId: String, category: String, date: String, cursor: String?) =
+        delegate.plannerParkSheds(parkId, category, date, cursor)
+    override suspend fun createTask(
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto,
+    ) = delegate.createTask(idempotencyKey, request)
+    override suspend fun cancelTask(taskId: String) = delegate.cancelTask(taskId)
 }

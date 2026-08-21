@@ -48,7 +48,7 @@ private const val PC_CARE_CACHED_QUERIES = 8
 private const val PC_CARE_CACHED_ANIMAL_TASKS = 12
 
 /** Bounded observed window for one task's scanned-animal list — never an unbounded observeAll. */
-private const val PC_CARE_ANIMAL_LIST_LIMIT = 300
+private const val PC_CARE_ANIMAL_LIST_LIMIT = 300 // mobile-guard:ignore: hard ceiling on ONE task's scan roster (a pen holds well under 300 animals), not a screen page — the capture screen needs every scanned row to gate submit
 
 /** Captures poll page size and page cap — write-through per page, bounded total. */
 private const val PC_CARE_CAPTURES_PAGE_LIMIT = 20

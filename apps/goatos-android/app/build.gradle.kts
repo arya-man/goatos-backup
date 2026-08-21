@@ -321,6 +321,7 @@ dependencies {
     implementation(project(":feature:feature-counts"))
     implementation(project(":feature:feature-feed"))
     implementation(project(":feature:feature-health"))
+    implementation(project(":feature:feature-pccare"))
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
     implementation(project(":feature:feature-submit"))
