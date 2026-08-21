@@ -3728,6 +3728,7 @@ select:disabled { opacity: .45; }
 .vplan .pn-l { display: block; font-size: 11px; letter-spacing: .11em; text-transform: uppercase;
   color: var(--faint); font-weight: 600; margin-bottom: 9px; }
 .vplan .durrow { display: flex; gap: 8px; align-items: stretch; }
+.vplan .durwhy { display: block; margin-top: 7px; font-size: 12px; line-height: 1.35; color: var(--danger, #b42318); }
 .vplan .durrow input { flex: 1; min-width: 0; font: inherit; font-size: 14.5px; padding: 9px 11px; border-radius: 9px;
   border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); text-align: center; font-variant-numeric: tabular-nums; }
 .vplan .durunit { flex: 0 0 auto; font: inherit; font-size: 14px; padding: 9px 10px; border-radius: 9px;

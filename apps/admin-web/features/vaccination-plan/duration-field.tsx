@@ -64,6 +64,9 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
   // MONTHS -- 3300 days saved for 3010 typed. Only a change this field did not
   // make is allowed to re-sync it.
   const committed = useRef<number | null>(null);
+  // Set when what is typed cannot be a duration, so the field can say so rather than
+  // look as though it took effect.
+  const [invalid, setInvalid] = useState(false);
 
   useEffect(() => {
     if (committed.current === days) return;
@@ -88,14 +91,20 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
     };
   }, [open]);
 
-  function commit(nextValue: string, nextUnit: Unit) {
+  function commit(nextValue: string, nextUnit: Unit): boolean {
     const n = Number(nextValue);
     // Zero and negatives are not durations. Refusing them here means the
     // scheduler never receives one.
-    if (!Number.isFinite(n) || n <= 0) return;
-    const total = Math.round(n) * DAYS_PER[nextUnit];
+    //
+    // Nor are fractions. Rounding one silently was the same bug this field was
+    // rebuilt to kill, just in a different disguise: "1.5 weeks" committed 14 days
+    // while the open input still read 1.5, so the farm saw one interval and the
+    // scheduler used another. A fraction is refused and said so instead.
+    if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return false;
+    const total = n * DAYS_PER[nextUnit];
     committed.current = total;
     onChange(total);
+    return true;
   }
 
   return (
@@ -122,7 +131,7 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
               autoFocus
               onChange={(e) => {
                 setValue(e.target.value);
-                commit(e.target.value, unit);
+                setInvalid(!commit(e.target.value, unit) && e.target.value.trim() !== "");
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") setOpen(false);
@@ -135,7 +144,10 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
               onChange={(e) => {
                 const next = e.target.value as Unit;
                 setUnit(next);
-                commit(value, next);
+                // A unit change with an unusable number used to be dropped in silence:
+                // the select moved, nothing was saved, and the chip still showed the old
+                // unit. Now the field says why.
+                setInvalid(!commit(value, next));
               }}
               aria-label="Unit"
             >
@@ -145,6 +157,11 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
               <option value="years">years</option>
             </select>
           </span>
+          {invalid ? (
+            <span className="durwhy" role="status">
+              Whole numbers only, and at least 1.
+            </span>
+          ) : null}
         </span>
       ) : null}
     </span>

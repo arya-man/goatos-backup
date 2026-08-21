@@ -168,11 +168,19 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
     // parked copy is inert to it.
     const parked = Array.isArray(r.parked_schedule) ? (r.parked_schedule as ScheduleRule[]) : [];
     const live = Array.isArray(r.schedule) ? (r.schedule as ScheduleRule[]) : [];
+    // The same source either way -- the live rules, or the parked ones when the vaccine
+    // was already off -- and the SAME edits applied to them. Parking the untouched
+    // original instead lost whatever the farm had just changed: set a first dose to five
+    // months, switch the vaccine off, save, and the screen still read five months while
+    // the parked rules had silently reverted to four weeks. Nothing warned, and the loss
+    // only surfaced when the vaccine came back on.
+    const source = live.length > 0 ? live : parked;
+    const edits = applyEdits(source, edited, code);
     if (edited.on) {
-      r.schedule = applyEdits(live.length > 0 ? live : parked, edited, code);
+      r.schedule = edits;
       delete r.parked_schedule;
     } else {
-      if (live.length > 0) r.parked_schedule = live;
+      if (edits.length > 0) r.parked_schedule = edits;
       r.schedule = [];
     }
     return r;

@@ -66,8 +66,14 @@ await page.waitForTimeout(1500);
 await shot("05-published");
 
 const body = await page.locator("body").innerText();
-if (/could not|error/i.test(body)) console.log("   NOTE: page mentions an error — check the screenshot");
+// A publish that renders "could not publish the plan" used to print a note and exit 0,
+// so the one thing this case exists to prove could fail and the case still passed.
+if (/could not|error/i.test(body)) {
+  await browser.close();
+  throw new Error(`publish landed on a page reporting an error: ${body.slice(0, 300)}`);
+}
 
 console.log(errors.length ? `console errors: ${errors.join(" | ")}` : "no console errors");
 await browser.close();
+if (errors.length) throw new Error(`client-side errors during publish: ${errors.join(" | ")}`);
 console.log("done");

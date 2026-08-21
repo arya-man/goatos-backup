@@ -712,8 +712,11 @@ for (const r of results) {
 }
 console.log(`${"=".repeat(60)}`);
 console.log(`${total - failed}/${total} checks passed · ${errored} case(s) errored`);
-if (consoleErrors.length) console.log(`console errors: ${[...new Set(consoleErrors)].join(" | ")}`);
+// Counted, not merely printed. A suite that exits 0 while the app throws in the browser
+// is reporting that the screens work when it only proved they rendered something.
+const uniqueConsoleErrors = [...new Set(consoleErrors)];
+if (uniqueConsoleErrors.length) console.log(`console errors: ${uniqueConsoleErrors.join(" | ")}`);
 console.log(`screenshots: ${OUT}`);
 
-await writeFile(path.join(OUT, "results.json"), JSON.stringify({ results, total, failed, errored }, null, 2));
-process.exit(failed || errored ? 1 : 0);
+await writeFile(path.join(OUT, "results.json"), JSON.stringify({ results, total, failed, errored, consoleErrors: uniqueConsoleErrors }, null, 2));
+process.exit(failed || errored || uniqueConsoleErrors.length ? 1 : 0);

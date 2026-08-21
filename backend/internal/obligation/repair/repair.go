@@ -297,8 +297,15 @@ ORDER BY o.version_id, o.rule_id, o.target_id, o.sequence, o.cycle_ref,
 // the apply path use this one definition, so a dry run cannot report a repair the apply
 // would then decline to make.
 //
-// The anchor is scoped to the same rule AND the same protocol version, and must have been
-// given before the cycle it supposedly caused. It is only meaningful for a genuine repeat
+// The anchor is the animal's LATEST verified administration of the rule's own vaccine --
+// matched on vaccine code, exactly as generation matches it, and deliberately not capped at
+// the row's due date. Capping it there looked safer and was the opposite: an overdue row
+// whose animal has since been vaccinated again would be stamped with the OLD cause, while
+// generation computes the new one, and the two no longer collapse. The repair would then
+// manufacture the duplicate it exists to remove -- and worse than leaving the row alone,
+// because an unstamped row is still caught by the guard's no-cause branch.
+//
+// It is only meaningful for a genuine repeat
 // rule, where the cause of each cycle is the same rule's own previous dose. A pure
 // after_previous_completion chain is caused by the UPSTREAM rule in the course, so
 // reconstructing it from the same rule would stamp a stale anchor -- and a wrong anchor is
@@ -334,7 +341,6 @@ anchor AS (
    AND done_version.protocol_version_id = done.protocol_version_id
   WHERE vc.status = 'accepted'
     AND vc.verified_at IS NOT NULL
-    AND vc.administered_at <= t.due_at
     AND lower(btrim(coalesce(nullif(done_rule.eligibility_json -> 'vaccine' ->> 'code', ''),
                              nullif(done_version.rule_dsl -> 'vaccine' ->> 'code', ''), '')))
         = t.vaccine_code
