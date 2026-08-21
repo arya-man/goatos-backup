@@ -219,7 +219,7 @@ export interface paths {
         };
         /**
          * Export recent leadership-visible Weighing rows as CSV.
-         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope. The default window is today plus the previous 35 business dates (36 inclusive dates). Pending video verification is included and reported in `video_verification_status`; it is not filtered out.
+         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope, optionally narrowed to one park and selected shed locations. The default window is today plus the previous 35 business dates (36 inclusive dates); an explicit range up to 366 days is served. Columns follow the operations Weight-check sheet, minus its video-link column: date, rfid, rfid_2, old_id, old_id_suffix, breed, gender, shed, type, count, operator, approval, verified_weight_kg. Pending video verification is included and reported in `approval` (approved / rejected / pending); it is not filtered out.
          */
         get: operations["exportWeighingCsv"];
         put?: never;
@@ -11911,6 +11911,10 @@ export interface operations {
                 from?: string;
                 /** @description Inclusive Asia/Kolkata business date. Defaults to today. */
                 to?: string;
+                /** @description Optional park narrowing inside the caller's authorized monitor scope. */
+                park_id?: string;
+                /** @description Optional repeated shed location ids (the Weights table's location grain). Absent means every shed in scope. */
+                shed_id?: string[];
             };
             header?: never;
             path?: never;
