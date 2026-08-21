@@ -39,6 +39,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -202,6 +203,22 @@ data class VerifyWeightCorrection(
      * collect words the write path silently drops.
      */
     val showReason: Boolean = true,
+    /**
+     * The ordered per-item entry boxes for items whose approve carries one value PER FIELD -- a
+     * feed packing item: one box per feed item of that pen-session, NAMES ONLY (the planned
+     * quantities are deliberately hidden so the verifier enters blind; maintainer decision
+     * 2026-08-21). Non-empty means the card renders one labelled box per field INSTEAD of the
+     * single value field, and Approve stays held until every box carries a usable number -- zero
+     * included ("this item was not packed" is a real observation).
+     */
+    val fields: List<VerifyMeasurementField> = emptyList(),
+)
+
+/** One per-item entry box: the backend's stable key, echoed verbatim, and its caption. */
+@Immutable
+data class VerifyMeasurementField(
+    val key: String,
+    val label: String,
 )
 
 /**
@@ -212,11 +229,23 @@ data class VerifyWeightCorrection(
  */
 @Immutable
 data class VerifyMeasurementInput(
-    /** In the category's own unit (kg for weighing and wastage). Zero is valid for wastage. */
-    val value: Double,
+    /**
+     * The single-value reading in the category's own unit (kg for weighing and wastage). Zero is
+     * valid for wastage. Null on a per-field item, whose readings travel on [entries].
+     */
+    val value: Double? = null,
     /** Lump-sum only. Null leaves the recorded count alone, which is the normal case. */
     val count: Int? = null,
     val reason: String? = null,
+    /** One reading per declared field (feed packing). Empty for single-value categories. */
+    val entries: List<VerifyMeasurementEntry> = emptyList(),
+)
+
+/** One filled entry box travelling with the approve: the field's key plus the reading. */
+@Immutable
+data class VerifyMeasurementEntry(
+    val key: String,
+    val value: Double,
 )
 
 /**
@@ -559,7 +588,12 @@ private fun VerifyEntryCard(
     var valueText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
     var countText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
     var reasonText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+    // Per-field readings (feed packing's blind entry, maintainer decision 2026-08-21): one box per
+    // feed item. Keyed by observation id like the single value above, so stepping to another item
+    // starts blank instead of carrying one pen's readings onto the next pen's approve.
+    val entryTexts = remember(correction?.observationId) { mutableStateMapOf<String, String>() }
 
+    val perFieldEntry = (correction?.fields?.size ?: 0) > 0
     // Blank is "she has not typed a number", NEVER a zero: for wastage an empty trough is a real
     // reading, so coercing blank to 0 would record a measurement she never made.
     val value = valueText.trim().toDoubleOrNull()
@@ -570,12 +604,28 @@ private fun VerifyEntryCard(
     // refuses a non-positive weight, so a typed 0 there is held here rather than sent to be
     // rejected. Blank is still blank in both -- "she has not typed" is never coerced into 0.
     val valueIsUsable = value != null && value.isFinite() && (if (correction?.allowZero == true) value >= 0 else value > 0)
-    // Held only where the backend says the reading is born on this screen -- feed wastage. Weighing
-    // stays a single tap when she agrees with the operator's weight.
-    val measurementMissing = correction?.requiredForApprove == true && !valueIsUsable
-    val measurement = correction
-        ?.takeIf { valueIsUsable }
-        ?.let {
+    // Per-field completeness: EVERY box must carry a usable number, zero included ("this item was
+    // not packed" is a real observation). Blank is not entered, and holds Approve below.
+    val fieldReadings = correction?.fields.orEmpty().associate { field ->
+        field.key to entryTexts[field.key]?.trim()?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
+    }
+    val everyFieldFilled = perFieldEntry && fieldReadings.values.all { it != null }
+    // Held only where the backend says the readings are born on this screen -- feed wastage's one
+    // value, or a per-field item's full set. Weighing stays a single tap when she agrees with the
+    // operator's weight.
+    val measurementMissing = correction?.requiredForApprove == true &&
+        (if (perFieldEntry) !everyFieldFilled else !valueIsUsable)
+    val measurement = when {
+        correction == null -> null
+        perFieldEntry -> correction.takeIf { everyFieldFilled }?.let {
+            VerifyMeasurementInput(
+                entries = correction.fields.map { field ->
+                    // Not-null by everyFieldFilled.
+                    VerifyMeasurementEntry(key = field.key, value = fieldReadings[field.key] ?: 0.0)
+                },
+            )
+        }
+        valueIsUsable ->
             VerifyMeasurementInput(
                 // Not-null by valueIsUsable.
                 value = value ?: 0.0,
@@ -586,7 +636,8 @@ private fun VerifyEntryCard(
                 // collected and silently dropped. The field is not rendered for it either.
                 reason = reasonText.trim().ifBlank { null }.takeIf { correction.showReason },
             )
-        }
+        else -> null
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
@@ -665,6 +716,7 @@ private fun VerifyEntryCard(
                 onCountChange = { countText = it },
                 reasonText = reasonText,
                 onReasonChange = { reasonText = it },
+                entryTexts = entryTexts,
                 countIsUsable = countIsUsable,
                 showRequiredHint = measurementMissing,
                 enabled = !entry.isSubmitting,
@@ -719,6 +771,7 @@ private fun MeasurementCard(
     onCountChange: (String) -> Unit,
     reasonText: String,
     onReasonChange: (String) -> Unit,
+    entryTexts: MutableMap<String, String>,
     countIsUsable: Boolean,
     showRequiredHint: Boolean,
     enabled: Boolean,
@@ -737,15 +790,34 @@ private fun MeasurementCard(
             style = MeshaType.cta,
             modifier = Modifier.padding(top = 4.dp),
         )
-        OutlinedTextField(
-            value = valueText,
-            onValueChange = onValueChange,
-            label = { Text(correction.valueLabel) },
-            singleLine = true,
-            enabled = enabled,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-        )
+        if (correction.fields.isNotEmpty()) {
+            // BLIND PER-ITEM ENTRY (maintainer decision 2026-08-21): one labelled box per feed
+            // item, names only -- the backend deliberately withholds the planned quantities so her
+            // readings are independent. Zero is a valid entry ("this item was not packed"); blank
+            // means not entered and holds Approve. The bounded fields list is one pen-session's
+            // feed items, never a scrolling data set.
+            correction.fields.forEach { field ->
+                OutlinedTextField(
+                    value = entryTexts[field.key] ?: "",
+                    onValueChange = { entryTexts[field.key] = it },
+                    label = { Text(field.label) },
+                    singleLine = true,
+                    enabled = enabled,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+            }
+        } else {
+            OutlinedTextField(
+                value = valueText,
+                onValueChange = onValueChange,
+                label = { Text(correction.valueLabel) },
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            )
+        }
         correction.countLabel?.takeIf { it.isNotBlank() }?.let { countLabel ->
             OutlinedTextField(
                 value = countText,

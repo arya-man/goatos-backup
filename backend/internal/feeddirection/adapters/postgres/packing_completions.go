@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -601,6 +602,133 @@ WHERE tenant_id = $1::uuid
 		ReopenedCompletionIDs: completionIDs,
 		WithdrawnItemCount:    int(tag.RowsAffected()),
 	}, nil
+}
+
+// maxRecordablePackedKg mirrors wastage's typo ceiling: no single bag's item plausibly exceeds it,
+// and a fat-fingered 125000 must be refused rather than recorded. The DB CHECK agrees.
+const maxRecordablePackedKg = 10000
+
+// feedPackingQuantitiesAction is the audit action for a verifier's per-item packed readings.
+const feedPackingQuantitiesAction = "feed.packing.quantities_recorded"
+
+// RecordPackingVerifiedQuantities upserts the verifier's per-item packed-weight readings for one
+// completion (maintainer decision 2026-08-21: blind per-item entry; the approve carries the
+// numbers). REPLACE semantics for the whole set: rows for keys not in this reading are removed, so
+// a re-approve after rework leaves no stale item behind. Runs before the verdict is recorded, so a
+// refusal here stops the whole approve.
+func (r *Repository) RecordPackingVerifiedQuantities(ctx context.Context, p ports.RecordPackingVerifiedQuantitiesParams) error {
+	if len(p.Entries) == 0 {
+		return ports.ErrPackingQuantitiesRequired
+	}
+	keys := make([]string, 0, len(p.Entries))
+	labels := make([]string, 0, len(p.Entries))
+	kgs := make([]float64, 0, len(p.Entries))
+	for _, entry := range p.Entries {
+		key := strings.TrimSpace(entry.FeedItemKey)
+		if key == "" {
+			return ports.ErrPackingQuantitiesRequired
+		}
+		if math.IsNaN(entry.EnteredKg) || math.IsInf(entry.EnteredKg, 0) || entry.EnteredKg < 0 || entry.EnteredKg > maxRecordablePackedKg {
+			return ports.ErrPackingQuantityOutOfRange
+		}
+		keys = append(keys, key)
+		labels = append(labels, strings.TrimSpace(entry.FeedItemLabel))
+		kgs = append(kgs, entry.EnteredKg)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("feeddirection: begin record packed quantities tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var shedID, parkID string
+	err = tx.QueryRow(ctx, `
+SELECT shed_id::text, park_id::text
+FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
+FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&shedID, &parkID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrPackingCompletionNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("feeddirection: lock packing completion for quantities: %w", err)
+	}
+
+	// Replace the whole reading set-based: delete keys this reading no longer names, upsert the rest.
+	if _, err := tx.Exec(ctx, `
+DELETE FROM feed_packing_verified_quantities
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND feed_item_key <> ALL($3::text[])`,
+		p.TenantID, p.CompletionID, keys); err != nil {
+		return fmt.Errorf("feeddirection: clear stale packed quantities: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO feed_packing_verified_quantities (
+  tenant_id, completion_id, feed_item_key, feed_item_label, entered_kg, recorded_by
+)
+SELECT $1::uuid, $2::uuid, k.feed_item_key, k.feed_item_label, k.entered_kg, $3::uuid
+FROM unnest($4::text[], $5::text[], $6::numeric[]) AS k(feed_item_key, feed_item_label, entered_kg)
+ON CONFLICT (tenant_id, completion_id, feed_item_key) DO UPDATE
+SET feed_item_label = EXCLUDED.feed_item_label,
+    entered_kg = EXCLUDED.entered_kg,
+    recorded_by = EXCLUDED.recorded_by,
+    recorded_at = now()`,
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.RecordedBy), keys, labels, kgs); err != nil {
+		return fmt.Errorf("feeddirection: upsert packed quantities: %w", err)
+	}
+
+	quantities := map[string]any{}
+	for i, key := range keys {
+		quantities[key] = kgs[i]
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     p.TenantID,
+		ActorID:      strings.TrimSpace(p.RecordedBy),
+		ActorType:    "verifier",
+		Action:       feedPackingQuantitiesAction,
+		ResourceType: feedPackingResourceType,
+		ResourceID:   p.CompletionID,
+		ScopeType:    "shed",
+		ScopeID:      shedID,
+		AfterState: map[string]any{
+			"park_id":     parkID,
+			"shed_id":     shedID,
+			"entered_kgs": quantities,
+		},
+		Metadata: map[string]any{"source": "feed-packing-verification", "idempotency_key": strings.TrimSpace(p.IdempotencyKey)},
+		TraceID:  p.TraceID,
+	}); err != nil {
+		return fmt.Errorf("feeddirection: write packed quantities audit: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("feeddirection: commit packed quantities: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// PackingVerifiedQuantitiesRecorded reports whether a completion already carries verifier readings.
+func (r *Repository) PackingVerifiedQuantitiesRecorded(ctx context.Context, tenantID, completionID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var recorded bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM feed_packing_verified_quantities
+  WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
+)`, tenantID, completionID).Scan(&recorded)
+	if err != nil {
+		return false, fmt.Errorf("feeddirection: read packed quantities recorded: %w", err)
+	}
+	return recorded, nil
 }
 
 func writePackingAudit(ctx context.Context, tx pgx.Tx, p ports.CompletePackingParams, completionID, action string) error {

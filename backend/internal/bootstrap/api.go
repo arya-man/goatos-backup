@@ -776,11 +776,30 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// mandatory packing video, so packing is a verification producer too. Same feed module as
 	// distribution, but a DISTINCT category (feed_packing) and ref_type so the two feed gates never
 	// cross-fire. Register the category and wire the enqueue seam.
+	// BLIND PER-ITEM QUANTITY ENTRY on packing review (maintainer decision 2026-08-21): the item
+	// carries the pen-session's feed item NAMES as entry boxes (MeasurementFields, enqueued by the
+	// producer -- the planned quantities are deliberately hidden from the verifier), she types the
+	// packed weight she can see for each, and the approve carries every reading. A verifier who
+	// cannot see a usable video rejects -> rework, unchanged. The intended-vs-entered variance
+	// surfaces only on the leadership feed analytics execution view.
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category:         feeddirectiondomain.VerificationCategoryPacking,
-		ExpectedMedia:    []string{"video"},
-		MediaLabels:      []string{"Feed packing video"},
+		Category:      feeddirectiondomain.VerificationCategoryPacking,
+		ExpectedMedia: []string{"video"},
+		MediaLabels:   []string{"Feed packing video"},
+		MeasurementCorrection: &verificationdomain.MeasurementCorrectionSpec{
+			Title:       "Record the packed quantities",
+			Help:        "Watch the video and enter the packed weight you can see for each feed item. Your readings become the recorded packed quantities.",
+			ValueLabel:  "Packed quantity (kg)",
+			SubmitLabel: "Save packed quantities",
+			// The numbers are BORN on her screen -- the operator sends a video and nothing else --
+			// so every box must be filled before the approve lands. An unreadable video is a
+			// rejection, never a guess.
+			RequiredForApprove: true,
+			// One value PER FEED ITEM, with the field list on each item; an item enqueued with no
+			// fields (frozen sheet unreadable at submit) degrades to a judge-the-video approve.
+			PerItemFields: true,
+		},
 		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 		PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 2,
 	}); err != nil {
@@ -789,6 +808,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	feedDirectionService.WithPackingVerificationEnqueuer(
 		feeddirectionverificationbridge.NewPacking(verificationService))
+	// THE APPROVE CARRIES THE NUMBERS: the readings land on feed_packing_verified_quantities
+	// through the producer's own store, BEFORE the verdict is recorded, so a refusal stops the
+	// whole approve rather than approving beside readings that never landed.
+	if err := verificationService.RegisterMeasurementApplier(
+		feeddirectiondomain.VerificationCategoryPacking,
+		feeddirectionverificationbridge.NewPackingMeasurementApplier(feedDirectionRepo),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
 		Category: feeddirectiondomain.VerificationCategoryTransport, ExpectedMedia: []string{"video"},

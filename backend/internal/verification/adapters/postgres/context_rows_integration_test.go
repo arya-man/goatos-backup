@@ -140,3 +140,97 @@ func assertContextRows(t *testing.T, path string, got, want []domain.ContextRow)
 		}
 	}
 }
+
+// measurement_fields must survive the SAME real round trip through BOTH read paths (maintainer
+// decision 2026-08-21 -- feed packing's blind per-item entry). Same rationale as context_rows
+// above: a column carried by one SELECT list and not the other is a runtime scan failure or a
+// silently fields-less item, and only a live query surfaces either.
+func TestMeasurementFieldsRoundTripThroughBothReadPaths_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	parkID := newPark(t, ctx, pool, tenantID)
+
+	want := []domain.MeasurementField{
+		{Key: "maize", Label: "Maize"},
+		{Key: "soya", Label: "Soya"},
+	}
+	created, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID: tenantID,
+		Vertical: "feed",
+		Module:   "feed",
+		Category: "feed_packing",
+		Source: domain.SourceRef{
+			Module:  "feed",
+			RefType: "feed_packing_completion",
+			RefID:   tenantID,
+		},
+		MeasurementFields: want,
+		ParkID:            &parkID,
+		MediaRefs:         []string{"proof-1"},
+		CapturedAt:        time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey:    "feed-packing-verification:fields-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	assertMeasurementFields := func(path string, got []domain.MeasurementField) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: measurement fields = %+v, want %+v", path, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: field %d = %+v, want %+v (order is the producer's and must be preserved)", path, i, got[i], want[i])
+			}
+		}
+	}
+
+	got, err := repo.GetItem(ctx, tenantID, created.Item.ItemID)
+	if err != nil {
+		t.Fatalf("GetItem: %v", err)
+	}
+	assertMeasurementFields("GetItem", got.MeasurementFields)
+
+	rows, err := repo.ListQueue(ctx, ports.ListQueueParams{TenantID: tenantID, Status: domain.StatusPending, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatalf("ListQueue returned no rows for the item just created")
+	}
+	assertMeasurementFields("ListQueue", rows[0].MeasurementFields)
+
+	// A producer attaching no fields stores [] (the CHECK requires an array), reads back empty.
+	empty, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID: tenantID,
+		Vertical: "feed",
+		Module:   "feed",
+		Category: "feed_packing",
+		Source: domain.SourceRef{
+			Module:  "feed",
+			RefType: "feed_packing_completion",
+			RefID:   tenantID,
+		},
+		MediaRefs:      []string{"proof-2"},
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "feed-packing-verification:fields-empty",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem with no fields: %v", err)
+	}
+	var stored string
+	if err := pool.QueryRow(ctx,
+		`SELECT measurement_fields::text FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		tenantID, empty.Item.ItemID).Scan(&stored); err != nil {
+		t.Fatalf("read stored measurement_fields: %v", err)
+	}
+	if stored != "[]" {
+		t.Errorf("stored measurement_fields = %q, want %q -- null fails the array CHECK", stored, "[]")
+	}
+}

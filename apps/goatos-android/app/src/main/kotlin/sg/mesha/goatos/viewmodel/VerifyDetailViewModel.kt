@@ -36,10 +36,12 @@ import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementEntryDto
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
+import sg.mesha.goatos.feature.verify.VerifyMeasurementField
 import sg.mesha.goatos.feature.verify.VerifyMeasurementInput
 import sg.mesha.goatos.feature.verify.VerifyDetailEntryUiState
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
@@ -431,15 +433,24 @@ class VerifyDetailViewModel @Inject constructor(
             // can drain apart -- and the approve can no longer be fenced out by the row_version
             // bump its own earlier save caused. Guarded belt-and-braces: a malformed event can
             // never enqueue a value the server would refuse as out of range.
-            measurement = measurement
-                ?.takeIf { it.value.isFinite() && it.value >= 0 }
-                ?.let {
+            measurement = measurement?.let { input ->
+                val entries = input.entries
+                    .filter { entry -> entry.key.isNotBlank() && entry.value.isFinite() && entry.value >= 0 }
+                    .map { entry -> VerificationVerdictMeasurementEntryDto(key = entry.key, value = entry.value) }
+                val usableValue = input.value?.takeIf { value -> value.isFinite() && value >= 0 }
+                if (usableValue == null && entries.isEmpty()) {
+                    null
+                } else {
                     VerificationVerdictMeasurementDto(
-                        value = it.value,
-                        count = it.count?.takeIf { count -> count > 0 },
-                        reason = it.reason?.takeIf(String::isNotBlank),
+                        value = usableValue,
+                        // Per-field readings (feed packing's blind entry, 2026-08-21): one per
+                        // declared field, keys echoed verbatim. Empty for single-value categories.
+                        entries = entries,
+                        count = input.count?.takeIf { count -> count > 0 },
+                        reason = input.reason?.takeIf(String::isNotBlank),
                     )
-                },
+                }
+            },
         )
         when (result) {
             is AppResult.Ok -> {
@@ -723,6 +734,12 @@ class VerifyDetailViewModel @Inject constructor(
                         // enters a reading -- the operator sent a video and no number, so approving
                         // blank would complete a pen-day with no wastage recorded at all.
                         requiredForApprove = correction.requiredForApprove,
+                        // Per-field entry boxes (feed packing's blind entry, maintainer decision
+                        // 2026-08-21): keys posted back verbatim, labels rendered verbatim. A
+                        // keyless field could never be posted back, so it is dropped here.
+                        fields = correction.fields
+                            .filter { it.key.isNotBlank() }
+                            .map { VerifyMeasurementField(key = it.key, label = it.label) },
                     )
                 },
             media = media.map {

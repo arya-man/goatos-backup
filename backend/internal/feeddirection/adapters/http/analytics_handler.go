@@ -98,10 +98,34 @@ type executionDayDTO struct {
 	MedianVerifyLatencyMinutes *int64 `json:"median_verify_latency_minutes"`
 }
 
+// packingVarianceRowDTO is one intended-vs-entered packing mismatch. LEADERSHIP-ONLY payload: the
+// verifier enters her readings blind and the page serving this is leadership-gated -- never render
+// this comparison on a verifier surface.
+type packingVarianceRowDTO struct {
+	FeedDay                    string `json:"feed_day"`
+	ParkLabel                  string `json:"park_label"`
+	ShedID                     string `json:"shed_id"`
+	ShedLabel                  string `json:"shed_label"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	SessionNo                  int32  `json:"session_no"`
+	SessionLabel               string `json:"session_label,omitempty"`
+	Workflow                   string `json:"workflow"`
+	FeedItemKey                string `json:"feed_item_key"`
+	FeedItemLabel              string `json:"feed_item_label"`
+	// PlannedKg is "" when the frozen sheet carried no resolved quantity -- blank and zero are
+	// never conflated.
+	PlannedKg  string `json:"planned_kg"`
+	VerifiedKg string `json:"verified_kg"`
+	VarianceKg string `json:"variance_kg"`
+}
+
 type executionAnalyticsDTO struct {
 	DateFrom string            `json:"date_from"`
 	DateTo   string            `json:"date_to"`
 	Days     []executionDayDTO `json:"days"`
+	// PackingVariance is always present (possibly empty) so the renderer needs no null branch.
+	PackingVariance []packingVarianceRowDTO `json:"packing_variance"`
 }
 
 // GetExecutionAnalytics serves GET /feed-analytics/execution.
@@ -135,6 +159,25 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			TransportAwaitingVerdict:   d.TransportAwaitingVerdict,
 			TransportRework:            d.TransportRework,
 			MedianVerifyLatencyMinutes: d.MedianVerifyLatencyMinutes,
+		})
+	}
+	dto.PackingVariance = make([]packingVarianceRowDTO, 0, len(result.PackingVariance))
+	for _, v := range result.PackingVariance {
+		dto.PackingVariance = append(dto.PackingVariance, packingVarianceRowDTO{
+			FeedDay:                    v.FeedDay,
+			ParkLabel:                  v.ParkLabel,
+			ShedID:                     v.ShedID,
+			ShedLabel:                  v.ShedLabel,
+			PartitionLabel:             v.PartitionLabel,
+			OperationalLocationDisplay: v.OperationalLocationDisplay,
+			SessionNo:                  v.SessionNo,
+			SessionLabel:               v.SessionLabel,
+			Workflow:                   v.Workflow,
+			FeedItemKey:                v.FeedItemKey,
+			FeedItemLabel:              v.FeedItemLabel,
+			PlannedKg:                  v.PlannedKg,
+			VerifiedKg:                 v.VerifiedKg,
+			VarianceKg:                 v.VarianceKg,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)

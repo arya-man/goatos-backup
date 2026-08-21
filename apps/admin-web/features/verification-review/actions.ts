@@ -40,13 +40,34 @@ function withFeedback(url: URL, status: "success" | "error", code: string): stri
 // Coercing one into the other would either record a weight she never typed or silently discard a
 // measurement she did.
 type MeasurementRead =
-  | { ok: true; measurement?: { value: number; count?: number; reason?: string } }
+  | {
+      ok: true;
+      measurement?: { value?: number; count?: number; reason?: string; entries?: { key: string; value: number }[] };
+    }
   | { ok: false; code: "invalid_measurement" | "invalid_measurement_count" };
 
 function readMeasurement(formData: FormData): MeasurementRead {
+  // Per-field readings (feed packing's blind entry, maintainer decision 2026-08-21): one input per
+  // feed item, named measurement_entry:<key>. A blank box means "not entered" and is DROPPED here
+  // -- the backend's completeness check then names the missing field instead of recording a guess.
+  // Zero is a real reading ("this item was not packed") and goes through.
+  const entries: { key: string; value: number }[] = [];
+  for (const [name, raw] of formData.entries()) {
+    if (!name.startsWith("measurement_entry:")) continue;
+    const key = name.slice("measurement_entry:".length).trim();
+    const trimmed = String(raw ?? "").trim();
+    if (!key || trimmed === "") continue;
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value < 0) return { ok: false, code: "invalid_measurement" };
+    entries.push({ key, value });
+  }
+
   const raw = String(formData.get("measurement_value") ?? "").trim();
   const countRaw = String(formData.get("measurement_count") ?? "").trim();
-  if (raw === "" && countRaw === "") return { ok: true };
+  if (raw === "" && countRaw === "" && entries.length === 0) return { ok: true };
+  if (entries.length > 0) {
+    return { ok: true, measurement: { entries } };
+  }
   const value = Number(raw);
   if (raw === "" || !Number.isFinite(value) || value < 0) return { ok: false, code: "invalid_measurement" };
   const count = countRaw === "" ? undefined : Number(countRaw);

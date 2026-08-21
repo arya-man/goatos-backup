@@ -64,12 +64,15 @@ func (r *fakeRepo) CreateItem(_ context.Context, in domain.CreateItem) (domain.C
 		SubjectLabel: in.SubjectLabel,
 		Source:       in.Source,
 		MediaRefs:    in.MediaRefs,
-		Status:       domain.StatusPending,
-		OperatorID:   in.OperatorID,
-		ShedID:       in.ShedID,
-		ParkID:       in.ParkID,
-		CapturedAt:   in.CapturedAt,
-		RowVersion:   1,
+		// MeasurementFields must round-trip like the real repository's jsonb column: the verdict
+		// path's completeness check reads them off the ITEM, not the create input.
+		MeasurementFields: in.MeasurementFields,
+		Status:            domain.StatusPending,
+		OperatorID:        in.OperatorID,
+		ShedID:            in.ShedID,
+		ParkID:            in.ParkID,
+		CapturedAt:        in.CapturedAt,
+		RowVersion:        1,
 	}
 	r.items[id] = item
 	return domain.CreateItemResult{Item: item, Created: true}, nil

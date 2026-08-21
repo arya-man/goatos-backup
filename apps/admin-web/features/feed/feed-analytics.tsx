@@ -642,6 +642,61 @@ function ExecutionTab({
           />
         </ChartHover>
       </section>
+      {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
+          enters her per-item readings BLIND -- this comparison exists only on this leadership
+          page, never on any verifier surface. Any difference pops; there is no tolerance band. */}
+      <section className="card" aria-label={fa(pageContract, "variance.title")}>
+        <div className="hd">
+          <h3>{fa(pageContract, "variance.title")}</h3>
+          <span className="small muted">{fa(pageContract, "variance.hint")}</span>
+        </div>
+        {data.packing_variance.length === 0 ? (
+          <p className="muted small">{fa(pageContract, "variance.empty")}</p>
+        ) : (
+          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "variance.title")}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{fa(pageContract, "col.variance.day")}</th>
+                  <th>{fa(pageContract, "col.variance.park")}</th>
+                  <th>{fa(pageContract, "col.variance.pen")}</th>
+                  <th>{fa(pageContract, "col.variance.session")}</th>
+                  <th>{fa(pageContract, "col.variance.item")}</th>
+                  <th>{fa(pageContract, "col.variance.planned")}</th>
+                  <th>{fa(pageContract, "col.variance.verified")}</th>
+                  <th>{fa(pageContract, "col.variance.diff")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.packing_variance.map((row) => (
+                  <tr key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.session_no}:${row.feed_item_key}:${row.workflow}`}>
+                    <td>{fmtDate(row.feed_day)}</td>
+                    <td>{row.park_label}</td>
+                    <td>{row.operational_location_display}</td>
+                    <td>{row.session_label || row.session_no}</td>
+                    <td>{row.feed_item_label}</td>
+                    <td>
+                      {row.planned_kg === ""
+                        ? fa(pageContract, "variance.planned_unknown")
+                        : `${row.planned_kg} ${fa(pageContract, "unit.kg")}`}
+                    </td>
+                    <td>{`${row.verified_kg} ${fa(pageContract, "unit.kg")}`}</td>
+                    <td>
+                      {/* Same tag anatomy as the stock check: over-packed points up, short points
+                          down, and every row here IS a mismatch, so the tag is always the danger
+                          tone for a shortfall and ok tone for an overage. */}
+                      <span className={`${num(row.variance_kg) >= 0 ? "tag t-ok" : "tag t-dng"} feed-stock-check-tag`}>
+                        <span aria-hidden="true">{num(row.variance_kg) >= 0 ? "↑" : "↓"}</span>
+                        <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </>
   );
 }

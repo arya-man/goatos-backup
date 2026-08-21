@@ -115,6 +115,14 @@ func (f *fakePackingStore) BouncePackingForRework(_ context.Context, _ ports.Bou
 	return false, nil
 }
 
+func (f *fakePackingStore) RecordPackingVerifiedQuantities(_ context.Context, _ ports.RecordPackingVerifiedQuantitiesParams) error {
+	return nil
+}
+
+func (f *fakePackingStore) PackingVerifiedQuantitiesRecorded(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+
 func (f *fakePackingStore) ReopenPackingForFeedChange(_ context.Context, p ports.ReopenPackingParams) (ports.ReopenPackingResult, error) {
 	f.reopenCalls = append(f.reopenCalls, p)
 	if f.reopenCallsErr != nil {

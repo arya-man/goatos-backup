@@ -39,6 +39,15 @@ var (
 	// video against one line -- a re-send after a rework the server never recorded, a duplicated
 	// queue drain -- must still fail loudly rather than return 200 with the clip discarded.
 	ErrPackingAlreadyRecorded = errors.New("feeddirection: this packing session already has a different packing video recorded")
+	// ErrPackingCompletionNotFound is returned when a verifier's packed-quantity readings name a
+	// completion this tenant does not have.
+	ErrPackingCompletionNotFound = errors.New("feeddirection: packing completion not found")
+	// ErrPackingQuantityOutOfRange is returned when a verifier-entered packed weight is not a usable
+	// number (negative, non-finite, or past the typo ceiling). Zero is VALID -- "this item was not
+	// packed" is a real observation.
+	ErrPackingQuantityOutOfRange = errors.New("feeddirection: packed quantity out of range")
+	// ErrPackingQuantitiesRequired is returned when a readings write arrives with no entries at all.
+	ErrPackingQuantitiesRequired = errors.New("feeddirection: packed quantities are required")
 )
 
 // CompletePackingParams is the persisted gated-completion write, at the shed-SESSION grain
@@ -191,6 +200,33 @@ type ReopenPackingResult struct {
 	WithdrawnItemCount int
 }
 
+// PackingVerifiedQuantity is ONE verifier reading: the packed weight she saw for one feed item of
+// one completion's video (maintainer decision 2026-08-21 -- blind per-item entry; the approve
+// carries these numbers).
+type PackingVerifiedQuantity struct {
+	// FeedItemKey is the normalized config key (NormalizeConfigKey output) -- the SAME key the
+	// frozen sheet rows carry, so the leadership variance read joins without label parsing.
+	FeedItemKey string
+	// FeedItemLabel is the display caption her entry box carried, denormalized for rendering.
+	FeedItemLabel string
+	EnteredKg     float64
+}
+
+// RecordPackingVerifiedQuantitiesParams stores one verifier's complete set of per-item readings
+// for one packing completion. UPSERT semantics on (tenant, completion, feed_item_key): a rework
+// re-submit gets a fresh approve whose readings replace the previous ones.
+type RecordPackingVerifiedQuantitiesParams struct {
+	TenantID     string
+	CompletionID string
+	Entries      []PackingVerifiedQuantity
+	RecordedBy   string
+	// IdempotencyKey is derived from the verdict's key by the verification seam; the write itself
+	// is naturally idempotent (same-key replay upserts the same values), so the key is carried for
+	// audit/trace continuity rather than a reservation.
+	IdempotencyKey string
+	TraceID        string
+}
+
 // PackingCompletionStore owns the feed_packing_completions table.
 //
 // It is an OPTIONAL service dependency, on the same terms as DistributionCompletionStore: a
@@ -235,4 +271,14 @@ type PackingCompletionStore interface {
 	// Idempotent: running it twice for the same correction reopens nothing the second time, because
 	// the rows it moved are no longer in a reopenable state.
 	ReopenPackingForFeedChange(ctx context.Context, p ReopenPackingParams) (ReopenPackingResult, error)
+
+	// RecordPackingVerifiedQuantities upserts the verifier's per-item packed-weight readings for
+	// one completion (feed_packing_verified_quantities). Runs as part of her approve, BEFORE the
+	// verdict is recorded, so a refusal here stops the whole approve.
+	RecordPackingVerifiedQuantities(ctx context.Context, p RecordPackingVerifiedQuantitiesParams) error
+
+	// PackingVerifiedQuantitiesRecorded reports whether a completion already carries readings --
+	// consulted when an approve arrives without any, so an item measured by an earlier approve
+	// replay is not stranded unapprovable.
+	PackingVerifiedQuantitiesRecorded(ctx context.Context, tenantID, completionID string) (bool, error)
 }
