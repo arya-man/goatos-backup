@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
@@ -56,6 +57,8 @@ type verificationStores struct {
 	// the pool-less dispatch test must be able to exercise the real registration without a
 	// database, and a Postgres repository built on a nil pool panics the moment it is used.
 	weighingAck weighingapp.VerificationApplyAcker
+	// pcCare applies PC Care task verdicts (pc_care/pc_care_task).
+	pcCare eventwiring.PCCareVerdictStore
 }
 
 // buildDomainBusOn is BuildDomainBus with the bus (and the verdict-applier stores) injected.
@@ -115,7 +118,10 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.weighingAck == nil && pool != nil {
 		stores.weighingAck = weighingverificationbridge.New(verificationpg.NewRepository(pool, queryTimeout))
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, logger)
+	if stores.pcCare == nil {
+		stores.pcCare = pccarepg.NewRepository(pool, queryTimeout)
+	}
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, logger)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on

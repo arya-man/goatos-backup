@@ -450,6 +450,44 @@ interface SyncRepository {
         wastageKg: Double,
     ): AppResult<String> = AppResult.Err("Recording a wastage weight is not available.")
 
+    /**
+     * Enqueues one PC Care RFID scan (`POST /app/pc-care/tasks/{task_id}/animals`, module
+     * pc_care). The idempotency key is [pcCareScanIdempotencyKey] — STABLE per (task, normalized
+     * tag), so a resend replays for free — and the group is [pcCareScanGroupKey], deliberately
+     * separate from the task's video-upload group so a scan never queues behind a clip.
+     */
+    suspend fun enqueuePcCareScanAdd(
+        taskId: String,
+        tagVerbatim: String,
+        normalizedTag: String,
+    ): AppResult<String> = AppResult.Err("pc care scan sync is not configured")
+
+    /**
+     * Enqueues one PC Care slot proof registration
+     * (`PUT /app/pc-care/tasks/{task_id}/animals/{row}/proofs/{slot}`). The mandatory video is
+     * passed by REFERENCE to its PROOF_UPLOAD outbox row ([proofOutboxItemId]); both writes MUST
+     * share the task group ([pcCareTaskGroupKey]) so the upload drains first. [animalRowId] may
+     * be blank while the scan is still syncing — the dispatcher re-resolves it from the Room
+     * animal row.
+     */
+    suspend fun enqueuePcCareSlotRegister(
+        taskId: String,
+        animalRowId: String,
+        normalizedTag: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("pc care slot proof sync is not configured")
+
+    /**
+     * Enqueues the WHOLE-task PC Care submit (`POST /app/pc-care/tasks/{task_id}/submit`), on the
+     * SAME task group as the slot registrations and uploads, so it drains last. The idempotency
+     * key is [pcCareSubmitIdempotencyKey] — stable per (task, row version).
+     */
+    suspend fun enqueuePcCareTaskSubmit(
+        taskId: String,
+        rowVersion: Int,
+    ): AppResult<String> = AppResult.Err("pc care submit sync is not configured")
+
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
         idempotencyKey: String,
@@ -1222,6 +1260,56 @@ class DefaultSyncRepository(
             ),
         )
     }
+
+    override suspend fun enqueuePcCareScanAdd(
+        taskId: String,
+        tagVerbatim: String,
+        normalizedTag: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PC_CARE_SCAN_ADD,
+        groupKey = pcCareScanGroupKey(taskId.trim()),
+        idempotencyKey = pcCareScanIdempotencyKey(taskId.trim(), normalizedTag),
+        payloadJson = syncJson.encodeToString(
+            PcCareScanAddPayload(
+                taskId = taskId.trim(),
+                tagVerbatim = tagVerbatim,
+                normalizedTag = normalizedTag,
+            ),
+        ),
+    )
+
+    override suspend fun enqueuePcCareSlotRegister(
+        taskId: String,
+        animalRowId: String,
+        normalizedTag: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PC_CARE_SLOT_REGISTER,
+        groupKey = pcCareTaskGroupKey(taskId.trim()),
+        idempotencyKey = pcCareSlotIdempotencyKey(taskId.trim(), normalizedTag, slotFieldKey, proofOutboxItemId),
+        payloadJson = syncJson.encodeToString(
+            PcCareSlotRegisterPayload(
+                taskId = taskId.trim(),
+                animalRowId = animalRowId.trim(),
+                normalizedTag = normalizedTag,
+                slotFieldKey = slotFieldKey,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueuePcCareTaskSubmit(
+        taskId: String,
+        rowVersion: Int,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PC_CARE_TASK_SUBMIT,
+        groupKey = pcCareTaskGroupKey(taskId.trim()),
+        idempotencyKey = pcCareSubmitIdempotencyKey(taskId.trim(), rowVersion),
+        payloadJson = syncJson.encodeToString(
+            PcCareTaskSubmitPayload(taskId = taskId.trim(), rowVersion = rowVersion),
+        ),
+    )
 
     override suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,

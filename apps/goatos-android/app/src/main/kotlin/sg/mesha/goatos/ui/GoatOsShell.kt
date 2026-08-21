@@ -273,6 +273,10 @@ fun GoatOsShell(navState: NavState) {
     // label tweak or a translation silently grants or revokes execution.
     val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
     val verificationVideoControlsEnabled = visibleNavState.featureFlags["verification_video_controls"] == true
+    // Same backend-owned contract as weighing_execute: which face the PC Care category tabs show,
+    // and whether the plan wizard entry is offered. Never inferred from a role label.
+    val canExecutePcCare = visibleNavState.featureFlags["pc_care_execute"] == true
+    val canPlanPcCare = visibleNavState.featureFlags["pc_care_plan"] == true
 
     // Cold-start / pre-auth notification-tap deep-link. A tap can arrive before this NavHost even
     // exists (MainActivity writes into PendingNavigation as soon as the intent is read, well before
@@ -378,6 +382,8 @@ fun GoatOsShell(navState: NavState) {
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
             canExecuteVaccination = canExecuteVaccination,
             canExecuteWeighing = canExecuteWeighing,
+            canExecutePcCare = canExecutePcCare,
+            canPlanPcCare = canPlanPcCare,
             // The SAME "has this person's own navigation arrived yet" test the push-route effect
             // above applies. Destinations that redirect on an absent capability must not act while
             // every flag still reads false because bootstrap has not answered.

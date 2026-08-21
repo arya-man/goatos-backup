@@ -1254,3 +1254,51 @@ val MIGRATION_47_48: Migration = object : Migration(47, 48) {
         )
     }
 }
+
+/**
+ * v48 -> v49: adds the four PC Care tables (module pc_care, maintainer decision 2026-08-21) — the
+ * paged operator worklist rows + their per-scope remote keys (the [MIGRATION_47_48] Wastage trio
+ * shape minus the summary envelope), the task-detail JSON blob cache, and the durable
+ * per-(task, normalized tag) scanned-animal rows behind the scan screen's duplicate check, sync
+ * status, and peer slot visibility. Purely additive; no existing table changes, so an installed
+ * APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v49 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_48_49: Migration = object : Migration(48, 49) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_task_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pc_care_task_items_queryKey_sortIndex` " +
+                "ON `pc_care_task_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pc_care_task_items_grainKey` " +
+                "ON `pc_care_task_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_task_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_task_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_animal_rows` " +
+                "(`taskId` TEXT NOT NULL, `normalizedTag` TEXT NOT NULL, `tagVerbatim` TEXT NOT NULL, " +
+                "`animalRowId` TEXT NOT NULL, `scannedByName` TEXT NOT NULL, `scanSyncStatus` TEXT NOT NULL, " +
+                "`serverSlotsJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`taskId`, `normalizedTag`))",
+        )
+    }
+}

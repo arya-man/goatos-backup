@@ -136,6 +136,15 @@ enum class ProofFlow(val wireValue: String) {
     MILK_PREPARATION("milk_preparation"),
     MILK_FEEDING("milk_feeding"),
     WORKFLOW_DETAIL("workflow_detail"),
+
+    /**
+     * PC Care per-animal slot videos (module pc_care, maintainer decision 2026-08-21).
+     * Deliberately rides the GENERIC storage/idempotency branches:
+     * `proof:$taskId:pc_care:$subjectKey` / `proof:capture:$taskId:pc_care:$subjectKey`, where the
+     * caller passes `subjectKey = "<normalizedTag>:<slotFieldKey>"` — one slot of one scanned
+     * animal is one capture identity.
+     */
+    PC_CARE("pc_care"),
     ;
 
     companion object {

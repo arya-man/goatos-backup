@@ -825,6 +825,11 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // membership, not a manual approval lane, and operator administered_at remains the medical
 // date even when verification closes later. This changes derived generation semantics only;
 // source vaccination cells, HRMS rows, hashes, and validation counts stay unchanged.
+// Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal /
+// hoof trimming / hair trimming) to the preventive_care department module grant; migration
+// 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This
+// changes runtime module/navigation authorization only; it does not change HRMS roster rows,
+// vaccination history, source dates, fixture bytes, hashes, or counts.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
 

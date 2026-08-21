@@ -1848,6 +1848,221 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pc-care/planner/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * PC Care planner vocabulary (parks, assignable operators, categories).
+         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and the module's backend-owned category vocabulary. Planning is CEO-only (pc_care.plan, the weighing.plan precedent).
+         */
+        get: operations["appPCCarePlannerCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/planner/parks/{park_id}/sheds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One keyset page of a park's pens for the PC Care create wizard.
+         * @description Pens come from the shed_partitions CATALOG (an undivided shed is one whole-shed row), each decorated with any existing live task for the chosen category+date so the wizard greys a taken pen instead of letting the create collide.
+         */
+        get: operations["appPCCarePlannerParkSheds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Flat PC Care task list for plan/monitor/oversee holders. */
+        get: operations["appListPCCareTasks"];
+        put?: never;
+        /**
+         * Plan one PC Care task (CEO-only).
+         * @description Creates ONE task per (category, pen, planned business date) with one or MORE assigned operators — multi-operator by design, deliberately unlike weighing's one-operator-per-bucket. A live task already covering that pen-day answers 409 task_already_planned.
+         */
+        post: operations["appCreatePCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel an unsubmitted PC Care task (CEO-only). */
+        post: operations["appCancelPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The operator's assigned PC Care tasks for one category tab and one day. */
+        get: operations["appPCCareWorklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One PC Care task with its backend-owned expected slot contract.
+         * @description expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for deworming/ticks removal; before/during/after for the trimming categories). capture_mode is the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the pen roster and the screen walks the animal's slots). Clients branch on both verbatim and never hardcode a category-to-slot or category-to-mode map.
+         */
+        get: operations["appGetPCCareTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The roster-pick tap list — RFIDs of animals currently in the task's pen.
+         * @description Read-only, for capture_mode roster_pick (the trimming categories). Lists the active RFIDs of alive animals resident in the task's shed, narrowed to the task's pen when it has a partition. Tapping one records a normal free-flow scan; this list never gates what a scan may store. Keyset-paged on identifier value.
+         */
+        get: operations["appPCCareTaskRoster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The peer-visibility poll — scanned animals and their slot states, by any assignee.
+         * @description Read-only. It is what lets several assigned phones split one task's videos: each slot carries who captured it ("Captured by X") so peers see each other's work. Keyset-paged over one task's animal rows.
+         */
+        get: operations["appPCCareTaskCaptures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/animals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan one RFID into the task (verbatim, free-flow).
+         * @description The tag is stored VERBATIM — no herd lookup. The ONE business rule is that a tag cannot be scanned twice into the same task (409 duplicate_scan). Only an ASSIGNEE of the task may scan (403 task_not_assigned); a locked task answers 409 task_locked.
+         */
+        post: operations["appScanPCCareAnimal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Attach one slot's live-camera video to one scanned animal.
+         * @description slot is one of the task category's expected_slots field keys. Any ASSIGNEE may fill any slot on any scanned animal; pre-submit a re-record REPLACES the slot's clip (the phone retires the old clip only after the new one is uploaded). The proof must be a completed, tenant-owned, in-app-camera VIDEO.
+         */
+        put: operations["appRegisterPCCareSlotProof"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the whole task for verifier review (any assignee).
+         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). On success the task flips to pending_verification, locks for every assignee, and ONE verification item carries every animal's clips. Verifier approve completes the task; reject returns it for rework.
+         */
+        post: operations["appSubmitPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-rates": {
         parameters: {
             query?: never;
@@ -5238,6 +5453,151 @@ export interface components {
             in_review_pens: number;
             /** @description Verifier-approved pens. */
             completed_pens: number;
+        };
+        /**
+         * @description A PC Care work category (maintainer decision 2026-08-21).
+         * @enum {string}
+         */
+        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming";
+        /** @description One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a client-enforced cap. */
+        PCCareSlot: {
+            /** @enum {string} */
+            field_key: "video" | "before_video" | "during_video" | "after_video";
+            label: string;
+            /** @description Backend-owned farm copy saying what this video must show, rendered verbatim. */
+            description?: string;
+            min_duration_hint_seconds?: number;
+        };
+        PCCareTask: {
+            /** Format: uuid */
+            task_id: string;
+            category: components["schemas"]["PCCareCategory"];
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            partition_label?: string;
+            /** @description Backend-composed pen display ("Castro - 2"), rendered verbatim. */
+            operational_location_display: string;
+            /** Format: date */
+            planned_business_date: string;
+            /** Format: date */
+            due_business_date: string;
+            /** @enum {string} */
+            work_state: "scheduled" | "delayed" | "completed" | "closed" | "canceled";
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The verifier's rejection sentence, rendered verbatim (backend-owned copy). */
+            rework_reason?: string;
+            row_version: number;
+            /** Format: date-time */
+            submitted_at?: string;
+            assignee_user_ids: string[];
+            assignee_names: string[];
+            animal_count: number;
+            /**
+             * @description Backend-owned capture flow for this task's category. scan_record — scanning a tag opens the video recorder immediately. roster_pick — the screen lists the pen's resident RFIDs (GET .../roster) and tapping one records that animal.
+             * @enum {string}
+             */
+            capture_mode: "scan_record" | "roster_pick";
+            expected_slots: components["schemas"]["PCCareSlot"][];
+        };
+        /** @description One keyset page of the RFIDs of animals currently resident in a task's pen — the roster-pick capture mode's tap list. Identifiers are verbatim; the list never gates a scan. */
+        PCCareTaskRoster: {
+            identifiers: string[];
+            next_cursor?: string;
+        };
+        PCCareTaskPage: {
+            items: components["schemas"]["PCCareTask"][];
+            has_more: boolean;
+        };
+        PCCareAnimalSlot: {
+            field_key: string;
+            proof_ref?: string;
+            /** Format: uuid */
+            captured_by?: string;
+            captured_by_name?: string;
+            /** Format: date-time */
+            captured_at?: string;
+        };
+        PCCareAnimalRow: {
+            /** Format: uuid */
+            animal_row_id: string;
+            scanned_identifier: string;
+            /** Format: uuid */
+            scanned_by?: string;
+            scanned_by_name?: string;
+            /** Format: date-time */
+            scanned_at: string;
+            slots: components["schemas"]["PCCareAnimalSlot"][];
+        };
+        PCCareCapturesResponse: {
+            animals: components["schemas"]["PCCareAnimalRow"][];
+            next_cursor?: string;
+        };
+        PCCarePlannerCatalog: {
+            parks: {
+                /** Format: uuid */
+                park_id: string;
+                park_label: string;
+            }[];
+            operators: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+                /** @description Empty means every park (a cross-park director). */
+                park_ids: string[];
+            }[];
+            categories: {
+                key: components["schemas"]["PCCareCategory"];
+                label: string;
+            }[];
+        };
+        PCCarePlannerSheds: {
+            sheds: {
+                /** Format: uuid */
+                shed_id: string;
+                shed_label: string;
+                partition_label?: string;
+                /** @description Backend-composed pen display, rendered verbatim. */
+                operational_location_display: string;
+                /** @description Non-empty when a live task already covers this pen for the chosen category+date. */
+                existing_task_id?: string;
+            }[];
+            next_cursor?: string;
+        };
+        PCCareCreateTaskRequest: {
+            category: components["schemas"]["PCCareCategory"];
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            partition_label?: string;
+            /** Format: date */
+            planned_business_date: string;
+            assignee_user_ids: string[];
+        };
+        PCCareScanRequest: {
+            /** @description The tag exactly as scanned. Stored verbatim; never resolved against the herd. */
+            scanned_identifier: string;
+        };
+        PCCareScanResponse: {
+            /** Format: uuid */
+            animal_row_id: string;
+        };
+        PCCareSlotProofRequest: {
+            /** @description The server proof id from the /app/proofs pipeline (completed, in-app-camera video). */
+            proof_ref: string;
+        };
+        PCCareSubmitResponse: {
+            /** Format: uuid */
+            task_id: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            row_version: number;
+            animal_count: number;
         };
         FeedWastageWorklistPage: {
             items: components["schemas"]["FeedWastageRow"][];
@@ -14880,6 +15240,417 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+        };
+    };
+    appPCCarePlannerCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The planner vocabulary, filtered to the caller's authorized parks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCarePlannerCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCarePlannerParkSheds: {
+        parameters: {
+            query: {
+                category: components["schemas"]["PCCareCategory"];
+                /** @description The planned business date (Asia/Kolkata). */
+                date: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                park_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of pens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCarePlannerSheds"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListPCCareTasks: {
+        parameters: {
+            query: {
+                /** @description The due business date (Asia/Kolkata). */
+                date: string;
+                park_id?: string;
+                category?: components["schemas"]["PCCareCategory"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appCreatePCCareTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareCreateTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The planned task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A live task already covers this pen, category and date (task_already_planned) or the idempotency key was reused with a different request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown category, no assignees, or a pen outside the shed's partition catalog. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appCancelPCCareTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task is canceled (idempotent — an already-terminal task is a no-op). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareWorklist: {
+        parameters: {
+            query: {
+                category: components["schemas"]["PCCareCategory"];
+                date: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of the caller's assigned tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetPCCareTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareTaskRoster: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the pen's resident RFIDs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskRoster"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareTaskCaptures: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of scanned animals with slot attribution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareCapturesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appScanPCCareAnimal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareScanRequest"];
+            };
+        };
+        responses: {
+            /** @description The durable scan row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareScanResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Already scanned in this task (duplicate_scan) or the task is locked (task_locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appRegisterPCCareSlotProof: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+                animal_row_id: string;
+                slot: "video" | "before_video" | "during_video" | "after_video";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareSlotProofRequest"];
+            };
+        };
+        responses: {
+            /** @description The slot's video reference is recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is locked (task_locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The slot does not belong to this category (invalid_slot) or the proof could not be verified (invalid_proof / proof_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appSubmitPCCareTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The submit outcome (idempotent — a resend echoes the current state). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Some animals still miss required videos (proof_incomplete) or none are scanned (no_animals). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
         };
     };
     listFeedConfigRationRates: {

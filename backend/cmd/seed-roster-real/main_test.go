@@ -49,7 +49,9 @@ func TestDefaultDepartmentModulesMatchDecisions(t *testing.T) {
 	want := map[string][]string{
 		// Maintainer decision 2026-08-05: NO milk and NO aas_health. A PC seat's bar is
 		// Vaccination + Counts + Feed. Milk Prep / Milk Feeding intentionally do not appear.
-		"preventive_care": {"vaccination", "counts", "feed_direction"},
+		// Maintainer decision 2026-08-21: plus pc_care (deworming / ticks removal / hoof
+		// trimming / hair trimming), the PC department's second module.
+		"preventive_care": {"vaccination", "counts", "feed_direction", "pc_care"},
 		// Maintainer decision 2026-07-30, unchanged by the 2026-08-05 PC decision.
 		"health":   {"aas_health", "counts", "milk", "feed_direction", "vaccination"},
 		"feed":     {"feed_direction"},

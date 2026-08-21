@@ -334,11 +334,44 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		labelKey:    "module.approvals",
 		landingHref: "/counts/approvals", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,
-		priority:    7,
+		// Swapped with pc_care (maintainer ask 2026-08-21): Preventive Care sits ABOVE
+		// Approvals in the drawer.
+		priority: 8,
 		contributions: []moduleNavContribution{
 			// labelKey reuses the pre-existing "nav.approval" key rather than minting a new one:
 			// it survived the 2026-07-21 removal already translated into all four locales.
 			{key: "approvals", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 1, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
+		},
+	},
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
+	// ticks removal / hoof trimming / hair trimming, one bottom-bar tab per category — the Feed
+	// four-tab shape. Each category tab is gated on PCCareExecute, the SAME permission its
+	// backing routes (/app/pc-care/worklist and the task writes) require; the planner "Tasks"
+	// tab is gated on PCCarePlan (CEO-only), mirroring weighing's planner tab. Verification
+	// registers four categories under NavigationModule "pc_care", so the verifier gets ONE
+	// Verify tab with the categories as queue page filters.
+	"pc_care": {
+		key:               "pc_care",
+		labelKey:          "module.pc_care",
+		landingHref:       "/pc/deworming",   //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/pc_care", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          7,
+		contributions: []moduleNavContribution{
+			// The FOUR CATEGORIES ARE THE BAR (maintainer decision 2026-08-21, matching Feed's
+			// four-tab shape). Every module holder sees the same four tabs; what each tab RENDERS
+			// is capability-driven through the `pc_care_execute` / `pc_care_plan` bootstrap flags
+			// (an operator gets the scan worklist, a planner/monitor gets the read-only task list
+			// with the plan wizard) — never a fifth per-persona tab.
+			{key: "pc_deworming", labelKey: "nav.pc_deworming", href: "/pc/deworming", shared_key: "", priority: 1},             //nav-composition:ignore: registry entry
+			{key: "pc_ticks", labelKey: "nav.pc_ticks", href: "/pc/ticks", shared_key: "", priority: 2},                         //nav-composition:ignore: registry entry
+			{key: "pc_hoof_trimming", labelKey: "nav.pc_hoof_trimming", href: "/pc/hoof-trimming", shared_key: "", priority: 3}, //nav-composition:ignore: registry entry
+			{key: "pc_hair_trimming", labelKey: "nav.pc_hair_trimming", href: "/pc/hair-trimming", shared_key: "", priority: 4}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                   //nav-composition:ignore: registry entry
+		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/pc_care", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                 //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
@@ -535,14 +568,14 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 		// Not an early return any more: the approvals offer below is keyed on a PERMISSION and
 		// must apply to the CEO too. Returning here would have made the one module the CEO most
 		// obviously owns the one module the CEO could not see.
-		keys = appendMissing(keys, "vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "breeding")
+		keys = appendMissing(keys, "vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "pc_care", "breeding")
 	}
 	// PC Director / Park Head: preventive-care specialty verticals.
 	// Growth Director is a separate specialty and may be held alongside them, so the sets are
 	// unioned rather than returned early. appendMissing keeps the result duplicate-free: a
 	// principal holding BOTH would otherwise contribute "weighing" twice and render it twice.
 	if hasRole(grants, permissions.RolePCDirector) || hasRole(grants, permissions.RoleParkHead) {
-		keys = appendMissing(keys, "vaccination", "weighing", "aas_health")
+		keys = appendMissing(keys, "vaccination", "weighing", "aas_health", "pc_care")
 	}
 	if hasRole(grants, permissions.RoleGrowthDirector) {
 		keys = appendMissing(keys, "weighing")
@@ -669,6 +702,18 @@ func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
 	return isLeadershipPrincipal(grants)
 }
 
+// canExecutePCCare mirrors canExecuteWeighing: it decides which face the four PC Care category
+// tabs show. TRUE renders the operator scan worklist; FALSE renders the read-only monitor list.
+func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.PCCareExecute) && canUseModule(grants, grantedModules, "pc_care")
+}
+
+// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
+// pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
+func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.PCCarePlan) && canUseModule(grants, grantedModules, "pc_care")
+}
+
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
 	for _, key := range candidateModuleKeys(grants, grantedModules) {
 		if key == module {
@@ -736,7 +781,7 @@ func normalizeModuleFeatureKey(key string) string {
 // builtVerifiableFeatures lists the shipped feature modules a verifier's [Verify, Alerts]
 // bar can be scoped to, in drawer priority order. Only "available" (built) modules are
 // eligible -- verifiers review evidence for shipped features, not roadmap ones.
-var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts"}
+var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts", "pc_care"}
 
 // verifierFeatureKeys resolves a verifier's grantedModules (from ListGrantedModuleKeys)
 // into the feature keys their per-module [Verify, Alerts] bar is built for.
@@ -813,6 +858,7 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 		"counts":         "module.counts",
 		"feed_direction": "module.feed_direction",
 		"aas_health":     "module.health",
+		"pc_care":        "module.pc_care",
 	}
 	labelKey, ok := labelKeys[normalized]
 	if !ok {
@@ -1123,6 +1169,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "Feed Direction",
 		"nav.feed_packing":     "Feed Packing",
 		"nav.feed_wastage":     "Feed Wastage",
+		"nav.pc_deworming":     "Deworming",
+		"nav.pc_ticks":         "Ticks Removal",
+		"nav.pc_hoof_trimming": "Hoof Trimming",
+		"nav.pc_hair_trimming": "Hair Trimming",
 		"nav.feed_transport":   "Feed Transport",
 		"nav.birth_death":      "Birth/Death",
 		"nav.approval":         "Approval",
@@ -1143,6 +1193,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "Weighing",
 		"module.counts":         "Herd Operations",
 		"module.feed_direction": "Feed",
+		"module.pc_care":        "Preventive Care",
 		"module.breeding":       "Breeding",
 		"module.health":         "Health",
 		"module.milk":           "Milk",
@@ -1165,6 +1216,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "फ़ीड दिशा",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
 		"nav.feed_wastage":     "फ़ीड बर्बादी",
+		"nav.pc_deworming":     "डीवर्मिंग",
+		"nav.pc_ticks":         "किलनी हटाना",
+		"nav.pc_hoof_trimming": "खुर की कटाई",
+		"nav.pc_hair_trimming": "बालों की कटाई",
 		"nav.feed_transport":   "फ़ीड परिवहन",
 		"nav.birth_death":      "जन्म/मृत्यु",
 		"nav.approval":         "अनुमोदन",
@@ -1185,6 +1240,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "वजन",
 		"module.counts":         "झुंड संचालन",
 		"module.feed_direction": "फ़ीड",
+		"module.pc_care":        "निवारक देखभाल",
 		"module.breeding":       "प्रजनन",
 		"module.health":         "स्वास्थ्य",
 		"module.milk":           "दूध",
@@ -1207,6 +1263,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_wastage":     "ಆಹಾರ ವ್ಯರ್ಥ",
+		"nav.pc_deworming":     "ಜಂತುಹುಳು ನಿವಾರಣೆ",
+		"nav.pc_ticks":         "ಉಣ್ಣಿ ತೆಗೆಯುವಿಕೆ",
+		"nav.pc_hoof_trimming": "ಗೊರಸು ಕತ್ತರಿಸುವಿಕೆ",
+		"nav.pc_hair_trimming": "ಕೂದಲು ಕತ್ತರಿಸುವಿಕೆ",
 		"nav.feed_transport":   "ಆಹಾರ ಸಾಗಣೆ",
 		"nav.birth_death":      "ಜನನ/ಮರಣ",
 		"nav.approval":         "ಅನುಮೋದನೆ",
@@ -1227,6 +1287,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "ತೂಕ",
 		"module.counts":         "ಹಿಂಡು ಕಾರ್ಯಾಚರಣೆ",
 		"module.feed_direction": "ಆಹಾರ",
+		"module.pc_care":        "ತಡೆಗಟ್ಟುವ ಆರೈಕೆ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"module.health":         "ಆರೋಗ್ಯ",
 		"module.milk":           "ಹಾಲು",
@@ -1249,6 +1310,10 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.feed_direction":   "ఫీడ్ దిశ",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_wastage":     "ఫీడ్ వృథా",
+		"nav.pc_deworming":     "నట్టల నివారణ",
+		"nav.pc_ticks":         "గోమార్ల తొలగింపు",
+		"nav.pc_hoof_trimming": "గిట్టల కత్తిరింపు",
+		"nav.pc_hair_trimming": "వెంట్రుకల కత్తిరింపు",
 		"nav.feed_transport":   "ఫీడ్ రవాణా",
 		"nav.birth_death":      "జననం/మరణం",
 		"nav.approval":         "ఆమోదం",
@@ -1269,6 +1334,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.weighing":       "బరువు",
 		"module.counts":         "మంద కార్యకలాపాలు",
 		"module.feed_direction": "ఫీడ్",
+		"module.pc_care":        "నివారణ సంరక్షణ",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"module.health":         "ఆరోగ్యం",
 		"module.milk":           "పాలు",
@@ -1406,6 +1472,12 @@ func verificationCategoryForFeature(normalizedFeatureKey string) string {
 		// every open and the verifier's Health tab was dead. Lands on Adults (PageOrder 1); Kids
 		// sits beside it in the queue's page filter.
 		return "health_adults"
+	case "pc_care":
+		// NOT "pc_care_proof" -- no such category exists. PC Care registers pc_deworming /
+		// pc_ticks_removal / pc_hoof_trimming / pc_hair_trimming (bootstrap/api.go); the
+		// verifier's PC tab lands on Deworming (PageOrder 1) and the other three sit beside it
+		// in the queue's page filter.
+		return "pc_deworming"
 	case "milk":
 		// NOT "milk_proof" -- no such category exists. Milk registers milk_preparation and
 		// milk_feeding (bootstrap/api.go); the fallback below invented a name no producer writes,

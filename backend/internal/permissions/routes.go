@@ -176,11 +176,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
@@ -486,6 +486,27 @@ var protectedRoutes = []Route{
 	// execute grant. See FeedTransportRead.
 	{OperationID: "listFeedTransportTasks", Method: "GET", Pattern: "/feed-transport/tasks", Permissions: []string{FeedTransportRead}},
 	{OperationID: "submitFeedTransportTask", Method: "POST", Pattern: "/feed-transport/tasks/{task_id}/submit", Permissions: []string{FeedDirectionComplete}},
+
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): deworming / ticks removal /
+	// hoof trimming / hair trimming, planned per pen per day with named assignees. Planner
+	// writes and the planner vocabulary are PCCarePlan (CEO-only, the weighing.plan precedent);
+	// the monitor list admits the read-only oversight capabilities too; the operator surfaces
+	// gate on PCCareExecute — and every WRITE additionally requires task-assignee membership,
+	// enforced in the service (the permission alone is never write authority).
+	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", Permissions: []string{PCCarePlan}},
+	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", Permissions: []string{PCCarePlan}},
+	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", Permissions: []string{PCCarePlan}},
+	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", Permissions: []string{PCCarePlan}},
+	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareWorklist", Method: "GET", Pattern: "/app/pc-care/worklist", Permissions: []string{PCCareExecute}},
+	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	// The peer-visibility poll: which animals are scanned and which video slots each already
+	// holds, by ANY assignee. A READ — seeing that a slot is done is not authority to record.
+	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appScanPCCareAnimal", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/animals", Permissions: []string{PCCareExecute}},
+	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
+	{OperationID: "appSubmitPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/submit", Permissions: []string{PCCareExecute}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//

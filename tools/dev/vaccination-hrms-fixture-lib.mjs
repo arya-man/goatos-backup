@@ -619,6 +619,11 @@ export function updateManifestHashes(directory, manifest) {
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+// Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal /
+// hoof trimming / hair trimming) to the preventive_care department module grant; migration
+// 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This
+// changes runtime module/navigation authorization only; it does not change HRMS roster rows,
+// vaccination history, source dates, fixture bytes, hashes, or counts.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
 

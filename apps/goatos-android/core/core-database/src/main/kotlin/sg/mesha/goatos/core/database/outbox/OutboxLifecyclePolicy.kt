@@ -114,6 +114,15 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> durableDirectReconcileLifecycle()
+        // A scan is a durable Room animal row the screen renders immediately; the sync pass
+        // reconciles that same row directly (SYNCED / DUPLICATE / FAILED) — the SCAN_CAPTURE shape.
+        OutboxOpType.PC_CARE_SCAN_ADD -> durableDirectReconcileLifecycle()
+        // The proof_capture row is the durable local model ("recorded"); success re-polls the
+        // task's captures so the server's per-slot truth (incl. attribution) lands back in Room.
+        OutboxOpType.PC_CARE_SLOT_REGISTER -> optimisticRefreshLifecycle()
+        // Submit mirrors packing/wastage: outbox overlay shows "In review" at once, and the sync
+        // pass reconciles the Room task rows directly from the server's returned status/row_version.
+        OutboxOpType.PC_CARE_TASK_SUBMIT -> overlayDirectReconcileLifecycle()
     }
 
 private fun exactItemLifecycle() = lifecycle(

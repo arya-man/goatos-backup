@@ -271,6 +271,11 @@
       "date": "2026-08-15",
       "change": "Seed import and runtime generation now share SchedulePathForGoat for kid/adult schedule-path selection, including no-DOB clinical kid pen tags and stale K-stage tags past the 20-week finishing window.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, or source vaccination dates. This is a derived scheduling-policy correction: source rows still preserve reviewed DOB/stage/history evidence, and generation classifies from that evidence through the same shared policy instead of a seeder-local shortcut."
+    },
+    {
+      "date": "2026-08-21",
+      "change": "seed-roster-real adds pc_care (deworming / ticks removal / hoof trimming / hair trimming) to the preventive_care department module grant; migration 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, or source vaccination dates. This is runtime module/navigation authorization only: preventive_care members gain the pc_care bottom-bar module; no vaccination roster, history, or obligation data changes."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",
