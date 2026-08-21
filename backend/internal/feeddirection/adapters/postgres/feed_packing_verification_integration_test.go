@@ -655,12 +655,14 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 		t.Fatalf("before any write: recorded=%v err=%v, want false/nil", recorded, err)
 	}
 
-	// First reading: concentrate matches the sheet exactly; hay is short by half. ZERO would also
+	// First reading: concentrate sits EXACTLY 0.200 kg over the sheet's 2.000 -- the tolerance
+	// boundary, which must stay quiet (the predicate is strictly greater-than
+	// domain.PackingVarianceToleranceKg); hay is short by half, well past it. ZERO would also
 	// be a real reading -- the store must accept the full 0..10000 range.
 	first := ports.RecordPackingVerifiedQuantitiesParams{
 		TenantID: fdTenant, CompletionID: pending.CompletionID,
 		Entries: []ports.PackingVerifiedQuantity{
-			{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 2},
+			{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 2.2},
 			{FeedItemKey: "hay", FeedItemLabel: "Hay", EnteredKg: 0.5},
 		},
 		RecordedBy: fdActor, IdempotencyKey: "verdict-key-1:measurement", TraceID: "trace-q-1",
@@ -688,7 +690,7 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 		t.Fatalf("ExecutionAnalytics: %v", err)
 	}
 	if len(exec.PackingVariance) != 1 {
-		t.Fatalf("variance rows = %+v, want ONLY the mismatched hay -- a matching concentrate must not pop", exec.PackingVariance)
+		t.Fatalf("variance rows = %+v, want ONLY the mismatched hay -- a concentrate reading within the 0.2 kg tolerance (exactly on the boundary) must not pop", exec.PackingVariance)
 	}
 	row := exec.PackingVariance[0]
 	if row.FeedItemKey != "hay" || row.FeedItemLabel != "Hay" {
@@ -706,8 +708,10 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	if row.FeedDay != "2026-07-22" || row.SessionNo != 1 || row.SessionLabel != "Morning" {
 		t.Errorf("row identity = %+v, want the pen-session the reading was taken on", row)
 	}
-	if row.ParkLabel != "CBE" || row.ShedLabel != "Castro" || row.OperationalLocationDisplay != "Castro" {
-		t.Errorf("row labels = park %q shed %q display %q, want the sheet's own labels with the oploc display", row.ParkLabel, row.ShedLabel, row.OperationalLocationDisplay)
+	// Labels come from the completion's own canonical locations rows, NOT the sheet's copies, so a
+	// reading whose planned row is absent ("not on sheet") still names its farm and shed.
+	if row.ParkLabel != "CPT" || row.ShedLabel != "Shed A" || row.OperationalLocationDisplay != "Shed A" {
+		t.Errorf("row labels = park %q shed %q display %q, want the completion's canonical location names with the oploc display", row.ParkLabel, row.ShedLabel, row.OperationalLocationDisplay)
 	}
 
 	// REPLACE semantics on a replayed/re-cast approve: the new set stands, keys it no longer names

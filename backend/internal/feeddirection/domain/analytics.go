@@ -125,11 +125,18 @@ type ExecutionDay struct {
 	MedianVerifyLatencyMinutes *int64
 }
 
+// PackingVarianceToleranceKg is how far the verifier's blind reading may sit from the directed
+// quantity before the pen-session-item pops on the leadership execution view (maintainer decision
+// 2026-08-21, second same-day decision SUPERSEDING the initial any-mismatch rule): a scale read off
+// a video is honest to a couple hundred grams, so differences of 0.2 kg or less are treated as the
+// same number. Strictly greater-than: exactly 0.2 kg stays quiet.
+const PackingVarianceToleranceKg = 0.2
+
 // PackingVarianceRow is one MISMATCH between what the frozen sheet directed a pen-session to pack
 // for one feed item and what the verifier read off the packing video (maintainer decision
 // 2026-08-21: blind per-item entry -- she never sees the planned figure, so this comparison lives
-// ONLY on the leadership execution view, never on any verifier surface). Any difference pops; there
-// is no tolerance band.
+// ONLY on the leadership execution view, never on any verifier surface). A row exists only when
+// |entered - planned| exceeds PackingVarianceToleranceKg.
 type PackingVarianceRow struct {
 	FeedDay   string
 	ParkLabel string

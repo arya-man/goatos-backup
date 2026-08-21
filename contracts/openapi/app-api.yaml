@@ -11769,9 +11769,10 @@ components:
       description: >-
         One MISMATCH between what the frozen sheet directed a pen-session to pack for one feed item
         and what the verifier entered off the packing video (blind per-item entry, maintainer
-        decision 2026-08-21). Any difference pops -- there is no tolerance band. LEADERSHIP-ONLY:
-        the verifier never sees the planned figures, so this comparison must never be rendered on a
-        verifier surface.
+        decision 2026-08-21). A row exists only when the difference exceeds the 0.2 kg tolerance --
+        a scale read off a video is honest to a couple hundred grams. LEADERSHIP-ONLY: the verifier
+        never sees the planned figures, so this comparison must never be rendered on a verifier
+        surface.
       required:
         [feed_day, park_label, shed_id, shed_label, operational_location_display, session_no,
          workflow, feed_item_key, feed_item_label, planned_kg, verified_kg, variance_kg]

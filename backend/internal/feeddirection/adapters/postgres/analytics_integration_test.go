@@ -829,6 +829,14 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if row.SessionNo != 1 || row.PlannedKg != "2.000" || row.VerifiedKg != "1.500" || row.VarianceKg != "-0.500" {
 		t.Errorf("row = %+v, want session 1 compared against the 2.000 grain SUM, short 0.500", row)
 	}
+	// Label-source proof, added to the same OneToMany / ParkScope / StatusMatrix / PageBoundary
+	// adversarial fixture: farm/shed labels resolve from the completion's own canonical locations
+	// rows (1:1 by the locations PK), NOT the sheet's label copies -- so a "not on sheet" reading
+	// still names its location. Numeric pen composes space-form per the operational-location
+	// convention.
+	if row.ParkLabel != "CBE" || row.ShedLabel != "Castro" || row.PartitionLabel != "1" || row.OperationalLocationDisplay != "Castro 1" {
+		t.Errorf("row location = park %q shed %q pen %q display %q, want CBE / Castro / 1 / Castro 1 from the locations rows", row.ParkLabel, row.ShedLabel, row.PartitionLabel, row.OperationalLocationDisplay)
+	}
 
 	// ParkScope: a park the fixture never fed sees nothing.
 	foreign, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
