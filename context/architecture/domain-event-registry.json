@@ -29,6 +29,7 @@
     "feed.distribution.completed",
     "feed.packing.completed",
     "feed.wastage.completed",
+    "pc_care.task.completed",
     "vaccination.capacity.changed",
     "vaccination.roster.changed",
     "vaccination.leave.changed",
@@ -796,6 +797,11 @@
           "module": "weighing",
           "file": "backend/internal/weighing/app/verification_verdict_handler.go",
           "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
+        },
+        {
+          "module": "pccare",
+          "file": "backend/internal/pccare/app/verification_handler.go",
+          "notes": "PCCareVerificationHandler.HandleEvent filters source.module=pc_care + source.ref_type=pc_care_task and calls ApplyVerifiedTask (approved: task 'pending_verification' -> 'completed' on both state columns, emits pc_care.task.completed) or BounceTaskForRework (rework: -> 'rework' with the verifier's reason). Registered in eventwiring.RegisterVerificationAppliers, the single shared registration point."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -875,6 +881,11 @@
           "module": "weighing",
           "file": "backend/internal/weighing/app/verification_verdict_handler.go",
           "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
+        },
+        {
+          "module": "pccare",
+          "file": "backend/internal/pccare/app/verification_handler.go",
+          "notes": "PCCareVerificationHandler.HandleEvent filters source.module=pc_care + source.ref_type=pc_care_task and calls ApplyVerifiedTask (approved: task 'pending_verification' -> 'completed' on both state columns, emits pc_care.task.completed) or BounceTaskForRework (rework: -> 'rework' with the verifier's reason). Registered in eventwiring.RegisterVerificationAppliers, the single shared registration point."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -1132,6 +1143,23 @@
       "owningDoc": "docs/decisions/feed-distribution-verification.md",
       "e2eProof": [
         "backend/internal/feeddirection/adapters/postgres/feed_wastage_verification_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "pc_care.task.completed",
+      "producer": "PC Care verifier approval (maintainer decision 2026-08-21): pccare.Repository.ApplyVerifiedTask, consuming verification.verdict.approved for a pc_care item (source.module=pc_care, source.ref_type=pc_care_task), flips the pc_care_tasks row status 'pending_verification' -> 'completed' AND work_state -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator submit. Grain is the TASK (one per category x pen x planned business date); the payload carries task_id, category, park_id, shed_id, planned_business_date, verified_by.",
+      "producerFiles": [
+        "backend/internal/pccare/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/pc-care-module.md",
+      "e2eProof": [
+        "backend/internal/pccare/adapters/postgres/pc_care_verification_integration_test.go"
       ],
       "surfaces": [
         "backend",

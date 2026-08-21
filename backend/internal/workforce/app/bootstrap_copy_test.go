@@ -672,7 +672,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		if _, ok := keys["verification"]; ok {
 			t.Fatalf("verifier with no duties must NOT see generic verification; got %v", keys)
 		}
-		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true}
+		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true, "verify_pc_care": true}
 		if len(keys) != len(wantKeys) {
 			t.Fatalf("verifier with no duties should see one module per built feature; got %v", keys)
 		}
@@ -707,6 +707,7 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 		"verify_vaccination": "vaccination_proof",
 		"verify_weighing":    "weighing_proof",
 		"verify_counts":      "shifting_move", // NOT "counts_proof" -- see verificationCategoryForFeature.
+		"verify_pc_care":     "pc_deworming",  // NOT "pc_care_proof" -- see verificationCategoryForFeature.
 	}
 	// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
 	// carries shared_key "you" so it dedupes across modules like the leadership entries

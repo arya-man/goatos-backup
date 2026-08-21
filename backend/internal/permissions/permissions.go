@@ -255,11 +255,24 @@ const (
 	// Whoever holds this may only LOOK: the weighing write still requires the caller to be the
 	// shed's assignee, so this capability never widens what anyone can record.
 	WeighingOverseeOperators = "weighing.oversee_operators"
-	CalendarRead             = "calendar.read"
-	CalendarAction           = "calendar.action"
-	ProcurementRead          = "procurement.read"
-	ProcurementWrite         = "procurement.write"
-	ProcurementReview        = "procurement.review"
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): deworming, ticks removal,
+	// hoof trimming and hair trimming, planned per pen per business date with named assignees.
+	// The four capabilities mirror weighing's split exactly and must not be collapsed:
+	//   PCCarePlan    -- plan/cancel a task (CEO-only, the weighing.plan precedent);
+	//   PCCareMonitor -- read-only oversight of planned tasks;
+	//   PCCareExecute -- work an ASSIGNED task (scan, record, submit). The permission alone
+	//                    never authorizes a write: the service also requires membership in
+	//                    pc_care_task_assignees, because assignment is per PERSON per task;
+	//   PCCareOverseeOperators -- browse other assignees' tasks, READ-ONLY (weighing twin).
+	PCCarePlan             = "pc_care.plan"
+	PCCareMonitor          = "pc_care.monitor"
+	PCCareExecute          = "pc_care.execute"
+	PCCareOverseeOperators = "pc_care.oversee_operators"
+	CalendarRead           = "calendar.read"
+	CalendarAction         = "calendar.action"
+	ProcurementRead        = "procurement.read"
+	ProcurementWrite       = "procurement.write"
+	ProcurementReview      = "procurement.review"
 	// VendorRead gates the procurement VENDOR REGISTER (/procurement/vendors): the farm's
 	// counterparty contact book -- livestock agents and stockists, transport, feed, manure, pellet
 	// factories, labour, insurance, test labs and site trades.
@@ -706,6 +719,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Clinical authority over the configured disease course (maintainer decision 2026-07-30);
 		// raising a report is HealthReport, which every field tier holds.
 		HealthRead: {}, HealthReport: {}, HealthDiagnose: {},
+		// PC Care (maintainer decision 2026-08-21): the PC Director owns the module — read-only
+		// monitoring, browsing other assignees' tasks, and executing tasks they are themselves
+		// assigned to (like the Growth Director weighs their own sheds). NOT PCCarePlan:
+		// planning a PC Care task is CEO-only, the weighing.plan precedent.
+		PCCareMonitor: {}, PCCareExecute: {}, PCCareOverseeOperators: {},
 	},
 	// RoleGrowthDirector runs Weighing and ONLY Weighing. The role key existed with no entry in
 	// this map, which meant every RoleHasPermission check returned false and a growth_director
@@ -962,6 +980,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// See VaccinationAlertsRead doc comment above: this is the operator's Alerts
 		// tab feed only, NOT the shared ObligationRead/VaccinationRead admin bundle.
 		VaccinationAlertsRead: {},
+		// PC Care (maintainer decision 2026-08-21): operators execute assigned tasks. The
+		// permission opens the module's tabs; the WRITE additionally requires being named in
+		// pc_care_task_assignees for that specific task.
+		PCCareExecute: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
@@ -983,7 +1005,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// scan screen. Holding execute put a scannable surface in front of a planner who is assigned
 		// no sheds, and the submit would be refused anyway because the write requires the caller to
 		// be the shed's assignee. Reopen/close authority is WeighingMonitor and is unaffected.
-		CalendarRead: {}, CalendarAction: {},
+		// PC Care (maintainer decision 2026-08-21): the CEO plans and monitors, exactly the
+		// weighing shape — and for the same reason NOT PCCareExecute.
+		PCCarePlan:    {},
+		PCCareMonitor: {},
+		CalendarRead:  {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite:            {},

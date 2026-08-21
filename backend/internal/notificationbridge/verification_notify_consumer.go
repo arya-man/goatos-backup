@@ -77,6 +77,12 @@ const (
 	// "feeding" -> "feed.direction" mapping in backend/cmd/seed-position-duties/main.go.
 	dutyModuleFeed   = "feed.direction"
 	dutyModuleCounts = "counts"
+
+	// modulePCCare mirrors pccare/domain.VerificationModulePCCare, the string its
+	// verificationbridge enqueuer writes into the item's Module. PC Care belongs to the PC
+	// Director (maintainer decision 2026-08-21) — same seat as vaccination, because deworming /
+	// ticks removal / hoof trimming / hair trimming are preventive-care work.
+	modulePCCare = "pc_care"
 )
 
 // pendingModuleProfile is the per-module routing + copy contract of a verification.item.pending
@@ -227,6 +233,37 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		closedBody:         "The verified feed record is now complete.",
 		closedScreen:       "record",
 		closedTarget:       "/feed",
+	},
+	// PC Care proofs (per-animal deworming / ticks removal / hoof trimming / hair trimming
+	// videos, one item per submitted task) route to the PC Director, who owns the module
+	// (maintainer decision 2026-08-21). Wording is care's own ("care work"), never another
+	// module's, and the tap route is the PC surface.
+	modulePCCare: {
+		messageKeyPrefix:     "pc_care",
+		dutyModule:           modulePCCare,
+		leadershipPosition:   positionPCDirector,
+		leadershipRoleLabel:  "pc_director",
+		verifierTitle:        "Care videos waiting",
+		verifierBodySuffix:   " care work done; videos are waiting for verification.",
+		leadershipTitle:      "Care videos pending",
+		leadershipBodySuffix: " care work done; video verification is pending.",
+		leadershipScreen:     "pc_care_overview",
+		leadershipTarget:     "/pc/deworming",
+
+		approvedTitle:      "Care proof verified",
+		approvedBody:       "The proof is ready for operational closure.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/pc/deworming",
+		reworkTitle:        "Care proof rejected — rework needed",
+		reworkBody:         "The verifier rejected a care proof. This needs to be resubmitted.",
+		reworkReasonPrefix: "The verifier rejected a care proof. Reason: ",
+		reworkReasonSuffix: " Please resubmit.",
+		reworkScreen:       "record",
+		reworkTarget:       "/pc/deworming",
+		closedTitle:        "Care record closed",
+		closedBody:         "The verified care record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/pc/deworming",
 	},
 	// Counts proofs (the shifting/movement completion video) route to the Health Director, who
 	// owns Counts per the 2026-08-01 maintainer decision. Deliberately NOT pc_director.

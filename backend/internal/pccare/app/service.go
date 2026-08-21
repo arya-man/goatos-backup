@@ -1,0 +1,606 @@
+// Package app is the PC Care module's application layer: planner writes/reads (CEO), operator
+// capture writes (assignee-gated), the whole-task submit that enqueues ONE verification item,
+// and the verdict consumer. Templates: feeddirection/app/packing_service.go (gated submit) and
+// weighing/app/service.go (planner + park-scope idioms).
+package app
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/pccare/domain"
+	"github.com/vgoats/goatos/backend/internal/pccare/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+)
+
+// ErrEnqueuerNotWired is returned when a submit cannot enqueue its verification item because the
+// enqueue seam was never wired — a composition bug, surfaced loudly rather than silently
+// stranding a pending_verification task.
+var ErrEnqueuerNotWired = errors.New("pccare: verification enqueuer is not wired")
+
+// VerificationEnqueuer enqueues the ONE verification item a submitted PC Care task produces. The
+// composition layer adapts verification's CreateItem to this narrow port so pccare never touches
+// verification's tables directly.
+type VerificationEnqueuer interface {
+	EnqueuePCCareVerification(ctx context.Context, in VerificationEnqueueRequest) error
+}
+
+// VerificationEnqueueRequest is one submitted task (all its animals' videos) handed to the
+// verifier queue.
+type VerificationEnqueueRequest struct {
+	TenantID            string
+	TaskID              string
+	Category            string
+	ParkID              string
+	ShedID              string
+	ShedName            string
+	PartitionLabel      string
+	PlannedBusinessDate string
+	MediaRefs           []ports.LabeledRef
+	AnimalCount         int32
+	OperatorID          string
+	CapturedAt          time.Time
+	IdempotencyKey      string
+}
+
+// Service is the PC Care application service.
+type Service struct {
+	store    ports.TaskStore
+	proofs   ports.ProofValidator
+	enqueuer VerificationEnqueuer
+	now      func() time.Time
+}
+
+// NewService constructs the service over the task store.
+func NewService(store ports.TaskStore) *Service {
+	return &Service{store: store, now: time.Now}
+}
+
+// WithProofValidator wires proof-honesty validation (optional in pure unit tests, wired in
+// production).
+func (s *Service) WithProofValidator(v ports.ProofValidator) *Service {
+	s.proofs = v
+	return s
+}
+
+// WithVerificationEnqueuer wires the verifier-queue seam.
+func (s *Service) WithVerificationEnqueuer(e VerificationEnqueuer) *Service {
+	s.enqueuer = e
+	return s
+}
+
+// WithNow overrides the clock (tests).
+func (s *Service) WithNow(now func() time.Time) *Service {
+	s.now = now
+	return s
+}
+
+// planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface.
+var planOrMonitorParkCapabilities = []string{permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+
+// canPlanOrMonitor is the planner's read gate: writes belong to PCCarePlan, but read-only
+// oversight (monitor/oversee) may look at the same vocabulary.
+func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
+	return permissions.RolesAuthorizeAny(actor.Roles, planOrMonitorParkCapabilities)
+}
+
+// authorizedParkSet returns the parks in which the actor holds any of `capabilities`, and
+// whether the actor is tenant-wide for one of them (weighing authorizedParkSet clone).
+func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...string) (parks map[string]struct{}, tenantWide bool) {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	// No grants at all = internal/service context (CLI, integration test), unrestricted.
+	if len(grants) == 0 {
+		return nil, true
+	}
+	parks = map[string]struct{}{}
+	for _, capability := range capabilities {
+		if hasTenantWideCapability(grants, tenantID, capability) {
+			return nil, true
+		}
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			parks[parkID] = struct{}{}
+		}
+	}
+	return parks, false
+}
+
+func hasTenantWideCapability(grants []permissions.ActiveGrant, tenantID, capability string) bool {
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID && permissions.RoleHasPermission(grant.Role, capability) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkParkScopeForAnyCapability admits the actor when ANY of `capabilities` is held in
+// `parkID` (weighing clone: a role check alone answers "somewhere", never "here").
+func checkParkScopeForAnyCapability(ctx context.Context, tenantID, parkID string, capabilities ...string) error {
+	parks, tenantWide := authorizedParkSet(ctx, tenantID, capabilities...)
+	if tenantWide {
+		return nil
+	}
+	if _, ok := parks[parkID]; ok {
+		return nil
+	}
+	return ports.ErrNotFound
+}
+
+// authorizedParkSlice renders the set as the slice the store's clamped reads take.
+func authorizedParkSlice(parks map[string]struct{}) []string {
+	out := make([]string, 0, len(parks))
+	for id := range parks {
+		out = append(out, id)
+	}
+	return out
+}
+
+func isBusinessDate(v string) bool {
+	_, err := time.Parse("2006-01-02", v)
+	return err == nil
+}
+
+// ---------------------------------------------------------------------------
+// Planner (CEO)
+// ---------------------------------------------------------------------------
+
+// PlannerCatalog returns the park-grain create-wizard vocabulary: pickable parks + assignable
+// operators, filtered to the actor's capability-scoped parks (weighing PlannerCatalog shape).
+func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor) (ports.PlannerCatalog, error) {
+	if !s.canPlanOrMonitor(actor) {
+		return ports.PlannerCatalog{}, ports.ErrForbidden
+	}
+	catalog, err := s.store.PlannerCatalog(ctx, actor.TenantID)
+	if err != nil {
+		return ports.PlannerCatalog{}, err
+	}
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
+	if tenantWide {
+		return catalog, nil
+	}
+	parks := make([]ports.PlannerPark, 0, len(catalog.Parks))
+	for _, park := range catalog.Parks {
+		if _, ok := authorizedParks[park.ParkID]; ok {
+			parks = append(parks, park)
+		}
+	}
+	catalog.Parks = parks
+	// The operator picker follows the same filter; an operator with EMPTY ParkIDs means "every
+	// park" (cross-park director) and stays offered (weighing precedent).
+	operators := make([]ports.PlannerOperator, 0, len(catalog.Operators))
+	for _, operator := range catalog.Operators {
+		if len(operator.ParkIDs) == 0 {
+			operators = append(operators, operator)
+			continue
+		}
+		for _, parkID := range operator.ParkIDs {
+			if _, ok := authorizedParks[parkID]; ok {
+				operators = append(operators, operator)
+				break
+			}
+		}
+	}
+	catalog.Operators = operators
+	return catalog, nil
+}
+
+// PlannerParkSheds pages one park's pens for the wizard, decorated with any existing live task
+// for the chosen category+date so the wizard greys taken pens instead of letting create 409.
+func (s *Service) PlannerParkSheds(ctx context.Context, actor domain.Actor, parkID, category, plannedBusinessDate, cursor string, limit int) (ports.PlannerParkSheds, error) {
+	if !s.canPlanOrMonitor(actor) {
+		return ports.PlannerParkSheds{}, ports.ErrForbidden
+	}
+	parkID = strings.TrimSpace(parkID)
+	if !uuidutil.IsUUIDString(parkID) {
+		return ports.PlannerParkSheds{}, ports.ErrInvalidArgument
+	}
+	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, parkID, planOrMonitorParkCapabilities...); err != nil {
+		return ports.PlannerParkSheds{}, err
+	}
+	category = strings.TrimSpace(category)
+	if !domain.IsValidCategory(category) {
+		return ports.PlannerParkSheds{}, domain.ErrInvalidCategory
+	}
+	plannedBusinessDate = strings.TrimSpace(plannedBusinessDate)
+	if !isBusinessDate(plannedBusinessDate) {
+		return ports.PlannerParkSheds{}, ports.ErrInvalidArgument
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.store.PlannerParkSheds(ctx, actor.TenantID, parkID, category, plannedBusinessDate, strings.TrimSpace(cursor), limit)
+}
+
+// CreateTaskInput is the planner's create request as built by the HTTP handler.
+type CreateTaskInput struct {
+	Category            string
+	ParkID              string
+	ShedID              string
+	PartitionLabel      string
+	PlannedBusinessDate string
+	AssigneeUserIDs     []string
+	IdempotencyKey      string
+	ActorID             string
+	ActorType           string
+	TraceID             string
+}
+
+// CreateTask plans one task. Write authority is PCCarePlan alone (CEO), park-scoped.
+func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateTaskInput) (ports.TaskRow, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCarePlan}, false) {
+		return ports.TaskRow{}, ports.ErrForbidden
+	}
+	in.ParkID = strings.TrimSpace(in.ParkID)
+	in.ShedID = strings.TrimSpace(in.ShedID)
+	if !uuidutil.IsUUIDString(in.ParkID) || !uuidutil.IsUUIDString(in.ShedID) {
+		return ports.TaskRow{}, ports.ErrInvalidArgument
+	}
+	if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, in.ParkID, permissions.PCCarePlan); err != nil {
+		return ports.TaskRow{}, err
+	}
+	in.Category = strings.TrimSpace(in.Category)
+	if !domain.IsValidCategory(in.Category) {
+		return ports.TaskRow{}, domain.ErrInvalidCategory
+	}
+	in.PlannedBusinessDate = strings.TrimSpace(in.PlannedBusinessDate)
+	if !isBusinessDate(in.PlannedBusinessDate) {
+		return ports.TaskRow{}, ports.ErrInvalidArgument
+	}
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		return ports.TaskRow{}, ports.ErrIdempotencyRequired
+	}
+	assignees := make([]string, 0, len(in.AssigneeUserIDs))
+	seen := map[string]struct{}{}
+	for _, id := range in.AssigneeUserIDs {
+		id = strings.TrimSpace(id)
+		if !uuidutil.IsUUIDString(id) {
+			return ports.TaskRow{}, ports.ErrInvalidArgument
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		assignees = append(assignees, id)
+	}
+	if len(assignees) == 0 {
+		return ports.TaskRow{}, domain.ErrAssigneesRequired
+	}
+	planned, err := time.ParseInLocation("2006-01-02", in.PlannedBusinessDate, biztime.DefaultLocation())
+	if err != nil {
+		return ports.TaskRow{}, ports.ErrInvalidArgument
+	}
+	return s.store.CreateTask(ctx, ports.CreateTaskParams{
+		TenantID:            actor.TenantID,
+		Category:            in.Category,
+		ParkID:              in.ParkID,
+		ShedID:              in.ShedID,
+		PartitionLabel:      strings.TrimSpace(in.PartitionLabel),
+		PlannedBusinessDate: planned,
+		AssigneeUserIDs:     assignees,
+		IdempotencyKey:      strings.TrimSpace(in.IdempotencyKey),
+		CreatedBy:           actor.UserID,
+		ActorID:             in.ActorID,
+		ActorType:           in.ActorType,
+		TraceID:             in.TraceID,
+	})
+}
+
+// CancelTask cancels an unfinished task (planner authority, park-scoped through the task read).
+func (s *Service) CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCarePlan}, false) {
+		return ports.ErrForbidden
+	}
+	taskID = strings.TrimSpace(taskID)
+	if !uuidutil.IsUUIDString(taskID) {
+		return ports.ErrInvalidArgument
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCarePlan)
+	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return err
+	}
+	return s.store.CancelTask(ctx, actor.TenantID, task.TaskID, actor.UserID, traceID)
+}
+
+// ---------------------------------------------------------------------------
+// Reads (monitor list, worklist, detail, captures poll)
+// ---------------------------------------------------------------------------
+
+// monitorReadCapabilities admit the flat task list.
+var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+
+// ListTasks is the plan/monitor/oversee flat list for one due date, park-clamped.
+func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate string, limit, offset int) (ports.TaskPage, error) {
+	if !permissions.RolesAuthorizeAny(actor.Roles, monitorReadCapabilities) {
+		return ports.TaskPage{}, ports.ErrForbidden
+	}
+	if !isBusinessDate(strings.TrimSpace(dueBusinessDate)) {
+		return ports.TaskPage{}, ports.ErrInvalidArgument
+	}
+	if category = strings.TrimSpace(category); category != "" && !domain.IsValidCategory(category) {
+		return ports.TaskPage{}, domain.ErrInvalidCategory
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, monitorReadCapabilities...)
+	if parkID = strings.TrimSpace(parkID); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			return ports.TaskPage{}, ports.ErrInvalidArgument
+		}
+		if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, parkID, monitorReadCapabilities...); err != nil {
+			return ports.TaskPage{}, err
+		}
+	}
+	return s.store.ListTasks(ctx, ports.ListTasksQuery{
+		TenantID:          actor.TenantID,
+		AuthorizedParkIDs: authorizedParkSlice(parks),
+		TenantWide:        tenantWide,
+		ParkID:            parkID,
+		Category:          category,
+		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
+		Limit:             clampLimit(limit),
+		Offset:            clampOffset(offset),
+	})
+}
+
+// Worklist is the operator's assigned-task list for one category tab and one due date.
+func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate string, limit, offset int) (ports.TaskPage, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareExecute}, false) {
+		return ports.TaskPage{}, ports.ErrForbidden
+	}
+	category = strings.TrimSpace(category)
+	if !domain.IsValidCategory(category) {
+		return ports.TaskPage{}, domain.ErrInvalidCategory
+	}
+	if !isBusinessDate(strings.TrimSpace(dueBusinessDate)) {
+		return ports.TaskPage{}, ports.ErrInvalidArgument
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCareExecute)
+	return s.store.ListTasks(ctx, ports.ListTasksQuery{
+		TenantID:          actor.TenantID,
+		AuthorizedParkIDs: authorizedParkSlice(parks),
+		TenantWide:        tenantWide,
+		Category:          category,
+		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
+		AssigneeUserID:    actor.UserID,
+		Limit:             clampLimit(limit),
+		Offset:            clampOffset(offset),
+	})
+}
+
+// taskReadCapabilities admit the task detail / captures poll: workers and overseers alike.
+var taskReadCapabilities = []string{permissions.PCCareExecute, permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+
+// GetTask reads one task (detail contract: row + expected slots composed by the handler).
+func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error) {
+	if !permissions.RolesAuthorizeAny(actor.Roles, taskReadCapabilities) {
+		return ports.TaskRow{}, ports.ErrForbidden
+	}
+	taskID = strings.TrimSpace(taskID)
+	if !uuidutil.IsUUIDString(taskID) {
+		return ports.TaskRow{}, ports.ErrInvalidArgument
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, taskReadCapabilities...)
+	return s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
+}
+
+// ListTaskAnimals is the peer-visibility poll: one task's scanned animals + slot maps.
+func (s *Service) ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error) {
+	if _, err := s.GetTask(ctx, actor, taskID); err != nil {
+		return nil, "", err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.store.ListTaskAnimals(ctx, actor.TenantID, strings.TrimSpace(taskID), strings.TrimSpace(cursor), limit)
+}
+
+func clampLimit(limit int) int {
+	if limit <= 0 {
+		return 25
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func clampOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	if offset > 5000 {
+		return 5000
+	}
+	return offset
+}
+
+// ---------------------------------------------------------------------------
+// Capture writes (assignee-gated)
+// ---------------------------------------------------------------------------
+
+// requireAssignee enforces the assigned-only rule: pc_care.execute alone never authorizes a
+// write — the caller must also be named on the task (maintainer decision 2026-08-21).
+func (s *Service) requireAssignee(ctx context.Context, actor domain.Actor, taskID string) error {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.PCCareExecute}, false) {
+		return ports.ErrForbidden
+	}
+	if !uuidutil.IsUUIDString(taskID) {
+		return ports.ErrInvalidArgument
+	}
+	// Internal/service contexts (no user id) skip the membership check the same way the park
+	// scope helpers skip grant checks off context.Background().
+	if strings.TrimSpace(actor.UserID) == "" {
+		return nil
+	}
+	assigned, err := s.store.IsAssignee(ctx, actor.TenantID, taskID, actor.UserID)
+	if err != nil {
+		return err
+	}
+	if !assigned {
+		return domain.ErrTaskNotAssigned
+	}
+	return nil
+}
+
+// ScanAnimalInput is one RFID scan-add.
+type ScanAnimalInput struct {
+	TaskID            string
+	ScannedIdentifier string
+	IdempotencyKey    string
+	ActorID           string
+	ActorType         string
+	TraceID           string
+}
+
+// ScanAnimal records one scanned tag into the task, verbatim, at scan time.
+func (s *Service) ScanAnimal(ctx context.Context, actor domain.Actor, in ScanAnimalInput) (ports.ScanAnimalResult, error) {
+	in.TaskID = strings.TrimSpace(in.TaskID)
+	if err := s.requireAssignee(ctx, actor, in.TaskID); err != nil {
+		return ports.ScanAnimalResult{}, err
+	}
+	tag := strings.TrimSpace(in.ScannedIdentifier)
+	if tag == "" {
+		return ports.ScanAnimalResult{}, ports.ErrInvalidArgument
+	}
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		return ports.ScanAnimalResult{}, ports.ErrIdempotencyRequired
+	}
+	return s.store.ScanAnimal(ctx, ports.ScanAnimalParams{
+		TenantID:          actor.TenantID,
+		TaskID:            in.TaskID,
+		ScannedIdentifier: tag,
+		ScannedBy:         actor.UserID,
+		IdempotencyKey:    strings.TrimSpace(in.IdempotencyKey),
+		ActorID:           in.ActorID,
+		ActorType:         in.ActorType,
+		TraceID:           in.TraceID,
+	})
+}
+
+// RegisterSlotProofInput attaches one slot's video to one animal.
+type RegisterSlotProofInput struct {
+	TaskID         string
+	AnimalRowID    string
+	SlotFieldKey   string
+	ProofRef       string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
+}
+
+// RegisterSlotProof stores one slot's video. The slot must belong to the task's category, and
+// the proof must be a real, completed, tenant-owned, live-camera video.
+func (s *Service) RegisterSlotProof(ctx context.Context, actor domain.Actor, in RegisterSlotProofInput) error {
+	in.TaskID = strings.TrimSpace(in.TaskID)
+	if err := s.requireAssignee(ctx, actor, in.TaskID); err != nil {
+		return err
+	}
+	in.AnimalRowID = strings.TrimSpace(in.AnimalRowID)
+	if !uuidutil.IsUUIDString(in.AnimalRowID) {
+		return ports.ErrInvalidArgument
+	}
+	in.ProofRef = strings.TrimSpace(in.ProofRef)
+	if in.ProofRef == "" {
+		return ports.ErrProofRequired
+	}
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		return ports.ErrIdempotencyRequired
+	}
+	// Slot validity against the CATEGORY is enforced in the store write, which reads the task
+	// row in the same transaction; validating here would race a concurrent cancel.
+	if s.proofs != nil {
+		if err := s.proofs.ValidateLiveCameraVideos(ctx, actor.TenantID, []string{in.ProofRef}); err != nil {
+			return err
+		}
+	}
+	return s.store.RegisterSlotProof(ctx, ports.RegisterSlotProofParams{
+		TenantID:       actor.TenantID,
+		TaskID:         in.TaskID,
+		AnimalRowID:    in.AnimalRowID,
+		SlotFieldKey:   strings.TrimSpace(in.SlotFieldKey),
+		ProofRef:       in.ProofRef,
+		CapturedBy:     actor.UserID,
+		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		ActorID:        in.ActorID,
+		ActorType:      in.ActorType,
+		TraceID:        in.TraceID,
+	})
+}
+
+// SubmitTaskInput submits the whole task.
+type SubmitTaskInput struct {
+	TaskID         string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
+}
+
+// SubmitTask flips the task to pending_verification (readiness enforced in the store write) and
+// enqueues ONE verification item carrying every animal's labeled videos. Enqueue fires only when
+// the task actually entered pending on THIS call (feed packing NewlyPending contract), keyed
+// "pc-care-verification:<task_id>:<row_version>" so a rework re-submit mints a fresh item while
+// a retry collapses onto one.
+func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitTaskInput) (ports.SubmitTaskResult, error) {
+	if s.store == nil {
+		return ports.SubmitTaskResult{}, ports.ErrStoreUnavailable
+	}
+	if s.enqueuer == nil {
+		// Fail closed: without the verifier-queue seam a submit would lock the task with
+		// nothing for a verifier to act on.
+		return ports.SubmitTaskResult{}, ErrEnqueuerNotWired
+	}
+	in.TaskID = strings.TrimSpace(in.TaskID)
+	if err := s.requireAssignee(ctx, actor, in.TaskID); err != nil {
+		return ports.SubmitTaskResult{}, err
+	}
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		return ports.SubmitTaskResult{}, ports.ErrIdempotencyRequired
+	}
+
+	result, err := s.store.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID:       actor.TenantID,
+		TaskID:         in.TaskID,
+		SubmittedBy:    actor.UserID,
+		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		ActorID:        in.ActorID,
+		ActorType:      in.ActorType,
+		TraceID:        in.TraceID,
+	})
+	if err != nil {
+		return ports.SubmitTaskResult{}, err
+	}
+
+	if result.NewlyPending {
+		if enqErr := s.enqueuer.EnqueuePCCareVerification(ctx, VerificationEnqueueRequest{
+			TenantID:            actor.TenantID,
+			TaskID:              result.TaskID,
+			Category:            result.Category,
+			ParkID:              result.ParkID,
+			ShedID:              result.ShedID,
+			ShedName:            result.ShedName,
+			PartitionLabel:      result.PartitionLabel,
+			PlannedBusinessDate: result.PlannedBusinessDate,
+			MediaRefs:           result.MediaRefs,
+			AnimalCount:         result.AnimalCount,
+			OperatorID:          strings.TrimSpace(actor.UserID),
+			CapturedAt:          s.now().UTC(),
+			IdempotencyKey:      "pc-care-verification:" + result.TaskID + ":" + strconv.Itoa(int(result.RowVersion)),
+		}); enqErr != nil {
+			return ports.SubmitTaskResult{}, enqErr
+		}
+	}
+	return result, nil
+}
