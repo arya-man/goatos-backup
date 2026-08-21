@@ -37,6 +37,23 @@ const nf = (value: number) => value.toLocaleString("en-IN", { maximumFractionDig
 // at fontSize 9, plus the 5px gap the tick text keeps from the plot edge.
 const padForTicks = (max: number) => Math.max(PAD_X, Math.ceil(nf(max).length * 5.6) + 10);
 
+// Interior x-axis ticks: up to four evenly spaced slots between the two
+// endpoint labels, thinned by step so a 7-day and a 92-day window both render
+// legibly. A candidate landing within half a step of the last slot is dropped
+// so it never crowds the endpoint label.
+const interiorTickIdx = (n: number) => {
+  const step = Math.ceil(Math.max(1, n - 1) / 5);
+  const out: number[] = [];
+  for (let i = step; i < n - 1; i += step) {
+    if (n - 1 - i >= Math.max(1, step / 2)) out.push(i);
+  }
+  return out;
+};
+
+// Interior ticks drop the year (the endpoints carry it) so more of them fit;
+// a label that is not a plain YYYY-MM-DD date renders unchanged.
+const shortDay = (label: string) => (/^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5) : label);
+
 export type StackedDay = {
   key: string;
   /** Tooltip label for the day, resolved by the caller. */
@@ -149,6 +166,18 @@ export function StackedColumns({
       <text x={padX} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
         {days[0].label}
       </text>
+      {interiorTickIdx(days.length).map((i) => (
+        <text
+          key={days[i].key}
+          x={padX + i * slot + slot / 2}
+          y={VIEW_H - 4}
+          fontSize="8"
+          textAnchor="middle"
+          fill="var(--faint)"
+        >
+          {shortDay(days[i].label)}
+        </text>
+      ))}
       <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
         {days[days.length - 1].label}
       </text>
@@ -272,6 +301,18 @@ export function SeriesLines({
       <text x={padX} y={VIEW_H - 4} fontSize="9" fill="var(--faint)">
         {dayLabels[0]}
       </text>
+      {interiorTickIdx(dayLabels.length).map((i) => (
+        <text
+          key={dayLabels[i]}
+          x={padX + i * stepX}
+          y={VIEW_H - 4}
+          fontSize="8"
+          textAnchor="middle"
+          fill="var(--faint)"
+        >
+          {shortDay(dayLabels[i])}
+        </text>
+      ))}
       <text x={VIEW_W - 6} y={VIEW_H - 4} fontSize="9" textAnchor="end" fill="var(--faint)">
         {dayLabels[dayLabels.length - 1]}
       </text>
