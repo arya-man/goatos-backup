@@ -252,6 +252,20 @@ type StockFarmItem struct {
 	LastLoadDate       string
 	LastLoadQuantityKg string
 	LastLoadVendor     string
+	// ExpectedStockKg is the simple audit check:
+	// latest load − (days since first directed × recent avg/day). It is not
+	// clamped, so negative values show how much the load should be short by.
+	// LedgerStockKg below remains the real stock.
+	ExpectedStockKg string
+	// LedgerStockKg is the canonical current stock from the purchase ledger:
+	// purchased minus consumed-at-import minus locked-sheet directed kg.
+	LedgerStockKg string
+	// StockVarianceKg is LedgerStockKg − ExpectedStockKg. Positive means the
+	// ledger has more stock than Manju's simple check predicts.
+	StockVarianceKg string
+	// StockCheckStatus is ok | mismatch | unavailable. Unavailable means the
+	// item has not been directed yet or lacks an avg/day.
+	StockCheckStatus string
 }
 
 // ExpenditureDay is one feed day's spend: directed kg priced at each item's

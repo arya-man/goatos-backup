@@ -4686,6 +4686,14 @@ export interface components {
             last_load_date: string;
             last_load_quantity_kg: string;
             last_load_vendor: string;
+            /** @description Latest load quantity minus days since first_directed_day through yesterday in IST times avg_daily_kg; negative values show the expected shortage. */
+            expected_stock_kg: string;
+            /** @description Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion. */
+            ledger_stock_kg: string;
+            /** @description ledger_stock_kg minus expected_stock_kg. */
+            stock_variance_kg: string;
+            /** @enum {string} */
+            stock_check_status: "ok" | "mismatch" | "unavailable";
         };
         FeedAnalyticsExpenditureDay: {
             /** Format: date */

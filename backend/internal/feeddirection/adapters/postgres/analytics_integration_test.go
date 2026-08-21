@@ -490,10 +490,34 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		kids.LastLoadQuantityKg != "1150.0" || kids.LastLoadVendor != "Navaladi" {
 		t.Errorf("last load details: %+v", kids)
 	}
+	if kids.ExpectedStockKg != "898.0" || kids.LedgerStockKg != "2596.0" {
+		t.Errorf("stock reconciliation fields: %+v", kids)
+	}
 	orphan := got.FarmItems[2]
 	if orphan.FarmLabel != "XYZ" || orphan.FirstDirectedDay != "" {
 		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
 	}
+
+	t.Run("FarmItemsOneToManyLoadsStayOneRowPerFarmItem", func(t *testing.T) {
+		if kids.FirstPurchaseDate != "2026-06-20" || kids.LastLoadBatchNo != 330 {
+			t.Fatalf("multi-load row must preserve first purchase and latest load: %+v", kids)
+		}
+		if kids.LastLoadQuantityKg != "1150.0" || kids.ExpectedStockKg != "898.0" {
+			t.Fatalf("expected stock must use latest load quantity, not summed historical purchases: %+v", kids)
+		}
+	})
+
+	t.Run("FarmItemsMultiPageBoundaryReturnsAllMeshaRows", func(t *testing.T) {
+		if len(got.FarmItems) != 3 {
+			t.Fatalf("farm item table is unpaginated and bounded; want all 3 Mesha rows, got %d", len(got.FarmItems))
+		}
+	})
+
+	t.Run("FarmItemsParkScopeKeepsUnresolvedFarmBare", func(t *testing.T) {
+		if orphan.FarmLabel != "XYZ" || orphan.FeedItemKey != "mesha_kids_goat_concentrate" || orphan.FirstDirectedDay != "" {
+			t.Fatalf("park scope join must not borrow CBE directed rows for unresolved farms: %+v", orphan)
+		}
+	})
 
 	// Stock cards are PER FARM: the same item bought at two farms must never
 	// collapse into one combined balance (maintainer decision 2026-08-21).
@@ -515,6 +539,9 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		// CBE: 1550+1150 purchased, 104 kg locked-directed -> 2596.0 in store.
 		if cbe.BalanceKg != "2596.0" || cbe.AvgDailyKg != "28.0" {
 			t.Errorf("CBE card must hold only CBE's store: %+v", cbe)
+		}
+		if kids.LedgerStockKg != cbe.BalanceKg {
+			t.Errorf("farm table ledger must match stock card balance, table=%q card=%q", kids.LedgerStockKg, cbe.BalanceKg)
 		}
 		// XYZ resolves to no park: its 10 kg stays whole, no burn rate.
 		if xyz.BalanceKg != "10.000" && xyz.BalanceKg != "10.0" {
