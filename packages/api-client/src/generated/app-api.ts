@@ -4685,10 +4685,7 @@ export interface components {
             /** Format: date */
             last_load_date: string;
             last_load_quantity_kg: string;
-            /** @description Landed cost per kg of the last load; empty when the ledger row carries no cost. */
-            last_load_per_kg_cost: string;
             last_load_vendor: string;
-            last_load_payment_status: string;
         };
         FeedAnalyticsExpenditureDay: {
             /** Format: date */

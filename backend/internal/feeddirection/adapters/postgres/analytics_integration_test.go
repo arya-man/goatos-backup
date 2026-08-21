@@ -482,8 +482,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		t.Errorf("avg over locked days: want 21.0, got %q", kids.AvgDailyKg)
 	}
 	if kids.LastLoadBatchNo != 330 || kids.LastLoadDate != "2026-08-08" ||
-		kids.LastLoadQuantityKg != "1150.0" || kids.LastLoadPerKgCost != "41.53" ||
-		kids.LastLoadVendor != "Navaladi" || kids.LastLoadPaymentStatus != "Paid" {
+		kids.LastLoadQuantityKg != "1150.0" || kids.LastLoadVendor != "Navaladi" {
 		t.Errorf("last load details: %+v", kids)
 	}
 	orphan := got.FarmItems[2]
