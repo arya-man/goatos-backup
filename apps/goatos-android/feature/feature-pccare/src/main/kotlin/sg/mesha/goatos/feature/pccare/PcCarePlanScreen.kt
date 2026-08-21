@@ -111,7 +111,7 @@ private fun PlanMonitorList(
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                state.categories.forEach { option ->
+                state.categories.forEach { option -> // compose-guard:ignore: fixed backend category set (deworming/ticks/hoof/hair — 4 chips), never park-scale data
                     PlanChoiceChip(
                         label = option.label,
                         selected = option.key == state.monitorCategoryKey,
