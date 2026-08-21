@@ -273,10 +273,7 @@ type stockFarmItemDTO struct {
 	LastLoadDate       string `json:"last_load_date"`
 	LastLoadQuantityKg string `json:"last_load_quantity_kg"`
 	LastLoadVendor     string `json:"last_load_vendor"`
-	ExpectedStockKg    string `json:"expected_stock_kg"`
 	LedgerStockKg      string `json:"ledger_stock_kg"`
-	StockVarianceKg    string `json:"stock_variance_kg"`
-	StockCheckStatus   string `json:"stock_check_status"`
 }
 
 type stockAnalyticsDTO struct {
