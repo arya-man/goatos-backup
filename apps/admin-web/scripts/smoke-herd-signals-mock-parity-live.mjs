@@ -13,7 +13,7 @@ const normalizeContent = process.env.GOATOS_HERD_SIGNALS_PARITY_NORMALIZE_CONTEN
 const viewport = { width: 1512, height: 982 };
 const artifactDir = resolve(
   process.env.GOATOS_HERD_SIGNALS_PARITY_DIR ??
-    join(repoRoot, ".codex-goatos-render", "herd-signals-mock-parity", new Date().toISOString().replaceAll(/[:.]/g, "-")),
+    join(repoRoot, ".codex-goatos-render", "herd-signals-mock-parity", `${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${process.pid}`),
 );
 
 mkdirSync(artifactDir, { recursive: true });
@@ -26,11 +26,10 @@ try {
   await mockPage.goto(mockUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await mockPage.evaluate(() => {
     if (typeof closeFs === "function") closeFs();
+    if (typeof openDrawer === "function") openDrawer("A0002E");
   });
-  const mockRow = mockPage.locator("tr", { hasText: "A0002E" }).first();
-  if ((await mockRow.count()) > 0) await mockRow.click();
-  else await mockPage.evaluate(() => openDrawer("A0002E"));
   await mockPage.waitForSelector("#drawer.on .hchart", { timeout: 10_000 });
+  await mockPage.waitForSelector("#drawer.on .kv", { timeout: 10_000 });
   await mockPage.waitForTimeout(300);
 
   const livePage = await context.newPage();
@@ -104,12 +103,12 @@ async function box(page, selector) {
 
 function compareRegions(mock, live) {
   const thresholds = new Map([
-    ["drawer", normalizeContent ? 0.045 : 0.10],
+    ["drawer", normalizeContent ? 0.025 : 0.10],
     ["header", normalizeContent ? 0.035 : 0.12],
     ["controls", normalizeContent ? 0.05 : 0.16],
-    ["chart", normalizeContent ? 0.28 : 0.32],
-    ["legend", normalizeContent ? 0.08 : 0.18],
-    ["readings", normalizeContent ? 0.04 : 0.30],
+    ["chart", normalizeContent ? 0.06 : 0.32],
+    ["legend", normalizeContent ? 0.01 : 0.18],
+    ["readings", normalizeContent ? 0.025 : 0.30],
     ["banner", 0.015],
   ]);
 
@@ -180,10 +179,10 @@ function compareGeometry(mockMetrics, liveMetrics) {
     ["drawer", { y: 0, width: 0, height: 0 }],
     ["header", { y: 0.5, height: 0.5 }],
     ["controls", { y: 0.5, height: 0.5 }],
-    ["chart", { y: 12, height: 1 }],
-    ["legend", { y: 8, height: 8 }],
-    ["readings", { y: 20, height: 8 }],
-    ["banner", { y: 20, height: 1 }],
+    ["chart", { y: 0.5, height: 0.5 }],
+    ["legend", { y: 0.5, height: 0.5 }],
+    ["readings", { y: 0.5, height: 1 }],
+    ["banner", { y: 0.5, height: 0.5 }],
   ]);
   const failures = [];
   for (const [name, tolerance] of tolerances) {
