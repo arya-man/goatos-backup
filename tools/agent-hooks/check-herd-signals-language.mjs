@@ -172,39 +172,89 @@ const BODY_TEMP_RE = /\bbody[\s_-]?temp(?:erature)?\b/i;
 const NEGATION_RE =
   /\b(?:not|never|no|cannot|can't|does not|doesn't|isn't|is not|without)\b/i;
 
-// How many lines of context to fold into the "denial window" around a
-// candidate line, before whitespace-normalizing and joining into one string.
-// JSX/HTML text nodes and hand-wrapped prose commonly break a single
-// sentence across lines ("... own sensor housing — not the\n  animal's body
-// temperature."); a denial must be recognized as ONE sentence, not judged
-// line-by-line, or the guard fails the exact disclaimer copy it exists to
-// protect. Backward-weighted because the reported real-world shape (and the
-// product's own required disclaimer, docs/modules/herd-signals.md Section 3)
-// puts the negation before the term far more often than after it, but a
-// couple of forward lines are kept too for wrapped claims that lead with the
-// term and trail with the negation. A negation or term further away than
-// these bounds is a documented blind spot (see header comment).
+// Hard cap on how far outward buildSentenceWindow will walk looking for a
+// sentence boundary, even if none is found. This is a safety bound, not the
+// primary mechanism -- the primary mechanism is REAL sentence-boundary
+// detection (see buildSentenceWindow); these caps only stop a pathological
+// boundary-free run of lines from pulling in unbounded context. See the
+// header comment's "Residual blind spot" note.
 const WINDOW_BEFORE = 3;
 const WINDOW_AFTER = 2;
 
-// Strip a line's leading comment/JSX-text noise so joined window text reads
-// as plain prose instead of "// foo /* bar" — improves negation/term
-// adjacency matching across the joined span without changing which words are
-// present.
+// Strip a line's leading comment/JSX-text noise so joined sentence text
+// reads as plain prose instead of "// foo /* bar" — improves negation/term
+// adjacency matching without changing which words are present.
 function stripLineNoise(line) {
   return line.replace(/^\s*(?:\{\/\*|\/\*|\*\/|\/\/|\*)\s?/, "").trim();
 }
 
-// Whitespace-normalized join of lines[i-before..i+after] (clamped to the
-// file's bounds) into one string, so a multi-line sentence can be tested for
-// negation/claim shape as a single unit. This is the fix for the reported
-// false positive: a denial split across lines is still one sentence.
-function buildWindow(lines, i, before, after) {
-  const start = Math.max(0, i - before);
-  const end = Math.min(lines.length - 1, i + after);
-  const parts = [];
-  for (let k = start; k <= end; k++) parts.push(stripLineNoise(lines[k]));
-  return parts.join(" ").replace(/\s+/g, " ").trim();
+// Does `line` (already stripped) END with a real sentence terminator, or is
+// it blank? Either ends the sentence the line belongs to.
+function lineEndsSentence(strippedLine) {
+  if (strippedLine === "") return true;
+  return /[.!?;]\s*$/.test(strippedLine);
+}
+
+// Does `line` (already stripped) look like the START of a new prose block —
+// a JSX element, or a list item — regardless of whether the previous line
+// ended with punctuation? JSX/markdown authors routinely start a new
+// "sentence" (a new element, a new bullet) without a preceding period.
+function lineStartsNewBlock(strippedLine) {
+  return /^</.test(strippedLine) || /^[-*]\s/.test(strippedLine) || /^\d+\.\s/.test(strippedLine);
+}
+
+// Does `line` (already stripped) look like the END of a JSX element (closes
+// with `>` or `/>`)? Crossing out of a JSX tag is a boundary the same way
+// crossing into one is.
+function lineEndsBlock(strippedLine) {
+  return /(?:\/>|>)\s*$/.test(strippedLine);
+}
+
+// Is there a real sentence boundary BETWEEN `prevStripped` (the earlier
+// line) and `nextStripped` (the later line)? Used both walking backward and
+// walking forward from the candidate line.
+function isSentenceBoundaryBetween(prevStripped, nextStripped) {
+  return (
+    lineEndsSentence(prevStripped) ||
+    lineStartsNewBlock(nextStripped) ||
+    lineEndsBlock(prevStripped)
+  );
+}
+
+// Build the SENTENCE containing lines[i] (the candidate line), not a flat
+// N-line window: walk backward and forward from i, merging adjacent lines
+// only while no real sentence boundary (period/!/?/;, blank line, JSX tag
+// edge, list-item start — see the functions above) separates them, capped at
+// WINDOW_BEFORE/WINDOW_AFTER lines as a safety bound. This is what makes a
+// denial wrapped mid-sentence across lines still read as ONE sentence
+// ("... own sensor housing — not the\n  animal's body temperature."), while
+// an unrelated negation on a PRIOR, already-ended sentence (e.g. a preceding
+// comment ending in a period) does NOT bleed into the next sentence and
+// silently suppress a genuine claim there.
+function buildSentenceWindow(lines, i, before, after) {
+  const segStart = Math.max(0, i - before);
+  const segEnd = Math.min(lines.length - 1, i + after);
+  const seg = [];
+  for (let k = segStart; k <= segEnd; k++) seg.push(stripLineNoise(lines[k]));
+  const centerIdx = i - segStart;
+
+  let startIdx = centerIdx;
+  for (let k = centerIdx - 1; k >= 0; k--) {
+    if (isSentenceBoundaryBetween(seg[k], seg[k + 1])) break;
+    startIdx = k;
+  }
+
+  let endIdx = centerIdx;
+  for (let k = centerIdx + 1; k < seg.length; k++) {
+    if (isSentenceBoundaryBetween(seg[k - 1], seg[k])) break;
+    endIdx = k;
+  }
+
+  return seg
+    .slice(startIdx, endIdx + 1)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Does a negation word precede the given term's first occurrence anywhere in
@@ -225,7 +275,7 @@ const VOCAB_LIST_RE =
   /BANNED_TERMS|banned[\s_-]?terms?|forbidden[\s_-]?terms?|\[\s*["'`][a-z]+["'`]\s*,/i;
 
 // CLAIM-SHAPED constructions: the banned term appearing as an assertion,
-// not a denial. `text` is a DENIAL WINDOW (see buildWindow) for the
+// not a denial. `text` is a SENTENCE WINDOW (see buildSentenceWindow) for the
 // banned-claim check, not necessarily a single raw line -- a multi-line
 // denial sentence is joined into one string before this function ever sees
 // it, so the negation-scope logic below works the same whether the negation
@@ -282,11 +332,12 @@ function findingsForSource(source, relPath) {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    // Denial window: this line plus WINDOW_BEFORE lines before and
-    // WINDOW_AFTER lines after, whitespace-normalized and joined -- a
-    // multi-line JSX/prose/comment sentence is one unit of meaning, not one
-    // fact per physical line.
-    const window = buildWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER);
+    // Sentence window: the real sentence containing this line, found by
+    // walking outward until a sentence boundary (see buildSentenceWindow) --
+    // a multi-line JSX/prose/comment sentence is one unit of meaning, but an
+    // unrelated negation on an already-ended PRIOR sentence must not bleed
+    // in.
+    const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER);
     const windowIsVocabList = VOCAB_LIST_RE.test(window);
 
     // banned-claim
@@ -391,9 +442,10 @@ function findingsForYamlSlice(source) {
   const sliceLines = slice.map((s) => s.text);
   const findings = [];
   slice.forEach(({ text, lineNo }, idx) => {
-    // Same denial-window treatment as findingsForSource: a YAML `description:`
-    // block can wrap a denial sentence across adjacent lines too.
-    const window = buildWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER);
+    // Same sentence-scoping as findingsForSource: a YAML `description:`
+    // block can wrap a denial sentence across adjacent lines too, and must
+    // not let an unrelated negation on a prior sentence bleed in.
+    const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER);
     const windowIsVocabList = VOCAB_LIST_RE.test(window);
 
     const bannedMatch = text.match(BANNED_TERM_RE);
@@ -595,6 +647,20 @@ function selfTest() {
     );
   }
 
+  // Regression: an unrelated negation in a PRIOR, already-ended sentence
+  // must NOT suppress a genuine claim in the next, independent sentence.
+  // This is the coordinator-discovered false negative that the flat-window
+  // approach allowed and sentence-boundary scoping must close.
+  const unrelatedNegationFindings = findingsForSource(
+    readFixture("Bad_UnrelatedNegationPriorSentence.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!unrelatedNegationFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on unrelated-prior-sentence-negation fixture (an earlier "There is no cursor..." sentence must not suppress the later eating claim), got: ${JSON.stringify(unrelatedNegationFindings)}`
+    );
+  }
+
   console.log("check-herd-signals-language self-test: PASS");
   console.log(`  FAIL fixture -> ${failFindings.length} finding(s): ${failFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  PASS fixture (same words, denial context) -> ${passFindings.length} finding(s)`);
@@ -604,6 +670,7 @@ function selfTest() {
     console.log(`  wrapped-denial fixture ${file} -> ${count} finding(s)`);
   }
   console.log(`  wrapped-claim (inverse) fixture -> ${wrappedClaimFindings.length} finding(s): ${wrappedClaimFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  unrelated-prior-sentence-negation fixture -> ${unrelatedNegationFindings.length} finding(s): ${unrelatedNegationFindings.map((f) => f.rule).join(", ")}`);
 }
 
 if (process.argv.includes("--self-test")) {
