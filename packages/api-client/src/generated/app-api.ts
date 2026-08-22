@@ -101,6 +101,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/herd-signals/tag-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind a BLE tag to an animal.
+         * @description Requires herd_signals.map -- NOT the read permission. Deciding which animal a tag belongs to is a different authority from reading the dashboard: it decides whose body every animal-attributed number downstream is about.
+         *     Claims the tag's id (and its MAC, when the tag reports a distinct one) as active, smart-tag-capable goat_identifiers rows for the animal, in ONE transaction. Values are normalised with the identity module's canonical normalizer, so a lowercase device MAC matches an uppercase-stored identifier.
+         *     ANIMAL MONITORING STARTS HERE. The mapping instant is stamped on the identifier and denormalised onto the tag's live row; everything the tag emitted earlier stays visible as device telemetry but can never enter this animal's baseline, pattern window, or correlations.
+         */
+        post: operations["bindHerdSignalTagMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tag-mappings/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace an animal's smart tag with a new one, atomically.
+         * @description Requires herd_signals.map. Re-tagging is the real-world case -- a tag falls off, a replacement goes on -- and both halves commit together or neither does, so the animal is never left carrying two live smart tags (ambiguous telemetry) or none (silently unmonitored).
+         *     The new tag starts a NEW monitoring period and the old tag's period ends, so nothing the replacement emitted while it sat unused can be attributed to this animal.
+         */
+        post: operations["replaceHerdSignalTagMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/identifiers/{identifier_id}/smart-tag": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark or unmark an existing identifier as smart-tag capable.
+         * @description Requires herd_signals.map. For the case where the animal's existing ear-tag value IS the BLE tag value, so no new identifier row should be invented.
+         *     Marking stamps the monitoring boundary (animal monitoring starts now). Unmarking clears it back to null, which returns the tag to device-telemetry-only: no animal-attributed value may be produced for it at all -- not a zero, not a default.
+         */
+        post: operations["setHerdSignalSmartTagCapable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/heartbeats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a gateway heartbeat (sta_gw_hb).
+         * @description Gateway DEVICE write path: requires herd_signals.ingest, the same credential class as packet ingest, never an operator permission.
+         *     The gateway emits this state message roughly every five minutes carrying no device rows at all, and it was previously discarded. Without it "gateway up but hearing no tags" (a dead antenna, a misaimed unit, an empty shed) is indistinguishable from "gateway down" -- two situations that demand opposite responses. It advances last_heartbeat_at, which is deliberately separate from last_seen_at: either kind of message proves we heard something, only a heartbeat proves the gateway itself is alive.
+         *     A ticks_cnt that goes BACKWARDS is a reboot, handled like a reset motion counter or a decreasing pkt_sn: re-anchor and count the reboot, never record a negative.
+         */
+        post: operations["recordHerdSignalGatewayHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/herd-signals/export.csv": {
         parameters: {
             query?: never;
@@ -4347,6 +4433,11 @@ export interface components {
             temperature_sensor_ok?: boolean | null;
             accelerometer_sensor_ok?: boolean | null;
             raw_adv?: string | null;
+            /**
+             * Format: int64
+             * @description The GATEWAY scan report's sequence number, carried through per packet. The only packet-loss instrument this protocol offers: a forward jump means reports that were never delivered, and a DECREASE means the gateway rebooted (re-anchor, never a negative loss). Optional -- older firmware and replay paths omit it, and a packet without one is still real sensor data that simply cannot contribute to loss counts.
+             */
+            pkt_sn?: number | null;
             /** Format: date-time */
             seen_at: string;
             /**
@@ -4365,6 +4456,67 @@ export interface components {
             accepted: number;
             stored: number;
             latest_updated: number;
+            trace_id: string;
+        };
+        HerdSignalsBindTagMappingRequest: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description The tag's printed/reported id. Normalised (trimmed, uppercased) before it is claimed. */
+            tag_id: string;
+            /** @description Optional. When the tag reports a MAC distinct from its id, that value is claimed as its own identifier row too -- the read path matches a packet by tag id OR MAC while a single identifier row carries one value, so claiming only one would leave half the tag's packets resolving to no animal. */
+            tag_mac?: string;
+            /**
+             * @description Slot the tag is bound in. Defaults to animal_identifier_2 -- a smart tag is normally the second thing an animal carries.
+             * @enum {string}
+             */
+            identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+        };
+        HerdSignalsReplaceTagMappingRequest: {
+            /** Format: uuid */
+            goat_id: string;
+            new_tag_id: string;
+            new_tag_mac?: string;
+            /** @enum {string} */
+            identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+        };
+        HerdSignalsSetSmartTagCapableRequest: {
+            /** @description True marks the identifier as a smart tag and starts monitoring; false unbinds it and returns the tag to device telemetry only. */
+            smart_tag_capable: boolean;
+        };
+        HerdSignalsTagMappingResponse: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description The normalised tag id now bound. */
+            tag_id: string;
+            tag_mac: string | null;
+            /** @description The identifier rows now carrying this binding. Never null. */
+            identifier_ids: string[];
+            /** @enum {string} */
+            mapping_state: "mapped" | "unmapped";
+            /**
+             * Format: date-time
+             * @description The instant animal monitoring starts for this tag. Null means unmapped, in which case NO animal-attributed value may be produced for the tag -- not a zero, not a default. Baselines, pattern windows and correlations never look back past this instant.
+             */
+            monitoring_since: string | null;
+            /** @description Identifiers whose smart-tag binding this write ENDED -- the replaced tag on a replace, the unmarked identifier on an unmark. Never null. */
+            unbound_identifier_ids: string[];
+        };
+        HerdSignalsGatewayHeartbeatRequest: {
+            gateway_id: string;
+            /** @description The gateway's own state name. Optional, but when present it must be the heartbeat state (sta_gw_hb): an unrecognised future state must not be allowed to assert proof of life by accident. */
+            state?: string;
+            /**
+             * Format: int64
+             * @description Gateway uptime tick counter. A value that goes backwards is a reboot, never a negative.
+             */
+            ticks_cnt?: number | null;
+        };
+        HerdSignalsGatewayHeartbeatResponse: {
+            gateway_id: string;
+            /** Format: date-time */
+            last_heartbeat_at: string;
+            /** @description True when ticks_cnt went backwards against the stored value. */
+            reboot_detected: boolean;
             trace_id: string;
         };
         CeoConversationCreateRequest: {
@@ -12563,6 +12715,202 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HerdInsightsResponse"];
                 };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bindHerdSignalTagMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsBindTagMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description The binding now in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
+                };
+            };
+            /** @description Missing or malformed goat_id/tag_id, or an identifier_type outside the allowed set. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such animal in this tenant. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The tag value is already claimed by another animal, the animal already carries a live smart tag (use the replace endpoint), or the value is held by a non-active identifier. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    replaceHerdSignalTagMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsReplaceTagMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description The new binding, and the identifiers whose binding this ended. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
+                };
+            };
+            /** @description Missing or malformed goat_id/new_tag_id, or an identifier_type outside the allowed set. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such animal in this tenant. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The animal has no live smart tag to replace, already carries exactly this tag, or the new tag value is claimed by another animal. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setHerdSignalSmartTagCapable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsSetSmartTagCapableRequest"];
+            };
+        };
+        responses: {
+            /** @description The binding now in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
+                };
+            };
+            /** @description Malformed identifier_id or request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such identifier in this tenant. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The identifier is not active, or the animal already carries a different live smart tag. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    recordHerdSignalGatewayHeartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsGatewayHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Heartbeat recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsGatewayHeartbeatResponse"];
+                };
+            };
+            /** @description Missing gateway_id, or a state that is not the gateway heartbeat state. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Authentication required. */
             401: {
