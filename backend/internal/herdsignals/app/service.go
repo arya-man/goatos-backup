@@ -110,6 +110,7 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 			SensorState:           p.SensorState,
 			TemperatureSensorOK:   p.TemperatureSensorOK,
 			AccelerometerSensorOK: p.AccelerometerSensorOK,
+			PktSN:                 p.PktSN,
 			RawAdv:                p.RawAdv,
 			RawPayload:            rawPayloadOrEmpty(p.RawPayload),
 		})
@@ -119,11 +120,28 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 		return domain.IngestResponse{}, fmt.Errorf("no valid packets in request")
 	}
 
+	// The batch's highest scan-report sequence number drives the gateway's packet-loss
+	// accounting (000197): the repository compares it to the stored value to accrue missed
+	// reports on a forward jump, or count a gateway reboot on a decrease. Max, not last: packets
+	// within one call are not ordered by sequence, and the anchor must only ever move forward
+	// within a batch.
+	var maxPktSN *int64
+	for _, p := range packets {
+		if p.PktSN == nil {
+			continue
+		}
+		if maxPktSN == nil || *p.PktSN > *maxPktSN {
+			v := *p.PktSN
+			maxPktSN = &v
+		}
+	}
+
 	gw := domain.Gateway{
 		TenantID:   actor.TenantID,
 		GatewayID:  req.GatewayID,
 		Status:     "active",
 		LastSeenAt: &gatewaySeen,
+		LastPktSN:  maxPktSN,
 	}
 
 	// Gateway upsert, packet insert, activity-window rollup, and tag_latest update all happen in

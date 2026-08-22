@@ -518,6 +518,18 @@ const (
 	// authority as writing raw telemetry into it, and ingest is a machine/service credential's
 	// permission, not an operator's.
 	HerdSignalsIngest = "herd_signals.ingest"
+	// HerdSignalsMap gates the herd-signals MAPPING WRITES (POST /herd-signals/tag-mappings,
+	// /herd-signals/tag-mappings/replace, /herd-signals/identifiers/{identifier_id}/smart-tag):
+	// deciding WHICH ANIMAL a BLE tag belongs to.
+	//
+	// Deliberately separate from HerdSignalsRead, and it is not a formality. Reading the live
+	// dashboard observes what the tags report; a mapping write decides whose body every
+	// animal-attributed number downstream -- the per-animal baseline, the movement patterns, the
+	// vaccination/feed/weighing/health correlations -- is about, and it starts that animal's
+	// monitoring period. A wrong mapping does not produce a wrong pixel, it produces a confident
+	// claim about the wrong goat. Also separate from HerdSignalsIngest, which is a device
+	// credential's permission and has no business deciding animal identity.
+	HerdSignalsMap = "herd_signals.map"
 	// FeedDirectionComplete is the operator WRITE twin FeedPackingRead's comment anticipated: it gates
 	// POST /feed-direction/complete, where an operator records that one shed-session's feed direction
 	// was carried out (with optional video proof). It is deliberately separate from the feed reads --
@@ -1044,6 +1056,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// the CEO account can never be locked out of exercising the whole module end to end.
 		HerdSignalsRead:    {},
 		HerdSignalsIngest:  {},
+		HerdSignalsMap:     {},
 		VerificationReview: {},
 		VerificationAct:    {},
 		// Founder/builder visibility invariant, and the tenant-wide oversight filters (module

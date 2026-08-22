@@ -368,17 +368,16 @@ func (b *bridge) handleHeartbeat(env gwEnvelope) {
 	if gatewayID == "" {
 		gatewayID = b.cfg.DefaultGateway
 	}
-	now := time.Now().UTC() // server clock, same rule as received_at everywhere else in this module
-	gw := domain.Gateway{
-		TenantID:   b.cfg.TenantID,
-		GatewayID:  gatewayID,
-		Status:     "active",
-		LastSeenAt: &now,
-	}
+	// Persisted through the module's own heartbeat write path (000197) rather than a bare
+	// gateway upsert: that path also records last_heartbeat_at (distinct from last_seen_at, so
+	// "up but hearing no tags" is distinguishable from "down") and ticks_cnt, and counts a reboot
+	// when ticks_cnt goes BACKWARDS -- never a negative, same discipline as motion_count and
+	// pkt_sn. The timestamp is stamped inside that path from the server clock.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := b.repo.UpsertGateway(ctx, b.cfg.TenantID, gw); err != nil {
-		b.log.Error("heartbeat_upsert_gateway_failed", "gateway_id", gatewayID, "error", err)
+	req := domain.GatewayHeartbeatRequest{GatewayID: gatewayID, State: hb.State, TicksCnt: &hb.TicksCnt}
+	if _, err := b.repo.RecordGatewayHeartbeat(ctx, b.cfg.TenantID, req, time.Now().UTC()); err != nil {
+		b.log.Error("heartbeat_record_failed", "gateway_id", gatewayID, "error", err)
 	}
 }
 
@@ -457,9 +456,14 @@ func decodeHoneyCombPacket(dev devInfo, raw []byte, env gwEnvelope, pktSN int64)
 		SensorState:           &sensorState,
 		TemperatureSensorOK:   &sensorOK,
 		AccelerometerSensorOK: &sensorOK,
-		RawAdv:                &advRaw,
-		SeenAt:                gatewayTimeStr, // diagnostic only (DeviceSeenAt) -- see file doc comment
-		GatewaySeenAt:         &gatewayTimeStr,
+		// pkt_sn is now a real COLUMN (migration 000197), not only a jsonb crumb in RawPayload
+		// below: it is the only packet-loss instrument this protocol gives us, and inside jsonb
+		// it could neither be aggregated nor compared across a bridge restart. It stays in
+		// RawPayload too so the stored raw diagnostic record remains complete.
+		PktSN:         &pktSN,
+		RawAdv:        &advRaw,
+		SeenAt:        gatewayTimeStr, // diagnostic only (DeviceSeenAt) -- see file doc comment
+		GatewaySeenAt: &gatewayTimeStr,
 		RawPayload: map[string]interface{}{
 			"gw_addr":          env.GwAddr,
 			"gw_envelope_time": env.Time,
