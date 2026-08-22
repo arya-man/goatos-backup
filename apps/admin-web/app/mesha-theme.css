@@ -1507,8 +1507,8 @@
   tr:last-child td{border-bottom:0}
   tbody tr:hover{background:var(--bg)}
   .gid{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:var(--brand-d);background:var(--brand-soft);padding:2px 7px;border-radius:6px}
-  .bar{height:7px;border-radius:6px;background:var(--line2);overflow:hidden}
-  .bar > i{display:block;height:100%;border-radius:6px;background:var(--brand)}
+  div.bar{height:7px;border-radius:6px;background:var(--line2);overflow:hidden}
+  div.bar > i{display:block;height:100%;border-radius:6px;background:var(--brand)}
   .feed{display:flex;flex-direction:column}
   .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2);min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
   .fitem:last-child{border-bottom:0}
