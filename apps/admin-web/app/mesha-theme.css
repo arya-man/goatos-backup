@@ -3124,30 +3124,20 @@ select:disabled { opacity: .45; }
 .herd-signals-page .evchip i{width:8px;height:8px;border-radius:2px;display:inline-block;background:currentColor}
 .herd-signals-page .evchip[disabled]{cursor:not-allowed;opacity:.6}
 
-.fshd{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:none;flex-wrap:wrap}
-.fsbd{overflow:auto;padding:16px 18px 40px;flex:1}
-.daterow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:var(--panel);margin-bottom:14px}
-.evchip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:var(--panel-2);color:var(--muted);user-select:none}
 .herd-signals-page .fs .btn,.herd-signals-page .hs-mapping-tab .btn{background:var(--panel);font-size:12.5px;font-weight:650;padding:7px 12px}
 .herd-signals-page .fs .tag{display:inline-flex}
-/* Above: check-mock-css-parity.mjs's declaration check only resolves selectors that are EXACTLY
-   `.classname` -- compound selectors like `.herd-signals-page .fshd` are invisible to it by
-   design (documented in the guard's own header comment), so it reported .fshd/.fsbd/.daterow/
-   .evchip as "not styled" even though the scoped rules above already carried the mock's exact
-   values. Those four render in NO other admin-web file (checked: full-screen history view only),
-   so a bare duplicate is zero-risk and gives the guard the selector shape it requires -- keep
-   both copies in sync. .btn and .tag are app-wide shared classes (.btn: 82 other admin-web files;
-   .tag: 32) this feature has never locally overridden to the mock's own look; changing the global
-   rule, or the `.herd-signals-page`-wide rule, is out of scope here (every sibling herd-signals
-   screen renders them too, and those files are owned by other agents this session), so the
-   override above is scoped strictly to `.fs` (full-screen history view) and `.hs-mapping-tab`
-   (Tag Mapping tab) -- the two components this pass owns.
-   IMPORTANT: this comment is placed AFTER the five rules above, not before, on purpose -- the
-   guard's rule regex captures everything between the previous `}` and the next `{` as that next
-   rule's "selector", comments included, so a comment directly before one of these bare rules gets
-   swallowed into it and silently breaks the exact-`.classname` match. Keep it that way: comment
-   trails the rules it documents, next real rule below is a compound `.herd-signals-page .grid2`
-   selector the guard's declaration check ignores anyway, so it is immune to this trap. */
+/* Above: .btn and .tag are app-wide shared classes (.btn: 82 other admin-web files; .tag: 32)
+   this feature has never locally overridden to the mock's own look; changing the global rule, or
+   the `.herd-signals-page`-wide rule, is out of scope here (every sibling herd-signals screen
+   renders them too, and those files are owned by other agents this session), so the override
+   above is scoped strictly to `.fs` (full-screen history view) and `.hs-mapping-tab` (Tag Mapping
+   tab) -- the two components this pass owns.
+   The bare `.fshd`/`.fsbd`/`.daterow`/`.evchip` duplicates that used to sit here are gone:
+   check-mock-css-parity.mjs's declaration check is now scope-aware (getScopedClassRules /
+   resolveScopedProps) and resolves the `.herd-signals-page .fshd`-shaped rules above directly, so
+   the guard no longer needs a bare-`.classname` copy to "see" them. Do not reintroduce that
+   pattern to satisfy a guard finding -- if the guard reports a real divergence, fix the scoped
+   rule's declarations, don't duplicate the selector. */
 
 /* Ported verbatim from mock/herd-signals-mock.html -- the Gateways and Insights tabs
    render .grid2 but the app theme had NO rule for it, so both tabs stacked as
