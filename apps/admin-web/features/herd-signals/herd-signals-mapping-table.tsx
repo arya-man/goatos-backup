@@ -857,7 +857,7 @@ export function HerdSignalsMappingTable({
   };
 
   return (
-    <>
+    <div className="hs-mapping-tab">
       {toolbar}
       {flash ? (
         <div className="hs-flash" role="status">
@@ -875,6 +875,6 @@ export function HerdSignalsMappingTable({
       {dialog && selected ? (
         <MappingDialog action={dialog} item={selected} onClose={() => setDialog(null)} onDone={onDone} />
       ) : null}
-    </>
+    </div>
   );
 }
