@@ -3141,6 +3141,10 @@ select:disabled { opacity: .45; }
 .herd-signals-page .hs-mapping-modal .mf{flex:0 0 auto}
 
 .herd-signals-page .hs-picker{display:flex;flex-direction:column;gap:8px}
+/* `.fsel.search` carries `flex:1 1 320px` for the horizontal filter bar; inside this COLUMN
+   picker that basis applies to HEIGHT and stretched the field into a 340px-tall box with the
+   input pinned to its bottom edge. */
+.herd-signals-page .hs-picker .fsel.search{flex:0 0 auto}
 .herd-signals-page .hs-picker label{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
 .herd-signals-page .hs-results{display:flex;flex-direction:column;gap:4px;max-height:210px;overflow-y:auto}
 .herd-signals-page .hs-results p{margin:4px 2px}
@@ -3181,3 +3185,17 @@ select:disabled { opacity: .45; }
 .herd-signals-page .grid2>.card{margin-top:0}
 /* `.sp` is a flex spacer in the mock; the app defines it only under `.card .hd`. */
 .herd-signals-page .gwh .sp{flex:1}
+
+/* --- Mock parity: three token bugs with page-wide reach (pixel judge, 2026-08-22) ---
+   1. NEUTRAL chips resolved to --bg (#0E1512) where the mock uses --panel-2 (#1D2820). Inside the
+      drawer -- whose background was also --bg -- a neutral chip was literally invisible: same
+      colour on same colour. Hit every quiet dBm chip, Unmapped, No, OK, the baseline chip and the
+      row-count chip.
+   2. The DRAWER surface used --bg where the mock uses --panel (#161F1A), so the drawer did not
+      read as a raised surface over the page.
+   3. Card titles rendered 14.5px/400 against the mock's 13.5px/720 -- on every card, every tab. */
+.herd-signals-page .tag.t-mut,
+.herd-signals-page .chip.t-mut,
+.herd-signals-page .cnt{background:var(--panel-2);color:var(--muted)}
+.herd-signals-page aside.drawer{background:var(--panel)}
+.herd-signals-page .card .hd h3{font-size:13.5px;font-weight:720}
