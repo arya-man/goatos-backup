@@ -333,6 +333,12 @@ var protectedRoutes = []Route{
 	// (weighing is herd-isolated; these widgets need breed/sex + the feed sheet),
 	// but the SAME gate as the Weights page reads it renders under.
 	{OperationID: "adminGetGrowthDirectorWeights", Method: "GET", Pattern: "/growth-director/weights", Permissions: []string{WeighingMonitor}},
+
+	// Herd Signals BLE ear-tag telemetry.
+	{OperationID: "herdSignalsIngestPackets", Method: "POST", Pattern: "/herd-signals/packets", Permissions: []string{AppBootstrap}},
+	{OperationID: "herdSignalsListLive", Method: "GET", Pattern: "/herd-signals/live", Permissions: []string{AppBootstrap}},
+	{OperationID: "herdSignalsGetTimeline", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/timeline", Permissions: []string{AppBootstrap}},
+	{OperationID: "herdSignalsListGateways", Method: "GET", Pattern: "/herd-signals/gateways", Permissions: []string{AppBootstrap}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier
 	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator

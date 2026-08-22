@@ -7,13 +7,18 @@ import {
   Clock,
   Database,
   Filter,
+  HeartPulse,
+  ListFilter,
+  Milk,
   ScrollText,
   Search,
   ShieldCheck,
+  Scale,
   Syringe,
   Truck,
   Upload,
   UserRound,
+  Wheat,
   Zap,
 } from "lucide-react";
 
@@ -39,13 +44,19 @@ const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
 // Top-bar scope state to keep when a user clears the page filters.
 const PRESERVE_ON_CLEAR = ["scope_mode", "park", "as_of", "range", "from", "to"];
 
-// Visible audit families stay locked to the current vaccination slice. Source Entry, Herd Register, and
-// Admin/SOP are shown only because they feed the vaccination evidence/config chain.
+// Business audit families are derived from durable audit metadata when available, with backend fallbacks for
+// older rows that only captured action/resource names.
 const OPERATION_FAMILIES: Array<{ key: string; domain: string | null; icon: typeof Zap }> = [
+  { key: "all", domain: null, icon: ListFilter },
   { key: "vaccination", domain: "vaccination", icon: Syringe },
   { key: "procurement", domain: "procurement", icon: Truck },
   { key: "counts", domain: "counts", icon: ClipboardList },
+  { key: "feed", domain: "feed", icon: Wheat },
+  { key: "weighing", domain: "weighing", icon: Scale },
+  { key: "health", domain: "health", icon: HeartPulse },
+  { key: "milk", domain: "milk", icon: Milk },
   { key: "admin", domain: "admin", icon: Database },
+  { key: "other", domain: "other", icon: Filter },
 ];
 
 // Result/status tabs map to real list filters.
@@ -67,17 +78,25 @@ export async function OperationsAuditPage({
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
   const filters = parseFilters(sp);
   const actorQ = one(sp, "actor_q")?.trim().toLowerCase() ?? "";
-  const [listResult, summaryResult] = await Promise.all([
+  const [listResult, summaryResult, ...familySummaryResults] = await Promise.all([
     listOperationsAudit({ ...filters, limit: PAGE_SIZE, cursor: one(sp, "cursor") }),
     getOperationsAuditSummary(filters),
+    ...OPERATION_FAMILIES.map((family) =>
+      getOperationsAuditSummary({
+        ...filters,
+        domain: family.domain ?? undefined,
+        module: undefined,
+        category: undefined,
+      }),
+    ),
   ]);
-  const authError = firstAuthRequiredError(listResult, summaryResult);
+  const authError = firstAuthRequiredError(listResult, summaryResult, ...familySummaryResults);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const rows = listResult.ok ? listResult.data.items : [];
   const summary = summaryResult.ok ? summaryResult.data : null;
   const actors = spanOfControl(rows, actorQ);
-  const operationCounts = countByOperation(rows, summary?.actions ?? rows.length, filters.domain ?? "vaccination");
+  const operationCounts = countByOperation(familySummaryResults);
   const nextHref = listResult.ok ? hrefWithCursor(PATHNAME, sp, listResult.data.next_cursor ?? null) : null;
   const prevHref = hrefPreviousCursor(PATHNAME, sp);
   const clearedHref = clearHref(sp);
@@ -140,7 +159,7 @@ export async function OperationsAuditPage({
           return (
             <Link
               key={family.key}
-              href={hrefWithUpdates(sp, { domain: family.domain, cursor: null, page: null })}
+              href={hrefWithUpdates(sp, { domain: family.domain, module: null, category: null, cursor: null, page: null })}
               replace
               scroll={false}
               className={active ? "on" : ""}
@@ -483,7 +502,7 @@ function parseFilters(params: RouteSearchParams): OperationsAuditListParams {
     resourceId: one(params, "resource_id"),
     scopeType: one(params, "scope_type"),
     scopeId: one(params, "scope_id"),
-    domain: one(params, "domain") ?? "vaccination",
+    domain: one(params, "domain"),
     module: one(params, "module"),
     category: one(params, "category"),
     result: one(params, "result"),
@@ -532,13 +551,12 @@ function familyForDomain(domain?: string | null) {
   return OPERATION_FAMILIES.find((family) => family.domain === (domain ?? null)) ?? OPERATION_FAMILIES[0];
 }
 
-function countByOperation(rows: OperationsAuditRow[], activeCount: number, activeDomain: string) {
-  const counts = new Map<string, number>([[activeDomain, activeCount]]);
-  for (const row of rows) {
-    const key = metaString(row, "domain") ?? "admin";
-    if (key === activeDomain) continue;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
+function countByOperation(summaryResults: Array<Awaited<ReturnType<typeof getOperationsAuditSummary>>>) {
+  const counts = new Map<string, number>();
+  OPERATION_FAMILIES.forEach((family, index) => {
+    const result = summaryResults[index];
+    counts.set(family.domain ?? "all", result?.ok ? result.data.actions : 0);
+  });
   return counts;
 }
 
