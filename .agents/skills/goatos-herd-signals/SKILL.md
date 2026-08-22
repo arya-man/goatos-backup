@@ -158,7 +158,10 @@ hardware does not expose.
 **Forbidden vocabulary** (as a positive claim, not inside a denial): eating,
 rumination, sitting/standing/lying/walking/running, fever, "body
 temperature" (as a label — the correct field name is always "tag
-temperature"), disease, diagnosis.
+temperature"), disease, diagnosis, and the posture-paraphrase family
+resting/sleeping/grazing/dozing/idle-as-behaviour (added to the machine
+guard's banned-term list after a live "Resting for short periods is
+normal" leak into shipped copy).
 
 **Approved vocabulary** (Section 4): movement trend, motion-count delta,
 activity delta, active/quiet/no movement, stale/not seen, weak signal, low
@@ -178,21 +181,34 @@ generated at realistic scale; the shipped product must never say so.
 **Machine gate:** `make herd-signals-language-guard`
 (`tools/agent-hooks/check-herd-signals-language.mjs`) scans
 `backend/internal/herdsignals/**`, `apps/admin-web/features/herd-signals/**`,
-the herd-signals slice of `contracts/openapi/app-api.yaml`, and
-`mock/herd-signals-mock.html` for claim-shaped banned-term usage, "body
-temp[erature]" mislabeling, and mock/demo/sample/synthetic UI copy. It
-matches claim-shaped usage (asserting a behavior), not the bare word — the
-same words used to DENY a capability, or listed inside a documented
-banned-terms table, are allowed and self-tested as such. It cannot catch
-paraphrase (e.g. "grazing" instead of "eating") or claims assembled across
-variables/templates — see the guard's own header comment for its full,
-explicit blind-spot list. Review still has to read for paraphrase; the
-guard only catches the literal terms.
+the herd-signals slice of `contracts/openapi/app-api.yaml`,
+`docs/modules/herd-signals*.md` (a glob — every sibling design doc is
+covered automatically, all allowlisted since stating the boundary
+requires using the vocabulary), `mock/herd-signals-mock.html`, and this
+skill file itself (also allowlisted, explicitly, for the same reason) for
+claim-shaped banned-term usage, "body temp[erature]" mislabeling, and
+mock/demo/sample/synthetic UI copy. It matches claim-shaped usage
+(asserting a behavior), not the bare word — the same words used to DENY a
+capability, or listed inside a documented banned-terms table, are allowed
+and self-tested as such. The banned-term list includes the gait/posture
+paraphrase family (resting, sleeping, grazing, dozing, idle-as-behaviour)
+after a live "Resting for short periods is normal" leak proved paraphrase
+was not hypothetical; those terms require an animal-subject cue or a
+detection verb before an ordinary technical sentence ("the connection pool
+is idle", "the sweeper runs every 5 minutes") is mistaken for a claim — see
+the guard's own header comment ("Negation/claim SCOPE") for the full,
+explicit, five-round history of what this guard's judgement unit has been
+(line, window, sentence, occurrence, subject) and what genuinely remains
+un-caught. It still cannot catch a paraphrase entirely outside that named
+family, or claims assembled across variables/templates. Review still has
+to read for paraphrase; the guard only catches the literal terms and the
+named family.
 
 **The lesson underneath this guard's review rounds, worth keeping in mind
 for any future edit to it:** every real defect found was never about the
-banned-word list — it was about the SCOPE the negation is judged in, and
-that scope bug has appeared at FOUR different granularities in turn:
+banned-word list — it was about the SCOPE (and, eventually, the SUBJECT)
+the negation and the claim are judged against. That bug has appeared at
+FIVE different granularities in turn:
 
 1. Physical LINE (round 1) — failed the product's own mandatory disclaimer
    the moment JSX wrapped it across two lines.
@@ -210,16 +226,34 @@ that scope bug has appeared at FOUR different granularities in turn:
    on a line silently licensed a later, unrelated claim fragment on that
    SAME line ("the tag does not detect eating. The gateway confirms the
    animal is eating now." → only the first "eating" was ever judged).
+5. The SUBJECT (round 5, one layer further out than scope) — even with
+   every occurrence judged in its own correctly-bounded sentence, the
+   gait/posture family (run, walk, stand, lie, sit, eat, graze, rest, idle,
+   sleeping, dozing) has ordinary, innocent TECHNICAL meanings: queries
+   run, sweepers run, connection pools go idle, goroutines sleep. Fully
+   word-bounded, correctly-scoped, genuinely-technical prose like "filters
+   and search run in the query" matched the exact same claim shape as "the
+   animal is running" — because nothing was checking WHO the sentence was
+   about. Closed by requiring an animal-subject cue (animal/goat/herd/tag)
+   or an explicit assertion verb (detects/confirms/shows) before a
+   GAIT_TERMS claim is trusted; round 5 also found and fixed word-boundary
+   substring noise in the banned-term list itself ("interesting" matching
+   "resting", "treating" matching "eating") as an adjacent bug in the same
+   review pass.
 
 The general statement, which is what actually needed fixing: **the unit of
-judgement is the individual term OCCURRENCE and the sentence ENCLOSING IT**
-— never the line, never a fixed window, never "does this broader span
-contain a denial anywhere." Every prior version of this guard failed by
-judging something LARGER than that unit. If this guard grows a fifth
-defect, look first at whether `buildSentenceWindow` /
-`splitIntoSentenceFragments` / `fragmentOrdinalForOffset` correctly isolate
-one occurrence's own sentence before touching the banned-term list — that
-is where every prior bug actually lived.
+judgement is the individual term OCCURRENCE, the SENTENCE enclosing it, and
+— for any term with an innocent technical meaning — the SUBJECT that
+sentence attaches it to.** Never the line, never a fixed window, never "does
+this broader span contain a denial anywhere," and never "does this claim
+shape match" without asking whose claim it is. Every prior version of this
+guard failed by judging something LARGER, or by skipping the subject check
+entirely. If this guard grows a sixth defect, look first at whether
+`buildSentenceWindow` / `splitIntoSentenceFragments` /
+`fragmentOrdinalForOffset` correctly isolate one occurrence's own sentence,
+and whether `GAIT_TERMS` / `SUBJECT_CUE_RE` / `DETECTION_VERB_RE` correctly
+gate that term's innocent-technical-meaning risk, before touching the
+banned-term list — that is where every prior bug actually lived.
 
 ## Escape hatch (used sparingly, must be complete)
 
