@@ -152,11 +152,19 @@ export function useLocalOverlaySelection<T>({
         event instanceof CustomEvent && event.detail && typeof event.detail === "object"
           ? (event.detail as LocalOverlayUrlChangeDetail).selections?.[selectionKey]
           : undefined;
+      const explicitId = eventSelection ?? hashParams.get(selectionKey) ?? url.searchParams.get(selectionKey);
+      // The remembered fallback keeps an overlay open when a third party rewrites the URL and drops
+      // its parameter. It must NOT fire when a DIFFERENT overlay is explicitly open: clicking
+      // Expand swaps hs_tag for hs_history, and the drawer would otherwise restore itself from
+      // memory and sit on top of the full-screen view, swallowing its Close button.
+      const anotherOverlayIsExplicitlyOpen = [...rememberedOverlaySelections.keys()].some(
+        (key) => key !== selectionKey && Boolean(hashParams.get(key) ?? url.searchParams.get(key)),
+      );
       const selectedId =
-        eventSelection ??
-        hashParams.get(selectionKey) ??
-        url.searchParams.get(selectionKey) ??
-        (currentHistoryEntryIsLocalOverlay() ? rememberedOverlaySelection(selectionKey) : undefined);
+        explicitId ??
+        (currentHistoryEntryIsLocalOverlay() && !anotherOverlayIsExplicitlyOpen
+          ? rememberedOverlaySelection(selectionKey)
+          : undefined);
       const item = items.find((candidate) => itemId(candidate) === selectedId);
       if (item) showDrawer(item);
       else hideDrawer();
