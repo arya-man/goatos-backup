@@ -92,6 +92,13 @@ export const OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY = true;
 export const OPERATOR_SHIFT_MINUTE_MIN = 0;
 export const OPERATOR_SHIFT_MINUTE_MAX_EXCLUSIVE = 1440;
 export const OPERATOR_SHIFT_MINUTES_ARE_SAME_RANGE_AT_SOURCE_DB_AND_DOMAIN = true;
+// Coupling review 2026-08-22: migration 000187 adds NULLABLE
+// workforce_members.first_name/last_name/email for the People/HRMS directory
+// and the in-app Add Person onboarding. NO CHANGE to this fixture contract:
+// seed commands never populate the three columns (identity stays
+// display_name/display_code), the unique email index ignores NULLs, and emails
+// enter only through POST /admin/workforce/people at runtime. Do not add
+// email/name-split fields to the roster fixture.
 // The operator-roster contract is a loader contract, not just a data file:
 // backend/cmd/seed-roster-real decodes cpt-operator-roster.json with
 // DisallowUnknownFields, so a declared block with no consuming struct field is a
