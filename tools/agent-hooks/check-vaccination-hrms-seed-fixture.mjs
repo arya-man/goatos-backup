@@ -195,7 +195,38 @@ function migrationCouplesToSeedContract(diff) {
   return true;
 }
 
+// A CONTRACT_SOURCE change that does NOT touch the seed SOURCE contract.
+//
+// CONTRACT_SOURCES names whole files -- generation.go among them -- so every edit to the
+// generator, including a bug fix that changes no seed input at all, demanded the entire
+// fixture pipeline be touched: a manifest, two source-CSV validators, and four documents.
+// Touching a source-CSV validator because a due-date calculation was corrected is not
+// evidence of anything; it is ritual, and ritual companions are what make a guard start
+// getting waved through.
+//
+// So the marker excuses a CONTRACT_SOURCE edit, and ONLY under conditions that keep it
+// honest: the change must not also carry canonical-table DDL, and must not touch the
+// fixture pipeline itself -- if it does, the coupling is real and the companions are the
+// point. The reason is mandatory and reviewable in the diff, exactly like the migration
+// marker above.
+function contractSourceChangeIsExcused(files, diffs) {
+  const sourceEdits = files.filter((file) => file !== "Makefile" && CONTRACT_SOURCES.includes(file));
+  if (sourceEdits.length === 0) return false;
+  const everyEditMarked = sourceEdits.every((file) => SEED_CONTRACT_IGNORE.test(diffs.get(file) ?? ""));
+  if (!everyEditMarked) return false;
+  // A migration in the same change means real schema movement: judge it on its own terms.
+  const carriesCoupledMigration = files.some((file) => {
+    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file)) return false;
+    return migrationCouplesToSeedContract(diffs.get(file) ?? "");
+  });
+  if (carriesCoupledMigration) return false;
+  // Touching the fixture pipeline is itself the admission that this IS a seed contract
+  // change, so the marker cannot then wave the rest of it through.
+  return !files.some((file) => file.startsWith("fixtures/") || /^tools\/dev\/.*vaccination-hrms/.test(file));
+}
+
 export function couplingProblems(files, diffs = new Map()) {
+  if (contractSourceChangeIsExcused(files, diffs)) return [];
   const relevant =
     files.some((file) => file !== "Makefile" && CONTRACT_SOURCES.includes(file)) ||
     (files.includes("Makefile") && makefileTouchesSeedPipeline(diffs.get("Makefile") ?? "")) ||
@@ -385,6 +416,46 @@ function runSelfTest() {
   if (couplingProblems(["backend/migrations/postgres/000997_cascade_index.sql"], indexOnlyMigration).length !== 0) {
     throw new Error("contract coupling self-test wrongly flagged an index-only migration naming a vaccination event_type");
   }
+  // A marked generation.go change that carries no schema movement and touches no fixture
+  // must NOT demand the whole fixture pipeline.
+  const markedGeneratorFix = new Map([[
+    "backend/internal/vaccination/app/generation.go",
+    "+// seed-fixture-guard:ignore: corrects reconciliation of an existing obligation; reads no seed source and changes no fixture input\n+\tif err != nil { return err }",
+  ]]);
+  if (couplingProblems(["backend/internal/vaccination/app/generation.go"], markedGeneratorFix).length !== 0) {
+    throw new Error("contract coupling self-test wrongly demanded fixture companions for a marked generator fix");
+  }
+  // UNMARKED, it still couples.
+  const unmarkedGeneratorFix = new Map([[
+    "backend/internal/vaccination/app/generation.go",
+    "+\tif err != nil { return err }",
+  ]]);
+  if (couplingProblems(["backend/internal/vaccination/app/generation.go"], unmarkedGeneratorFix).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let an unmarked generator change skip its companions");
+  }
+  // The marker must not wave through a change that ALSO moves canonical schema.
+  const markedWithMigration = new Map([
+    ["backend/internal/vaccination/app/generation.go", "+// seed-fixture-guard:ignore: pretending\n+\tx := 1"],
+    ["backend/migrations/postgres/000993_alter.sql", "+ALTER TABLE goats ADD COLUMN species text;"],
+  ]);
+  if (couplingProblems(
+    ["backend/internal/vaccination/app/generation.go", "backend/migrations/postgres/000993_alter.sql"],
+    markedWithMigration,
+  ).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test: the marker wrongly excused a change carrying canonical DDL");
+  }
+  // Nor one that edits the fixture pipeline, which is itself the admission.
+  const markedWithFixture = new Map([
+    ["backend/internal/vaccination/app/generation.go", "+// seed-fixture-guard:ignore: pretending\n+\tx := 1"],
+    ["fixtures/vaccination-hrms-source-full/manifest.json", "+  \"schema_version\": 2,"],
+  ]);
+  if (couplingProblems(
+    ["backend/internal/vaccination/app/generation.go", "fixtures/vaccination-hrms-source-full/manifest.json"],
+    markedWithFixture,
+  ).length === 0) {
+    throw new Error("contract coupling self-test: the marker wrongly excused a change editing the fixture pipeline");
+  }
+
   // A trigger-function-replace migration that references canonical tables in its
   // body (referential-integrity checks) but does no seed-table DDL must NOT couple.
   const functionOnlyMigration = new Map([[
