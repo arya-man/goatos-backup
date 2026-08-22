@@ -105,17 +105,35 @@
 //   sentence (e.g. a preceding comment ending in a period, "// There is no
 //   cursor on the first page.") could silently suppress a genuine claim on
 //   the next sentence merely by being nearby.
-//   Residual blind spot: sentence-boundary detection is a static heuristic,
-//   not a parser. It cannot see a sentence boundary that falls MID-LINE (a
-//   period followed immediately by more prose on the very same physical
-//   line, e.g. `"Fine. The animal is eating."` on one line) — a negation
-//   before the period and a claim after it on that SAME line are still
-//   merged into one "sentence" span and evaluated together. It also caps how
-//   far outward it will walk at WINDOW_BEFORE/WINDOW_AFTER lines even if no
-//   boundary is found in that span, so a genuinely boundary-free multi-page
-//   run-on comment could still merge unrelated context past that cap; widen
-//   the constants or use the `herd-signals-language:ignore:` escape hatch
-//   for that rare shape.
+//   Sentence boundaries are also detected MID-LINE, not just at line ends:
+//   each line is first split into sentence fragments on `. `/`! `/`? `
+//   (punctuation followed by whitespace and then a capital letter, quote, or
+//   end-of-string), so two sentences sharing one physical line ("No cursor
+//   here. The gateway confirms the animal is eating right now.") are judged
+//   as two separate sentences, not one blob -- this closes the earlier
+//   same-line exploit where an unrelated denial and a genuine claim shared
+//   a line. The splitter deliberately does NOT split on a decimal number
+//   (`25.1 C`), a dotted identifier/call (`item.motion_count`,
+//   `Number(x).toFixed(2)`) -- both lack whitespace right after the dot, so
+//   they never match the split pattern -- or a short list of known
+//   abbreviations (e.g., i.e., etc., vs., approx., fig., mr., dr., ...).
+//   Residual blind spots (static heuristic, not a parser):
+//   - An abbreviation NOT in the ABBREVIATIONS list, or any other
+//     punctuation-then-capital-letter sequence that a human would not read
+//     as a sentence break, can still be mis-split; this only degrades to
+//     narrower sentence scope (more conservative denial matching), not to a
+//     wrong claim/denial verdict on unrelated content the way the two prior
+//     defects did.
+//   - It caps how far outward it will walk at WINDOW_BEFORE/WINDOW_AFTER
+//     lines even if no boundary is found in that span, so a genuinely
+//     boundary-free multi-page run-on comment could still merge unrelated
+//     context past that cap; widen the constants or use the
+//     `herd-signals-language:ignore:` escape hatch for that rare shape.
+//   - It cannot verify that a mid-line split point is semantically correct
+//     beyond the punctuation/capitalization/abbreviation heuristic above —
+//     an unusual style (all-lowercase sentence starts, sentences ending in
+//     a closing quote before the period, etc.) can fool it in either
+//     direction.
 // - Only the FIRST banned-term match per line is evaluated by the
 //   banned-claim check (one `.match()` call, not a global scan); a line
 //   with multiple distinct banned terms only has its first one judged
@@ -221,37 +239,116 @@ function isSentenceBoundaryBetween(prevStripped, nextStripped) {
   );
 }
 
-// Build the SENTENCE containing lines[i] (the candidate line), not a flat
-// N-line window: walk backward and forward from i, merging adjacent lines
-// only while no real sentence boundary (period/!/?/;, blank line, JSX tag
-// edge, list-item start — see the functions above) separates them, capped at
-// WINDOW_BEFORE/WINDOW_AFTER lines as a safety bound. This is what makes a
-// denial wrapped mid-sentence across lines still read as ONE sentence
-// ("... own sensor housing — not the\n  animal's body temperature."), while
-// an unrelated negation on a PRIOR, already-ended sentence (e.g. a preceding
-// comment ending in a period) does NOT bleed into the next sentence and
-// silently suppress a genuine claim there.
-function buildSentenceWindow(lines, i, before, after) {
+// Known abbreviations whose internal/trailing period is NOT a sentence
+// boundary even though it is followed by whitespace (e.g. "... that is,
+// i.e. the tag ..." must not split after "i.e."). Checked against the run
+// of letters immediately before the candidate period, and against a
+// 4-character tail check for two-letter dotted forms like "e.g"/"i.e"
+// whose OWN internal dot would otherwise also look like a candidate split
+// (it never does here, because that internal dot has no following
+// whitespace — see splitIntoSentenceFragments).
+const ABBREVIATIONS = new Set([
+  "e.g", "i.e", "etc", "vs", "approx", "fig", "mr", "mrs", "ms", "dr", "st", "jr", "sr",
+]);
+
+// Split ONE already-stripped line into sentence fragments, so two sentences
+// sharing a single physical line ("No cursor here. The gateway confirms the
+// animal is eating right now.") are judged as separate sentences instead of
+// one blob. A split point requires: `.`/`!`/`?` immediately followed by
+// whitespace (so "item.motion_count" and "25.1 C" never qualify -- neither
+// has whitespace right after the dot), AND the next non-space content
+// looking like a new sentence (capital letter, quote, backtick, or open
+// paren, or end of the line), AND the word immediately before the
+// punctuation not being a known abbreviation. Trailing punctuation stays
+// attached to the fragment it ends, so a single-fragment line's END state
+// (does it end mid-sentence or not) is unchanged from before this split was
+// introduced -- cross-line boundary detection keeps working the same way.
+function splitIntoSentenceFragments(strippedLine) {
+  if (strippedLine === "") return [""];
+  const text = strippedLine;
+  const fragments = [];
+  let start = 0;
+  const splitRe = /[.!?](\s+)/g;
+  let m;
+  while ((m = splitRe.exec(text)) !== null) {
+    const splitAt = m.index + m[0].length;
+    const before = text.slice(0, m.index);
+    const wordMatch = before.match(/([A-Za-z]+)$/);
+    const word = wordMatch ? wordMatch[1].toLowerCase() : "";
+    const tail4 = before.slice(-4).toLowerCase();
+    const isAbbreviation =
+      ABBREVIATIONS.has(word) || tail4.endsWith("e.g") || tail4.endsWith("i.e");
+    if (isAbbreviation) continue;
+    const after = text.slice(splitAt);
+    const looksLikeSentenceStart = after === "" || /^[A-Z"'‘“`(]/.test(after);
+    if (!looksLikeSentenceStart) continue;
+    fragments.push(text.slice(start, splitAt).trim());
+    start = splitAt;
+  }
+  const last = text.slice(start).trim();
+  if (last !== "" || fragments.length === 0) fragments.push(last);
+  return fragments;
+}
+
+// Build the SENTENCE containing lines[i] at character-ish granularity
+// (`matchText`, the specific term occurrence being judged), not a flat
+// N-line/whole-line window: each line in the bounded range is first split
+// into sentence fragments (closing the same-line exploit above), producing
+// a flat list of atoms; then we walk backward/forward from the atom
+// containing `matchText` merging adjacent atoms only while no real sentence
+// boundary (fragment-end punctuation, blank line, JSX tag edge, list-item
+// start) separates them, capped at WINDOW_BEFORE/WINDOW_AFTER LINES as a
+// safety bound (not an atom-count bound -- a line normally holds at most a
+// couple of sentences). Because within-line splits keep the terminal
+// punctuation attached to the fragment it closes, the exact same
+// isSentenceBoundaryBetween check works uniformly whether adjacent atoms
+// came from the same physical line or from different, adjacent lines --
+// that is what makes wrapped cross-line denials keep working while same-line
+// unrelated sentences no longer bleed into each other.
+function buildSentenceWindow(lines, i, before, after, matchText) {
   const segStart = Math.max(0, i - before);
   const segEnd = Math.min(lines.length - 1, i + after);
-  const seg = [];
-  for (let k = segStart; k <= segEnd; k++) seg.push(stripLineNoise(lines[k]));
-  const centerIdx = i - segStart;
 
-  let startIdx = centerIdx;
-  for (let k = centerIdx - 1; k >= 0; k--) {
-    if (isSentenceBoundaryBetween(seg[k], seg[k + 1])) break;
+  const atoms = []; // { text, lineIdx }
+  for (let k = segStart; k <= segEnd; k++) {
+    const stripped = stripLineNoise(lines[k]);
+    for (const frag of splitIntoSentenceFragments(stripped)) {
+      atoms.push({ text: frag, lineIdx: k });
+    }
+  }
+
+  const needle = (matchText || "").toLowerCase();
+  let centerAtomIdx = atoms.findIndex(
+    (a) => a.lineIdx === i && needle && a.text.toLowerCase().includes(needle)
+  );
+  if (centerAtomIdx === -1) {
+    // Fallback: no fragment on line i textually contains matchText (e.g. no
+    // matchText supplied, or a rare mismatch) -- use the LAST atom on line i
+    // so the term's own line is still represented in the sentence window.
+    for (let k = atoms.length - 1; k >= 0; k--) {
+      if (atoms[k].lineIdx === i) {
+        centerAtomIdx = k;
+        break;
+      }
+    }
+  }
+  if (centerAtomIdx === -1) return stripLineNoise(lines[i]);
+
+  let startIdx = centerAtomIdx;
+  for (let k = centerAtomIdx - 1; k >= 0; k--) {
+    if (isSentenceBoundaryBetween(atoms[k].text, atoms[k + 1].text)) break;
     startIdx = k;
   }
 
-  let endIdx = centerIdx;
-  for (let k = centerIdx + 1; k < seg.length; k++) {
-    if (isSentenceBoundaryBetween(seg[k - 1], seg[k])) break;
+  let endIdx = centerAtomIdx;
+  for (let k = centerAtomIdx + 1; k < atoms.length; k++) {
+    if (isSentenceBoundaryBetween(atoms[k - 1].text, atoms[k].text)) break;
     endIdx = k;
   }
 
-  return seg
+  return atoms
     .slice(startIdx, endIdx + 1)
+    .map((a) => a.text)
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
@@ -332,19 +429,16 @@ function findingsForSource(source, relPath) {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    // Sentence window: the real sentence containing this line, found by
-    // walking outward until a sentence boundary (see buildSentenceWindow) --
-    // a multi-line JSX/prose/comment sentence is one unit of meaning, but an
-    // unrelated negation on an already-ended PRIOR sentence must not bleed
-    // in.
-    const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER);
-    const windowIsVocabList = VOCAB_LIST_RE.test(window);
-
     // banned-claim
     const bannedMatch = text.match(BANNED_TERM_RE);
-    if (bannedMatch && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
+    if (bannedMatch && !VOCAB_LIST_RE.test(text)) {
       const term = bannedMatch[1];
-      if (isClaimShaped(window, term.replace(/\\b/g, ""))) {
+      // Sentence window keyed to THIS specific term occurrence -- see
+      // buildSentenceWindow. Each check gets its own window because a line
+      // can carry more than one term/sentence and each must be judged in
+      // its own sentence, not a shared line-level blob.
+      const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, term);
+      if (!VOCAB_LIST_RE.test(window) && isClaimShaped(window, term.replace(/\\b/g, ""))) {
         findings.push({
           line: lineNo,
           rule: "banned-claim",
@@ -356,17 +450,21 @@ function findingsForSource(source, relPath) {
     // body-temp-mislabel: "body temp[erature]" used as a label/field, not
     // inside a denial sentence. The term itself is matched on THIS line (so
     // the reported line number is precise); whether it is a denial is
-    // judged over the window, so a negation on an adjacent wrapped line
-    // (the real-world defect this fix addresses) is still recognized.
-    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
+    // judged over the SENTENCE containing that specific occurrence, so a
+    // negation on an adjacent wrapped line or an earlier fragment of the
+    // SAME line (the real-world defects this guard now closes) is
+    // recognized, while an unrelated negation in a different sentence is
+    // not.
+    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text)) {
       const termMatch = text.match(BODY_TEMP_RE);
       const term = termMatch ? termMatch[0] : "body temperature";
+      const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, term);
       const isDenial = negationPrecedesTerm(window, term);
       const looksLikeFieldOrLabel =
         /["'`][^"'`]*body[\s_-]?temp/i.test(text) || // quoted UI label
         /\bbody_?temp(?:erature)?_?\w*\s*[:=]/i.test(text) || // field/key assignment
         /\b(?:type|struct|Body_?Temp|BodyTemp)\b.*body[\s_-]?temp/i.test(text);
-      if (!isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(window))) {
+      if (!VOCAB_LIST_RE.test(window) && !isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(window))) {
         findings.push({
           line: lineNo,
           rule: "body-temp-mislabel",
@@ -443,15 +541,14 @@ function findingsForYamlSlice(source) {
   const findings = [];
   slice.forEach(({ text, lineNo }, idx) => {
     // Same sentence-scoping as findingsForSource: a YAML `description:`
-    // block can wrap a denial sentence across adjacent lines too, and must
-    // not let an unrelated negation on a prior sentence bleed in.
-    const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER);
-    const windowIsVocabList = VOCAB_LIST_RE.test(window);
-
+    // block can wrap a denial sentence across adjacent lines (or share a
+    // line with an unrelated sentence) too, and each term occurrence must
+    // be judged in ITS OWN sentence, not a shared line/window blob.
     const bannedMatch = text.match(BANNED_TERM_RE);
-    if (bannedMatch && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
+    if (bannedMatch && !VOCAB_LIST_RE.test(text)) {
       const term = bannedMatch[1];
-      if (isClaimShaped(window, term.replace(/\\b/g, ""))) {
+      const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, term);
+      if (!VOCAB_LIST_RE.test(window) && isClaimShaped(window, term.replace(/\\b/g, ""))) {
         findings.push({
           line: lineNo,
           rule: "banned-claim",
@@ -459,11 +556,12 @@ function findingsForYamlSlice(source) {
         });
       }
     }
-    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
+    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text)) {
       const termMatch = text.match(BODY_TEMP_RE);
       const term = termMatch ? termMatch[0] : "body temperature";
+      const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, term);
       const isDenial = negationPrecedesTerm(window, term);
-      if (!isDenial) {
+      if (!VOCAB_LIST_RE.test(window) && !isDenial) {
         findings.push({
           line: lineNo,
           rule: "body-temp-mislabel",
@@ -661,6 +759,45 @@ function selfTest() {
     );
   }
 
+  // Regression: the SAME exploit, but sharing one PHYSICAL LINE instead of
+  // separate lines ("No cursor here. The gateway confirms the animal is
+  // eating right now."). Requires mid-line sentence splitting, not just
+  // multi-line sentence walking, to close.
+  const sameLineFindings = findingsForSource(
+    readFixture("Bad_SameLineUnrelatedNegation.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!sameLineFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on same-line-unrelated-negation fixture ("No cursor here." must not suppress the eating claim sharing its line), got: ${JSON.stringify(sameLineFindings)}`
+    );
+  }
+
+  // A complete single-sentence, single-line denial must still pass -- proves
+  // mid-line splitting doesn't fragment a real single sentence.
+  const oneLineDenialFindings = findingsForSource(
+    readFixture("Good_OneLineDenial.go"),
+    "backend/internal/herdsignals/app/fixture.go"
+  );
+  if (oneLineDenialFindings.length) {
+    throw new Error(
+      `self-test: false positive on one-line denial fixture: ${JSON.stringify(oneLineDenialFindings)}`
+    );
+  }
+
+  // A dotted identifier (item.motion_count) next to a legitimate wrapped
+  // denial must not trigger a spurious split, and the wrapped denial itself
+  // must still pass.
+  const identifierDotFindings = findingsForSource(
+    readFixture("Good_IdentifierDotNextToWrappedDenial.go"),
+    "backend/internal/herdsignals/app/fixture.go"
+  );
+  if (identifierDotFindings.length) {
+    throw new Error(
+      `self-test: false positive on identifier-dot-next-to-wrapped-denial fixture: ${JSON.stringify(identifierDotFindings)}`
+    );
+  }
+
   console.log("check-herd-signals-language self-test: PASS");
   console.log(`  FAIL fixture -> ${failFindings.length} finding(s): ${failFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  PASS fixture (same words, denial context) -> ${passFindings.length} finding(s)`);
@@ -671,6 +808,9 @@ function selfTest() {
   }
   console.log(`  wrapped-claim (inverse) fixture -> ${wrappedClaimFindings.length} finding(s): ${wrappedClaimFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  unrelated-prior-sentence-negation fixture -> ${unrelatedNegationFindings.length} finding(s): ${unrelatedNegationFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  same-line-unrelated-negation fixture -> ${sameLineFindings.length} finding(s): ${sameLineFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  one-line denial fixture -> ${oneLineDenialFindings.length} finding(s)`);
+  console.log(`  identifier-dot-next-to-wrapped-denial fixture -> ${identifierDotFindings.length} finding(s)`);
 }
 
 if (process.argv.includes("--self-test")) {
