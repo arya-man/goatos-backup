@@ -126,7 +126,14 @@ export function HerdSignalsTable({
                     )}
                   </td>
                   <td data-l="Motion count" className="num">{fmtDelta(item.motion_count)}</td>
-                  <td data-l="15m delta" className="num delta">{fmtDelta(item.motion_delta)}</td>
+                  <td
+                    data-l="15m delta"
+                    className={`num delta${item.gap_delta ? " gapdelta" : ""}`}
+                    title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}
+                  >
+                    {fmtDelta(item.motion_delta)}
+                    {item.gap_delta ? <sup title="Gap total">*</sup> : null}
+                  </td>
                   <td data-l="1h delta" className="num delta" title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">{fmtDelta1h(item.motion_delta_1h, item.motion_delta)}</td>
                   <td data-l="Activity">
                     {item.movement_state ? (

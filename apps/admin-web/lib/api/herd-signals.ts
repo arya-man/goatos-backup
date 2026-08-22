@@ -40,6 +40,13 @@ export interface HerdSignalsSummary {
   sensor_abnormal: number;
 }
 
+// last_seen_at (and every other rendered timestamp in this file) is sourced from received_at —
+// OUR server clock, the only trusted one (docs/modules/herd-signals.md "Time, clocks, and what
+// happens during a network outage"). The gateway's own clock (gateway_seen_at on the wire) runs
+// +02:30:00 ahead of real IST and is stored uncorrected for diagnostics only. Do not add a field
+// here that surfaces gateway_seen_at as a rendered "when" — if it is ever needed on screen it must
+// be explicitly labelled as the gateway's own reported clock, never presented as when something
+// happened.
 export interface HerdSignalItem {
   tag_id: string;
   tag_mac: string;
@@ -70,6 +77,11 @@ export interface HerdSignalItem {
   temperature_sensor_ok: boolean | null;
   accelerometer_sensor_ok: boolean | null;
   mapping_state: HerdSignalMappingState;
+  // True when motion_delta was computed across a reception gap (no packets received, then
+  // reconnect) rather than between two consecutive normal readings. The delta is a real,
+  // recoverable TOTAL (motion_count is cumulative) but its distribution across the gap is unknown
+  // — never render it as a normal 15m/1h reading and never let it drive a "spike" claim.
+  gap_delta: boolean;
 }
 
 export interface HerdSignalsLiveResponse {
@@ -89,6 +101,12 @@ export interface HerdSignalTimelineBucket {
   min_rssi_dbm: number | null;
   max_rssi_dbm: number | null;
   is_gap: boolean;
+  // The reconnect bucket after a reception gap: motion_delta here is the TOTAL accumulated across
+  // the whole gap (motion_count is cumulative), attributed to this single bucket because we cannot
+  // know when inside the gap it happened. Never smear it across the gap's buckets, never treat it
+  // as a normal reading for the p75 baseline or the spike comparison (the backend already excludes
+  // it from both), and never colour it as a movement spike in the UI.
+  gap_delta: boolean;
 }
 
 export interface HerdSignalTimelineResponse {

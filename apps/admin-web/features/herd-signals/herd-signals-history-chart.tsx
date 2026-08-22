@@ -1,10 +1,15 @@
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 
 // Shared bucket-chart renderer for the drawer's mini chart and the full-screen history view.
-// The one rule this exists to enforce: a GAP (no packets received) must never look like ZERO
-// MOVEMENT (packets received, delta 0) — docs/modules/herd-signals.md "Required UI states". A gap
-// renders as a hatched danger-toned band across the full row height; a real zero-delta bucket
-// renders as a flush-to-baseline muted bar the same width as every other bar.
+//
+// Three facts, never collapsed into one another (docs/modules/herd-signals.md "Time, clocks, and
+// what happens during a network outage" — the three-fact table):
+//   GAP              no packets received              -> hatched danger band, full row height
+//   ZERO DELTA       packets received, motion_count    -> flush-to-baseline muted bar, same width
+//                     unchanged                           as every other bar
+//   RECONNECT DELTA  first packet after a gap,         -> a visually distinct bar (never spike-
+//                     gap_delta = true                    coloured) carrying the gap's TOTAL,
+//                                                          drawn only at the reconnect point
 export function HistoryChart({
   buckets,
   baseline,
@@ -31,10 +36,12 @@ export function HistoryChart({
   const maxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0));
   const barGap = 1;
   const barWidth = Math.max(1, width / buckets.length - barGap);
-  // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8). Comparing it unscaled against
-  // a 3600s or 21600s bucket always reads "spike" (a bigger window naturally accumulates more motion)
-  // and against a sub-300s bucket always reads "low" — neither is a real signal, just a unit
-  // mismatch. Scale the baseline to each bucket's own width before comparing or drawing it.
+  // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8), and the backend already
+  // excludes every gap_delta reading from that p75 (a gap total is not an "ordinary active bucket").
+  // Comparing it unscaled against a 3600s or 21600s bucket always reads "spike" (a bigger window
+  // naturally accumulates more motion) and against a sub-300s bucket always reads "low" — neither is
+  // a real signal, just a unit mismatch. Scale the baseline to each bucket's own width before
+  // comparing or drawing it.
   const scaledBaseline = (bucketSeconds: number) => (baseline ? baseline * (bucketSeconds / 300) : null);
   const chartBucketSeconds = buckets[0]?.bucket_seconds || 300;
   const lineBaseline = scaledBaseline(chartBucketSeconds);
@@ -68,9 +75,17 @@ export function HistoryChart({
         }
         const delta = bucket.motion_delta ?? 0;
         const barHeight = Math.max(delta > 0 ? 1.5 : 1, (delta / maxDelta) * (height - 14));
-        const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
-        const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
-        const cls = delta === 0 ? "b-zero" : delta < (bucketBaseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
+        // A reconnect delta is a recovered TOTAL across an unknown span of time inside the gap, not
+        // a normal reading — it must never be classified as "spike" (a burst claim this data cannot
+        // support) and never compared against the per-bucket baseline like an ordinary bar.
+        let cls: string;
+        if (bucket.gap_delta) {
+          cls = "b-reconnect";
+        } else {
+          const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
+          const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
+          cls = delta === 0 ? "b-zero" : delta < (bucketBaseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
+        }
         return (
           <rect
             key={bucket.bucket_start}
@@ -93,6 +108,25 @@ export function historyChartLegend(): { label: string; className: string }[] {
     { label: "Low", className: "b-low" },
     { label: "No movement (0, packets received)", className: "b-zero" },
     { label: "Spike", className: "b-spike" },
+    { label: "Reconnect — gap total, timing unknown", className: "b-reconnect" },
     { label: "Gap — no packets received", className: "gap" },
   ];
+}
+
+// The reconnect bucket only carries the gap's TOTAL, not its span — this walks backward from it
+// over the contiguous run of preceding is_gap buckets to recover the window that total covers, so
+// the readout can say "accumulated while no packets were received (14:05 - 16:20 IST)" rather than
+// just naming the reconnect instant. Both ends are received_at (server clock), per the module's
+// two-clocks rule — never gateway_seen_at.
+export function gapWindowForReconnect(
+  buckets: HerdSignalTimelineBucket[],
+  reconnectIndex: number,
+): { startIso: string; endIso: string } | null {
+  const reconnect = buckets[reconnectIndex];
+  if (!reconnect || !reconnect.gap_delta) return null;
+  let start = reconnect.bucket_start;
+  for (let i = reconnectIndex - 1; i >= 0 && buckets[i].is_gap; i--) {
+    start = buckets[i].bucket_start;
+  }
+  return { startIso: start, endIso: reconnect.bucket_start };
 }
