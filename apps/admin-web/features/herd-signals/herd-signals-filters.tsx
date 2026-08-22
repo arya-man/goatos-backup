@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { MOVEMENT_LABEL, MAPPING_LABEL, PATTERN_LABEL } from "./format";
 import { herdSignalsHref, herdSignalsResetHref, type HerdSignalsParams } from "./params";
@@ -24,12 +24,16 @@ export function HerdSignalsFilters({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  // Synced from the URL's own hs_q on every navigation, using React's "adjust state during render"
+  // pattern (react.dev/learn/you-might-not-need-an-effect) rather than an Effect that calls
+  // setState synchronously — the debounced local edits below still take priority between renders.
+  const [syncedFromProp, setSyncedFromProp] = useState(params.q);
   const [q, setQ] = useState(params.q ?? "");
-  const debounceRef = useRef<number | null>(null);
-
-  useEffect(() => {
+  if (params.q !== syncedFromProp) {
+    setSyncedFromProp(params.q);
     setQ(params.q ?? "");
-  }, [params.q]);
+  }
+  const debounceRef = useRef<number | null>(null);
 
   function go(href: string) {
     startTransition(() => {
