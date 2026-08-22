@@ -32,7 +32,7 @@ const KPI_DEFS: KpiDef[] = [
     type: "Derived",
     tone: "info",
     value: (s) => s.tags_seen,
-    detail: "every tag with a packet within the stale threshold — mapped and unmapped both count",
+    detail: "mapped and unmapped tags both count",
   },
   {
     key: "moving",
@@ -40,7 +40,7 @@ const KPI_DEFS: KpiDef[] = [
     type: "Derived",
     tone: "ok",
     value: (s) => s.moving,
-    detail: "movement-trend bucket: moving — mapped and unmapped both count",
+    detail: "movement-trend bucket: moving",
   },
   {
     key: "quiet",
@@ -50,7 +50,7 @@ const KPI_DEFS: KpiDef[] = [
     // Matches the click filter exactly (movement_state=quiet) — summing in not_moving here would
     // make this number disagree with what clicking the card actually filters to.
     value: (s) => s.quiet,
-    detail: "quiet movement-trend bucket (delta 1-9 in the window)",
+    detail: "quiet movement-trend bucket",
   },
   {
     key: "weak_signal",
@@ -66,7 +66,7 @@ const KPI_DEFS: KpiDef[] = [
     type: "Derived",
     tone: "dng",
     value: (s) => s.stale,
-    detail: "not seen for 30+ min",
+    detail: "not seen for 30+ min \u2014 signal, not animal",
   },
   {
     key: "low_battery",
@@ -102,6 +102,7 @@ export function HerdSignalsKpis({ summary, params }: { summary: HerdSignalsSumma
             <div className="val">{def.value(summary).toLocaleString("en-IN")}</div>
             <div className="dl">{def.detail}</div>
             <div className="ty">{def.type}</div>
+            <div className="hint">{filterKey ? "Click to filter the table below" : "Shows every tag"}</div>
           </div>
         );
         if (!href) return <div key={def.label}>{card}</div>;
