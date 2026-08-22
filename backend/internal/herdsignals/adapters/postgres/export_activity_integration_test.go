@@ -132,7 +132,7 @@ func seedFarmActivity(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (bo
 	)
 	mustExec(t, ctx, pool, "protocol definition",
 		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category)
-		 VALUES ($1::uuid, $2::uuid, 'HSI-VACC', 'HSI Vaccination', 'vaccination')`, protocolID, hsiTenant)
+		 VALUES ($1::uuid, $2::uuid, 'hsi.vaccination', 'HSI Vaccination', 'vaccination')`, protocolID, hsiTenant)
 	mustExec(t, ctx, pool, "protocol version",
 		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, version, effective_from)
 		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, CURRENT_DATE - 30)`, versionID, hsiTenant, protocolID)
@@ -175,7 +175,7 @@ func seedFarmActivity(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (bo
 		campaignID, hsiTenant, hsiPark, hsiParty)
 	mustExec(t, ctx, pool, "proof artifact",
 		`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, scope_type, scope_id, subject_type, proof_type)
-		 VALUES ($1::uuid, $2::uuid, 'local_object', 'hsi/proof.mp4', 'shed', $3::uuid, 'shed', 'video')`,
+		 VALUES ($1::uuid, $2::uuid, 'local', 'hsi/proof.mp4', 'shed', $3::uuid, 'shed', 'video')`,
 		proofID, hsiTenant, hsiShed)
 	for i, at := range []time.Time{before, after} {
 		mustExec(t, ctx, pool, "weighing observation",
