@@ -80,19 +80,45 @@ function useTabHidden(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-// The current wall-clock time, read through useSyncExternalStore's getSnapshot — the one place
-// React expects a read of live external state, so this is where an otherwise-impure Date.now()
-// belongs instead of inline in a component body. Ticks once a second so the "Xs stale" / "last
-// seen" readouts that depend on it re-render without polling refetching any data.
+// The current wall-clock time, read through useSyncExternalStore.
+//
+// getSnapshot must return the SAME value across repeated calls until the external store actually
+// changes -- React calls it more than once per commit to detect tearing, and if two calls in the
+// same pass disagree (as `Date.now()` called directly here would, since real time moves between
+// those two calls), React concludes the store changed mid-render and schedules another render,
+// which calls getSnapshot again, disagrees again, and so on: "Maximum update depth exceeded" from
+// inside useSyncExternalStore's own re-render machinery. This crashed the drawer on its very first
+// tag click, before the timeline fetch or its from/to params ever mattered — every render tree
+// mounted under this hook (the poller AND the tag drawer, both call it) failed the same way.
+//
+// The fix is the standard one: cache the value in a module-level box that is written ONLY by the
+// subscribed side-effect (the interval tick, i.e. the actual external mutation), and have
+// getSnapshot do nothing but read that box. Between ticks, repeated getSnapshot calls return the
+// identical cached number.
+let cachedNowMs = 0;
+const nowMsListeners = new Set<() => void>();
+
+function tickNowMs(): void {
+  cachedNowMs = Date.now();
+  nowMsListeners.forEach((listener) => listener());
+}
+
 export function useNowMs(everyMs = 1000): number {
   const subscribe = useCallback(
     (onChange: () => void) => {
-      const timer = window.setInterval(onChange, everyMs);
-      return () => window.clearInterval(timer);
+      // Prime the cache synchronously on subscribe (React calls subscribe before the next render),
+      // so the first client render already reflects "now" instead of waiting a full tick.
+      tickNowMs();
+      nowMsListeners.add(onChange);
+      const timer = window.setInterval(tickNowMs, everyMs);
+      return () => {
+        nowMsListeners.delete(onChange);
+        window.clearInterval(timer);
+      };
     },
     [everyMs],
   );
-  const getSnapshot = useCallback(() => Date.now(), []);
+  const getSnapshot = useCallback(() => cachedNowMs, []);
   const getServerSnapshot = useCallback(() => 0, []);
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

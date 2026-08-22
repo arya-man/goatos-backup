@@ -64,7 +64,6 @@ export interface HerdSignalItem {
   signal_state: HerdSignalTone | null;
   battery_mv: number | null;
   battery_state: HerdSignalBatteryState | null;
-  battery_life_estimate: string | null;
   tag_temperature_c: number | null;
   motion_count: number | null;
   motion_delta: number | null;
