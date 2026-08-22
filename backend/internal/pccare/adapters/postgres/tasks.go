@@ -314,21 +314,25 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	}
 
 	// scale-guard:ignore: one bounded page of one due-day's tasks, covered by pc_care_tasks_serving_idx (tenant_id, park_id, due_business_date, work_state); bounded keyset over the park's pen catalog x categories, never by herd size.
+	//
+	// Every optional uuid parameter is nullif-guarded: a bare `$n::uuid` of '' raises 22P02 at
+	// PLAN time when the planner folds the row-comparison keyset arm, even though the `$n = ''`
+	// guard short-circuits at execution (first-page reads 500'd on STG, 2026-08-22).
 	listTasksPageSQL := `
 	WHERE t.tenant_id = $1::uuid
 	  AND t.due_business_date = $2::date
   AND t.work_state <> 'canceled'
   AND ($3::bool OR t.park_id = ANY($4::uuid[]))
-  AND ($5::text = '' OR t.park_id = $5::uuid)
+  AND ($5::text = '' OR t.park_id = nullif($5::text, '')::uuid)
   AND ($6::text = '' OR t.category = $6)
 	  AND ($7::text = '' OR EXISTS (
 	        SELECT 1 FROM pc_care_task_assignees mine
 	        WHERE mine.tenant_id = t.tenant_id AND mine.task_id = t.task_id
-	          AND mine.operator_user_id = $7::uuid))
+	          AND mine.operator_user_id = nullif($7::text, '')::uuid))
 	  AND (
 	        $9::text = ''
 	        OR (park.name, shed.name, t.partition_key, t.category, t.task_id)
-	           > ($9::text, $10::text, $11::text, $12::text, $13::uuid)
+	           > ($9::text, $10::text, $11::text, $12::text, nullif($13::text, '')::uuid)
 	      )
 	ORDER BY park.name, shed.name, t.partition_key, t.category, t.task_id
 	LIMIT $8`
