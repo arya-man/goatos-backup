@@ -42,7 +42,8 @@ export function HistoryChart({
   const plotW = width - padL - 4;
   const plotH = height - padT - padB;
 
-  const maxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0));
+  const rawMaxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0), baseline ?? 0);
+  const maxDelta = rawMaxDelta;
   const barGap = 1;
   const barWidth = Math.max(1, plotW / buckets.length - barGap);
   // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8), and the backend already
@@ -59,6 +60,10 @@ export function HistoryChart({
   // x-axis time labels: roughly six evenly-spaced ticks, IST, received_at-sourced (per the
   // two-clocks rule — bucket_start already comes from the server clock, never gateway_seen_at).
   const tickEvery = Math.max(1, Math.ceil(buckets.length / 6));
+  const formatAxisTick = (value: number) => {
+    if (maxDelta < 10) return value === 0 ? "0" : value.toFixed(1).replace(/\\.0$/, "");
+    return Math.round(value).toString();
+  };
 
   return (
     <div className="hchartwrap" style={{ width: "100%", height }}>
@@ -83,7 +88,7 @@ export function HistoryChart({
           return (
             <g key={k}>
               <line x1={padL} y1={y} x2={width - 4} y2={y} className="gl" />
-              <text x={2} y={y + 3}>{Math.round(maxDelta - (maxDelta * k) / 3)}</text>
+              <text x={2} y={y + 3}>{formatAxisTick(maxDelta - (maxDelta * k) / 3)}</text>
             </g>
           );
         })}
