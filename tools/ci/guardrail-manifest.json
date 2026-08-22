@@ -587,6 +587,17 @@
       "ciStep": "no-mismatch-review-queue-guard"
     },
     {
+      "id": "herd-signals-language",
+      "script": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "makeTarget": "herd-signals-language-guard",
+      "realCheck": "node tools/agent-hooks/check-herd-signals-language.mjs",
+      "selfTest": "node tools/agent-hooks/check-herd-signals-language.mjs --self-test",
+      "owningDoc": "docs/modules/herd-signals.md",
+      "requiredInCI": true,
+      "ciStep": "herd-signals-language-guard",
+      "notes": "Herd Signals product claim boundary: the HoneyComm BLE ear tag exposes only tag id/MAC, RSSI, battery, tag temperature, cumulative motion_count, sensor-OK bits, gateway id, and timestamps -- it cannot detect eating, rumination, sitting, standing, lying, walking, running, fever, body temperature, or disease. Scans backend/internal/herdsignals/**, apps/admin-web/features/herd-signals/**, the herd-signals slice of contracts/openapi/app-api.yaml, docs/modules/herd-signals.md (allowlisted as the boundary's source of truth), and mock/herd-signals-mock.html for claim-shaped assertions of a banned term, body-temperature mislabeling, and mock/demo/sample/synthetic UI copy leaks. See docs/modules/herd-signals.md Section 3."
+    },
+    {
       "id": "notification-specificity",
       "script": "tools/agent-hooks/check-notification-specificity.mjs",
       "makeTarget": "notification-specificity-guard",
