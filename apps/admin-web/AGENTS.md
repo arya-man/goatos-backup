@@ -624,6 +624,8 @@ Only these routes are current implemented product routes:
 /vaccination/sops           Vaccination SOP (module-surface; builder at ?compose=1)
 /counts/sops                Herd Operations SOP — birth / death / shifting
 /feed/sops                  Feed SOP — distribution / packing / transport
+/milk/sops                  Milk SOP — preparation / feeding (SOP split extension, 2026-08-22)
+/weighing/sops              Weighing SOP — scan-and-submit session (SOP split extension, 2026-08-22)
 /goats/{goat_id}
 /verify                     Verify — cross-module verification evidence (top-level, below Approvals)
 /actions                    Compatibility redirect to /verify (route renamed 2026-08-12)

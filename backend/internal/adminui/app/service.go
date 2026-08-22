@@ -168,6 +168,9 @@ func navigation() domain.NavigationContract {
 				ID: "milk", Label: "Milk", Icon: "milk", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
+					// Milk SOP: preparation / feeding documents (SOP split extension,
+					// maintainer decision 2026-08-22 — same shape as the three 2026-08-18 routes).
+					navLeaf("milk-sops", "Milk SOP", "/milk/sops", nil),
 				},
 			},
 			// Weighing is its own vertical, owned by the Growth Director. Its icon must
@@ -181,6 +184,9 @@ func navigation() domain.NavigationContract {
 				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
+					// Weighing SOP: the scan-and-submit session document (SOP split extension,
+					// maintainer decision 2026-08-22 — same shape as the three 2026-08-18 routes).
+					navLeaf("weighing-sops", "Weighing SOP", "/weighing/sops", nil),
 				},
 			},
 			// Feed is a VERTICAL (business operating domain), alongside Preventive Care (PC),
@@ -661,6 +667,12 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("sop-library", "Herd Operations SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("feed-sops", "/feed/sops", "/feed/sops", "Feed SOP", "Distribution, packing, and transport SOP documents for the feed chain.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Feed SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// SOP split EXTENSION (maintainer decision 2026-08-22): Milk and Weighing get the same
+		// module-surface SOP page shape as the three 2026-08-18 routes.
+		page("milk-sops", "/milk/sops", "/milk/sops", "Milk SOP", "Preparation and feeding SOP documents for the kid-milk round.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Milk SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		page("weighing-sops", "/weighing/sops", "/weighing/sops", "Weighing SOP", "The scan-and-submit weighing session document.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Weighing SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("goat-passport", "/goats/{goat_id}", "/goats/{goat_id}", "Goat Passport", "Contextual goat identity, timeline, and vaccination passport detail.", "record-drilldown",
 			[]domain.TableContract{
 				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"scheduled_for", "vaccine", "status", "workflow", "action_center"}, "obligation_id"),
@@ -4758,7 +4770,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.search_label":       "Search staff",
 			"filter.search_placeholder": "Search position, person, grade, center...",
 		}
-	case "vaccination-sops", "counts-sops", "feed-sops":
+	case "vaccination-sops", "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -4941,6 +4953,18 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Feed"
 			m["modal.builder.domain_title"] = "Domain is locked to Feed on this page"
 			m["modal.builder.domain_label"] = "Feed"
+		case "milk-sops":
+			m["crumb"] = "Milk"
+			m["filter.domain.current"] = "This page shows Milk SOPs (preparation, feeding)"
+			m["modal.builder.domain_aria"] = "Domain — locked to Milk"
+			m["modal.builder.domain_title"] = "Domain is locked to Milk on this page"
+			m["modal.builder.domain_label"] = "Milk"
+		case "weighing-sops":
+			m["crumb"] = "Weighing"
+			m["filter.domain.current"] = "This page shows Weighing SOPs (scan-and-submit sessions)"
+			m["modal.builder.domain_aria"] = "Domain — locked to Weighing"
+			m["modal.builder.domain_title"] = "Domain is locked to Weighing on this page"
+			m["modal.builder.domain_label"] = "Weighing"
 		}
 		return m
 	case "goat-passport":
@@ -5512,7 +5536,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			shedStatusOptionGroup(), capacityOptionGroup())
 	case "config":
 		return withGenericOptionGroups(configOptionGroups())
-	case "vaccination-sops", "counts-sops", "feed-sops":
+	case "vaccination-sops", "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		return withGenericOptionGroups(sopOptionGroups())
 	case "action-center":
 		return withGenericOptionGroups([]domain.OptionGroup{

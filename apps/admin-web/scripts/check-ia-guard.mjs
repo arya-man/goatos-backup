@@ -87,7 +87,10 @@ function hasCommandSegment(route) {
 // not a routine edit: it must be backed by a maintainer decision recorded in the backend contract.
 // No command lens (Control Tower, Action Center, Calendar, Protocol Adherence, Workflows) is
 // exempted for any vertical, and none may be.
-// The three module SOP pages, approved by explicit maintainer decision 2026-08-18 (recorded in
+// The FIVE module SOP pages: three approved by explicit maintainer decision 2026-08-18, plus
+// /milk/sops and /weighing/sops approved by maintainer decision 2026-08-22 (recorded in
+// AGENTS.md and adminui service.go alongside migration 000186's milk.preparation / milk.feeding /
+// weighing.session library documents). The original 2026-08-18 record follows (recorded in
 // backend/internal/adminui/app/service.go, PC nav-group note, and AGENTS.md): the top-level
 // Admin/Data Ops SOP Library (/sops) is RETIRED, and each module owns its SOP documents as a
 // module-surface — /vaccination/sops (vaccination), /counts/sops (Herd Operations: birth / death /
@@ -102,6 +105,8 @@ const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   "/vaccination/sops",
   "/counts/sops",
   "/feed/sops",
+  "/milk/sops",
+  "/weighing/sops",
 ]);
 
 function isAllowedRoute(route) {
