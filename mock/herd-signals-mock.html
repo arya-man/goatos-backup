@@ -928,7 +928,7 @@ function renderLive(){
     '<button class="pgbtn" onclick="goPage(1)" '+(PAGE>=pages-1?'disabled':'')+'>Next →</button>'+
     '<span>Showing <b>'+from.toLocaleString('en-IN')+'–'+to.toLocaleString('en-IN')+'</b> of <b>'+all.length.toLocaleString('en-IN')+'</b> · page <b>'+(PAGE+1)+'</b> of <b>'+pages.toLocaleString('en-IN')+'</b></span>'+
     '<div class="sp" style="flex:1"></div>'+
-    '<span class="faint">Server-side keyset pagination — filters and search run in the query, never on a fetched page.</span></div>';
+    '<span class="faint">Pagination: 25 rows per page, keyset cursor</span></div>';
   pg.innerHTML=pagerHtml;
   pgT.innerHTML=pagerHtml.replace('class="pager"','class="pager" style="border-top:0;border-bottom:1px solid var(--line2)"');
 }

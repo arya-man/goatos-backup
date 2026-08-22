@@ -44,29 +44,23 @@ function writeInterval(seconds: number): void {
   intervalListeners.forEach((listener) => listener());
 }
 
-// PAUSED must survive a remount — the page wraps the board in <Suspense key={JSON.stringify(sp)}>,
-// so applying any filter remounts this component. See live-poller.tsx for the full rationale.
+// Live/paused state is session-only — no localStorage persistence. Fresh page loads are always
+// live. Users can pause within the session using the toggle button, but the pause state is lost
+// on reload (no sticky pause across page reloads). Tab-hidden automatic pause is still an efficiency
+// measure but is not presented as the data's true state (the badge says "PAUSED · tab hidden").
 const liveListeners = new Set<() => void>();
 function subscribeLive(onChange: () => void): () => void {
   liveListeners.add(onChange);
   return () => liveListeners.delete(onChange);
 }
 function readLive(): boolean {
-  try {
-    return window.localStorage.getItem(LIVE_STORAGE_KEY) !== "paused";
-  } catch {
-    return true;
-  }
+  return true; // Always live on initial load, session-only toggle
 }
 function serverLive(): boolean {
   return true;
 }
 function writeLive(live: boolean): void {
-  try {
-    window.localStorage.setItem(LIVE_STORAGE_KEY, live ? "live" : "paused");
-  } catch {
-    // Persistence is a convenience; the chosen state still applies for this mount.
-  }
+  // No localStorage persistence — state is session-only.
   liveListeners.forEach((listener) => listener());
 }
 
