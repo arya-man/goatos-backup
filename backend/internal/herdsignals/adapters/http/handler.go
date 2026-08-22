@@ -1,0 +1,237 @@
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strconv"
+
+	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+)
+
+func tenantID(r *http.Request) string {
+	return httpmiddleware.TenantIDFromContext(r.Context())
+}
+
+func actorID(r *http.Request) string {
+	return httpmiddleware.ActorIDFromContext(r.Context())
+}
+
+// AppService defines the interface the handler expects from the app service.
+type AppService interface {
+	IngestPackets(ctx context.Context, actor domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error)
+	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (domain.LiveResponse, error)
+	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
+	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
+}
+
+// Handler handles HTTP requests for herd signals.
+type Handler struct {
+	service AppService
+	log     *slog.Logger
+}
+
+// NewHandler creates a new herd signals HTTP handler.
+func NewHandler(service AppService, log ...*slog.Logger) *Handler {
+	l := slog.Default()
+	if len(log) > 0 && log[0] != nil {
+		l = log[0]
+	}
+	return &Handler{service: service, log: l}
+}
+
+// Register registers herd signals routes.
+func Register(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("POST /herd-signals/packets", h.IngestPackets)
+	mux.HandleFunc("GET /herd-signals/live", h.ListLive)
+	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/timeline", h.GetTimeline)
+	mux.HandleFunc("GET /herd-signals/gateways", h.ListGateways)
+}
+
+// IngestPackets handles POST /herd-signals/packets.
+func (h *Handler) IngestPackets(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Extract actor from context (set by middleware)
+	actor := domain.Actor{
+		TenantID: tenantID(r),
+		UserID:   actorID(r),
+	}
+	if actor.TenantID == "" || actor.UserID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized,
+			map[string]interface{}{"code": "unauthorized", "message": "authentication required"},
+			nil)
+		return
+	}
+
+	// Strict JSON decode
+	var req domain.IngestRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			map[string]interface{}{"code": "invalid_request", "message": "invalid request body"},
+			err)
+		return
+	}
+
+	// Call service
+	resp, err := h.service.IngestPackets(ctx, actor, req)
+	if err != nil {
+		h.log.Error("ingest_packets_failed", "error", err.Error())
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "ingest_failed", "message": "failed to ingest packets"},
+			err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ListLive handles GET /herd-signals/live.
+func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Extract actor from context
+	actor := domain.Actor{
+		TenantID: tenantID(r),
+		UserID:   actorID(r),
+	}
+	if actor.TenantID == "" || actor.UserID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized,
+			map[string]interface{}{"code": "unauthorized", "message": "authentication required"},
+			nil)
+		return
+	}
+
+	// Parse query parameters
+	parkID := r.URL.Query().Get("park_id")
+	shedID := r.URL.Query().Get("shed_id")
+	movementState := r.URL.Query().Get("movement_state")
+
+	mappedStr := r.URL.Query().Get("mapped")
+	var mapped *bool
+	if mappedStr != "" {
+		v := mappedStr == "true"
+		mapped = &v
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+	limit := 50 // default
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
+			limit = l
+		}
+	}
+
+	// Convert empty strings to nil pointers
+	var parkIDPtr, shedIDPtr, movementStatePtr *string
+	if parkID != "" {
+		parkIDPtr = &parkID
+	}
+	if shedID != "" {
+		shedIDPtr = &shedID
+	}
+	if movementState != "" {
+		movementStatePtr = &movementState
+	}
+
+	// Call service
+	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mapped, cursor, limit)
+	if err != nil {
+		h.log.Error("list_live_failed", "error", err.Error())
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "list_failed", "message": "failed to list live tags"},
+			err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetTimeline handles GET /herd-signals/tags/{tag_id}/timeline.
+func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Extract actor from context
+	actor := domain.Actor{
+		TenantID: tenantID(r),
+		UserID:   actorID(r),
+	}
+	if actor.TenantID == "" || actor.UserID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized,
+			map[string]interface{}{"code": "unauthorized", "message": "authentication required"},
+			nil)
+		return
+	}
+
+	// Extract tag_id from path
+	tagID := r.PathValue("tag_id")
+	if tagID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			map[string]interface{}{"code": "missing_tag_id", "message": "tag_id is required"},
+			nil)
+		return
+	}
+
+	// Parse query parameters
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from == "" || to == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			map[string]interface{}{"code": "missing_from_to", "message": "from and to timestamps required"},
+			nil)
+		return
+	}
+
+	bucketSeconds := 60 // default
+	if bucketStr := r.URL.Query().Get("bucket_seconds"); bucketStr != "" {
+		if b, err := strconv.Atoi(bucketStr); err == nil && b > 0 {
+			bucketSeconds = b
+		}
+	}
+
+	// Call service
+	resp, err := h.service.GetTimeline(ctx, actor, tagID, from, to, bucketSeconds)
+	if err != nil {
+		h.log.Error("get_timeline_failed", "tag_id", tagID, "error", err.Error())
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "timeline_failed", "message": "failed to get timeline"},
+			err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ListGateways handles GET /herd-signals/gateways.
+func (h *Handler) ListGateways(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Extract actor from context
+	actor := domain.Actor{
+		TenantID: tenantID(r),
+		UserID:   actorID(r),
+	}
+	if actor.TenantID == "" || actor.UserID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized,
+			map[string]interface{}{"code": "unauthorized", "message": "authentication required"},
+			nil)
+		return
+	}
+
+	// Call service
+	resp, err := h.service.ListGateways(ctx, actor)
+	if err != nil {
+		h.log.Error("list_gateways_failed", "error", err.Error())
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "gateways_failed", "message": "failed to list gateways"},
+			err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}

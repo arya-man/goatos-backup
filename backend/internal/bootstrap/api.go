@@ -54,6 +54,9 @@ import (
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
+	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
+	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
@@ -460,6 +463,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// weighing process-state read model (declared `weighing_work_item` grain).
 	weighingService := weighingapp.NewService(weighingRepo).WithProcessStateReader(weighingRepo)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
+	// Herd Signals: BLE ear-tag telemetry ingestion and query.
+	herdsignalsRepo := herdsignalspg.NewRepository(pool)
+	herdsignalsService := herdsignalsapp.NewService(herdsignalsRepo, log)
+	herdsignalsHandler := herdsignalshttp.NewHandler(herdsignalsService, log)
 	// Growth Director: read-only reporting over weighing + herd + feed tables.
 	// Deliberately its OWN module, outside backend/internal/weighing, because
 	// weighing is isolated from the herd and these widgets need breed/sex and
@@ -992,6 +999,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	weighinghttp.Register(protectedMux, weighingHandler)
+	herdsignalshttp.Register(protectedMux, herdsignalsHandler)
 	growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
