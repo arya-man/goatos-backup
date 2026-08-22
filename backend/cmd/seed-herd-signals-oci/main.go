@@ -88,13 +88,20 @@ func main() {
 		}
 		batch := rows[start:end]
 
-		// gateway_seen_at is the time the gateway relayed this batch upstream; use the
-		// latest received_at timestamp within the batch as a reasonable stand-in.
-		gatewaySeen := batch[0].receivedAt
+		// gateway_seen_at is the GATEWAY's own clock (CSV packet_time), kept separate
+		// and UNCORRECTED. The observed HoneyComm gateway runs ~2h30m ahead of real
+		// IST, so it is recorded for diagnostics only -- server received_at is truth
+		// for ordering, staleness and every rendered time. Never reconcile the two by
+		// shifting one onto the other: the skew is the signal that a gateway's NTP is
+		// wrong, and averaging it away hides that.
+		gatewaySeen := batch[0].gatewayTime
 		for _, r := range batch {
-			if r.receivedAt.After(gatewaySeen) {
-				gatewaySeen = r.receivedAt
+			if r.gatewayTime.After(gatewaySeen) {
+				gatewaySeen = r.gatewayTime
 			}
+		}
+		if gatewaySeen.IsZero() {
+			gatewaySeen = batch[len(batch)-1].receivedAt
 		}
 
 		req := domain.IngestRequest{
@@ -129,6 +136,7 @@ type packetRow struct {
 	receivedAt    time.Time
 	tagAddr       string
 	printedID     string
+	gatewayTime   time.Time
 	rssi          *int16
 	batteryMV     *int
 	temperatureC  *float64
@@ -224,10 +232,17 @@ func readCSV(path string) ([]packetRow, error) {
 			skipped++
 			continue
 		}
+		// packet_time is the gateway's own clock and is stored verbatim as
+		// gateway_seen_at; it is NOT a fallback for received_at.
+		gatewayTime, gwErr := parseTimestamp(field(record, col, "packet_time"))
+		if gwErr != nil {
+			gatewayTime = time.Time{}
+		}
 		row := packetRow{
-			receivedAt: receivedAt,
-			tagAddr:    strings.ToLower(tagAddr),
-			printedID:  printedID,
+			receivedAt:  receivedAt,
+			tagAddr:     strings.ToLower(tagAddr),
+			printedID:   printedID,
+			gatewayTime: gatewayTime,
 		}
 
 		if v, ok := parseInt16(field(record, col, "rssi")); ok {
