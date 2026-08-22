@@ -38,6 +38,10 @@ function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
 }
 
+function animalPrimaryLabel(item: HerdSignalItem): string {
+  return item.animal_identifier_1 || item.animal_identifier_2 || item.display_id || item.goat_id || "Unmapped";
+}
+
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
 }
@@ -285,7 +289,7 @@ export function HerdSignalsTable({
                   className="hs-selectable"
                   tabIndex={0}
                   role="button"
-                  aria-label={`Open tag detail for ${item.display_id || item.tag_id}`}
+                  aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
                   onClick={(event) => {
                     if (isInteractiveTarget(event.target)) return;
                     pushLocalOverlayUrl(href);
@@ -299,9 +303,12 @@ export function HerdSignalsTable({
                 >
                   <td data-l="Animal" className="animcell wide">
                     <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
-                      {item.display_id || item.goat_id || "Unmapped"}
+                      {animalPrimaryLabel(item)}
                     </LocalOverlayLink>
-                    <small>{item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}</small>
+                    <small>
+                      {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? `${item.display_id} · ` : ""}
+                      {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}
+                    </small>
                   </td>
                   <td data-l="Smart tag">
                     <span className="mono">{item.tag_id}</span>

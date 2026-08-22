@@ -61,6 +61,8 @@ export interface HerdSignalItem {
   tag_mac: string;
   goat_id: string | null;
   display_id: string | null;
+  animal_identifier_1: string | null;
+  animal_identifier_2: string | null;
   park_id: string | null;
   park_name: string | null;
   shed_id: string | null;
