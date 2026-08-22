@@ -48,6 +48,7 @@ import (
 	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
 	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/herdsignals/gateway"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -329,11 +330,29 @@ func (b *bridge) handleScanReport(env gwEnvelope) {
 			b.discardedTotal.Add(1)
 			continue
 		}
-		if !isHoneyCombAdv(rawBytes) {
+		if !gateway.IsHoneyCombAdvertisement(rawBytes) {
 			b.discardedTotal.Add(1)
 			continue
 		}
-		pkt, ok := decodeHoneyCombPacket(dev, rawBytes, env, data.PktSN)
+
+		// Convert MQTT bridge's devInfo to shared gateway types for decoding
+		pkt, ok := gateway.DecodeHoneyCombPacket(
+			gateway.DeviceAdvertisement{
+				Addr:   dev.Addr,
+				RSSI:   dev.RSSI,
+				Time:   dev.Time,
+				Msec:   dev.Msec,
+				Name:   dev.Name,
+				AdvRaw: dev.AdvRaw,
+			},
+			rawBytes,
+			gateway.EnvelopeMetadata{
+				GatewayAddr: env.GwAddr,
+				Time:        env.Time,
+				Msec:        env.Msec,
+				PktSN:       data.PktSN,
+			},
+		)
 		if !ok {
 			b.discardedTotal.Add(1)
 			continue
@@ -379,128 +398,6 @@ func (b *bridge) handleHeartbeat(env gwEnvelope) {
 	if _, err := b.repo.RecordGatewayHeartbeat(ctx, b.cfg.TenantID, req, time.Now().UTC()); err != nil {
 		b.log.Error("heartbeat_record_failed", "gateway_id", gatewayID, "error", err)
 	}
-}
-
-// isHoneyCombAdv reports whether the decoded advertisement carries the HoneyComm signature: a
-// Service Data (16-bit UUID) AD structure, AD type 0x16, UUID 0xAB4C little-endian -- confirmed
-// against the live sample (payload audit + this build's own decode of addr f0c990a00036, name
-// "mTnA": adv_raw bytes 3-6 are 15 16 4C AB, i.e. AD length 0x15, type 0x16, UUID bytes 4C AB).
-// Walks the AD structures generically (length-prefixed TLV) rather than a fixed-offset check, so
-// it still matches if a future firmware reorders the flags/other AD entries before this one.
-func isHoneyCombAdv(raw []byte) bool {
-	i := 0
-	for i+1 < len(raw) {
-		adLen := int(raw[i])
-		if adLen == 0 || i+1+adLen > len(raw) {
-			return false
-		}
-		adType := raw[i+1]
-		adData := raw[i+2 : i+1+adLen]
-		if adType == 0x16 && len(adData) >= 2 {
-			uuid := uint16(adData[0]) | uint16(adData[1])<<8 // little-endian
-			if uuid == 0xAB4C {
-				return true
-			}
-		}
-		i += 1 + adLen
-	}
-	return false
-}
-
-// decodeHoneyCombPacket decodes the fixed HoneyComm advertisement layout (payload audit,
-// confirmed by this build against the live sample):
-//
-//	byte 8:     battery, DECIVOLTS (0x1F = 31 = 3.1V)
-//	byte 9:     battery percent (observed constant 100)
-//	byte 17:    sensor_state
-//	byte 18:    temperature, integer part
-//	byte 19:    temperature, fractional part -- always a multiple of 10; native resolution 0.1C,
-//	            so actual fraction = byte/100 (e.g. 10 -> 0.1C)
-//	bytes 21-24: motion_count, 32-bit BIG-ENDIAN cumulative counter
-//
-// The printed tag id is the device's last 3 MAC bytes, uppercased (addr f0c990a00036 -> A00036 --
-// confirmed against a real row in herd_signal_tag_latest during this build).
-func decodeHoneyCombPacket(dev devInfo, raw []byte, env gwEnvelope, pktSN int64) (domain.IngestPacket, bool) {
-	const minLen = 25 // need index 24 inclusive
-	if len(raw) < minLen {
-		return domain.IngestPacket{}, false
-	}
-
-	tagID, err := printedTagID(dev.Addr)
-	if err != nil {
-		return domain.IngestPacket{}, false
-	}
-
-	batteryMV := int(raw[8]) * 100 // decivolts -> millivolts
-	sensorState := int16(raw[17])
-	tempInt := int(raw[18])
-	tempFrac := int(raw[19])
-	tempC := float64(tempInt) + float64(tempFrac)/100.0
-	motionCount := int64(uint32(raw[21])<<24 | uint32(raw[22])<<16 | uint32(raw[23])<<8 | uint32(raw[24]))
-
-	// Per-DEVICE gateway time (not the envelope's -- the audit found the per-device row differs
-	// from the envelope by 0-1s). Uncorrected: this is the gateway's own clock, stored verbatim,
-	// never used for ordering/staleness/gap decisions -- app.Service.IngestPackets stamps
-	// received_at from the server clock regardless of what is sent here.
-	gatewayTimeStr := formatGatewayTime(dev.Time, dev.Msec)
-
-	sensorOK := true // no fault bit is currently decoded from sensor_state; the raw value is preserved in raw_payload/sensor_state
-	advRaw := dev.AdvRaw
-	pkt := domain.IngestPacket{
-		TagID:                 tagID,
-		TagMAC:                dev.Addr,
-		RSSI:                  &dev.RSSI,
-		Battery:               &batteryMV,
-		TagTemperature:        &tempC,
-		MotionCount:           &motionCount,
-		SensorState:           &sensorState,
-		TemperatureSensorOK:   &sensorOK,
-		AccelerometerSensorOK: &sensorOK,
-		// pkt_sn is now a real COLUMN (migration 000198), not only a jsonb crumb in RawPayload
-		// below: it is the only packet-loss instrument this protocol gives us, and inside jsonb
-		// it could neither be aggregated nor compared across a bridge restart. It stays in
-		// RawPayload too so the stored raw diagnostic record remains complete.
-		PktSN:         &pktSN,
-		RawAdv:        &advRaw,
-		SeenAt:        gatewayTimeStr, // diagnostic only (DeviceSeenAt) -- see file doc comment
-		GatewaySeenAt: &gatewayTimeStr,
-		RawPayload: map[string]interface{}{
-			"gw_addr":          env.GwAddr,
-			"gw_envelope_time": env.Time,
-			"pkt_sn":           pktSN,
-			"dev_addr":         dev.Addr,
-			"dev_time":         dev.Time,
-			"dev_msec":         dev.Msec,
-			"dev_name":         dev.Name,
-		},
-	}
-	return pkt, true
-}
-
-// printedTagID takes the last 3 MAC bytes (6 hex chars) of a colon-less lowercase MAC string
-// and uppercases them, e.g. "f0c990a00036" -> "A00036".
-func printedTagID(addr string) (string, error) {
-	addr = strings.ToLower(strings.ReplaceAll(addr, ":", ""))
-	if len(addr) != 12 {
-		return "", fmt.Errorf("unexpected MAC length %d for %q", len(addr), addr)
-	}
-	if _, err := hex.DecodeString(addr); err != nil {
-		return "", fmt.Errorf("not a valid MAC hex string: %q", addr)
-	}
-	return strings.ToUpper(addr[6:]), nil
-}
-
-// formatGatewayTime combines the gateway's "YYYY-MM-DD HH:MM:SS" + millisecond string into
-// RFC3339, treating it as-is (no timezone correction) since it is diagnostic-only and its
-// absolute offset from real time is unknown and drifts (payload audit: seen anywhere from
-// +2h33m to other values across gateway reboots).
-func formatGatewayTime(t, msec string) string {
-	base, err := time.Parse("2006-01-02 15:04:05", t)
-	if err != nil {
-		return ""
-	}
-	ms, _ := strconv.Atoi(msec)
-	return base.Add(time.Duration(ms) * time.Millisecond).UTC().Format(time.RFC3339Nano)
 }
 
 // drainLoop batches queued packets by gateway and flushes on size or interval -- never a
