@@ -594,49 +594,11 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (
 	[]domain.TagLatest, domain.Summary, *string, error,
 ) {
-	whereClause, args, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, movementState, mappingState, pattern, q)
-
-	if cursor != "" {
-		whereClause += fmt.Sprintf(" AND (tl.last_seen_at, tl.tag_id) < (SELECT last_seen_at, tag_id FROM public.herd_signal_tag_latest WHERE tenant_id = $1 AND tag_id = $%d)", argIndex)
-		args = append(args, cursor)
-		argIndex++
-	}
-
-	query := fmt.Sprintf(`
-		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
-		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
-		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
-		       tl.motion_window_seconds, `+effectiveMovementStateExpr+`, `+effectivePatternStateExpr+`, tl.temperature_sensor_ok,
-		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at
-		FROM public.herd_signal_tag_latest tl
-		%s
-		%s
-		ORDER BY tl.last_seen_at DESC, tl.tag_id DESC
-		LIMIT $%d
-	`, tagLocationJoin, whereClause, argIndex)
-	args = append(args, limit+1) // Fetch one extra to detect if there are more
-
-	rows, err := r.db.Query(ctx, query, args...)
+	// Fetch one extra row to detect whether another page exists. The row query itself lives in
+	// ListTagsLatestPage (export.go) so GET /herd-signals/export.csv walks the SAME filtered,
+	// keyset-ordered result this endpoint returns -- the export can never drift from the view.
+	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit+1)
 	if err != nil {
-		return nil, domain.Summary{}, nil, err
-	}
-	defer rows.Close()
-
-	var tags []domain.TagLatest
-	for rows.Next() {
-		var tag domain.TagLatest
-		if err := rows.Scan(
-			&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
-			&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
-			&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
-			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
-			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
-		); err != nil {
-			return nil, domain.Summary{}, nil, err
-		}
-		tags = append(tags, tag)
-	}
-	if err := rows.Err(); err != nil {
 		return nil, domain.Summary{}, nil, err
 	}
 
