@@ -542,3 +542,61 @@ func TestGapDeltaResetInsideGapYieldsZeroNeverNegative(t *testing.T) {
 		t.Errorf("motion_delta = %v, want >= 0 (never negative on a reset)", latest.MotionDelta)
 	}
 }
+
+// TestGetBatteryHistoryReturnsFirstAndLastReadingInWindow proves GetBatteryHistory's SQL against
+// the real schema: ingest three packets for a tag spanning the trend window with different
+// battery_mv values, and assert the batched query returns the correct first/last endpoints.
+func TestGetBatteryHistoryReturnsFirstAndLastReadingInWindow(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-battery", Status: "active"}
+	first := time.Now().UTC().Add(-20 * 24 * time.Hour)
+	middle := first.Add(10 * 24 * time.Hour)
+	last := time.Now().UTC().Add(-2 * time.Hour)
+
+	pkt := func(seenAt time.Time, motionCount int64, batteryMV int) domain.Packet {
+		p := makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-battery", seenAt, motionCount, -60)
+		mv := batteryMV
+		p.BatteryMV = &mv
+		return p
+	}
+
+	for i, p := range []domain.Packet{
+		pkt(first, 100, 3180),
+		pkt(middle, 150, 3140),
+		pkt(last, 200, 3100),
+	} {
+		if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{p}); err != nil {
+			t.Fatalf("ingest %d: %v", i, err)
+		}
+	}
+
+	history, err := repo.GetBatteryHistory(ctx, hsiTenant, []string{hsiUnmappedTag}, 30)
+	if err != nil {
+		t.Fatalf("GetBatteryHistory: %v", err)
+	}
+	got, ok := history[hsiUnmappedTag]
+	if !ok {
+		t.Fatal("no battery history returned for the tag")
+	}
+	if got.FirstMV != 3180 {
+		t.Errorf("FirstMV = %d, want 3180", got.FirstMV)
+	}
+	if got.LastMV != 3100 {
+		t.Errorf("LastMV = %d, want 3100", got.LastMV)
+	}
+	if !got.FirstAt.Before(got.LastAt) {
+		t.Errorf("FirstAt (%v) not before LastAt (%v)", got.FirstAt, got.LastAt)
+	}
+
+	// The domain composition on top must call this a falling trend (3180 -> 3100 = -80mV, at the
+	// default BatteryFallMV threshold) with a real multi-day span.
+	trend := domain.BatteryTrendFromHistory(&got.FirstMV, &got.LastMV, &got.FirstAt, &got.LastAt, domain.DefaultThresholds())
+	if trend == nil {
+		t.Fatal("BatteryTrendFromHistory returned nil, want a trend (real 18-day span)")
+	}
+	if trend.Direction != "falling" {
+		t.Errorf("trend.Direction = %s, want falling", trend.Direction)
+	}
+}

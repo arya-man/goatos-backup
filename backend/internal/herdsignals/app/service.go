@@ -482,8 +482,35 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 		baselines = map[string]int64{}
 	}
 
+	// Battery voltage trend: same batched-query discipline as baseline_delta above, one query
+	// for the whole page.
+	batteryHistory, err := s.repo.GetBatteryHistory(ctx, tenantID, tagIDs, s.thresholds.BatteryTrendWindowDays)
+	if err != nil {
+		s.log.Warn("failed to batch-fetch battery history", "error", err)
+		batteryHistory = map[string]ports.BatteryHistoryPoint{}
+	}
+
 	for _, tag := range tags {
-		batteryEstimate := domain.BatteryLifeEstimate(tag.BatteryMV, s.thresholds)
+
+		// Voltage trend + the four-value battery_state (maintainer decision, replacing the
+		// removed remaining-life estimate): compose the ABSOLUTE state already stored on the
+		// tag (tag.BatteryState, from domain.BatteryStateFromVoltage at ingest) with the
+		// RELATIVE trend and the read-time missing-signal state.
+		var batteryTrendResp *domain.BatteryTrendResponse
+		var trend *domain.BatteryTrend
+		if hist, ok := batteryHistory[tag.TagID]; ok {
+			firstMV, lastMV := hist.FirstMV, hist.LastMV
+			firstAt, lastAt := hist.FirstAt, hist.LastAt
+			trend = domain.BatteryTrendFromHistory(&firstMV, &lastMV, &firstAt, &lastAt, s.thresholds)
+			if trend != nil {
+				batteryTrendResp = &domain.BatteryTrendResponse{
+					Direction: trend.Direction, WindowDays: trend.WindowDays,
+					FirstMV: trend.FirstMV, FirstAt: trend.FirstAt,
+					LastMV: trend.LastMV, LastAt: trend.LastAt,
+				}
+			}
+		}
+		composedBatteryState := domain.BatteryStateWithTrend(tag.BatteryState, trend, tag.PatternState == "missing")
 
 		item := domain.LiveItem{
 			TagID:                 tag.TagID,
@@ -492,8 +519,8 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			RSSIdbm:               tag.LastRSSIdbm,
 			SignalState:           nullableEnum(tag.SignalState),
 			BatteryMV:             tag.BatteryMV,
-			BatteryState:          nullableEnum(tag.BatteryState),
-			BatteryLifeEstimate:   nullableEnum(batteryEstimate),
+			BatteryState:          nullableEnum(composedBatteryState),
+			BatteryTrend:          batteryTrendResp,
 			TagTemperatureC:       tag.TagTemperatureC,
 			MotionCount:           tag.MotionCount,
 			MotionDelta:           tag.MotionDelta,

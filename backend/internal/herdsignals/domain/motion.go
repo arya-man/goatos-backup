@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"fmt"
 	"strings"
 	"time"
 )
@@ -94,15 +93,95 @@ func SignalStateFromRSSI(rssi *int16, avgRSSI *float64, thresholds Thresholds) s
 	return "unknown"
 }
 
-// BatteryStateFromMillivolts determines battery state.
-func BatteryStateFromMillivolts(batteryMV *int, thresholds Thresholds) string {
+// BatteryStateFromVoltage determines the ABSOLUTE battery band from a single reading: healthy,
+// watch, low, or critical (maintainer decision, replacing a removed remaining-life estimate --
+// the tag reports voltage only, so this is the only honest per-reading classification). This is
+// the ingest-time value stored on herd_signal_tag_latest; the RELATIVE half of "watch" (falling
+// against the tag's own history) and the critical-on-silence escalation are computed at READ
+// TIME by BatteryStateWithTrend, because they need this tag's history and its current
+// missing-signal state, neither of which is available or meaningful to keep re-deriving on every
+// single ingest.
+func BatteryStateFromVoltage(batteryMV *int, thresholds Thresholds) string {
 	if batteryMV == nil {
 		return "unknown"
 	}
-	if *batteryMV < thresholds.BatteryLowMV {
+	switch {
+	case *batteryMV >= thresholds.BatteryHealthyMV:
+		return "healthy"
+	case *batteryMV >= thresholds.BatteryWatchMV:
+		return "watch"
+	case *batteryMV < thresholds.BatteryCriticalMV:
+		return "critical"
+	default:
 		return "low"
 	}
-	return "ok"
+}
+
+// BatteryTrend is a compact voltage trend: a direction plus the two endpoint readings that
+// justify it. Returned as nil when there is not enough history to say anything -- coin-cell
+// voltage is noisy and temperature-sensitive, so a direction is never invented from two adjacent
+// packets (see BatteryTrendFromHistory).
+type BatteryTrend struct {
+	Direction  string // "stable" | "falling"
+	WindowDays int
+	FirstMV    int
+	FirstAt    time.Time
+	LastMV     int
+	LastAt     time.Time
+}
+
+// BatteryTrendFromHistory builds a trend from the first and last battery_mv readings in the
+// configured window. Returns nil (no trend claim at all) unless the readings span at least
+// BatteryTrendMinSpanHours -- two packets five minutes apart cannot support a "falling" claim
+// against normal coin-cell voltage sag/noise/temperature sensitivity, and a null trend is more
+// honest than a direction computed from noise.
+func BatteryTrendFromHistory(firstMV, lastMV *int, firstAt, lastAt *time.Time, thresholds Thresholds) *BatteryTrend {
+	if firstMV == nil || lastMV == nil || firstAt == nil || lastAt == nil {
+		return nil
+	}
+	span := lastAt.Sub(*firstAt)
+	if span < time.Duration(thresholds.BatteryTrendMinSpanHours*float64(time.Hour)) {
+		return nil
+	}
+	direction := "stable"
+	if *firstMV-*lastMV >= thresholds.BatteryFallMV {
+		direction = "falling"
+	}
+	return &BatteryTrend{
+		Direction:  direction,
+		WindowDays: thresholds.BatteryTrendWindowDays,
+		FirstMV:    *firstMV,
+		FirstAt:    *firstAt,
+		LastMV:     *lastMV,
+		LastAt:     *lastAt,
+	}
+}
+
+// BatteryStateWithTrend composes the absolute battery_state (from BatteryStateFromVoltage,
+// already stored on the tag) with the voltage trend and the tag's current missing-signal state
+// to produce the final four-value battery_state:
+//
+//   - A relative fall (trend.Direction == "falling") escalates healthy -> watch: the point of
+//     this model is that a tag drifting 3.18V -> 3.10V is informative before it crosses any
+//     absolute line, so it must not be silently absorbed into "healthy".
+//   - Critical-on-silence: a tag that is currently missing signal (read-time pattern_state,
+//     computed elsewhere) AND was falling escalates to critical. This is a genuine cross-signal,
+//     combining battery history with the missing-signal state, and it is explicitly INFERRED,
+//     not measured -- it must never be read as "the tag is dead", only that it went quiet while
+//     its voltage was falling. It never fires on its own: a tag that is missing but had a STABLE
+//     or unknown trend is left at its absolute battery_state, because silence alone says nothing
+//     about the battery.
+func BatteryStateWithTrend(absoluteState string, trend *BatteryTrend, patternStateIsMissing bool) string {
+	state := absoluteState
+	falling := trend != nil && trend.Direction == "falling"
+
+	if falling && state == "healthy" {
+		state = "watch"
+	}
+	if falling && patternStateIsMissing {
+		state = "critical"
+	}
+	return state
 }
 
 // PatternStateFromHistory determines pattern state based on recent activity history.
@@ -271,33 +350,6 @@ func IsSupportedBucketSeconds(bucketSeconds int) bool {
 // regardless of range/tier combination, so a caller cannot request an unbounded scan
 // (AGENTS.md scale anti-patterns: never return unbounded ranges).
 const MaxTimelineBuckets = 2000
-
-// BatteryLifeEstimate returns a coarse, PROVISIONAL remaining-life estimate string for a
-// battery reading, or "" when unknown. It linearly maps the range
-// [thresholds.BatteryLowMV, thresholds.BatteryNominalFullMV] onto
-// [0, thresholds.BatteryNominalLifeDays] days. This is explicitly a placeholder pending
-// vendor discharge-curve data -- BLE coin-cell discharge is not linear in reality -- and
-// exists only so the live view can show an operator-legible order of magnitude rather than
-// a raw millivolt value.
-func BatteryLifeEstimate(batteryMV *int, thresholds Thresholds) string {
-	if batteryMV == nil || thresholds.BatteryNominalFullMV <= thresholds.BatteryLowMV {
-		return ""
-	}
-	mv := *batteryMV
-	if mv <= thresholds.BatteryLowMV {
-		return "< 1 day (provisional)"
-	}
-	span := thresholds.BatteryNominalFullMV - thresholds.BatteryLowMV
-	frac := float64(mv-thresholds.BatteryLowMV) / float64(span)
-	if frac > 1 {
-		frac = 1
-	}
-	days := int(frac * float64(thresholds.BatteryNominalLifeDays))
-	if days < 1 {
-		days = 1
-	}
-	return fmt.Sprintf("~%d days (provisional)", days)
-}
 
 // countConsecutiveQuietWindows counts how long the tail of windows is "quiet" (delta < threshold)
 // AND CONTINUOUSLY RECEIVING PACKETS. Returns duration by summing bucket_seconds of consecutive

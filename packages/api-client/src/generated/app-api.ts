@@ -4083,8 +4083,27 @@ export interface components {
         HerdSignalPatternState: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
         /** @enum {string} */
         HerdSignalTone: "strong" | "ok" | "weak";
+        /**
+         * @description Composed from an absolute voltage band plus the tag's own voltage trend (maintainer decision, replacing a removed remaining-life estimate -- the tag reports voltage only). healthy >= 3.00V; watch is 2.80-2.99V OR voltage falling against the tag's own history; low < 2.80V; critical < 2.60V, or the tag went quiet (missing signal) after voltage was falling (critical-on-silence -- INFERRED, never a claim the tag is dead). All thresholds PROVISIONAL pending vendor confirmation.
+         * @enum {string}
+         */
+        HerdSignalBatteryState: "healthy" | "watch" | "low" | "critical";
         /** @enum {string} */
-        HerdSignalBatteryState: "ok" | "low";
+        HerdSignalBatteryTrendDirection: "stable" | "falling";
+        /** @description Compact voltage trend: a direction plus the two endpoint readings that justify it. Absent/null when there is not enough history to say anything -- coin-cell voltage is noisy and temperature-sensitive, so a direction is never invented from two adjacent packets. NEVER a remaining-life estimate in any unit (days/weeks/months/years) -- the only acceptable durability statement is a vendor claim, quoted as a vendor claim, and it belongs in docs, not here. */
+        HerdSignalBatteryTrend: {
+            direction: components["schemas"]["HerdSignalBatteryTrendDirection"];
+            /** @description The trend window in days (PROVISIONAL default 30). */
+            window_days: number;
+            /** @description First battery_mv reading in the window. */
+            first_mv: number;
+            /** Format: date-time */
+            first_at: string;
+            /** @description Last (most recent) battery_mv reading in the window. */
+            last_mv: number;
+            /** Format: date-time */
+            last_at: string;
+        };
         /**
          * @description Computed "ok"/"abnormal" summary of temperature_sensor_ok/accelerometer_sensor_ok. Never the raw device sensor_state bitfield.
          * @enum {string}
@@ -4122,10 +4141,10 @@ export interface components {
             last_seen_at: string | null;
             rssi_dbm: number | null;
             signal_state: components["schemas"]["HerdSignalTone"] | null;
+            /** @description Direct reading (voltage in mV). Must stay first among the battery fields. */
             battery_mv: number | null;
             battery_state: components["schemas"]["HerdSignalBatteryState"] | null;
-            /** @description PROVISIONAL coarse estimate ("~12 days (provisional)"), pending vendor discharge-curve data. */
-            battery_life_estimate: string | null;
+            battery_trend: components["schemas"]["HerdSignalBatteryTrend"] | null;
             /** @description Measured at the tag's own sensor housing, never the animal's body temperature. */
             tag_temperature_c: number | null;
             /** Format: int64 */

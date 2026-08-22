@@ -10669,7 +10669,34 @@ components:
       enum: [strong, ok, weak]
     HerdSignalBatteryState:
       type: string
-      enum: [ok, low]
+      description: >-
+        Composed from an absolute voltage band plus the tag's own voltage trend (maintainer
+        decision, replacing a removed remaining-life estimate -- the tag reports voltage only).
+        healthy >= 3.00V; watch is 2.80-2.99V OR voltage falling against the tag's own history;
+        low < 2.80V; critical < 2.60V, or the tag went quiet (missing signal) after voltage was
+        falling (critical-on-silence -- INFERRED, never a claim the tag is dead). All thresholds
+        PROVISIONAL pending vendor confirmation.
+      enum: [healthy, watch, low, critical]
+    HerdSignalBatteryTrendDirection:
+      type: string
+      enum: [stable, falling]
+    HerdSignalBatteryTrend:
+      type: object
+      description: >-
+        Compact voltage trend: a direction plus the two endpoint readings that justify it.
+        Absent/null when there is not enough history to say anything -- coin-cell voltage is
+        noisy and temperature-sensitive, so a direction is never invented from two adjacent
+        packets. NEVER a remaining-life estimate in any unit (days/weeks/months/years) -- the
+        only acceptable durability statement is a vendor claim, quoted as a vendor claim, and it
+        belongs in docs, not here.
+      properties:
+        direction: { $ref: '#/components/schemas/HerdSignalBatteryTrendDirection' }
+        window_days: { type: integer, description: The trend window in days (PROVISIONAL default 30). }
+        first_mv: { type: integer, description: First battery_mv reading in the window. }
+        first_at: { type: string, format: date-time }
+        last_mv: { type: integer, description: Last (most recent) battery_mv reading in the window. }
+        last_at: { type: string, format: date-time }
+      required: [direction, window_days, first_mv, first_at, last_mv, last_at]
     HerdSignalSensorState:
       type: string
       description: Computed "ok"/"abnormal" summary of temperature_sensor_ok/accelerometer_sensor_ok. Never the raw device sensor_state bitfield.
@@ -10706,12 +10733,11 @@ components:
         last_seen_at: { type: string, format: date-time, nullable: true }
         rssi_dbm: { type: integer, nullable: true }
         signal_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalTone' }], nullable: true }
-        battery_mv: { type: integer, nullable: true }
+        battery_mv: { type: integer, nullable: true, description: Direct reading (voltage in mV). Must stay first among the battery fields. }
         battery_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalBatteryState' }], nullable: true }
-        battery_life_estimate:
-          type: string
+        battery_trend:
+          allOf: [{ $ref: '#/components/schemas/HerdSignalBatteryTrend' }]
           nullable: true
-          description: PROVISIONAL coarse estimate ("~12 days (provisional)"), pending vendor discharge-curve data.
         tag_temperature_c:
           type: number
           nullable: true
@@ -10735,7 +10761,7 @@ components:
             gap this long means nothing was received, and the delta on reconnect is a total with
             unknown time distribution), not this window's own movement. Render distinctly, never
             as an ordinary delta.
-      required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_life_estimate, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
+      required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
     HerdSignalsLiveResponse:
       type: object
       properties:
