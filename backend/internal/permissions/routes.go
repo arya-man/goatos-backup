@@ -467,6 +467,16 @@ var protectedRoutes = []Route{
 	{OperationID: "getHerdSignalsTagTimeline", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/timeline", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "listHerdSignalsGateways", Method: "GET", Pattern: "/herd-signals/gateways", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getHerdSignalsInsights", Method: "GET", Pattern: "/herd-signals/insights", Permissions: []string{HerdSignalsRead}},
+	// The mapping WRITES. HerdSignalsMap, never HerdSignalsRead: deciding which animal a tag
+	// belongs to is not the same authority as looking at the dashboard -- it is the decision
+	// every animal-attributed number in the module depends on, and it starts that animal's
+	// monitoring period.
+	{OperationID: "bindHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings", Permissions: []string{HerdSignalsMap}},
+	{OperationID: "replaceHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings/replace", Permissions: []string{HerdSignalsMap}},
+	{OperationID: "setHerdSignalSmartTagCapable", Method: "POST", Pattern: "/herd-signals/identifiers/{identifier_id}/smart-tag", Permissions: []string{HerdSignalsMap}},
+	// Gateway heartbeat: a DEVICE write, same credential class as packet ingest, so it carries
+	// HerdSignalsIngest rather than an operator permission.
+	{OperationID: "recordHerdSignalGatewayHeartbeat", Method: "POST", Pattern: "/herd-signals/heartbeats", Permissions: []string{HerdSignalsIngest}},
 	{OperationID: "exportHerdSignalsCsv", Method: "GET", Pattern: "/herd-signals/export.csv", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getHerdSignalsTagActivity", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/activity", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getFeedAnalyticsDirected", Method: "GET", Pattern: "/feed-analytics/directed", Permissions: []string{FeedDirectionRead}},
