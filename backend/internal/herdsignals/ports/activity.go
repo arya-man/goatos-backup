@@ -14,7 +14,7 @@ type TagActivityScope struct {
 	TagID  string
 	TagMAC string
 	// GoatID is empty when the tag resolves to no active smart-tag-capable identifier. An
-	// empty GoatID means NO farm activity may be produced at all (migration 000196): the
+	// empty GoatID means NO farm activity may be produced at all (migration 000197): the
 	// packets are device telemetry and there is no animal to attribute anything to.
 	GoatID   string
 	ShedID   string

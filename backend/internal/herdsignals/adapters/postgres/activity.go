@@ -18,7 +18,7 @@ import (
 // instant the tag became that animal's tag.
 //
 // The monitoring boundary is read from goat_identifiers.smart_tag_mapped_at FIRST, because the
-// identifier carries the authoritative stamp (migration 000196: mapping is an identifier-level
+// identifier carries the authoritative stamp (migration 000197: mapping is an identifier-level
 // fact -- an animal can carry several identifiers, and re-tagging starts a NEW monitoring period
 // for the new tag while the old one stops). herd_signal_tag_latest.animal_monitoring_since is
 // the denormalised copy and is used only as a fallback, so a row that has not been backfilled

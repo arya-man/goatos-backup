@@ -11,7 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// Proofs of the herd-signals SQL against the REAL migration schema (000190/000191/000192):
+// Proofs of the herd-signals SQL against the REAL migration schema (000191/000192/000193):
 // packet ingest, activity-window rollup, tag_latest state computation, the live-view join, the
 // summary aggregate, the timeline query, and the insights joins.
 //
