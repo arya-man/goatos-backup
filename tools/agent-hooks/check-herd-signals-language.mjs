@@ -25,11 +25,16 @@
 //     detect eating", "not rumination", "never claims fever") or listed
 //     inside a banned-terms/vocabulary table (this file, and
 //     docs/modules/herd-signals.md Section 3/4 itself, are allowlisted by
-//     path — see ALLOWLISTED_FILES). Denial detection is WINDOW-based, not
-//     single-line: a negation on the line(s) before or after the term is
-//     recognized too, so a denial sentence wrapped by JSX/prose line breaks
-//     ("... own sensor housing — not the\n  animal's body temperature.") is
-//     still read as one sentence — see WINDOW_BEFORE/WINDOW_AFTER below.
+//     path — see ALLOWLISTED_FILES). Denial detection is SENTENCE-scoped,
+//     not single-line and not a flat line-count window: a negation is only
+//     honored if it falls in the SAME sentence as the term (before it),
+//     found by walking outward from the term's line until a real sentence
+//     boundary (. ! ? ; / blank line / JSX tag edge / list-item start). This
+//     is what makes a denial sentence wrapped by JSX/prose line breaks
+//     ("... own sensor housing — not the\n  animal's body temperature.") read
+//     correctly as one sentence, while an unrelated negation on a PRIOR,
+//     already-ended sentence nearby does NOT suppress a genuine claim on the
+//     next one — see buildSentenceWindow below.
 //   body-temp-mislabel
 //     "body temp" / "body temperature" used as a FIELD LABEL/VALUE where
 //     "tag temperature" is meant (e.g. a struct field, JSON key, UI label,
@@ -84,18 +89,33 @@
 // - It cannot verify negation phrasing is TRUE (i.e. that a denial like
 //   "does not detect eating" accurately reflects the code) — only that the
 //   sentence is grammatically a denial, not a claim.
-// - Negation scope is a WINDOW, not the whole file: a denial is recognized if
-//   the negation word and the banned term/"body temp" fall within
-//   WINDOW_BEFORE lines before / WINDOW_AFTER lines after each other (see the
-//   constants below the imports), after whitespace-normalizing and joining
-//   that span into one string -- this is what makes JSX text wrapped across
-//   lines ("... own sensor housing -- not the\n  animal's body temperature.")
-//   correctly read as a denial instead of false-positiving on the second
-//   line alone. A denial whose negation sits FURTHER than WINDOW_BEFORE lines
-//   before the term, or WINDOW_AFTER lines after it (an intervening
-//   paragraph, a closing JSX tag and a new element, etc.) is still outside
-//   the window and can false-positive; widen the constants or use the
-//   `herd-signals-language:ignore:` escape hatch for that rare shape.
+// - Negation scope is SENTENCE-scoped, not line-scoped and not a flat
+//   line-count window. A denial is recognized only if the negation word and
+//   the banned term/"body temp" fall in the SAME sentence, with the negation
+//   BEFORE the term. "Same sentence" is found by walking outward from the
+//   candidate line (bounded by WINDOW_BEFORE/WINDOW_AFTER lines, see the
+//   constants below) and stopping at a real sentence boundary: end-of-line
+//   punctuation (. ! ? ;), a blank line, a JSX tag boundary (a line ending in
+//   `>` or starting with `<`), or a list-item start (`-`, `*`, `1.`). A
+//   newline INSIDE a sentence (no boundary punctuation yet) is NOT a
+//   boundary, which is what makes wrapped prose/JSX text still read as one
+//   sentence ("... own sensor housing -- not the\n  animal's body
+//   temperature." stays one denial). This closes the earlier flat-window
+//   false negative where an unrelated "no"/"not" on a PRIOR, already-ended
+//   sentence (e.g. a preceding comment ending in a period, "// There is no
+//   cursor on the first page.") could silently suppress a genuine claim on
+//   the next sentence merely by being nearby.
+//   Residual blind spot: sentence-boundary detection is a static heuristic,
+//   not a parser. It cannot see a sentence boundary that falls MID-LINE (a
+//   period followed immediately by more prose on the very same physical
+//   line, e.g. `"Fine. The animal is eating."` on one line) — a negation
+//   before the period and a claim after it on that SAME line are still
+//   merged into one "sentence" span and evaluated together. It also caps how
+//   far outward it will walk at WINDOW_BEFORE/WINDOW_AFTER lines even if no
+//   boundary is found in that span, so a genuinely boundary-free multi-page
+//   run-on comment could still merge unrelated context past that cap; widen
+//   the constants or use the `herd-signals-language:ignore:` escape hatch
+//   for that rare shape.
 // - Only the FIRST banned-term match per line is evaluated by the
 //   banned-claim check (one `.match()` call, not a global scan); a line
 //   with multiple distinct banned terms only has its first one judged
