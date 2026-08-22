@@ -2958,6 +2958,16 @@ select:disabled { opacity: .45; }
 .herd-signals-page .legend{display:flex;flex-wrap:wrap;gap:10px 12px;padding:8px 15px 0;font-size:11px;color:var(--muted)}
 .herd-signals-page .legend span{display:inline-flex;align-items:center;gap:5px}
 .herd-signals-page .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+/* The legend swatches are plain <i> elements outside .hchart, so the .hchart-scoped `fill` rules
+   above never reached them -- they rendered colourless. Fixed alongside adding .b-reconnect since
+   this legend's correctness (including its new reconnect entry) is exactly what is being verified
+   here; each swatch sets `color` so the JSX's `background: currentColor` picks it up. */
+.herd-signals-page .legend i.b-move{color:var(--ok)}
+.herd-signals-page .legend i.b-low{color:var(--muted)}
+.herd-signals-page .legend i.b-zero{color:var(--line)}
+.herd-signals-page .legend i.b-spike{color:var(--warn)}
+.herd-signals-page .legend i.gap{color:var(--danger)}
+.herd-signals-page .legend i.b-reconnect{color:var(--purple)}
 .herd-signals-page .readout{font-size:11.5px;color:var(--muted);padding:8px 15px 13px;min-height:34px;line-height:1.5}
 .herd-signals-page .readout b{color:var(--ink);font-variant-numeric:tabular-nums}
 
@@ -2966,9 +2976,14 @@ select:disabled { opacity: .45; }
 .herd-signals-page .hchart .b-low{fill:var(--muted);opacity:.55}
 .herd-signals-page .hchart .b-zero{fill:var(--line)}
 .herd-signals-page .hchart .b-spike{fill:var(--warn)}
+/* Reconnect delta: a recovered TOTAL across an unknown span inside a reception gap, not a normal
+   reading. Deliberately distinct from every other bar class -- purple (matches .t-purple/.srcl
+   .inferred elsewhere in this file) with a diagonal hatch, so it can never be mistaken for
+   .b-spike (a real burst claim) at a glance. */
+.herd-signals-page .hchart .b-reconnect{fill:var(--purple);stroke:var(--purple);stroke-width:1;stroke-dasharray:2 2}
 .herd-signals-page .hchart .gap{fill:var(--danger);opacity:.22;cursor:pointer}
 .herd-signals-page .hchart .gap:hover{opacity:.32}
-.herd-signals-page .hchart .b-move:hover,.herd-signals-page .hchart .b-low:hover,.herd-signals-page .hchart .b-zero:hover,.herd-signals-page .hchart .b-spike:hover{opacity:.75;cursor:pointer}
+.herd-signals-page .hchart .b-move:hover,.herd-signals-page .hchart .b-low:hover,.herd-signals-page .hchart .b-zero:hover,.herd-signals-page .hchart .b-spike:hover,.herd-signals-page .hchart .b-reconnect:hover{opacity:.8;cursor:pointer}
 .herd-signals-page .hchart .gl{stroke:var(--line2);stroke-width:1}
 .herd-signals-page .hchart .base{stroke:var(--info);stroke-width:1;stroke-dasharray:3 3;opacity:.7}
 
