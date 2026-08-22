@@ -2877,9 +2877,11 @@ select:disabled { opacity: .45; }
 
 .herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
 .herd-signals-page .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
-.herd-signals-page .fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer}
+/* A global form-control rule pads every bare <select> 8px 10px, which inflated each .fsel pill to
+   47px against the mock's 32px and wrapped the filter bar and pager onto extra rows. */
+.herd-signals-page .fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;padding:0;line-height:normal}
 .herd-signals-page .fsel.search{flex:1 1 320px;min-width:220px}
-.herd-signals-page .fsel.search input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0}
+.herd-signals-page .fsel.search input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;padding:0;line-height:normal}
 .herd-signals-page .fsel.search input::placeholder{color:var(--faint)}
 .herd-signals-page .qclr{border:0;background:transparent;color:var(--faint);cursor:pointer;font:inherit;padding:0 2px}
 .herd-signals-page .fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
@@ -2897,6 +2899,8 @@ select:disabled { opacity: .45; }
 .herd-signals-page .kpi .act{display:none;font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--brand-d);margin-top:4px}
 .herd-signals-page .kpi.active{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft),var(--shadow)}
 .herd-signals-page .kpi.active .act{display:block}
+.herd-signals-page .kpi .hint{font-size:10px;color:var(--faint);margin-top:4px;opacity:0;transition:opacity .12s}
+.herd-signals-page .kpi:hover .hint{opacity:1}
 .herd-signals-page .kpi .ty{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);margin-top:4px}
 .herd-signals-page .kpi.k-ok{border-left-color:var(--ok)}.herd-signals-page .kpi.k-ok .val{color:var(--ok)}
 .herd-signals-page .kpi.k-warn{border-left-color:var(--warn)}.herd-signals-page .kpi.k-warn .val{color:var(--warn)}
@@ -2910,7 +2914,7 @@ select:disabled { opacity: .45; }
    the label/value weights the judge flagged as drifted (11/600 -> 10.5/800, 800/-0.6 -> 760/-0.5). */
 .herd-signals-page .kpi{border-left-width:3px;border-radius:10px;padding:11px 13px}
 .herd-signals-page .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px}
-.herd-signals-page .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px}
+.herd-signals-page .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px}
 .herd-signals-page .kpi .dl{font-size:11px;font-weight:400;color:var(--muted)}
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
    pill. Scoped to this page so it never touches an unrelated screen's .tag. */
@@ -2962,6 +2966,9 @@ select:disabled { opacity: .45; }
 @keyframes hs-sk{0%{background-position:120% 0}100%{background-position:-120% 0}}
 
 .herd-signals-page .pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 15px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted)}
+/* The rows-per-page pill is the one control the mock keeps in the card header instead; sized to the
+   pager buttons so it cannot make this bar taller than the mock's 52px. */
+.herd-signals-page .pager .fsel{padding:4px 9px}
 .herd-signals-page .pager.pager-top{border-top:0;border-bottom:1px solid var(--line2)}
 .herd-signals-page .pager b{color:var(--ink);font-variant-numeric:tabular-nums}
 .herd-signals-page .pgbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}
