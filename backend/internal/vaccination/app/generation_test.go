@@ -4406,3 +4406,98 @@ func TestParkScopedGenerationStillSupersedesTheWorkItReplaces(t *testing.T) {
 		t.Fatalf("cancel reason = %q, want protocol_version_replaced", obl.cancelReasons[0])
 	}
 }
+
+// A held animal's repeat dose must actually BE held, even after its plan is replaced.
+//
+// The row under generation's own key is canceled by the replacement, the cycle exists again
+// under another writer's key, and the animal is sick. Reconciling the key just computed
+// would reconcile nothing and leave that existing row SCHEDULED: work an operator sees as
+// due, on an animal that is not fit for it.
+//
+// This drives the main generation path, which is the one that reaches this state. The same
+// by-cause resolution exists in insertSuccessorForCanceledGenerationReplay, and is
+// deliberately belt-and-braces: with the main path resolving first I could not construct an
+// input that reaches the successor branch, so that copy is defensive rather than proven.
+func TestHeldGoatKeepsItsExistingRepeatCycleDeferredAfterPlanReplacement(t *testing.T) {
+	ctx := context.Background()
+	administered := time.Date(2026, time.January, 6, 9, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.September, 1, 6, 0, 0, 0, time.UTC)
+	newProto := func() *generationProtoFake {
+		return &generationProtoFake{
+			ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+			rules: []protodomain.Rule{{
+				RuleID: "rule-fmd-repeat", DoseCode: "fmd_adult_repeat", Sequence: 2,
+				TriggerType: "after_previous_completion", OffsetDays: 274, DueWindowDays: 30, Repeat: "every_n_days",
+			}},
+		}
+	}
+	goat := domain.EligibleGoat{
+		GoatID: "held-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+		ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-1", ParkID: "cpt",
+	}
+	history := map[string][]domain.RecentVaccineAdministration{
+		"held-goat": {{
+			AdministeredAt: administered, VaccineCode: "FMD", VaccineType: "killed",
+			PathogenClass: "viral", DoseCode: "fmd_adult_repeat", Sequence: 2,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{goat}, vaccineHistory: history}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	// 1. A healthy pass, so the row exists under GENERATION's own key.
+	if _, err := NewGenerationService(newProto(), goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("first pass: %v", err)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("first pass inserted %d rows, want 1", len(obl.inserted))
+	}
+	generationKey := obl.inserted[0].IdempotencyKey
+
+	// 2. That row is canceled by a plan replacement -- a reason that MINTS a successor, which
+	//    is the only way into the replay path this test exists to cover.
+	obl.inserted[0].Status = "canceled"
+	if obl.cancelReasonsByKey == nil {
+		obl.cancelReasonsByKey = map[string]string{}
+	}
+	obl.cancelReasonsByKey[generationKey] = "protocol_version_replaced"
+
+	// 3. Meanwhile the cycle exists again, SCHEDULED, under another writer's key.
+	cause := obldomain.RepeatCycleRef("FMD", administered, 2)
+	anchorAt := administered
+	if _, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: "rule-fmd-repeat",
+		TargetType: "goat", TargetID: "held-goat", ScopeType: "shed", ScopeID: "shed-1",
+		DueAt: businessDayStart(administered).AddDate(0, 0, 269), Status: "scheduled",
+		IdempotencyKey: "booster:next-cycle", Sequence: 2,
+		RepeatCycle: &obldomain.RepeatCycleSource{
+			Source: obldomain.RepeatCycleSourceTrustedHistory, SourceRef: cause, AnchorAt: &anchorAt,
+		},
+	}); err != nil || !applied {
+		t.Fatalf("seed the existing scheduled cycle: applied=%v err=%v", applied, err)
+	}
+
+	// 4. The animal is now held, and generation runs again.
+	goats.list = []domain.EligibleGoat{{
+		GoatID: "held-goat", LifecycleStatus: "alive", HealthStatus: "sick",
+		ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-1", ParkID: "cpt",
+	}}
+	if _, err := NewGenerationService(newProto(), goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("held pass: %v", err)
+	}
+
+	var survivor *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].IdempotencyKey == "booster:next-cycle" {
+			survivor = &obl.inserted[i]
+		}
+	}
+	if survivor == nil {
+		t.Fatal("the pre-existing cycle row disappeared")
+	}
+	if survivor.Status != "deferred" {
+		t.Fatalf("the existing repeat dose is still %q for a sick animal; it must be held", survivor.Status)
+	}
+	if len(obl.inserted) != 2 {
+		t.Fatalf("rows = %d, want the canceled original and the one surviving cycle", len(obl.inserted))
+	}
+}

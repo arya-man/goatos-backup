@@ -1891,12 +1891,36 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		// Replay: reconcile the existing successor row with the goat's CURRENT clinical status.
 		// A still-held goat must keep (or re-enter) deferred — reopening here would wrongly
 		// schedule work for a sick/ICU goat.
+		//
+		// WHICH row, though. The insert is refused for two different reasons and only one of
+		// them is a key collision: a repeat cycle is refused by its CAUSE, so the row already
+		// holding it can sit under an entirely different key. Reconciling the key we just
+		// computed then reconciles nothing, and the held animal's existing repeat dose stays
+		// SCHEDULED -- work an operator sees as due for an animal that is sick.
+		//
+		// Defensive, honestly labelled: the caller resolves the same way before it ever gets
+		// here, so no test input reaches this branch today. It is kept because the two paths
+		// must not disagree about what a refusal means -- the last time they did, that
+		// disagreement was the bug.
+		reconcileKey := successor.IdempotencyKey
+		if base.RepeatCycle.Valid() {
+			survivor, found, lookupErr := s.obl.OpenObligationForRepeatCycle(
+				ctx, tenantID, base.ProtocolVersionID, base.RuleID, base.TargetType, base.TargetID,
+				base.Sequence, base.RepeatCycle.SourceRef,
+			)
+			if lookupErr != nil {
+				return obldomain.ObligationRef{}, false, false, lookupErr
+			}
+			if found && strings.TrimSpace(survivor.IdempotencyKey) != "" {
+				reconcileKey = survivor.IdempotencyKey
+			}
+		}
 		var ref obldomain.ObligationRef
 		var changed bool
 		if deferred {
-			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, deferReason, asOf)
+			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, reconcileKey, deferReason, asOf)
 		} else {
-			ref, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, asOf, nil)
+			ref, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, reconcileKey, asOf, nil)
 		}
 		if err != nil {
 			return obldomain.ObligationRef{}, false, false, err

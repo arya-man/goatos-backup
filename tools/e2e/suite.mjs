@@ -198,11 +198,15 @@ async function startVersion() {
   //
   // So: wait for the control, click, and if the URL has not moved, click once more. A
   // second dropped click is a real failure and still times out.
+  // The list offers exactly one of two controls -- "Start a new version" when no draft
+  // exists, "Open V…" when one does -- and which one is only knowable once the page has
+  // rendered. Asking count() first raced that: on a slow render it saw zero buttons, chose
+  // the link, and then waited thirty seconds for a link that was never going to appear on a
+  // page whose actual control was the button. Wait for EITHER, then use whichever arrived.
   const start = page.getByRole("button", { name: /Start a new version/i });
-  const control = (await start.count())
-    ? start
-    : page.getByRole("link", { name: /^Open V\d/i }).first();
-  await control.waitFor({ state: "visible", timeout: 30000 });
+  const open = page.getByRole("link", { name: /^Open V\d/i }).first();
+  await start.or(open).first().waitFor({ state: "visible", timeout: 30000 });
+  const control = (await start.count()) ? start : open;
   await control.click();
   try {
     await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 15000 });
