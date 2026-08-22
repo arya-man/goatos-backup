@@ -69,6 +69,19 @@ SET display_name = initcap(replace(replace(split_part(email, '@', 1), '.', ' '),
 WHERE display_name = 'CEO/CXO'
   AND email IS NOT NULL;
 
+-- Rows created before these columns existed carry only display_name. Split it
+-- once — first word = first name, remainder = last name — so the directory
+-- drawer shows structured names for everyone, not just people added through
+-- the new flow. display_name itself is untouched.
+-- seed-migration-guard:ignore owner=maintainer issue=people-hrms-rewrite reason=one-time-display-name-split-into-new-nullable-columns;-display_name-unchanged expiry=2026-11-30
+UPDATE public.workforce_members
+SET first_name = COALESCE(first_name, nullif(split_part(btrim(display_name), ' ', 1), '')),
+    last_name  = COALESCE(last_name,
+                          nullif(btrim(substr(btrim(display_name),
+                                              length(split_part(btrim(display_name), ' ', 1)) + 1)), ''))
+WHERE first_name IS NULL
+  AND btrim(display_name) <> '';
+
 CREATE UNIQUE INDEX IF NOT EXISTS workforce_members_tenant_email_uq
   ON public.workforce_members (tenant_id, lower(email))
   WHERE email IS NOT NULL;
