@@ -1,0 +1,513 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+)
+
+// Service implements the herd signals business logic.
+type Service struct {
+	repo       ports.Repository
+	log        *slog.Logger
+	thresholds domain.Thresholds
+}
+
+// NewService creates a new herd signals service.
+func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
+	l := slog.Default()
+	if len(log) > 0 && log[0] != nil {
+		l = log[0]
+	}
+	return &Service{
+		repo:       repo,
+		log:        l,
+		thresholds: domain.DefaultThresholds(),
+	}
+}
+
+// WithThresholds overrides the default thresholds.
+func (s *Service) WithThresholds(t domain.Thresholds) *Service {
+	s.thresholds = t
+	return s
+}
+
+// IngestPackets ingests a batch of raw BLE packets and updates tag latest state.
+func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error) {
+	// Validate actor
+	if actor.TenantID == "" || actor.UserID == "" {
+		return domain.IngestResponse{}, fmt.Errorf("actor tenant_id and user_id required")
+	}
+
+	// Parse gateway_seen_at timestamp
+	gatewaySeen, err := time.Parse(time.RFC3339, req.GatewaySeen)
+	if err != nil {
+		return domain.IngestResponse{}, fmt.Errorf("invalid gateway_seen_at: %w", err)
+	}
+
+	// Convert request packets to domain packets
+	packets := make([]domain.Packet, 0, len(req.Packets))
+	for _, p := range req.Packets {
+		seenAt, err := time.Parse(time.RFC3339, p.SeenAt)
+		if err != nil {
+			s.log.Warn("skipping packet with invalid seen_at", "seen_at", p.SeenAt, "tag_id", p.TagID)
+			continue
+		}
+
+		packets = append(packets, domain.Packet{
+			PacketID:              "", // DB will generate
+			TenantID:              actor.TenantID,
+			GatewayID:             &req.GatewayID,
+			Source:                "gateway",
+			TagID:                 p.TagID,
+			TagMAC:                &p.TagMAC,
+			ReceivedAt:            seenAt,
+			GatewaySeenAt:         &gatewaySeen,
+			RSSIdbm:               p.RSSI,
+			BatteryMV:             p.Battery,
+			TagTemperatureC:       p.TagTemperature,
+			MotionCount:           p.MotionCount,
+			SensorState:           p.SensorState,
+			TemperatureSensorOK:   p.TemperatureSensorOK,
+			AccelerometerSensorOK: p.AccelerometerSensorOK,
+			RawAdv:                p.RawAdv,
+			RawPayload:            map[string]interface{}{},
+		})
+	}
+
+	if len(packets) == 0 {
+		return domain.IngestResponse{}, fmt.Errorf("no valid packets in request")
+	}
+
+	gw := domain.Gateway{
+		TenantID:   actor.TenantID,
+		GatewayID:  req.GatewayID,
+		Status:     "active",
+		LastSeenAt: &gatewaySeen,
+	}
+
+	// Gateway upsert, packet insert, activity-window rollup, and tag_latest update all happen in
+	// ONE transaction inside the repository (see postgres.Repository.IngestPackets).
+	traceID := httpmiddleware.TraceIDFromContext(ctx)
+	stored, latestUpdated, err := s.repo.IngestPackets(ctx, actor.TenantID, gw, packets)
+	if err != nil {
+		s.log.Error("failed to ingest packets", "gateway_id", req.GatewayID, "packet_count", len(packets), "error", err)
+		return domain.IngestResponse{}, fmt.Errorf("ingest failed: %w", err)
+	}
+
+	return domain.IngestResponse{
+		Accepted:      len(req.Packets),
+		Stored:        stored,
+		LatestUpdated: latestUpdated,
+		TraceID:       traceID,
+	}, nil
+}
+
+// ListLive fetches the current tag status with optional filters and pagination.
+func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (domain.LiveResponse, error) {
+	if actor.TenantID == "" {
+		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
+	}
+
+	tags, summary, nextCursor, err := s.repo.ListTagsLatest(
+		ctx, actor.TenantID, parkID, shedID, movementState, mapped, cursor, limit,
+	)
+	if err != nil {
+		s.log.Error("failed to list tags latest", "error", err)
+		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
+	}
+
+	items := s.enrichTagsBatch(ctx, actor.TenantID, tags)
+
+	return domain.LiveResponse{
+		Summary:    summary,
+		Items:      items,
+		NextCursor: nextCursor,
+	}, nil
+}
+
+// GetTimeline fetches motion history for a tag.
+func (s *Service) GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error) {
+	if actor.TenantID == "" {
+		return domain.TimelineResponse{}, fmt.Errorf("actor tenant_id required")
+	}
+
+	fromTime, err := time.Parse(time.RFC3339, from)
+	if err != nil {
+		return domain.TimelineResponse{}, fmt.Errorf("invalid from timestamp: %w", err)
+	}
+
+	toTime, err := time.Parse(time.RFC3339, to)
+	if err != nil {
+		return domain.TimelineResponse{}, fmt.Errorf("invalid to timestamp: %w", err)
+	}
+
+	if toTime.Before(fromTime) {
+		return domain.TimelineResponse{}, fmt.Errorf("to must not be before from")
+	}
+
+	// Defect fix: the timeline used to hardcode bucket_seconds=60 regardless of range. Select
+	// the tier from the requested range when the caller did not pin one; when the caller DID
+	// pin one, it must be a tier activity windows are actually stored at (60/300/3600) or the
+	// request is rejected rather than silently coerced.
+	if bucketSeconds == 0 {
+		bucketSeconds = domain.SelectBucketTier(fromTime, toTime)
+	} else if !domain.IsSupportedBucketSeconds(bucketSeconds) {
+		return domain.TimelineResponse{}, fmt.Errorf("unsupported bucket_seconds %d: must be one of %v", bucketSeconds, domain.SupportedBucketSeconds)
+	}
+
+	// Bound the bucket count regardless of range/tier combination (AGENTS.md scale
+	// anti-patterns: never serve an unbounded range).
+	requestedBuckets := int(toTime.Sub(fromTime)/(time.Duration(bucketSeconds)*time.Second)) + 1
+	if requestedBuckets > domain.MaxTimelineBuckets {
+		return domain.TimelineResponse{}, fmt.Errorf("requested range spans %d buckets at %ds resolution, exceeds max %d: narrow the range or request a coarser bucket_seconds", requestedBuckets, bucketSeconds, domain.MaxTimelineBuckets)
+	}
+
+	windows, err := s.repo.ListActivityWindows(ctx, actor.TenantID, tagID, fromTime, toTime, bucketSeconds)
+	if err != nil {
+		s.log.Error("failed to list activity windows", "tag_id", tagID, "error", err)
+		return domain.TimelineResponse{}, fmt.Errorf("list windows failed: %w", err)
+	}
+
+	// The stored windows are sparse (a bucket with no packets has no row). Densify: a caller
+	// must be able to tell "no packets" (is_gap=true) apart from "packets arrived, zero
+	// movement" (packet_count>0, motion_delta=0) -- that distinction is the whole product
+	// requirement, so it must never collapse into a missing array entry.
+	byBucket := make(map[int64]domain.ActivityWindow, len(windows))
+	for _, w := range windows {
+		byBucket[w.BucketStart.Unix()] = w
+	}
+
+	bucketDur := time.Duration(bucketSeconds) * time.Second
+	start := fromTime.Truncate(bucketDur)
+	tlWindows := make([]domain.TimelineWindow, 0, requestedBuckets)
+	for t := start; !t.After(toTime); t = t.Add(bucketDur) {
+		if w, ok := byBucket[t.Unix()]; ok {
+			tlWindows = append(tlWindows, domain.TimelineWindow{
+				BucketStart:      w.BucketStart,
+				BucketSeconds:    w.BucketSeconds,
+				FirstMotionCount: w.FirstMotionCount,
+				LastMotionCount:  w.LastMotionCount,
+				MotionDelta:      w.MotionDelta,
+				PacketCount:      w.PacketCount,
+				AvgRSSIdbm:       w.AvgRSSIdbm,
+				MinRSSIdbm:       w.MinRSSIdbm,
+				MaxRSSIdbm:       w.MaxRSSIdbm,
+				FirstSeenAt:      w.FirstSeenAt,
+				LastSeenAt:       w.LastSeenAt,
+				IsGap:            w.PacketCount == 0,
+			})
+			continue
+		}
+		tlWindows = append(tlWindows, domain.TimelineWindow{
+			BucketStart:   t,
+			BucketSeconds: bucketSeconds,
+			IsGap:         true,
+		})
+	}
+
+	return domain.TimelineResponse{
+		TagID:   tagID,
+		Windows: tlWindows,
+	}, nil
+}
+
+// ListGateways fetches all gateways for the tenant.
+func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error) {
+	if actor.TenantID == "" {
+		return domain.GatewaysResponse{}, fmt.Errorf("actor tenant_id required")
+	}
+
+	gws, err := s.repo.GetGatewaysByTenant(ctx, actor.TenantID)
+	if err != nil {
+		s.log.Error("failed to list gateways", "error", err)
+		return domain.GatewaysResponse{}, fmt.Errorf("list gateways failed: %w", err)
+	}
+
+	shedIDs := make([]string, 0, len(gws))
+	seen := make(map[string]struct{})
+	for _, gw := range gws {
+		if gw.ShedID != nil && *gw.ShedID != "" {
+			if _, ok := seen[*gw.ShedID]; !ok {
+				seen[*gw.ShedID] = struct{}{}
+				shedIDs = append(shedIDs, *gw.ShedID)
+			}
+		}
+	}
+	locations, err := s.repo.GetShedLocations(ctx, actor.TenantID, shedIDs)
+	if err != nil {
+		s.log.Warn("failed to resolve gateway shed locations", "error", err)
+		locations = map[string]ports.ShedLocation{}
+	}
+
+	items := make([]domain.GatewayItem, len(gws))
+	for i, gw := range gws {
+		label := gw.Label
+		networkMode := gw.NetworkMode
+		wifiMAC := gw.WifiMAC
+		bleMAC := gw.BLEMAC
+
+		var shedName, partitionLabel, parkID, parkName *string
+		var locDisplay string
+		if gw.ShedID != nil {
+			if loc, ok := locations[*gw.ShedID]; ok {
+				shedName = &loc.ShedName
+				if loc.PartitionLabel != "" {
+					partitionLabel = &loc.PartitionLabel
+				}
+				if loc.ParkID != "" {
+					parkID = &loc.ParkID
+				}
+				if loc.ParkName != "" {
+					parkName = &loc.ParkName
+				}
+				opLoc := oploc.OperationalLocation{ShedName: loc.ShedName, PartitionLabel: loc.PartitionLabel}
+				locDisplay = opLoc.Display()
+			}
+		}
+
+		items[i] = domain.GatewayItem{
+			GatewayID:        gw.GatewayID,
+			Label:            &label,
+			ParkID:           parkID,
+			ParkName:         parkName,
+			ShedID:           gw.ShedID,
+			ShedName:         shedName,
+			PartitionLabel:   partitionLabel,
+			LocationDisplay:  &locDisplay,
+			NetworkMode:      &networkMode,
+			WifiMAC:          &wifiMAC,
+			BLEMAC:           &bleMAC,
+			LastSeenAt:       gw.LastSeenAt,
+			Status:           gw.Status,
+			TagsSeenRecently: 0, // TODO: not yet computed; requires a per-gateway tag_latest aggregate.
+			WeakTags:         0,
+			UnmappedTags:     0,
+		}
+	}
+
+	return domain.GatewaysResponse{Gateways: items}, nil
+}
+
+// GetInsights computes the 12 GET /herd-signals/insights cards. Backend owns the label/unit/
+// signal_type/formula/caveat copy for every card (AGENTS.md backend-owns-labels rule);
+// admin-web renders it verbatim.
+func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error) {
+	if actor.TenantID == "" {
+		return domain.InsightsResponse{}, fmt.Errorf("actor tenant_id required")
+	}
+
+	d, err := s.repo.GetInsightsData(ctx, actor.TenantID)
+	if err != nil {
+		s.log.Error("failed to compute insights data", "error", err)
+		return domain.InsightsResponse{}, fmt.Errorf("insights failed: %w", err)
+	}
+
+	cards := []domain.InsightCard{
+		{
+			Key: "tags_live_now", Label: "Tags live now", Value: fmt.Sprintf("%d", d.TagsLiveNow), Unit: "tags",
+			SignalType: "direct", Formula: "count(herd_signal_tag_latest) where last_seen_at within stale window",
+			Caveat: "Counts tags that have sent a packet recently; a tag with no packet in 30+ minutes is excluded, not shown as zero.",
+		},
+		{
+			Key: "missing_signal", Label: "Missing signal", Value: fmt.Sprintf("%d", d.MissingSignalCount), Unit: "tags",
+			SignalType: "direct", Formula: "count(tag_latest) where pattern_state = missing_signal",
+			Caveat: "No packet received for 30+ minutes. Distinct from inactive: inactive tags are still transmitting.",
+		},
+		{
+			Key: "low_movement_watch", Label: "Low movement watch", Value: fmt.Sprintf("%d", d.LowMovementWatchCount), Unit: "tags",
+			SignalType: "derived", Formula: "count(tag_latest) where pattern_state in (quiet_watch, inactive)",
+			Caveat: "Duration-based pattern over history, not a single reading. Not a health or behavior diagnosis.",
+		},
+		{
+			Key: "high_movement_spike", Label: "High movement spike", Value: fmt.Sprintf("%d", d.HighMovementSpikeCount), Unit: "tags",
+			SignalType: "derived", Formula: "count(tag_latest) where pattern_state = spike (current 15m delta > 2.5x this tag's own 24h p75 baseline)",
+			Caveat: "Baseline is per-animal; a naturally active animal's spike threshold is higher than a naturally quiet animal's.",
+		},
+		{
+			Key: "shed_signal_coverage", Label: "Shed signal coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
+			SignalType: "derived", Formula: "count(distinct shed_id with >=1 live tag) / count(distinct shed_id with any gateway)",
+			Caveat: "A shed with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
+		},
+		{
+			Key: "weak_signal_tags", Label: "Weak signal tags", Value: fmt.Sprintf("%d", d.WeakSignalTagsCount), Unit: "tags",
+			SignalType: "direct", Formula: "count(tag_latest) where signal_state = weak (rssi <= -75 dBm)",
+			Caveat: "RSSI reflects gateway placement and obstruction as much as tag health.",
+		},
+		{
+			Key: "battery_attention", Label: "Battery attention", Value: fmt.Sprintf("%d", d.BatteryAttentionCount), Unit: "tags",
+			SignalType: "direct", Formula: "count(tag_latest) where battery_state = low (< 2800 mV)",
+			Caveat: "Threshold is a provisional placeholder pending vendor discharge-curve confirmation.",
+		},
+		{
+			Key: "post_vaccination_movement_watch", Label: "Post-vaccination movement watch", Value: fmt.Sprintf("%d", d.PostVaccinationWatchCount), Unit: "animals",
+			SignalType: "correlated", Formula: "count(distinct goat_id) with an accepted vaccination_completions row in the last 24h AND a mapped live tag currently in (quiet_watch, inactive, missing_signal)",
+			Caveat: "Correlation only -- reduced movement after vaccination is not a diagnosis, and is expected for many animals.",
+		},
+		{
+			Key: "health_case_activity_trend", Label: "Health case activity trend", Value: fmt.Sprintf("%d", d.HealthCaseActivityCount), Unit: "animals",
+			SignalType: "correlated", Formula: "count(distinct goat_id) with an active health_cases row AND a mapped live tag currently in (quiet_watch, inactive)",
+			Caveat: "Correlation only. An open health case does not mean the movement change is caused by it, or vice versa.",
+		},
+		{
+			Key: "feed_activity", Label: "Feed activity (sheds fed, tags covered)", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
+			SignalType: "correlated", Formula: "count(distinct shed_id) with a feed_direction_completions row in the last 4h AND >=1 live tag",
+			Caveat: "Shed-grain only: this cannot attribute a single tag's motion to feeding.",
+		},
+		{
+			Key: "weight_activity", Label: "Weight activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "animals",
+			SignalType: "correlated", Formula: "count(distinct animal_id) with a weighing_observations row in the last 24h AND a mapped live tag",
+			Caveat: "Correlation only; a weighing event does not imply the tag's motion reading around that time is weighing-related.",
+		},
+		{
+			Key: "unmapped_smart_tags", Label: "Unmapped smart tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
+			SignalType: "direct", Formula: "count(tag_latest) where mapping_state = unmapped",
+			Caveat: "A tag that has never been assigned to an active goat_identifiers row, or whose identifier is not smart_tag_capable.",
+		},
+	}
+
+	return domain.InsightsResponse{Cards: cards}, nil
+}
+
+// enrichTagsBatch enriches a page of tags with animal mapping and location data using batched
+// lookups (one query per lookup kind for the whole page, never one per row -- AGENTS.md
+// operational read model contract).
+func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []domain.TagLatest) []domain.LiveItem {
+	items := make([]domain.LiveItem, 0, len(tags))
+	if len(tags) == 0 {
+		return items
+	}
+
+	// Batch-resolve tag_id/tag_mac -> goat_id for every row already marked 'mapped' at ingest.
+	values := make([]string, 0, len(tags)*2)
+	seenValue := make(map[string]struct{})
+	for _, tag := range tags {
+		if tag.MappingState != "mapped" {
+			continue
+		}
+		if _, ok := seenValue[tag.TagID]; !ok {
+			seenValue[tag.TagID] = struct{}{}
+			values = append(values, tag.TagID)
+		}
+		if tag.TagMAC != nil && *tag.TagMAC != "" {
+			if _, ok := seenValue[*tag.TagMAC]; !ok {
+				seenValue[*tag.TagMAC] = struct{}{}
+				values = append(values, *tag.TagMAC)
+			}
+		}
+	}
+	goatByValue, err := s.repo.ResolveTagsBatch(ctx, tenantID, values)
+	if err != nil {
+		s.log.Warn("failed to batch-resolve tag mappings", "error", err)
+		goatByValue = map[string]string{}
+	}
+
+	goatIDs := make([]string, 0, len(goatByValue))
+	seenGoat := make(map[string]struct{})
+	for _, goatID := range goatByValue {
+		if _, ok := seenGoat[goatID]; !ok {
+			seenGoat[goatID] = struct{}{}
+			goatIDs = append(goatIDs, goatID)
+		}
+	}
+	goatData, err := s.repo.GetGoatsByIDs(ctx, tenantID, goatIDs)
+	if err != nil {
+		s.log.Warn("failed to batch-fetch goat data", "error", err)
+		goatData = map[string]ports.GoatData{}
+	}
+
+	shedIDs := make([]string, 0, len(goatData))
+	seenShed := make(map[string]struct{})
+	for _, gd := range goatData {
+		if gd.ShedID != nil && *gd.ShedID != "" {
+			if _, ok := seenShed[*gd.ShedID]; !ok {
+				seenShed[*gd.ShedID] = struct{}{}
+				shedIDs = append(shedIDs, *gd.ShedID)
+			}
+		}
+	}
+	shedLocations, err := s.repo.GetShedLocations(ctx, tenantID, shedIDs)
+	if err != nil {
+		s.log.Warn("failed to batch-fetch shed locations", "error", err)
+		shedLocations = map[string]ports.ShedLocation{}
+	}
+
+	for _, tag := range tags {
+		item := domain.LiveItem{
+			TagID:                tag.TagID,
+			GatewayID:            tag.GatewayID,
+			LastSeenAt:           tag.LastSeenAt.Format(time.RFC3339),
+			RSSIdbm:              tag.LastRSSIdbm,
+			SignalState:          tag.SignalState,
+			BatteryMV:            tag.BatteryMV,
+			BatteryState:         tag.BatteryState,
+			BatteryLifeEstimate:  domain.BatteryLifeEstimate(tag.BatteryMV, s.thresholds),
+			TagTemperatureC:      tag.TagTemperatureC,
+			MotionCount:          tag.MotionCount,
+			MotionDelta:          tag.MotionDelta,
+			MotionDelta1h:        tag.MotionDelta, // motion_window_seconds now reflects the 15m window used for movement_state; see TagLatest.MotionWindowSeconds
+			MotionWindowSeconds:  tag.MotionWindowSeconds,
+			MovementState:        tag.MovementState,
+			PatternState:         tag.PatternState,
+			SensorState:          nil,
+			TemperatureSensorOK:  tag.TemperatureSensorOK,
+			AccelerometerSensorOK: tag.AccelerometerSensorOK,
+			MappingState:         tag.MappingState,
+		}
+
+		if tag.TagMAC != nil {
+			item.TagMAC = *tag.TagMAC
+		}
+
+		var goatID string
+		if id, ok := goatByValue[tag.TagID]; ok {
+			goatID = id
+		} else if tag.TagMAC != nil {
+			if id, ok := goatByValue[*tag.TagMAC]; ok {
+				goatID = id
+			}
+		}
+
+		if goatID != "" {
+			gid := goatID
+			item.GoatID = &gid
+			if gd, ok := goatData[goatID]; ok {
+				displayID := gd.DisplayID
+				item.DisplayID = &displayID
+				item.ParkID = gd.ParkID
+				item.ShedID = gd.ShedID
+				if gd.ShedID != nil {
+					if loc, ok := shedLocations[*gd.ShedID]; ok {
+						shedName := loc.ShedName
+						item.ShedName = &shedName
+						if loc.PartitionLabel != "" {
+							partitionLabel := loc.PartitionLabel
+							item.PartitionLabel = &partitionLabel
+						}
+						if loc.ParkName != "" {
+							parkName := loc.ParkName
+							item.ParkName = &parkName
+						}
+						if loc.ParkID != "" && item.ParkID == nil {
+							parkID := loc.ParkID
+							item.ParkID = &parkID
+						}
+						opLoc := oploc.OperationalLocation{ShedName: loc.ShedName, PartitionLabel: loc.PartitionLabel}
+						display := opLoc.Display()
+						item.OperationalLocationDisplay = &display
+					}
+				}
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	return items
+}

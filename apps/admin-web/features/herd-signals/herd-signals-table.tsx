@@ -1,202 +1,232 @@
+"use client";
+
+import { useState } from "react";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { fmtBatteryVoltage, fmtCount, fmtMotionDelta, fmtRssi, fmtStaleness, fmtTagTemp } from "./format";
-import type { HerdSignalsItem } from "./types";
+import { Tag } from "@/components/ui-primitives";
+import { operationalLocationLabel } from "@/lib/operational-location";
+import type { HerdSignalItem } from "@/lib/api/herd-signals";
+import {
+  BATTERY_LABEL,
+  BATTERY_TONE,
+  MAPPING_LABEL,
+  MAPPING_TONE,
+  MOVEMENT_LABEL,
+  MOVEMENT_TONE,
+  PATTERN_LABEL,
+  PATTERN_TONE,
+  SIGNAL_LABEL,
+  SIGNAL_TONE,
+  fmtAgo,
+  fmtBatteryMv,
+  fmtDelta,
+  fmtRssi,
+  fmtTagTemp,
+} from "./format";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
+import { matchesResidualKpi } from "./herd-signals-row-filter";
+import { HerdSignalsDrawer } from "./herd-signals-drawer";
 
-const COLUMNS = [
-  "Animal",
-  "Smart tag",
-  "Shed",
-  "Gateway",
-  "Signal",
-  "Motion count",
-  "15m delta",
-  "1h delta",
-  "Activity",
-  "Pattern",
-  "Battery",
-  "Tag temp",
-  "Last seen",
-  "Status",
-];
-
-function matchesLocalFilter(item: HerdSignalsItem, filter: string | undefined): boolean {
-  if (!filter) return true;
-  switch (filter) {
-    case "weak_signal":
-      return item.signal_state === "weak";
-    case "missing_signal":
-      return item.signal_state === "stale" || item.signal_state === "missing";
-    case "low_battery":
-      return item.battery_state === "low" || item.battery_state === "critical";
-    case "sensor_abnormal":
-      return item.sensor_state === "abnormal";
-    default:
-      return true;
-  }
+function rowTagId(item: HerdSignalItem): string {
+  return item.tag_id;
 }
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
 export function HerdSignalsTable({
   items,
   nextCursor,
   params,
-  pageContract,
   nowMs,
+  columns = "full",
 }: {
-  items: HerdSignalsItem[];
+  items: HerdSignalItem[];
   nextCursor: string | null;
   params: HerdSignalsParams;
-  pageContract: AdminUiPageContract;
   nowMs: number;
+  columns?: "full" | "compact";
 }) {
-  const filteredItems = items.filter((item) => matchesLocalFilter(item, params.localFilter));
+  const [sizeChanging, setSizeChanging] = useState(false);
+  const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
+  const drawerCloseHref = herdSignalsHref(params, {});
+  const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
 
   if (items.length === 0) {
-    return <HerdSignalsTableEmpty params={params} pageContract={pageContract} />;
+    return <HerdSignalsTableEmpty params={params} />;
   }
-  if (params.localFilter && filteredItems.length === 0) {
+
+  if (visible.length === 0) {
+    // The KPI's own summary count came from the tenant-wide aggregate; this page of rows simply
+    // does not carry a match for it. Distinct from "no rows at all" (handled above) and from a read
+    // failure (handled by the caller before this component ever renders).
     return (
-      <div className="hs-empty">
-        <p>{copy(pageContract, "table.filtered_to_nothing", "No rows on this page match this filter. Try Refresh or fetch another page.")}</p>
-        <Link href={herdSignalsHref(params, { hs_local: undefined })}>{copy(pageContract, "filters.clear", "Clear filters")}</Link>
+      <div className="empty">
+        <div className="eicon">
+          <svg className="ic" viewBox="0 0 24 24">
+            <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
+          </svg>
+        </div>
+        <h4>No rows on this page match that filter</h4>
+        <p>The gateway is still receiving. Try clearing filters or paging through more rows.</p>
       </div>
     );
   }
 
   return (
-    <div className="hs-tablewrap">
-      <HerdSignalsPagination params={params} position="top" itemCount={filteredItems.length} nextCursor={nextCursor} />
-      {params.localFilter ? (
-        <p className="hs-local-caveat">
-          {copy(
-            pageContract,
-            "table.local_filter_caveat",
-            "This filter narrows only the rows already fetched on this page — the API does not yet support server-side filtering by this signal. KPI counts above still reflect the whole herd.",
-          )}
-        </p>
-      ) : null}
-      <table className="hs-table" role="table">
-        <thead>
-          <tr>
-            {COLUMNS.map((label) => (
-              <th key={label}>{label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {filteredItems.map((item) => (
-            <tr key={item.tag_id} data-row-card>
-              <td data-label="Animal">
-                <LocalOverlayLink href={herdSignalsHref(params, {}) + `#hs_tag=${encodeURIComponent(item.tag_id)}`}>
-                  {item.display_id ?? item.goat_id ?? "Unmapped"}
-                </LocalOverlayLink>
-              </td>
-              <td data-label="Smart tag" className="mono">
-                {item.tag_mac}
-              </td>
-              <td data-label="Shed">{item.operational_location_display ?? item.shed_name ?? "—"}</td>
-              <td data-label="Gateway">{item.gateway_id ?? "—"}</td>
-              <td data-label="Signal">
-                <span className={`hs-badge hs-signal-${item.signal_state}`}>{item.signal_state}</span>{" "}
-                <span className="muted">{fmtRssi(item.rssi_dbm)}</span>
-              </td>
-              <td data-label="Motion count">{fmtCount(item.motion_count)}</td>
-              <td data-label="15m delta">{fmtMotionDelta(item.motion_delta)}</td>
-              <td data-label="1h delta">{fmtMotionDelta(item.motion_delta_1h)}</td>
-              <td data-label="Activity">
-                <span className={`hs-badge hs-move-${item.movement_state}`}>{movementLabel(item.movement_state)}</span>
-              </td>
-              <td data-label="Pattern">
-                <span className={`hs-badge hs-pattern-${item.pattern_state}`}>{item.pattern_state}</span>
-              </td>
-              <td data-label="Battery">
-                <span className={`hs-badge hs-batt-${item.battery_state}`}>{fmtBatteryVoltage(item.battery_mv)}</span>
-              </td>
-              <td data-label="Tag temp">{fmtTagTemp(item.tag_temperature_c)}</td>
-              <td data-label="Last seen">{fmtStaleness(item.last_seen_at, nowMs)}</td>
-              <td data-label="Status">
-                <span className={`hs-badge hs-mapping-${item.mapping_state}`}>{item.mapping_state}</span>
-                {item.sensor_state === "abnormal" ? <span className="hs-badge hs-sensor-abnormal">sensor abnormal</span> : null}
-              </td>
+    <>
+      <div className="tblwrap">
+        <table className="resp herd-signals-table">
+          <thead>
+            <tr>
+              <th>Animal</th>
+              <th>Smart tag</th>
+              <th>Shed</th>
+              <th>Gateway</th>
+              <th>Signal</th>
+              <th className="num">Motion count</th>
+              <th className="num">15m delta</th>
+              <th className="num">1h delta</th>
+              <th>Activity</th>
+              <th>Pattern</th>
+              <th>Battery</th>
+              <th className="num">Tag temp</th>
+              <th>Last seen</th>
+              <th>Status</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <HerdSignalsPagination params={params} position="bottom" itemCount={filteredItems.length} nextCursor={nextCursor} />
-    </div>
-  );
-}
+          </thead>
+          <tbody>
+            {visible.map((item) => {
+              const location = item.operational_location_display
+                ? item.operational_location_display
+                : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
+              return (
+                <tr key={item.tag_id}>
+                  <td data-l="Animal" className="animcell">
+                    <LocalOverlayLink href={rowHref(item)} scroll={false} title="Open tag detail">
+                      {item.display_id || item.goat_id || "Unmapped"}
+                    </LocalOverlayLink>
+                    <small>{item.mapping_state === "mapped" ? item.tag_id : "no animal identifier"}</small>
+                  </td>
+                  <td data-l="Smart tag" className="mono">{item.tag_id}</td>
+                  <td data-l="Shed">{location || "—"}</td>
+                  <td data-l="Gateway" className="mono">{item.gateway_id || "—"}</td>
+                  <td data-l="Signal">
+                    {item.signal_state ? (
+                      <Tag tone={SIGNAL_TONE[item.signal_state]} title={fmtRssi(item.rssi_dbm)}>
+                        {SIGNAL_LABEL[item.signal_state]}
+                      </Tag>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td data-l="Motion count" className="num">{fmtDelta(item.motion_count)}</td>
+                  <td data-l="15m delta" className="num delta">{fmtDelta(item.motion_delta)}</td>
+                  <td data-l="1h delta" className="num delta">{fmtDelta(item.motion_delta_1h)}</td>
+                  <td data-l="Activity">
+                    {item.movement_state ? (
+                      <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td data-l="Pattern">
+                    {item.pattern_state ? (
+                      <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td data-l="Battery">
+                    {item.battery_state ? (
+                      <Tag tone={BATTERY_TONE[item.battery_state]} title={fmtBatteryMv(item.battery_mv)}>
+                        {BATTERY_LABEL[item.battery_state]}
+                      </Tag>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
+                    {fmtTagTemp(item.tag_temperature_c)}
+                  </td>
+                  <td data-l="Last seen">{fmtAgo(item.last_seen_at, nowMs)}</td>
+                  <td data-l="Status">
+                    <Tag tone={MAPPING_TONE[item.mapping_state]}>{MAPPING_LABEL[item.mapping_state]}</Tag>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-function movementLabel(state: HerdSignalsItem["movement_state"]): string {
-  switch (state) {
-    case "moving":
-      return "active";
-    case "quiet":
-      return "quiet";
-    case "not_moving":
-      return "no movement";
-    default:
-      return "unknown";
-  }
-}
-
-function HerdSignalsPagination({
-  params,
-  position,
-  itemCount,
-  nextCursor,
-}: {
-  params: HerdSignalsParams;
-  position: "top" | "bottom";
-  itemCount: number;
-  nextCursor: string | null;
-}) {
-  return (
-    <div className={`hs-pagination hs-pagination-${position}`}>
-      <label>
-        {"Rows per page"}
-        <form method="get" style={{ display: "inline" }}>
-          <input type="hidden" name="hs_tab" value={params.tab === "live" ? "" : params.tab} />
-          <select name="hs_limit" defaultValue={String(params.limit)} onChange={(event) => event.currentTarget.form?.requestSubmit()}>
-            {[10, 25, 50, 100].map((size) => (
+      <div className="pager herd-signals-pager">
+        <span className="muted">{visible.length} rows on this page</span>
+        <span className="sp" style={{ flex: 1 }} />
+        <span className="fsel">
+          Rows
+          <select
+            value={params.limit}
+            disabled={sizeChanging}
+            onChange={(event) => {
+              setSizeChanging(true);
+              window.location.href = herdSignalsHref(params, { hs_limit: event.target.value });
+            }}
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
               <option key={size} value={size}>
                 {size}
               </option>
             ))}
           </select>
-        </form>
-      </label>
-      <span className="hs-page-count">{itemCount} shown</span>
-      {params.cursor ? (
-        <Link href={herdSignalsHref(params, { hs_cursor: undefined })} className="btn">
-          Back to start
-        </Link>
-      ) : null}
-      {nextCursor ? (
-        <Link href={herdSignalsHref(params, { hs_cursor: nextCursor })} className="btn hs-next-page">
-          Next page
-        </Link>
-      ) : null}
-    </div>
+        </span>
+        {nextCursor ? (
+          <Link href={herdSignalsHref(params, { hs_cursor: nextCursor })} className="pgbtn">
+            Next page
+          </Link>
+        ) : (
+          <button type="button" className="pgbtn" disabled>
+            Next page
+          </button>
+        )}
+      </div>
+
+      <HerdSignalsDrawer rows={visible} rowId={rowTagId} initialSelectedId={undefined} closeHref={drawerCloseHref} />
+    </>
   );
 }
 
-function HerdSignalsTableEmpty({ params, pageContract }: { params: HerdSignalsParams; pageContract: AdminUiPageContract }) {
+function HerdSignalsTableEmpty({ params }: { params: HerdSignalsParams }) {
   if (params.hasFilter) {
     return (
-      <div className="hs-empty">
-        <p>{copy(pageContract, "table.filtered_to_nothing", "No tags match this filter.")}</p>
-        <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_movement: undefined, hs_mapping: undefined, hs_pattern: undefined, hs_q: undefined, hs_local: undefined })}>
-          {copy(pageContract, "filters.clear", "Clear filters")}
-        </Link>
+      <div className="empty">
+        <div className="eicon">
+          <svg className="ic" viewBox="0 0 24 24">
+            <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
+          </svg>
+        </div>
+        <h4>No tags match these filters</h4>
+        <p>The gateway is still receiving packets for this park. Clear filters to see the rest of the fleet.</p>
+        <div className="eact">
+          <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_kpi: undefined })} className="btn sm">
+            Clear filters
+          </Link>
+        </div>
       </div>
     );
   }
   return (
-    <div className="hs-empty">
-      <p>{copy(pageContract, "table.empty_no_packets", "No tag packets have been received yet.")}</p>
+    <div className="empty">
+      <div className="eicon">
+        <svg className="ic" viewBox="0 0 24 24">
+          <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
+          <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
+          <circle cx="12" cy="12" r="2" />
+          <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
+          <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
+        </svg>
+      </div>
+      <h4>No gateway packets yet</h4>
+      <p>No BLE gateway has posted for this tenant. Confirm the gateway is powered, has a network route, and is in range of at least one smart tag.</p>
     </div>
   );
 }
