@@ -29,7 +29,7 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 		INSERT INTO public.herd_signal_gateways (
 			tenant_id, gateway_id, label, park_id, shed_id, location_id,
 			wifi_mac, ble_mac, network_mode, status, last_seen_at, last_pkt_sn, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::bigint, now())
 		ON CONFLICT (tenant_id, gateway_id) DO UPDATE
 		SET label = COALESCE($3, label),
 		    park_id = COALESCE($4, park_id),
@@ -45,6 +45,10 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 	_, err := r.db.Exec(ctx, query,
 		tenantID, gw.GatewayID, gw.Label, gw.ParkID, gw.ShedID, gw.LocationID,
 		gw.WifiMAC, gw.BLEMAC, gw.NetworkMode, gw.Status, gw.LastSeenAt,
+		// $12 -- the report sequence number. The query references it three times for
+		// loss/reboot detection; without it every ingest failed with
+		// "could not determine data type of parameter $12" (SQLSTATE 42P08).
+		gw.LastPktSN,
 	)
 	return err
 }
@@ -126,16 +130,16 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 		    -- REBOOTED (its counter restarted) -- exactly the motion_count reset case -- so it
 		    -- counts a reboot and re-anchors, and NEVER subtracts: loss can never go negative.
 		    packets_missed_total = public.herd_signal_gateways.packets_missed_total
-		        + CASE WHEN $12 IS NOT NULL
+		        + CASE WHEN $12::bigint IS NOT NULL
 		                AND public.herd_signal_gateways.last_pkt_sn IS NOT NULL
-		                AND $12 > public.herd_signal_gateways.last_pkt_sn + 1
-		               THEN $12 - public.herd_signal_gateways.last_pkt_sn - 1 ELSE 0 END,
+		                AND $12::bigint > public.herd_signal_gateways.last_pkt_sn + 1
+		               THEN $12::bigint - public.herd_signal_gateways.last_pkt_sn - 1 ELSE 0 END,
 		    pkt_sn_reboot_count = public.herd_signal_gateways.pkt_sn_reboot_count
-		        + CASE WHEN $12 IS NOT NULL
+		        + CASE WHEN $12::bigint IS NOT NULL
 		                AND public.herd_signal_gateways.last_pkt_sn IS NOT NULL
-		                AND $12 < public.herd_signal_gateways.last_pkt_sn
+		                AND $12::bigint < public.herd_signal_gateways.last_pkt_sn
 		               THEN 1 ELSE 0 END,
-		    last_pkt_sn = COALESCE($12, public.herd_signal_gateways.last_pkt_sn),
+		    last_pkt_sn = COALESCE($12::bigint, public.herd_signal_gateways.last_pkt_sn),
 		    updated_at = now()
 	`,
 		tenantID, gw.GatewayID, gw.Label, gw.ParkID, gw.ShedID, gw.LocationID,

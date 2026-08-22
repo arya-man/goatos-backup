@@ -517,28 +517,48 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req
 // ticks_cnt going BACKWARDS is a reboot -- the same counter-reset discipline the motion counter
 // and pkt_sn already use: re-anchor and count the reboot, never record a negative.
 func (r *Repository) RecordGatewayHeartbeat(ctx context.Context, tenantID string, req domain.GatewayHeartbeatRequest, at time.Time) (bool, error) {
-	var rebootDetected bool
-	err := r.db.QueryRow(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	// The PREVIOUS ticks_cnt is read (and locked) before the upsert rather than derived from a
+	// RETURNING clause: inside ON CONFLICT DO UPDATE, a table-qualified column in RETURNING is
+	// the NEW row, so a RETURNING-based comparison would compare the incoming value against
+	// itself and never see a reboot. An integration test caught exactly that.
+	var previousTicks *int64
+	err = tx.QueryRow(ctx, `
+		SELECT last_ticks_cnt FROM public.herd_signal_gateways
+		WHERE tenant_id = $1::uuid AND gateway_id = $2
+		FOR UPDATE
+	`, tenantID, req.GatewayID).Scan(&previousTicks)
+	if err != nil && err != pgx.ErrNoRows {
+		return false, fmt.Errorf("lock gateway for heartbeat: %w", err)
+	}
+
+	rebootDetected := req.TicksCnt != nil && previousTicks != nil && *req.TicksCnt < *previousTicks
+	rebootIncrement := 0
+	if rebootDetected {
+		rebootIncrement = 1
+	}
+
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO public.herd_signal_gateways (
 			tenant_id, gateway_id, status, last_seen_at, last_heartbeat_at, last_ticks_cnt,
 			heartbeat_reboot_count, updated_at
-		) VALUES ($1::uuid, $2, 'active', $3, $3, $4, 0, now())
+		) VALUES ($1::uuid, $2, 'active', $3, $3, $4::bigint, $5, now())
 		ON CONFLICT (tenant_id, gateway_id) DO UPDATE
 		SET last_seen_at = GREATEST(public.herd_signal_gateways.last_seen_at, $3),
 		    last_heartbeat_at = $3,
-		    last_ticks_cnt = COALESCE($4, public.herd_signal_gateways.last_ticks_cnt),
-		    heartbeat_reboot_count = public.herd_signal_gateways.heartbeat_reboot_count
-		        + CASE WHEN $4 IS NOT NULL
-		                AND public.herd_signal_gateways.last_ticks_cnt IS NOT NULL
-		                AND $4 < public.herd_signal_gateways.last_ticks_cnt
-		               THEN 1 ELSE 0 END,
+		    last_ticks_cnt = COALESCE($4::bigint, public.herd_signal_gateways.last_ticks_cnt),
+		    heartbeat_reboot_count = public.herd_signal_gateways.heartbeat_reboot_count + $5,
 		    updated_at = now()
-		RETURNING ($4 IS NOT NULL
-		           AND public.herd_signal_gateways.last_ticks_cnt IS NOT NULL
-		           AND $4 < public.herd_signal_gateways.last_ticks_cnt)
-	`, tenantID, req.GatewayID, at, req.TicksCnt).Scan(&rebootDetected)
-	if err != nil {
+	`, tenantID, req.GatewayID, at, req.TicksCnt, rebootIncrement); err != nil {
 		return false, fmt.Errorf("record gateway heartbeat: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit gateway heartbeat: %w", err)
 	}
 	return rebootDetected, nil
 }
