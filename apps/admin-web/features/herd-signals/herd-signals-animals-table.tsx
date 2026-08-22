@@ -21,6 +21,10 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
 }
 
+function animalPrimaryLabel(item: HerdSignalItem): string {
+  return item.animal_identifier_1 || item.animal_identifier_2 || item.display_id || item.goat_id || "—";
+}
+
 // The Animals tab is NOT the Live Monitor table with a different heading. The mock
 // (mock/herd-signals-mock.html `renderAnimals`) gives it its own NINE-column set, in its own
 // order -- Shed comes BEFORE Smart tag here, and Gateway / Motion count / Pattern / Tag temp /
@@ -80,7 +84,7 @@ export function HerdSignalsAnimalsRow({
       className="hs-selectable"
       tabIndex={0}
       role="button"
-      aria-label={`Open tag detail for ${item.display_id || item.tag_id}`}
+      aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
       onClick={(event) => {
         if (isInteractiveTarget(event.target)) return;
         pushLocalOverlayUrl(href);
@@ -94,8 +98,14 @@ export function HerdSignalsAnimalsRow({
     >
       <td data-l="Animal" className="wide">
         <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
-          <b>{item.display_id || item.goat_id || "—"}</b>
+          <b>{animalPrimaryLabel(item)}</b>
         </LocalOverlayLink>
+        {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? (
+          <>
+            <br />
+            <span className="faint small">{item.display_id}</span>
+          </>
+        ) : null}
       </td>
       <td data-l="Shed">
         {location || "—"}

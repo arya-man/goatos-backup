@@ -294,6 +294,8 @@ type LiveItem struct {
 	TagMAC                     string  `json:"tag_mac"`
 	GoatID                     *string `json:"goat_id"`
 	DisplayID                  *string `json:"display_id"`
+	AnimalIdentifier1          *string `json:"animal_identifier_1"`
+	AnimalIdentifier2          *string `json:"animal_identifier_2"`
 	ParkID                     *string `json:"park_id"`
 	ParkName                   *string `json:"park_name"`
 	ShedID                     *string `json:"shed_id"`

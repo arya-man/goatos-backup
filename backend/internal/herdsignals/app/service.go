@@ -603,6 +603,8 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			if gd, ok := goatData[goatID]; ok {
 				displayID := gd.DisplayID
 				item.DisplayID = &displayID
+				item.AnimalIdentifier1 = gd.AnimalIdentifier1
+				item.AnimalIdentifier2 = gd.AnimalIdentifier2
 				item.ParkID = gd.ParkID
 				item.ShedID = gd.ShedID
 				if gd.ShedID != nil {
