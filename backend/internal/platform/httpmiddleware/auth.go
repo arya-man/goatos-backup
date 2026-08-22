@@ -43,6 +43,10 @@ type AuthConfig struct {
 	DevHeadersAllowed bool
 	Environment       string
 	AllowedEmails     []string
+	// DynamicAllowedEmails is the optional DB-backed allowlist source consulted
+	// in UNION with AllowedEmails (see authallow.AllowsWithDynamic). Enforcement
+	// stays keyed on AllowedEmails being non-empty.
+	DynamicAllowedEmails authallow.DynamicEmailSource
 }
 
 type AuthMiddleware struct {
@@ -53,6 +57,7 @@ type AuthMiddleware struct {
 	grants           permissions.GrantSource
 	log              *slog.Logger
 	allowedEmails    authallow.EmailSet
+	dynamicEmails    authallow.DynamicEmailSource
 }
 
 func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*AuthMiddleware, error) {
@@ -108,6 +113,7 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 		grants:           grants,
 		log:              log,
 		allowedEmails:    allowedEmails,
+		dynamicEmails:    cfg.DynamicAllowedEmails,
 	}, nil
 }
 
@@ -190,7 +196,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		if !a.verifyAppCheck(w, r) {
 			return r.Context(), "", "", false
 		}
-		if !a.allowedEmails.Allows(claims.Email, claims.EmailVerified) {
+		if !authallow.AllowsWithDynamic(r.Context(), a.allowedEmails, a.dynamicEmails, claims.Email, claims.EmailVerified) {
 			a.logAuthFailure(r, http.StatusForbidden, "email_not_allowed",
 				slog.String("email", normalizedEmailForLog(claims.Email)),
 				slog.String("firebase_uid", claims.ExternalSubject),

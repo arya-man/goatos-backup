@@ -1109,6 +1109,64 @@ export async function listFeedConfigFeedItems(params: {
 }
 
 // ---------------------------------------------------------------------------------------------
+// People / HRMS directory (/people)
+// ---------------------------------------------------------------------------------------------
+
+export type WorkforcePerson = AdminApiComponents["schemas"]["PersonSummary"];
+export type WorkforcePeopleList = AdminApiComponents["schemas"]["PeopleListResponse"];
+export type WorkforcePeopleCatalog = AdminApiComponents["schemas"]["PeopleCatalog"];
+export type CreateWorkforcePersonRequest = AdminApiComponents["schemas"]["CreatePersonRequest"];
+export type WorkforcePersonResponse = AdminApiComponents["schemas"]["PersonResponse"];
+
+/**
+ * One keyset page of the staff directory (GET /admin/workforce/people). The response also carries
+ * the parks/departments catalog the filters and the Add Person form render from — real DB rows,
+ * never frontend constants.
+ */
+export async function listWorkforcePeople(
+  params: {
+    park_id?: string;
+    department_id?: string;
+    status?: string;
+    q?: string;
+    limit?: number;
+    cursor?: string;
+  } = {},
+): Promise<ApiResult<WorkforcePeopleList>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WorkforcePeopleList>("/admin/workforce/people", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Create a person AND their working login (POST /admin/workforce/people). The Idempotency-Key is
+ * REQUIRED by the backend: an exact replay returns the original result without re-running any side
+ * effects (Firebase account, grant, allowlist).
+ */
+export async function createWorkforcePerson(
+  idempotencyKey: string,
+  body: CreateWorkforcePersonRequest,
+): Promise<ApiResult<WorkforcePersonResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WorkforcePersonResponse>("/admin/workforce/people", {
+      method: "POST",
+      cache: "no-store",
+      body,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 // Procurement vendor register (/procurement/vendors)
 // ---------------------------------------------------------------------------------------------
 

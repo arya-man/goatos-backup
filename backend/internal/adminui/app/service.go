@@ -653,10 +653,16 @@ func pages() []domain.PageContract {
 				table("protocol-rules", "Protocol rules", "/protocols", []string{"category", "version", "scope", "status", "effective", "linked_sop", "last_publisher", "actions"}, "protocol_id"),
 				table("feed-config-evidence", "Feed Direction parameter evidence", "/protocols?category=feed_direction", []string{"source_table", "parameter_family", "validation_gate", "calculation_output"}, "feed_config_row"),
 			}),
-		page("people", "/people", "/people", "People / HRMS", "Vaccination operators, director roles, and weekly timetable", "authority-screen",
+		// People/HRMS rewrite (maintainer request 2026-08-22): the default view is
+		// the ALL-PEOPLE directory (every member with park, department, and
+		// designation, plus the Add Person onboarding drawer); the former
+		// vaccination-operators screen lives under the `vaccination` tab of the
+		// backend-owned `people_view_tabs` option group. The dead `timetable`
+		// table contract is dropped (its panel had no importers).
+		page("people", "/people", "/people", "People / HRMS", "Everyone on the farm — park, department, designation, and login — with per-module staffing views", "authority-screen",
 			[]domain.TableContract{
+				tableP("people", "All People", "/admin/workforce/people", []string{"display_name", "park", "department", "designation", "email", "status"}, "person_id", []int{25, 50, 100}),
 				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
-				table("timetable", "Operator Timetable", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
 			}),
 		// SOP SPLIT (maintainer decision 2026-08-18): the /sops authority screen is retired;
 		// each module owns its SOP page as a module-surface. All three share the sop-library
@@ -4765,10 +4771,62 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.label.park_scope_prefix":                 "park:",
 		}
 	case "people":
+		// Backend-owned copy for the People/HRMS directory + Add Person drawer.
+		// The client renders these verbatim; per the golden rule it must not
+		// hardcode a label, an empty state, or a disabled reason of its own.
 		return map[string]string{
 			"crumb":                     "Admin / Data Ops",
+			"section.people.title":      "All people",
+			"section.people.aria":       "Farm staff directory",
+			"section.people.row_hint":   "everyone with a login or roster entry",
 			"filter.search_label":       "Search staff",
-			"filter.search_placeholder": "Search position, person, grade, center...",
+			"filter.search_placeholder": "Name or email...",
+			"filter.park":               "Park",
+			"filter.department":         "Department",
+			"filter.status":             "Status",
+			"filter.all":                "All",
+			"column.display_name":       "Person",
+			"column.park":               "Park",
+			"column.department":         "Department",
+			"column.designation":        "Designation",
+			"column.email":              "Email",
+			"column.status":             "Status",
+			"action.add_person":         "Add person",
+			"action.save":               "Create person",
+			"action.saving":             "Creating...",
+			"action.cancel":             "Cancel",
+			"action.close":              "Close",
+			"action.next_page":          "Next",
+			"action.prev_page":          "Back",
+			"pager.page":                "Page",
+			// Write-feedback copy. actionFeedbackCopy resolves the action_key
+			// straight through copy(), which THROWS on a missing key — every key
+			// an action can redirect with must exist here.
+			"action.person_created":          "Person added. They can sign in with their email now.",
+			"action.person_created_existing": "Person added. This email already had a login — its password is unchanged.",
+			"action.person_create_failed":    "Could not add this person. Check the fields and try again.",
+			"action.person_duplicate":        "A person with this email already exists.",
+			"action.identity_unavailable":    "The login account service is unavailable right now. Nothing was created — try again.",
+			"action.error_form":              "Could not complete that action.",
+			"drawer.add.title":               "Add person",
+			"drawer.add.subtitle":            "Creates their login account, park access, and roster entry in one step.",
+			"field.first_name":               "First name",
+			"field.last_name":                "Last name",
+			"field.email":                    "Email",
+			"field.role":                     "Role",
+			"field.park":                     "Park",
+			"field.department":               "Department",
+			"field.designation":              "Designation grade",
+			"field.optional":                 "optional",
+			"required.hint":                  "First name, email, and role are required. Operators and park heads also need their park.",
+			"password.note":                  "New logins use the standing password pattern: first name (capitalized) followed by @2026. Example: Amit@2026.",
+			"value.none":                     "—",
+			"empty.people":                   "No people match these filters.",
+			"empty.people.unset":             "No people yet. Add the first person to start the directory.",
+			"summary.count":                  "people",
+			"error.load":                     "Could not load the staff directory. Refresh to try again.",
+			"disabled.write":                 "Your current role can view people but not add them.",
+			"tab.disabled_reason":            "This staffing view is coming soon.",
 		}
 	case "vaccination-sops", "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		m := map[string]string{
@@ -5174,6 +5232,25 @@ func healthConfigOptionGroups() []domain.OptionGroup {
 
 func pageOptionGroups(id string) []domain.OptionGroup {
 	switch id {
+	case "people":
+		// The module tab strip on /people (maintainer decision 2026-08-22):
+		// `all` is the general directory, `vaccination` hosts the former
+		// vaccination-operators screen, and the remaining module views are
+		// backend-declared disabled placeholders — the `mut` tone marks an
+		// option the client renders disabled, with the page's
+		// `tab.disabled_reason` copy as its reason. Adding a real module tab
+		// later is a backend change only.
+		return withGenericOptionGroups([]domain.OptionGroup{{
+			ID: "people_view_tabs",
+			Options: []domain.Option{
+				option("all", "All People", "", ""),
+				option("vaccination", "Vaccination", "", ""),
+				option("weighing", "Weighing", "", "mut"),
+				option("feed", "Feed", "", "mut"),
+				option("counts", "Herd Operations", "", "mut"),
+				option("health", "Health", "", "mut"),
+			},
+		}})
 	case "sales":
 		return withGenericOptionGroups(salesOptionGroups())
 	case "health-config":

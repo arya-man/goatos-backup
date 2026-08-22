@@ -157,6 +157,96 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/workforce/people:
+    get:
+      tags:
+        - Operator Management
+      operationId: listWorkforcePeople
+      summary: List the People/HRMS staff directory (keyset paginated).
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: department_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 40
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        "200":
+          description: Directory rows plus the parks/departments catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeopleListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Operator Management
+      operationId: createWorkforcePerson
+      summary: Create a person AND their working login (Firebase account, scope grant, allowlist) in one idempotent call.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePersonRequest"
+      responses:
+        "200":
+          description: Created person and login-account outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/operators/{operator_id}:
     get:
       tags:
@@ -4692,6 +4782,210 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    PersonSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - person_id
+        - user_id
+        - first_name
+        - last_name
+        - display_name
+        - email
+        - status
+        - role_hint
+        - designation_grade
+        - park_id
+        - park_label
+        - department_id
+        - department_label
+        - created_at
+        - row_version
+      properties:
+        person_id:
+          type: string
+          format: uuid
+        user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        first_name:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        last_name:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        display_name:
+          type: string
+          maxLength: 200
+        email:
+          type:
+            - string
+            - "null"
+          maxLength: 254
+        status:
+          type: string
+          maxLength: 40
+        role_hint:
+          type: string
+          maxLength: 40
+        designation_grade:
+          type:
+            - string
+            - "null"
+          maxLength: 40
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_label:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        department_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        department_label:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        created_at:
+          type: string
+        row_version:
+          type: integer
+    PeopleCatalogOption:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - code
+        - label
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          maxLength: 80
+        label:
+          type: string
+          maxLength: 200
+    PeopleCatalog:
+      type: object
+      additionalProperties: false
+      required:
+        - parks
+        - departments
+      properties:
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeopleCatalogOption"
+        departments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeopleCatalogOption"
+    PeopleListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - catalog
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonSummary"
+        next_cursor:
+          type: string
+          maxLength: 512
+        catalog:
+          $ref: "#/components/schemas/PeopleCatalog"
+        trace_id:
+          type: string
+    CreatePersonRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - first_name
+        - email
+        - role
+      properties:
+        first_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        last_name:
+          type: string
+          maxLength: 120
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+        role:
+          type: string
+          enum:
+            - operator
+            - park_head
+            - verifier
+            - pc_director
+            - growth_director
+            - feed_director
+            - health_director
+        park_id:
+          type: string
+          format: uuid
+        department_id:
+          type: string
+          format: uuid
+        designation_grade:
+          type: string
+          enum:
+            - cxo
+            - director
+            - manager
+            - assistant_manager
+    PersonLogin:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - account_status
+      properties:
+        email:
+          type: string
+          maxLength: 254
+        account_status:
+          type: string
+          enum:
+            - created
+            - existing
+    PersonResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - person
+        - login
+        - trace_id
+      properties:
+        person:
+          $ref: "#/components/schemas/PersonSummary"
+        login:
+          $ref: "#/components/schemas/PersonLogin"
+        trace_id:
+          type: string
     CreateOperatorRequest:
       type: object
       additionalProperties: false

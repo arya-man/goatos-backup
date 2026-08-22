@@ -1433,6 +1433,11 @@ func permissionsForNav(id string) []string {
 		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and
 		// would otherwise be locked out of the estate they are accountable for.
 		return []string{permissions.WeighingMonitor}
+	case "people":
+		// The staff directory. Before this case existed the leaf fell through to
+		// the nil default and rendered for ANY principal with admin_web.bootstrap
+		// — the nav-leak fixed by the 2026-08-22 People/HRMS rewrite.
+		return []string{permissions.OperatorsRead}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":

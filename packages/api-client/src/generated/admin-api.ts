@@ -42,6 +42,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the People/HRMS staff directory (keyset paginated). */
+        get: operations["listWorkforcePeople"];
+        put?: never;
+        /** Create a person AND their working login (Firebase account, scope grant, allowlist) in one idempotent call. */
+        post: operations["createWorkforcePerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/operators/{operator_id}": {
         parameters: {
             query?: never;
@@ -1953,6 +1971,66 @@ export interface components {
         };
         OperatorResponse: {
             operator: components["schemas"]["OperatorProfile"];
+            trace_id: string;
+        };
+        PersonSummary: {
+            /** Format: uuid */
+            person_id: string;
+            /** Format: uuid */
+            user_id: string | null;
+            first_name: string | null;
+            last_name: string | null;
+            display_name: string;
+            email: string | null;
+            status: string;
+            role_hint: string;
+            designation_grade: string | null;
+            /** Format: uuid */
+            park_id: string | null;
+            park_label: string | null;
+            /** Format: uuid */
+            department_id: string | null;
+            department_label: string | null;
+            created_at: string;
+            row_version: number;
+        };
+        PeopleCatalogOption: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            label: string;
+        };
+        PeopleCatalog: {
+            parks: components["schemas"]["PeopleCatalogOption"][];
+            departments: components["schemas"]["PeopleCatalogOption"][];
+        };
+        PeopleListResponse: {
+            items: components["schemas"]["PersonSummary"][];
+            next_cursor: string;
+            catalog: components["schemas"]["PeopleCatalog"];
+            trace_id: string;
+        };
+        CreatePersonRequest: {
+            first_name: string;
+            last_name?: string;
+            email: string;
+            /** @enum {string} */
+            role: "operator" | "park_head" | "verifier" | "pc_director" | "growth_director" | "feed_director" | "health_director";
+            /** Format: uuid */
+            park_id?: string;
+            /** Format: uuid */
+            department_id?: string;
+            /** @enum {string} */
+            designation_grade?: "cxo" | "director" | "manager" | "assistant_manager";
+        };
+        PersonLogin: {
+            email: string;
+            /** @enum {string} */
+            account_status: "created" | "existing";
+        };
+        PersonResponse: {
+            person: components["schemas"]["PersonSummary"];
+            login: components["schemas"]["PersonLogin"];
             trace_id: string;
         };
         CreateOperatorRequest: {
@@ -4226,6 +4304,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OperatorResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listWorkforcePeople: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                department_id?: string;
+                status?: string;
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Directory rows plus the parks/departments catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkforcePerson: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePersonRequest"];
+            };
+        };
+        responses: {
+            /** @description Created person and login-account outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
