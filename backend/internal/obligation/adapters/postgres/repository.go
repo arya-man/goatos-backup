@@ -367,6 +367,62 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 // InsertDeferredObligation closes the split-write gap in generation: the row and its initial
 // deferred status event commit together. On a legacy replay where the row exists but the event
 // does not, the same transaction repairs the missing event before returning applied=false.
+// suppressedObligation finds the row an insert was refused against.
+//
+// The guard suppresses for two different reasons, and only one of them is a key collision.
+// A repeat cycle is suppressed by its CAUSE, so the row already holding that cycle can sit
+// under an ENTIRELY DIFFERENT idempotency key -- a booster-minted successor, or the same
+// cycle on the due date it had before it moved. Looking only by the key we just computed
+// therefore finds nothing, and the caller reports a failure for an animal whose work exists
+// and is perfectly healthy.
+//
+// That mattered most for the deferred path, which is the sick-animal path: a held animal
+// whose repeat dose already existed failed its generation pass, every pass, for as long as
+// it stayed held.
+func (r *Repository) suppressedObligation(
+	ctx context.Context,
+	qtx *obligationdb.Queries,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+) (string, string, error) {
+	existing, err := qtx.GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
+		TenantID: tenant, IdempotencyKey: in.IdempotencyKey,
+	})
+	if err == nil {
+		return existing.ObligationID, existing.Status, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) || !in.RepeatCycle.Valid() {
+		return "", "", err
+	}
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	if verr != nil {
+		return "", "", verr
+	}
+	rule, rerr := pgconv.UUID(in.RuleID)
+	if rerr != nil {
+		return "", "", rerr
+	}
+	target, terr := pgconv.UUID(in.TargetID)
+	if terr != nil {
+		return "", "", terr
+	}
+	byCause, cerr := qtx.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+		TenantID:             tenant,
+		ProtocolVersionID:    version,
+		RuleID:               rule,
+		TargetType:           in.TargetType,
+		TargetID:             target,
+		Sequence:             in.Sequence,
+		RepeatCycleSourceRef: pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true},
+	})
+	if cerr != nil {
+		// Report the ORIGINAL miss: "no row under this key" is the honest description of
+		// what happened, and the by-cause attempt was the fallback, not the request.
+		return "", "", err
+	}
+	return byCause.ObligationID, byCause.Status, nil
+}
+
 func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.NewObligation, reason string, occurredAt time.Time) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -432,14 +488,12 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 	}
 	applied := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
-		existing, lookupErr := qtx.GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
-			TenantID: tenant, IdempotencyKey: in.IdempotencyKey,
-		})
+		existingID, existingStatus, lookupErr := r.suppressedObligation(ctx, qtx, tenant, in)
 		if lookupErr != nil {
 			return "", false, fmt.Errorf("obligation: lookup deferred replay: %w", lookupErr)
 		}
-		obligationID = existing.ObligationID
-		if existing.Status != "deferred" {
+		obligationID = existingID
+		if existingStatus != "deferred" {
 			if err := tx.Commit(ctx); err != nil {
 				return "", false, fmt.Errorf("obligation: commit deferred replay: %w", err)
 			}
