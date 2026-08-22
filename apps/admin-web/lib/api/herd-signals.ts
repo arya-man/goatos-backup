@@ -256,3 +256,91 @@ export async function getHerdSignalsInsights(): Promise<ApiResult<HerdInsightsRe
     ),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Tag mapping WRITES.
+//
+// Three verbs, and only three: MAP (bind a tag to an animal), REPLACE (swap the
+// tag on an animal in one operation), UNMAP (release a binding). There is
+// deliberately no "mark as smart tag": every row on the Tag Mapping screen is
+// already a BLE smart tag — that is why the gateway reported it and why it is
+// listed at all — so asking an operator to declare one as such asserts nothing.
+// `smart_tag_capable` is an internal consequence of binding, never a user
+// action, and the backend exposes no endpoint for it (contracts/openapi/
+// app-api.yaml, `unmapHerdSignalTagMapping`).
+//
+// These are gated by `herd_signals.map`, NOT the read permission: deciding which
+// animal a tag belongs to is the decision every animal-attributed number in the
+// module depends on, and it stamps the instant that animal's monitoring starts
+// (backend/migrations/postgres 000196).
+// ---------------------------------------------------------------------------
+
+export type HerdSignalIdentifierType = "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+
+export interface HerdSignalsBindTagMappingRequest {
+  goat_id: string;
+  tag_id: string;
+  tag_mac?: string;
+  identifier_type?: HerdSignalIdentifierType;
+}
+
+export interface HerdSignalsReplaceTagMappingRequest {
+  goat_id: string;
+  new_tag_id: string;
+  new_tag_mac?: string;
+  identifier_type?: HerdSignalIdentifierType;
+}
+
+export interface HerdSignalsUnmapTagMappingRequest {
+  tag_id: string;
+  tag_mac?: string;
+}
+
+export interface HerdSignalsTagMappingResponse {
+  goat_id: string;
+  tag_id: string;
+  tag_mac: string | null;
+  identifier_ids: string[];
+  mapping_state: "mapped" | "unmapped";
+  // The instant animal monitoring STARTS for this tag. Null means unmapped, in which case NO
+  // animal-attributed value may be produced for it — not a zero, not a default. Everything the tag
+  // emitted before this instant stays device telemetry and can never enter this animal's baseline,
+  // pattern window, or correlations.
+  monitoring_since: string | null;
+  unbound_identifier_ids: string[];
+}
+
+// 10s: a mapping write takes row locks inside one transaction and must not be abandoned halfway by
+// a timeout tuned for a polled read.
+const MAPPING_WRITE_TIMEOUT_MS = 10_000;
+
+async function postMappingWrite<Body>(path: string, body: Body): Promise<ApiResult<HerdSignalsTagMappingResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(MAPPING_WRITE_TIMEOUT_MS, (signal) =>
+      client.request<HerdSignalsTagMappingResponse>(path as keyof AppApiPaths & string, {
+        method: "POST",
+        cache: "no-store",
+        signal,
+        body,
+      }),
+    ),
+  );
+}
+
+/** MAP: bind an observed BLE tag to an animal. Starts that animal's monitoring period. */
+export function bindHerdSignalTagMapping(body: HerdSignalsBindTagMappingRequest) {
+  return postMappingWrite("/herd-signals/tag-mappings", body);
+}
+
+/** REPLACE: swap the tag on an animal. ONE operation — never unmap-then-map as two writes. */
+export function replaceHerdSignalTagMapping(body: HerdSignalsReplaceTagMappingRequest) {
+  return postMappingWrite("/herd-signals/tag-mappings/replace", body);
+}
+
+/** UNMAP: release a binding. The tag keeps broadcasting; it simply stops being an animal's tag. */
+export function unmapHerdSignalTagMapping(body: HerdSignalsUnmapTagMappingRequest) {
+  return postMappingWrite("/herd-signals/tag-mappings/unmap", body);
+}
