@@ -89,6 +89,7 @@ async function capture(page, label, drawerSelector) {
   if (!drawer) throw new Error(`${label} drawer was not visible`);
 
   const regions = {
+    viewport: { x: 0, y: 0, width: viewport.width, height: viewport.height },
     drawer: drawer,
     header: await box(page, `${drawerSelector} .dh, ${drawerSelector} .dhd`),
     controls: await box(page, `${drawerSelector} .patrow`),
@@ -131,6 +132,7 @@ function assertLiveAxisScale(labels) {
 
 function compareRegions(mock, live) {
   const thresholds = new Map([
+    ["viewport", normalizeContent ? 0.05 : 0.08],
     ["drawer", normalizeContent ? 0.025 : 0.10],
     ["header", normalizeContent ? 0.035 : 0.12],
     ["controls", normalizeContent ? 0.05 : 0.16],
@@ -205,6 +207,7 @@ async function normalizeLiveDrawer(mockPage, livePage) {
 function compareGeometry(mockMetrics, liveMetrics) {
   const tolerances = new Map([
     ["drawer", { y: 0, width: 0, height: 0 }],
+    ["viewport", { width: 0, height: 0 }],
     ["header", { y: 0.5, height: 0.5 }],
     ["controls", { y: 0.5, height: 0.5 }],
     ["chart", { y: 0.5, height: 0.5 }],
