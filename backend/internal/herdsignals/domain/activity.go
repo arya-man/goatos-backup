@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // FARM-ACTIVITY OVERLAY -- GET /herd-signals/tags/{tag_id}/activity.
 //
@@ -118,3 +121,8 @@ type ActivityResponse struct {
 	Truncated       bool   `json:"truncated"`
 	CorrelationNote string `json:"correlation_note"`
 }
+
+// ErrTagNotFound is "this tenant has never heard a packet from that tag id", mapped to 404 by
+// the HTTP layer. Distinct from an empty overlay: an unknown tag must not answer like a known
+// tag with nothing recorded against it.
+var ErrTagNotFound = errors.New("herdsignals: tag not found")
