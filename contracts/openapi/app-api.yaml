@@ -194,6 +194,162 @@ paths:
                 $ref: '#/components/schemas/HerdInsightsResponse'
         '401':
           description: Authentication required.
+  /herd-signals/tag-mappings:
+    post:
+      tags:
+        - Herd Signals
+      operationId: bindHerdSignalTagMapping
+      summary: Bind a BLE tag to an animal.
+      description: >-
+        Requires herd_signals.map -- NOT the read permission. Deciding which animal a tag belongs
+        to is a different authority from reading the dashboard: it decides whose body every
+        animal-attributed number downstream is about.
+
+        Claims the tag's id (and its MAC, when the tag reports a distinct one) as active,
+        smart-tag-capable goat_identifiers rows for the animal, in ONE transaction. Values are
+        normalised with the identity module's canonical normalizer, so a lowercase device MAC
+        matches an uppercase-stored identifier.
+
+        ANIMAL MONITORING STARTS HERE. The mapping instant is stamped on the identifier and
+        denormalised onto the tag's live row; everything the tag emitted earlier stays visible as
+        device telemetry but can never enter this animal's baseline, pattern window, or
+        correlations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HerdSignalsBindTagMappingRequest'
+      responses:
+        '200':
+          description: The binding now in force.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalsTagMappingResponse'
+        '400':
+          description: Missing or malformed goat_id/tag_id, or an identifier_type outside the allowed set.
+        '401':
+          description: Authentication required.
+        '404':
+          description: No such animal in this tenant.
+        '409':
+          description: >-
+            The tag value is already claimed by another animal, the animal already carries a live
+            smart tag (use the replace endpoint), or the value is held by a non-active identifier.
+  /herd-signals/tag-mappings/replace:
+    post:
+      tags:
+        - Herd Signals
+      operationId: replaceHerdSignalTagMapping
+      summary: Replace an animal's smart tag with a new one, atomically.
+      description: >-
+        Requires herd_signals.map. Re-tagging is the real-world case -- a tag falls off, a
+        replacement goes on -- and both halves commit together or neither does, so the animal is
+        never left carrying two live smart tags (ambiguous telemetry) or none (silently
+        unmonitored).
+
+        The new tag starts a NEW monitoring period and the old tag's period ends, so nothing the
+        replacement emitted while it sat unused can be attributed to this animal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HerdSignalsReplaceTagMappingRequest'
+      responses:
+        '200':
+          description: The new binding, and the identifiers whose binding this ended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalsTagMappingResponse'
+        '400':
+          description: Missing or malformed goat_id/new_tag_id, or an identifier_type outside the allowed set.
+        '401':
+          description: Authentication required.
+        '404':
+          description: No such animal in this tenant.
+        '409':
+          description: >-
+            The animal has no live smart tag to replace, already carries exactly this tag, or the
+            new tag value is claimed by another animal.
+  /herd-signals/identifiers/{identifier_id}/smart-tag:
+    post:
+      tags:
+        - Herd Signals
+      operationId: setHerdSignalSmartTagCapable
+      summary: Mark or unmark an existing identifier as smart-tag capable.
+      description: >-
+        Requires herd_signals.map. For the case where the animal's existing ear-tag value IS the
+        BLE tag value, so no new identifier row should be invented.
+
+        Marking stamps the monitoring boundary (animal monitoring starts now). Unmarking clears it
+        back to null, which returns the tag to device-telemetry-only: no animal-attributed value
+        may be produced for it at all -- not a zero, not a default.
+      parameters:
+        - name: identifier_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HerdSignalsSetSmartTagCapableRequest'
+      responses:
+        '200':
+          description: The binding now in force.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalsTagMappingResponse'
+        '400':
+          description: Malformed identifier_id or request body.
+        '401':
+          description: Authentication required.
+        '404':
+          description: No such identifier in this tenant.
+        '409':
+          description: >-
+            The identifier is not active, or the animal already carries a different live smart tag.
+  /herd-signals/heartbeats:
+    post:
+      tags:
+        - Herd Signals
+      operationId: recordHerdSignalGatewayHeartbeat
+      summary: Record a gateway heartbeat (sta_gw_hb).
+      description: >-
+        Gateway DEVICE write path: requires herd_signals.ingest, the same credential class as
+        packet ingest, never an operator permission.
+
+        The gateway emits this state message roughly every five minutes carrying no device rows at
+        all, and it was previously discarded. Without it "gateway up but hearing no tags" (a dead
+        antenna, a misaimed unit, an empty shed) is indistinguishable from "gateway down" -- two
+        situations that demand opposite responses. It advances last_heartbeat_at, which is
+        deliberately separate from last_seen_at: either kind of message proves we heard something,
+        only a heartbeat proves the gateway itself is alive.
+
+        A ticks_cnt that goes BACKWARDS is a reboot, handled like a reset motion counter or a
+        decreasing pkt_sn: re-anchor and count the reboot, never record a negative.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HerdSignalsGatewayHeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalsGatewayHeartbeatResponse'
+        '400':
+          description: Missing gateway_id, or a state that is not the gateway heartbeat state.
+        '401':
+          description: Authentication required.
   /herd-signals/export.csv:
     get:
       tags:
@@ -11044,6 +11200,16 @@ components:
         temperature_sensor_ok: { type: boolean, nullable: true }
         accelerometer_sensor_ok: { type: boolean, nullable: true }
         raw_adv: { type: string, nullable: true }
+        pkt_sn:
+          type: integer
+          format: int64
+          nullable: true
+          description: >-
+            The GATEWAY scan report's sequence number, carried through per packet. The only
+            packet-loss instrument this protocol offers: a forward jump means reports that were
+            never delivered, and a DECREASE means the gateway rebooted (re-anchor, never a
+            negative loss). Optional -- older firmware and replay paths omit it, and a packet
+            without one is still real sensor data that simply cannot contribute to loss counts.
         seen_at: { type: string, format: date-time }
         gateway_seen_at:
           type: string
@@ -11074,6 +11240,100 @@ components:
         latest_updated: { type: integer }
         trace_id: { type: string }
       required: [accepted, stored, latest_updated, trace_id]
+    HerdSignalsBindTagMappingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        goat_id: { type: string, format: uuid }
+        tag_id:
+          type: string
+          description: The tag's printed/reported id. Normalised (trimmed, uppercased) before it is claimed.
+        tag_mac:
+          type: string
+          description: >-
+            Optional. When the tag reports a MAC distinct from its id, that value is claimed as
+            its own identifier row too -- the read path matches a packet by tag id OR MAC while a
+            single identifier row carries one value, so claiming only one would leave half the
+            tag's packets resolving to no animal.
+        identifier_type:
+          type: string
+          enum: [animal_identifier_1, animal_identifier_2, temporary_tag]
+          description: Slot the tag is bound in. Defaults to animal_identifier_2 -- a smart tag is normally the second thing an animal carries.
+      required: [goat_id, tag_id]
+    HerdSignalsReplaceTagMappingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        goat_id: { type: string, format: uuid }
+        new_tag_id: { type: string }
+        new_tag_mac: { type: string }
+        identifier_type:
+          type: string
+          enum: [animal_identifier_1, animal_identifier_2, temporary_tag]
+      required: [goat_id, new_tag_id]
+    HerdSignalsSetSmartTagCapableRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        smart_tag_capable:
+          type: boolean
+          description: True marks the identifier as a smart tag and starts monitoring; false unbinds it and returns the tag to device telemetry only.
+      required: [smart_tag_capable]
+    HerdSignalsTagMappingResponse:
+      type: object
+      properties:
+        goat_id: { type: string, format: uuid }
+        tag_id: { type: string, description: The normalised tag id now bound. }
+        tag_mac: { type: string, nullable: true }
+        identifier_ids:
+          type: array
+          description: The identifier rows now carrying this binding. Never null.
+          items: { type: string, format: uuid }
+        mapping_state:
+          type: string
+          enum: [mapped, unmapped]
+        monitoring_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            The instant animal monitoring starts for this tag. Null means unmapped, in which case
+            NO animal-attributed value may be produced for the tag -- not a zero, not a default.
+            Baselines, pattern windows and correlations never look back past this instant.
+        unbound_identifier_ids:
+          type: array
+          description: >-
+            Identifiers whose smart-tag binding this write ENDED -- the replaced tag on a replace,
+            the unmarked identifier on an unmark. Never null.
+          items: { type: string, format: uuid }
+      required: [goat_id, tag_id, tag_mac, identifier_ids, mapping_state, monitoring_since, unbound_identifier_ids]
+    HerdSignalsGatewayHeartbeatRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        gateway_id: { type: string }
+        state:
+          type: string
+          description: >-
+            The gateway's own state name. Optional, but when present it must be the heartbeat
+            state (sta_gw_hb): an unrecognised future state must not be allowed to assert proof of
+            life by accident.
+        ticks_cnt:
+          type: integer
+          format: int64
+          nullable: true
+          description: Gateway uptime tick counter. A value that goes backwards is a reboot, never a negative.
+      required: [gateway_id]
+    HerdSignalsGatewayHeartbeatResponse:
+      type: object
+      properties:
+        gateway_id: { type: string }
+        last_heartbeat_at: { type: string, format: date-time }
+        reboot_detected:
+          type: boolean
+          description: True when ticks_cnt went backwards against the stored value.
+        trace_id: { type: string }
+      required: [gateway_id, last_heartbeat_at, reboot_detected, trace_id]
     CeoConversationCreateRequest:
       type: object
       additionalProperties: false
