@@ -119,7 +119,7 @@ type Gateway struct {
 	LastSeenAt  *time.Time
 	// LastPktSN is the highest scan-report sequence number carried by the batch being ingested.
 	// The repository compares it to the stored value to accrue packet loss (forward jump) or
-	// count a reboot (decrease) -- see migration 000197.
+	// count a reboot (decrease) -- see migration 000198.
 	LastPktSN *int64
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -176,7 +176,7 @@ type TagLatest struct {
 	TagTemperatureC       *float64
 	MotionCount           *int64
 	MotionDelta           *int64 // 15-minute window delta (motion_window_seconds=900)
-	MotionDelta1h         *int64 // real 1-hour (3600s-tier) delta -- distinct from MotionDelta, see 000193
+	MotionDelta1h         *int64 // real 1-hour (3600s-tier) delta -- distinct from MotionDelta, see 000194
 	PreviousMotionCount   *int64
 	PreviousSeenAt        *time.Time
 	MotionWindowSeconds   *int

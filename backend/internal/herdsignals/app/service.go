@@ -69,7 +69,7 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 	packets := make([]domain.Packet, 0, len(req.Packets))
 	for _, p := range req.Packets {
 		// The caller's own claimed capture time is kept only for troubleshooting (DeviceSeenAt) and
-		// as the dedup key's identity of "the same physical packet" (see migration 000195) --
+		// as the dedup key's identity of "the same physical packet" (see migration 000196) --
 		// never for a staleness/gap/ordering decision. A malformed or absent value degrades to
 		// "no diagnostic timestamp available", not a reason to drop real sensor data: dropping
 		// the packet would make the device's own clock a DoS lever over data we no longer trust
@@ -121,7 +121,7 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 	}
 
 	// The batch's highest scan-report sequence number drives the gateway's packet-loss
-	// accounting (000197): the repository compares it to the stored value to accrue missed
+	// accounting (000198): the repository compares it to the stored value to accrue missed
 	// reports on a forward jump, or count a gateway reboot on a decrease. Max, not last: packets
 	// within one call are not ordered by sequence, and the anchor must only ever move forward
 	// within a batch.

@@ -5,7 +5,7 @@ Audit date: 2026-08-22. Sources (live capture, still appending — counts are pe
 - `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/raw_scan_reports.ndjson` — authority. First read: 11,729 records / 196,564 device rows; second read minutes later: 11,801 records. Envelope time range `2026-08-22 18:22:08` .. `21:38:10` (gateway clock).
 - `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv` — 18,355 rows at read time, which exactly equalled the count of HoneyComm-tag advertisement rows in the NDJSON at the same moment (18,355). The CSV keeps ONLY HoneyComm ear-tag rows; all other BLE devices and all gateway heartbeat records are absent from it.
 
-Persistence targets compared: `backend/migrations/postgres/000191_herd_signals.sql` (+000192 dedup index, 000193 motion_delta_1h), `backend/internal/herdsignals/domain/types.go` (`IngestPacket`), `backend/cmd/seed-herd-signals-oci/main.go`, `backend/internal/herdsignals/app/service.go`.
+Persistence targets compared: `backend/migrations/postgres/000192_herd_signals.sql` (+000193 dedup index, 000194 motion_delta_1h), `backend/internal/herdsignals/domain/types.go` (`IngestPacket`), `backend/cmd/seed-herd-signals-oci/main.go`, `backend/internal/herdsignals/app/service.go`.
 
 ## 1. Complete NDJSON key inventory (mechanical enumeration, all 11,729 records)
 
@@ -117,7 +117,7 @@ Not in the payload at all (so not droppable, but confirms limits): TX power, cha
 
 ## 5. Multi-gateway overlap
 
-The entire capture contains exactly ONE `gw_addr` (`f130d402dcb4`). Zero instances of the same `(addr, time, msec, adv_raw)` heard by more than one receiver in 196,564 rows. So the dedup key `(tenant_id, tag_id, received_at, motion_count)` without `gateway_id` (000192) is not dropping anything **today** — but the moment a second gateway is deployed, a same-second copy of the same advertisement (same motion_count) at the other receiver WILL be silently discarded, destroying exactly the per-gateway RSSI data any location estimate needs. This is a latent, not active, loss.
+The entire capture contains exactly ONE `gw_addr` (`f130d402dcb4`). Zero instances of the same `(addr, time, msec, adv_raw)` heard by more than one receiver in 196,564 rows. So the dedup key `(tenant_id, tag_id, received_at, motion_count)` without `gateway_id` (000193) is not dropping anything **today** — but the moment a second gateway is deployed, a same-second copy of the same advertisement (same motion_count) at the other receiver WILL be silently discarded, destroying exactly the per-gateway RSSI data any location estimate needs. This is a latent, not active, loss.
 
 ## 6. Ranked additions
 

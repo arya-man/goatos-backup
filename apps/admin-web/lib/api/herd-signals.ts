@@ -276,7 +276,7 @@ export async function getHerdSignalsInsights(): Promise<ApiResult<HerdInsightsRe
 // These are gated by `herd_signals.map`, NOT the read permission: deciding which
 // animal a tag belongs to is the decision every animal-attributed number in the
 // module depends on, and it stamps the instant that animal's monitoring starts
-// (backend/migrations/postgres 000196).
+// (backend/migrations/postgres 000197).
 // ---------------------------------------------------------------------------
 
 export type HerdSignalIdentifierType = "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
