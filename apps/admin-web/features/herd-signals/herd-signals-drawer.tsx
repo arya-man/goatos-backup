@@ -30,16 +30,6 @@ const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "2
 // 5 minutes, so a 3600s bar cannot be compared against it without a unit mismatch.
 const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 300 };
 
-function batteryLife(mv: number | null | undefined): { label: string; tone: "ok" | "warn" | "dng" | "mut" } {
-  if (mv === null || mv === undefined) return { label: "—", tone: "mut" };
-  const months = Math.max(0, Math.min(1, (mv - 2600) / (3200 - 2600))) * 24;
-  if (months < 0.5) return { label: "< 2 weeks", tone: "dng" };
-  if (months < 1) return { label: `~${Math.round(months * 4)} weeks`, tone: "dng" };
-  if (months < 12) return { label: `~${Math.round(months)} months`, tone: months < 3 ? "warn" : "mut" };
-  const years = months / 12;
-  return { label: `~${years < 1.95 ? years.toFixed(1) : Math.round(years)} year${years >= 1.95 ? "s" : ""}`, tone: "ok" };
-}
-
 function drawerBatteryVoltage(mv: number | null | undefined): string {
   if (mv === null || mv === undefined) return "—";
   return `${fmtBatteryMv(mv)} (${mv} mV)`;
@@ -140,7 +130,6 @@ export function HerdSignalsDrawer({
   const animalLabel = item.animal_identifier_1 || item.animal_identifier_2 || item.display_id;
   const titleLine = animalLabel ? `${animalLabel} · ${item.tag_id}` : `Unmapped tag ${item.tag_id}`;
   const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
-  const batteryLifeEstimate = batteryLife(item.battery_mv);
 
   return (
     <>
@@ -274,11 +263,6 @@ export function HerdSignalsDrawer({
             <dd>
               {drawerBatteryVoltage(item.battery_mv)}
               <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Estimated battery life</dt>
-            <dd>
-              <Tag tone={batteryLifeEstimate.tone}>{batteryLifeEstimate.label}</Tag>
-              <span className="srcl inferred">Inferred</span>
             </dd>
             <dt>Tag temp</dt>
             <dd>
