@@ -60,7 +60,7 @@ export function HerdSignalsFilters({
   return (
     <div className="fbar herd-signals-fbar" aria-busy={isPending}>
       {isPending ? <span className="wfspin" aria-hidden="true" title="Applying filter" /> : null}
-      <span className="fsel search has">
+      <span className={`fsel search${q ? " has" : ""}`}>
         <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
