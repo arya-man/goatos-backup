@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,37 @@ func mappingStateFromLive(t *testing.T, ctx context.Context, repo *Repository, t
 	}
 	t.Fatalf("tag %q is missing from the live view entirely", tagID)
 	return ""
+}
+
+// liveSmartTagValues reads, FROM THE DATABASE, every identifier value still bound as a live smart
+// tag for an animal.
+//
+// This exists because asserting the read path is not enough, and that gap shipped a real bug: a
+// unmap that released only the tag-id row left the MAC row live, the tag READ as unmapped, every
+// API surface looked right, and the animal was silently pinned to a dead binding it could never
+// be freed from through the product. The API's own view of "is this mapped" is exactly the view
+// that was wrong, so the binding must be checked underneath it.
+func liveSmartTagValues(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) []string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT normalized_value FROM goat_identifiers
+		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
+		      AND status = 'active' AND smart_tag_capable IS TRUE
+		ORDER BY normalized_value
+	`, hsiTenant, goatID)
+	if err != nil {
+		t.Fatalf("read live smart tag values: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // TestMapTagToAnimalFlipsTheLiveReadToMapped is the primary proof: the action the Tag Mapping
@@ -254,15 +286,31 @@ func TestReplaceLeavesExactlyOneLiveBinding(t *testing.T) {
 		t.Errorf("old tag live mapping_state = %q, want unmapped: a tag that fell off must stop being attributed to the animal", got)
 	}
 
-	var liveBindings int
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM goat_identifiers
-		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'active' AND smart_tag_capable IS TRUE
-	`, hsiTenant, hsmGoatB).Scan(&liveBindings); err != nil {
-		t.Fatalf("count live bindings: %v", err)
+	// DATABASE-level, not API-level: exactly the NEW tag's two values, and not one row left over
+	// from the old tag. A leftover MAC row would be invisible to every read path and would pin
+	// this animal to a tag that is no longer on it -- the defect unmap shipped with.
+	live := liveSmartTagValues(t, ctx, pool, hsmGoatB)
+	wantLive := []string{domain.NormalizeTagIdentifier(hsmTagB), domain.NormalizeTagIdentifier(hsmTagBMAC)}
+	sort.Strings(wantLive)
+	if len(live) != len(wantLive) {
+		t.Fatalf("animal carries live smart-tag values %v, want exactly %v (nothing from the old tag may survive a replace)", live, wantLive)
 	}
-	if liveBindings != 2 {
-		t.Errorf("animal carries %d live smart-tag identifier rows, want 2 (the new tag's id and MAC, and NOTHING from the old tag)", liveBindings)
+	for i := range live {
+		if live[i] != wantLive[i] {
+			t.Errorf("live smart-tag values = %v, want %v", live, wantLive)
+			break
+		}
+	}
+
+	// And a re-tag AFTER a re-tag must still work: an animal that accumulated a dead MAC binding
+	// on every swap would fail here on the second one.
+	if _, err := repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{
+		GoatID: hsmGoatB, NewTagID: hsmTagA, NewTagMAC: hsmTagAMAC,
+	}); err != nil {
+		t.Fatalf("second replace (swapping back to the original tag): %v", err)
+	}
+	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 2 {
+		t.Errorf("after a second replace the animal carries %v, want exactly the 2 values of the tag now on it: dead bindings are accumulating on every swap", live)
 	}
 
 	// The old tag's history is intact -- it was unbound, never deleted.
@@ -330,6 +378,81 @@ func TestUnmapReturnsTheTagToDeviceTelemetry(t *testing.T) {
 	// operator believes they just released a binding.
 	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA}); !errors.Is(err, domain.ErrMappingConflict) {
 		t.Errorf("unmapping an unmapped tag returned %v, want a conflict", err)
+	}
+}
+
+// TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed is the regression test for a defect that
+// shipped past a green suite: MAP creates one identifier row per value the tag reports (its id AND
+// its MAC), and UNMAP released only the rows matching the value the caller happened to name.
+//
+// The tag then READ as unmapped -- so the API, the live view and the previous version of this
+// test all looked correct -- while the animal stayed pinned to the other half of the binding.
+// Nothing in the product could release it, because unmap had already reported success. The animal
+// could never be re-tagged through the UI again.
+//
+// So this test asserts the DATABASE, and then the sequence a real re-tagging actually performs.
+func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	bind, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+		GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC,
+	})
+	if err != nil {
+		t.Fatalf("map: %v", err)
+	}
+	if len(bind.IdentifierIDs) != 2 {
+		t.Fatalf("map created %d identifiers, want 2 (id and MAC) -- this test is about releasing BOTH", len(bind.IdentifierIDs))
+	}
+
+	// Unmap naming ONLY the tag id. The MAC row must go too.
+	unmap, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA})
+	if err != nil {
+		t.Fatalf("unmap: %v", err)
+	}
+	if len(unmap.UnboundIdentifierIDs) != 2 {
+		t.Errorf("unmap released %d identifiers, want 2: naming one value must release the whole binding, not the half that value matched", len(unmap.UnboundIdentifierIDs))
+	}
+	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 0 {
+		t.Fatalf("after unmap the animal still carries live smart-tag values %v, want NONE. The tag reads as unmapped, so nothing in the product can see or release this -- the animal is stuck", live)
+	}
+
+	// THE ROUND TRIP a real re-tagging performs: map A, unmap A, map B to the SAME animal.
+	// This is what was impossible: the leftover row made the second map a 409.
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+		GoatID: hsmGoatB, TagID: hsmTagB, TagMAC: hsmTagBMAC,
+	}); err != nil {
+		t.Fatalf("map a DIFFERENT tag to the same animal after unmapping the first: %v\nthis is exactly what a farm does when a tag falls off and is replaced, and a half-released binding makes it permanently impossible", err)
+	}
+	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 2 {
+		t.Errorf("after the round trip the animal carries %v, want exactly the new tag's 2 values", live)
+	}
+
+	// And unmapping by MAC releases just as completely as unmapping by id.
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagBMAC}); err != nil {
+		t.Fatalf("unmap by MAC: %v", err)
+	}
+	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 0 {
+		t.Errorf("unmapping by MAC left %v behind; either value must release the whole binding", live)
+	}
+
+	// Re-mapping the SAME tag to the SAME animal after an unmap must work too: an operator who
+	// unmaps by mistake has to be able to put it straight back.
+	again, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+		GoatID: hsmGoatB, TagID: hsmTagB, TagMAC: hsmTagBMAC,
+	})
+	if err != nil {
+		t.Fatalf("re-map the SAME tag to the same animal after unmapping it: %v", err)
+	}
+	if again.MonitoringSince == nil {
+		t.Fatal("re-map produced no monitoring boundary")
+	}
+	// A re-map after a genuine unmap starts a NEW monitoring period: the tag was off the animal
+	// in between, and whatever it recorded then is not this animal's history.
+	if !again.MonitoringSince.After(*bind.MonitoringSince) {
+		t.Errorf("re-map monitoring_since = %v, want a new period after the original %v: the unmap ended the old one",
+			again.MonitoringSince, bind.MonitoringSince)
 	}
 }
 

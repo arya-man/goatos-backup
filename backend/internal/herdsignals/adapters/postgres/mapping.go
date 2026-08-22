@@ -344,12 +344,29 @@ func effectiveMappedAt(ctx context.Context, tx pgx.Tx, tenantID string, ids []st
 
 // UnmapTagMapping implements ports.Repository: release a binding with no replacement.
 //
-// It clears smart_tag_capable and smart_tag_mapped_at on the identifiers holding this tag's
-// value(s) WITHOUT retiring the identity row -- the row may also be the animal's ordinary ear-tag
-// identity, and the physical value stays claimed for the tenant's lifetime either way. Clearing
-// the flag is exactly what makes the read path stop resolving the tag to this animal; clearing
-// the stamp is what makes NULL mean "device telemetry only" again. The tag's packets keep
-// flowing and its stored history stays intact.
+// IT RELEASES THE WHOLE BINDING, NOT THE VALUE THE CALLER NAMED. A MAP creates one identifier row
+// per value the physical tag reports -- its printed id AND its MAC -- so a release that only
+// unbinds the rows matching the caller's supplied values leaves the other half of the binding
+// live. That was a real defect found by driving the API on the live stack, not by these tests:
+//
+//	MAP   {tag_id: A0003B, tag_mac: f0c990a0003b}  -> created TWO identifiers
+//	UNMAP {tag_id: A0003B}                         -> released ONE, reported success
+//
+// The tag then READ as unmapped, so every API surface looked correct, while the animal stayed
+// pinned to the MAC row of a tag that no longer existed on it. Nothing in the product could
+// release that row -- unmap had already reported success and the tag no longer looked mapped --
+// so the animal could never be re-tagged through the UI again. On a farm that is an animal
+// permanently stuck, recoverable only with hand-written SQL.
+//
+// So: the supplied values IDENTIFY the animal, and then the animal's ENTIRE live smart-tag
+// binding is released in the one transaction. That also makes unmap idempotent in the useful
+// direction -- releasing by id or by MAC does the same complete thing.
+//
+// It clears smart_tag_capable and smart_tag_mapped_at WITHOUT retiring the identity rows: a row
+// may also be the animal's ordinary ear-tag identity, and the physical value stays claimed for
+// the tenant's lifetime either way. Clearing the flag is what makes the read path stop resolving
+// the tag to this animal; clearing the stamp is what makes NULL mean "device telemetry only"
+// again. The tag's packets keep flowing and its stored history stays intact.
 func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error) {
 	var out domain.TagMappingResponse
 	values, normTagID, normTagMAC, err := bindValues(req.TagID, req.TagMAC)
@@ -363,29 +380,43 @@ func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID string, req d
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
+	// Step 1: the caller's values identify WHICH ANIMAL is being unmapped.
 	existing, err := lockIdentifiersByValue(ctx, tx, tenantID, values)
 	if err != nil {
 		return out, err
 	}
-	ids := make([]string, 0, len(existing))
 	goatID := ""
 	for _, e := range existing {
 		if e.Status != "active" || e.SmartTagCapable == nil || !*e.SmartTagCapable {
 			continue
 		}
-		ids = append(ids, e.IdentifierID)
 		goatID = e.GoatID
+		break
 	}
-	if len(ids) == 0 {
+	if goatID == "" {
 		// Unmapping something that is not mapped is a caller mistake worth naming, not a silent
 		// no-op: the operator believes they just released a binding.
 		return out, fmt.Errorf("tag %q is not mapped to an animal: %w", normTagID, domain.ErrMappingConflict)
 	}
 
+	// Step 2: release that animal's ENTIRE live binding -- every identifier row, whichever value
+	// it holds -- so no half-bound remainder can survive this call.
+	live, err := liveSmartTagsForGoat(ctx, tx, tenantID, goatID)
+	if err != nil {
+		return out, err
+	}
+	ids := make([]string, 0, len(live))
+	releasedValues := make([]string, 0, len(live))
+	for _, e := range live {
+		ids = append(ids, e.IdentifierID)
+		releasedValues = append(releasedValues, e.NormalizedValue)
+	}
 	if err := unbindIdentifiers(ctx, tx, tenantID, ids); err != nil {
 		return out, err
 	}
-	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, nil); err != nil {
+	// Clear the hot-read boundary for every released value, not only the caller's: a tag_latest
+	// row keyed on the MAC alone must stop claiming an animal too.
+	if err := syncTagLatestMonitoring(ctx, tx, tenantID, releasedValues, nil); err != nil {
 		return out, err
 	}
 	if err := tx.Commit(ctx); err != nil {
