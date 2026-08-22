@@ -1,5 +1,7 @@
 package sg.mesha.goatos.core.data.capture
 
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import java.io.File
 
@@ -160,6 +162,21 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                             reason = "Recording has unreadable video dimensions.",
                         )
                     }
+                    if (!allowPlausibleAccept) {
+                        val videoTrackDurationMs = readVideoTrackDurationMs(file)
+                        if (videoTrackDurationMs <= 0L) {
+                            return ProofArtifactValidator.ValidationResult(
+                                isValid = false,
+                                reason = "Recording has no readable video track duration.",
+                            )
+                        }
+                        if (videoTrackDurationMs < (probeResult.durationMs * MIN_VIDEO_TRACK_DURATION_RATIO).toLong()) {
+                            return ProofArtifactValidator.ValidationResult(
+                                isValid = false,
+                                reason = "Recording video track ended before audio.",
+                            )
+                        }
+                    }
                     // All checks passed
                     return ProofArtifactValidator.ValidationResult(isValid = true)
                 }
@@ -189,7 +206,28 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
         }
     }
 
+    private fun readVideoTrackDurationMs(file: File): Long {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(file.absolutePath)
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
+                if (!mime.startsWith("video/", ignoreCase = true)) continue
+                if (!format.containsKey(MediaFormat.KEY_DURATION)) return 0L
+                return (format.getLong(MediaFormat.KEY_DURATION) / 1_000L).coerceAtLeast(0L)
+            }
+            0L
+        } finally {
+            extractor.release()
+        }
+    }
+
     private data class ProbeSuccess(val durationMs: Long, val width: String?, val height: String?)
+
+    private companion object {
+        private const val MIN_VIDEO_TRACK_DURATION_RATIO = 0.80f
+    }
 }
 
 /** Noop validator for testing; always returns valid. */
