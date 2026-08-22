@@ -21,6 +21,14 @@
 -- reintroducing the exact double-count bug 000192 closed. The dedup identity moves to
 -- device_seen_at (the one piece of this row that IS stable across a retry), used HERE ONLY for
 -- "is this the same physical packet" -- never for a decision.
+--
+-- PARTIAL index (WHERE device_seen_at IS NOT NULL), not NULLS NOT DISTINCT: every packet row
+-- ingested before this migration has device_seen_at = NULL (the column did not exist), so a
+-- NULLS-NOT-DISTINCT index would collide historical rows that legitimately share
+-- (tenant_id, tag_id, motion_count) with a NULL fourth column and refuse to build. Restricting
+-- the index to rows that DO carry a device timestamp is also the more honest rule going
+-- forward: a packet with no diagnostic timestamp has no basis for a dedup decision by this key
+-- at all, so it should never be silently deduplicated away by it.
 
 -- +goose Up
 ALTER TABLE public.herd_signal_packets
@@ -29,7 +37,8 @@ ALTER TABLE public.herd_signal_packets
 DROP INDEX IF EXISTS public.herd_signal_packets_dedup_uidx;
 
 CREATE UNIQUE INDEX IF NOT EXISTS herd_signal_packets_dedup_uidx
-  ON public.herd_signal_packets (tenant_id, tag_id, device_seen_at, motion_count) NULLS NOT DISTINCT;
+  ON public.herd_signal_packets (tenant_id, tag_id, device_seen_at, motion_count)
+  WHERE device_seen_at IS NOT NULL;
 
 -- +goose Down
 DROP INDEX IF EXISTS public.herd_signal_packets_dedup_uidx;
