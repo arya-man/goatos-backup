@@ -158,14 +158,46 @@ async function gotoPlan() {
  * end in the editor -- Start no longer returns to the list expecting a second
  * click.
  */
-async function startVersion() {
-  const start = page.getByRole("button", { name: /Start a new version/i });
-  if (await start.count()) {
-    await start.click();
-  } else {
-    await page.getByRole("link", { name: /^Open V\d/i }).first().click();
+
+/**
+ * Click something that navigates, and mean it.
+ *
+ * The page is server rendered, so it looks ready well before React has attached; a click
+ * that arrives first is dropped silently and the navigation simply never happens. One
+ * retry covers that. A second dropped click is a real failure and still times out.
+ */
+async function clickAndWaitForUrl(locator, urlPattern) {
+  await locator.waitFor({ state: "visible", timeout: 30000 });
+  await locator.click();
+  try {
+    await page.waitForURL(urlPattern, { timeout: 15000 });
+  } catch {
+    await locator.click();
+    await page.waitForURL(urlPattern, { timeout: 45000 });
   }
-  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await page.waitForLoadState("networkidle");
+}
+
+async function startVersion() {
+  // The click can land before React has attached to the button -- the page is server
+  // rendered, so it LOOKS ready well before it is interactive, and a click that arrives
+  // first is simply dropped. That produced a navigation timeout in a different case on
+  // every run, which reads exactly like a broken button.
+  //
+  // So: wait for the control, click, and if the URL has not moved, click once more. A
+  // second dropped click is a real failure and still times out.
+  const start = page.getByRole("button", { name: /Start a new version/i });
+  const control = (await start.count())
+    ? start
+    : page.getByRole("link", { name: /^Open V\d/i }).first();
+  await control.waitFor({ state: "visible", timeout: 30000 });
+  await control.click();
+  try {
+    await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 15000 });
+  } catch {
+    await control.click();
+    await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  }
   await page.waitForLoadState("networkidle");
 }
 
@@ -374,8 +406,7 @@ await runCase("C10", "Publishing: history and in-flight work untouched", async (
   await startVersion();
   await page.getByRole("button", { name: "3 months", exact: true }).click();
   await page.waitForTimeout(400);
-  await page.getByRole("button", { name: /Publish plan/i }).click();
-  await page.waitForURL(/\/vaccination\/plan$/, { timeout: 60000 });
+  await clickAndWaitForUrl(page.getByRole("button", { name: /Publish plan/i }), /\/vaccination\/plan$/);
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1500);
   results.at(-1).shots.push(await shot("C10-published"));
@@ -411,8 +442,7 @@ await runCase("C11", "A published plan cannot be edited or discarded", async () 
 await runCase("C12", "Earlier versions are readable and unchanged", async () => {
   await gotoPlan();
   await startVersion();
-  await page.getByRole("button", { name: /Publish plan/i }).click();
-  await page.waitForURL(/\/vaccination\/plan$/, { timeout: 60000 });
+  await clickAndWaitForUrl(page.getByRole("button", { name: /Publish plan/i }), /\/vaccination\/plan$/);
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /View settings/i }).first().click();
   await page.waitForTimeout(1500);
