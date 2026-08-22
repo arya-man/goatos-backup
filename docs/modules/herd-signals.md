@@ -362,3 +362,42 @@ addressed:
 Until this calibration work is done and documented, all thresholds in this
 file remain provisional, must stay configurable (not hardcoded), and must
 not be cited elsewhere as validated product behavior.
+
+## Required UI states (implementation contract)
+
+Every Herd Signals surface must implement all of the states below. They are
+product states, not review scaffolding: the review mock exposes them through a
+URL hash (`#empty`, `#filtered`, `#error`, `#loading`, `#offline`, `#data`) and
+`Alt+1..6` only so a reviewer can reach them without a backend. **No state
+switcher, and no "mock"/"demo"/"sample"/"synthetic" wording, may appear in the
+shipped UI** — in the product each state is entered by real conditions.
+
+| State | Condition | Required treatment |
+|---|---|---|
+| Loading | first read in flight, no cached rows | skeleton rows, never a blank panel |
+| Empty — no packets | no gateway has ever posted for the tenant | "No gateway packets yet" + what to check on the gateway |
+| Empty — no mapped tags | no active `smart_tag_capable` identifier | route the reader to Tag Mapping |
+| Empty — no unmapped tags | every seen tag resolves to one identifier | stated as a healthy outcome, not an error |
+| Empty — no alerts | every tag within thresholds | stated as a healthy outcome |
+| Empty — no battery / no history | no readings or no activity windows in scope | explain that buckets are written as packets arrive |
+| Filtered to nothing | filters/search exclude every row | say the gateway is still receiving, offer "clear filters" |
+| Read failed | API error | say the read failed, offer retry; never render an empty table as if it were zero rows |
+| Stale | last successful response older than 30s | degraded state on the live control, stale banner, manual refresh still works |
+| Paused | operator paused polling, or tab hidden | polling stops, state is visible on the live control |
+| Gateway offline | gateway has not posted recently | banner on that gateway, and its tags read as missing signal — never as missing animals |
+
+Two rules that fall out of the table and must not be relaxed:
+
+- An empty result and a failed read are different states and must never share
+  a rendering. Showing a failed read as "0 tags" reports a false fact.
+- A missing signal is a statement about the radio path. Its copy names the
+  gateway before it names the animal.
+
+## Seed and scale data
+
+Seed/demo environments may carry generated tag rows so search, filters, and
+pagination are exercised at realistic scale (the review mock renders ~2,000
+rows against a handful of proven readings). That is a property of the seed
+data, recorded here and in the seed command — it is never surfaced in UI copy,
+and no screen labels its own contents as generated.
+
