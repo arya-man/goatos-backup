@@ -189,6 +189,22 @@ variables/templates — see the guard's own header comment for its full,
 explicit blind-spot list. Review still has to read for paraphrase; the
 guard only catches the literal terms.
 
+**The lesson underneath this guard's three review rounds, worth keeping in
+mind for any future edit to it:** every real defect found was never about
+the banned-word list — it was about the SCOPE the negation is judged in.
+Round 1 judged negation per physical LINE, and failed the product's own
+mandatory disclaimer the moment JSX wrapped it across two lines. Round 2
+widened that to a flat N-line WINDOW, which fixed the wrap but then let an
+unrelated "no"/"not" in a fully-unrelated, already-ended PRIOR sentence
+silently suppress a genuine claim just by being nearby. Round 3 replaced
+the line/window scope with a SENTENCE scope (walk outward until a real
+sentence boundary — punctuation+capital, blank line, JSX tag edge, list
+item — including boundaries that fall mid-line, not just at line ends). If
+this guard grows a fourth defect, look first at whether the negation-scope
+boundary logic in `buildSentenceWindow`/`splitIntoSentenceFragments` is
+wrong for some new shape of prose, before touching the banned-term list —
+that is where every prior bug actually lived.
+
 ## Escape hatch (used sparingly, must be complete)
 
 `herd-signals-language:ignore: owner=<name> issue=<url|id> scope=<why> expiry=<YYYY-MM-DD>`
