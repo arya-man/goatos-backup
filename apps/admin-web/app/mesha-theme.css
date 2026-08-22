@@ -2884,7 +2884,13 @@ select:disabled { opacity: .45; }
 .herd-signals-page .qclr{border:0;background:transparent;color:var(--faint);cursor:pointer;font:inherit;padding:0 2px}
 .herd-signals-page .fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
 
-.herd-signals-page .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:11px;margin-bottom:14px}
+.herd-signals-page .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:11px;margin-bottom:14px;align-items:stretch}
+/* Every card the same height regardless of caption length -- the captions differ in
+   line count, and without this the row reads as ragged boxes rather than one KPI strip. */
+.herd-signals-page .kpi{height:100%;display:flex;flex-direction:column}
+.herd-signals-page .kpi .dl{flex:1}
+@media(max-width:1200px){.herd-signals-page .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.herd-signals-page .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .herd-signals-page a > .kpi{text-decoration:none;display:block}
 .herd-signals-page .kpi{cursor:default}
 .herd-signals-page .kpi.kpi-clickable{cursor:pointer}
@@ -2905,10 +2911,10 @@ select:disabled { opacity: .45; }
 .herd-signals-page .kpi{border-left-width:3px;border-radius:10px;padding:11px 13px}
 .herd-signals-page .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px}
 .herd-signals-page .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px}
-.herd-signals-page .kpi .dl{font-size:11px}
+.herd-signals-page .kpi .dl{font-size:11px;font-weight:400;color:var(--muted)}
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
    pill. Scoped to this page so it never touches an unrelated screen's .tag. */
-.herd-signals-page .tag{border-radius:6px;font-weight:700;border:0}
+.herd-signals-page .tag{border-radius:6px;font-weight:700;border:0;padding:2px 8px;letter-spacing:normal;line-height:normal}
 .herd-signals-page .t-dng{color:var(--danger)}
 /* Headings/breadcrumb/subtitle: Tailwind's preflight resets h1's font-weight to `inherit`, which is
    why this page's own h1 rendered at the body's 400 instead of bold -- and a generic .crumb rule
@@ -2916,10 +2922,10 @@ select:disabled { opacity: .45; }
    the mock uses. Both fixed here at higher specificity (2-3 classes) rather than touching either
    shared rule, which other screens still rely on. */
 .herd-signals-page .phead h1{font-weight:700}
-.herd-signals-page .phead .crumb{font-size:12px;font-weight:400;text-transform:none;color:var(--muted)}
+.herd-signals-page .phead .crumb{font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--muted)}
 .herd-signals-page .phead .sub{font-size:12.5px}
-.herd-signals-page table.resp th{font-weight:800;padding:9px 12px}
-.herd-signals-page table.resp td{font-size:12.5px;font-weight:650;padding:9px 12px}
+.herd-signals-page table.resp th{font-weight:800;padding:9px 12px;line-height:normal;background:var(--panel)}
+.herd-signals-page table.resp td{font-size:12.5px;font-weight:400;padding:9px 12px;line-height:normal}
 
 .herd-signals-page .tblwrap{overflow:auto;max-height:640px}
 .herd-signals-page .animcell{font-weight:650}
@@ -2956,6 +2962,8 @@ select:disabled { opacity: .45; }
 @keyframes hs-sk{0%{background-position:120% 0}100%{background-position:-120% 0}}
 
 .herd-signals-page .pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 15px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted)}
+.herd-signals-page .pager.pager-top{border-top:0;border-bottom:1px solid var(--line2)}
+.herd-signals-page .pager b{color:var(--ink);font-variant-numeric:tabular-nums}
 .herd-signals-page .pgbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;text-decoration:none;display:inline-block}
 .herd-signals-page .pgbtn:hover:not([disabled]){border-color:var(--brand);color:var(--brand-d)}
 .herd-signals-page .pgbtn[disabled]{opacity:.4;cursor:not-allowed}
@@ -3066,3 +3074,21 @@ select:disabled { opacity: .45; }
 .herd-signals-page .evchip.on{border-color:currentColor}
 .herd-signals-page .evchip i{width:8px;height:8px;border-radius:2px;display:inline-block;background:currentColor}
 .herd-signals-page .evchip[disabled]{cursor:not-allowed;opacity:.6}
+
+/* Ported verbatim from mock/herd-signals-mock.html -- the Gateways and Insights tabs
+   render .grid2 but the app theme had NO rule for it, so both tabs stacked as
+   full-width blocks instead of a card grid. */
+.herd-signals-page .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
+@media(max-width:760px){.herd-signals-page .grid2{grid-template-columns:1fr}}
+
+/* Ported from mock/herd-signals-mock.html. These classes were rendered by the
+   components with NO rule in this stylesheet -- muted text rendered at full
+   brightness, flush card bodies kept their padding, wide mobile cells did not
+   span, and the search clear button never appeared. Caught by
+   tools/agent-hooks/check-mock-css-parity.mjs, which exists because porting a
+   mock's markup without its CSS fails silently. */
+.herd-signals-page .faint{color:var(--faint)}
+.herd-signals-page .card .bd.flush{padding:0}
+.herd-signals-page .card .bd.flush .legend,.herd-signals-page .card .bd.flush .readout{padding-left:15px;padding-right:15px}
+.herd-signals-page .fsel.search.has .qclr{display:block}
+@media(max-width:860px){.herd-signals-page table.resp td.wide{grid-column:1/-1}}
