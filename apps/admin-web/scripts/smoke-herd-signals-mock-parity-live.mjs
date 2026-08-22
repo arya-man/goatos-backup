@@ -116,6 +116,10 @@ async function verifyLiveRowClickOpensDrawer(context) {
     await page.goto(`${baseUrl}/herd-signals?scope_mode=company`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     const firstRow = page.locator("table.herd-signals-table tbody tr").first();
     await firstRow.waitFor({ state: "visible", timeout: 15_000 });
+    const animal = (await firstRow.locator("td[data-l='Animal']").innerText()).trim();
+    if (!/^\d{12,}/.test(animal)) {
+      throw new Error(`Animal column is not RFID-first: ${JSON.stringify(animal)}`);
+    }
     const tagId = await firstRow.locator("td[data-l='Smart tag'] .mono").first().textContent();
     await firstRow.click({ position: { x: 18, y: 18 } });
     await page.waitForSelector("aside.drawer.on", { timeout: 5_000 });
@@ -124,6 +128,10 @@ async function verifyLiveRowClickOpensDrawer(context) {
     if (!selected) throw new Error("row click opened drawer without hs_tag in URL");
     if (tagId && selected !== tagId.trim()) {
       throw new Error(`row click selected ${selected}, expected ${tagId.trim()}`);
+    }
+    const title = (await page.locator("aside.drawer.on .dh b").first().innerText()).trim();
+    if (!/^\d{12,}\s*·/.test(title)) {
+      throw new Error(`Drawer title is not RFID-first: ${JSON.stringify(title)}`);
     }
   } finally {
     await page.close();
