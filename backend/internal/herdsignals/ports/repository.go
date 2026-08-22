@@ -9,6 +9,17 @@ import (
 
 // Repository defines the data access interface for herd signals.
 type Repository interface {
+	// ActivityReader supplies the farm-activity overlay read (see activity.go). Embedded
+	// rather than restated so the overlay contract lives next to its own types.
+	ActivityReader
+
+	// ListTagsLatestPage is ListTagsLatest's ROW query alone -- same filters, same keyset
+	// order, no summary aggregate. GET /herd-signals/export.csv walks the whole filtered result
+	// one bounded page at a time, and re-running the whole-filter summary aggregate on every
+	// page would turn one export into hundreds of full aggregates for a number the CSV does not
+	// carry.
+	ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) ([]domain.TagLatest, error)
+
 	// UpsertGateway updates or inserts a gateway.
 	UpsertGateway(ctx context.Context, tenantID string, gw domain.Gateway) error
 
@@ -86,6 +97,38 @@ type Repository interface {
 	// the Postgres implementation -- never a single compute-on-read god query
 	// (AGENTS.md scale anti-patterns).
 	GetInsightsData(ctx context.Context, tenantID string) (InsightsData, error)
+
+	// BindTagMapping binds a BLE tag to an animal, in ONE transaction: it claims the tag's
+	// value(s) as active, smart-tag-capable goat_identifiers rows for that animal and stamps
+	// smart_tag_mapped_at, then denormalises that instant onto herd_signal_tag_latest
+	// .animal_monitoring_since for every tag row the value matches.
+	//
+	// The rows it writes MUST satisfy the read path's own mapping predicate exactly
+	// (normalized_value matches the tag id or MAC, same tenant, status='active',
+	// smart_tag_capable=true) -- that is verified by calling the read path after the write, not
+	// by reading this comment.
+	//
+	// Refuses with domain.ErrConflict rather than reconciling silently when the value is already
+	// claimed by a different animal, or when the animal already carries a different live smart
+	// tag (use ReplaceTagMapping for the re-tag case).
+	BindTagMapping(ctx context.Context, tenantID string, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error)
+
+	// SetSmartTagCapable marks or unmarks an EXISTING identifier as smart-tag capable, for the
+	// case where the animal's ear tag value IS the BLE tag value. Marking stamps
+	// smart_tag_mapped_at (animal monitoring starts now); unmarking clears it back to NULL,
+	// which returns the tag to device-telemetry-only.
+	SetSmartTagCapable(ctx context.Context, tenantID, identifierID string, capable bool) (domain.TagMappingResponse, error)
+
+	// ReplaceTagMapping unbinds the animal's current smart tag and binds a new one in ONE
+	// transaction. Re-tagging is the real-world case (a tag falls off, a replacement goes on) and
+	// it must never leave the animal with two live smart tags or none -- so both halves commit
+	// together or neither does. The new tag starts a NEW monitoring period; the old tag's ends.
+	ReplaceTagMapping(ctx context.Context, tenantID string, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error)
+
+	// RecordGatewayHeartbeat records a sta_gw_hb heartbeat: it advances last_heartbeat_at and
+	// last_seen_at, stores ticks_cnt, and counts a reboot when ticks_cnt goes BACKWARDS (never a
+	// negative). Returns whether a reboot was detected.
+	RecordGatewayHeartbeat(ctx context.Context, tenantID string, req domain.GatewayHeartbeatRequest, at time.Time) (rebootDetected bool, err error)
 
 	// GetGatewayTagStats computes tags_seen_recently/weak_tags/unmapped_tags for EVERY gateway
 	// in ONE grouped query (never one query per gateway on GET /herd-signals/gateways).
