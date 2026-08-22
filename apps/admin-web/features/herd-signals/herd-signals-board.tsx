@@ -1,0 +1,362 @@
+import Link from "@/components/no-prefetch-link";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { RouteSearchParams } from "@/lib/search-params";
+import {
+  getHerdSignalsGateways,
+  getHerdSignalsInsights,
+  getHerdSignalsLive,
+  type HerdGatewaysResponse,
+  type HerdInsightsResponse,
+  type HerdSignalsLiveResponse,
+} from "@/lib/api/herd-signals";
+import type { ApiResult } from "@/lib/api/server";
+import { HerdSignalsPoller } from "./herd-signals-poller";
+import { HerdSignalsKpis, HerdSignalsKpiChip } from "./herd-signals-kpis";
+import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
+import { HerdSignalsTable } from "./herd-signals-table";
+import { HerdSignalsGateways } from "./herd-signals-gateways";
+import { HerdSignalsInsights } from "./herd-signals-insights";
+import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
+
+const TAB_LABEL: Record<HerdSignalsTab, string> = {
+  live: "Live Monitor",
+  animals: "Animals",
+  gateways: "Gateways",
+  alerts: "Alerts",
+  mapping: "Tag Mapping",
+  insights: "Insights",
+};
+
+const ALERT_PATTERNS = ["missing", "inactive", "spike", "quiet_watch", "recovered"] as const;
+
+export function loadHerdSignalsLive(searchParams: RouteSearchParams | undefined): Promise<ApiResult<HerdSignalsLiveResponse>> {
+  const params = parseHerdSignalsParams(searchParams);
+  return fetchForTab(params);
+}
+
+function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLiveResponse>> {
+  const common = {
+    parkId: params.parkId,
+    shedId: params.shedId,
+    q: params.q,
+    cursor: params.cursor,
+    limit: params.limit,
+  };
+  if (params.tab === "animals") {
+    return getHerdSignalsLive({ ...common, mappingState: "mapped", movementState: params.movementState, pattern: params.pattern });
+  }
+  if (params.tab === "mapping") {
+    return getHerdSignalsLive({ ...common, mappingState: params.mappingState });
+  }
+  if (params.tab === "alerts") {
+    return getHerdSignalsLive({ ...common, pattern: params.pattern ?? "inactive" });
+  }
+  // live tab
+  return getHerdSignalsLive({
+    ...common,
+    movementState: kpiToMovementState(params.kpi) ?? params.movementState,
+    mappingState: params.mappingState,
+    pattern: params.pattern,
+  });
+}
+
+export function HerdSignalsSkeleton() {
+  return (
+    <div className="herd-signals-page" aria-busy="true">
+      <div className="phead">
+        <div>
+          <div className="crumb">Herd Signals / <b>Live Monitor</b></div>
+          <h1>Herd Signals</h1>
+        </div>
+      </div>
+      <div className="kpis">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="kpi">
+            <div className="skelrow" style={{ width: 92, height: 12 }} />
+            <div className="skelrow" style={{ width: 64, height: 26, marginTop: 8 }} />
+          </div>
+        ))}
+      </div>
+      <div className="card">
+        <div className="bd">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="skelrow" style={{ width: "100%", height: 13, marginBottom: 10 }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export async function HerdSignalsBoard({
+  searchParams,
+  pageContract,
+}: {
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
+  const params = parseHerdSignalsParams(searchParams);
+  const nowMs = Date.now();
+
+  const [liveResult, gatewaysResult, insightsResult] = await Promise.all([
+    fetchForTab(params),
+    params.tab === "gateways" ? getHerdSignalsGateways() : Promise.resolve(null),
+    params.tab === "insights" ? getHerdSignalsInsights() : Promise.resolve(null),
+  ]);
+
+  const tabCounts: Partial<Record<HerdSignalsTab, number>> = {};
+  if (liveResult.ok) {
+    if (params.tab === "live") tabCounts.live = liveResult.data.summary.tags_seen;
+    if (params.tab === "animals") tabCounts.animals = liveResult.data.summary.mapped_animals;
+    if (params.tab === "mapping") tabCounts.mapping = liveResult.data.items.length;
+  }
+  if (gatewaysResult?.ok) tabCounts.gateways = gatewaysResult.data.gateways.length;
+
+  return (
+    <div className="herd-signals-page">
+      <div className="phead">
+        <div>
+          <div className="crumb">
+            Herd Signals / <b>{TAB_LABEL[params.tab]}</b>
+          </div>
+          <h1>{copy(pageContract, "page.title", "Herd Signals")}</h1>
+          <div className="sub">
+            {copy(
+              pageContract,
+              "page.subtitle",
+              "BLE ear-tag signals, movement counters, and gateway coverage for mapped animals. Values are read from the tag broadcast — the tag reports a cumulative motion counter, not behaviour.",
+            )}
+          </div>
+        </div>
+        <div className="sp" style={{ flex: 1 }} />
+        {liveResult.ok ? <HerdSignalsPoller generatedAt={new Date(nowMs).toISOString()} /> : null}
+      </div>
+
+      <div className="segs">
+        {HERD_SIGNALS_TABS.map((tab) => (
+          <Link key={tab} href={herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab })} className={params.tab === tab ? "on" : undefined}>
+            {TAB_LABEL[tab]}
+            {tabCounts[tab] !== undefined ? <span className="cnt">{tabCounts[tab]}</span> : null}
+          </Link>
+        ))}
+      </div>
+
+      {params.tab === "live" ? (
+        <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
+      ) : params.tab === "animals" ? (
+        <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
+      ) : params.tab === "mapping" ? (
+        <MappingTab params={params} result={liveResult} nowMs={nowMs} />
+      ) : params.tab === "alerts" ? (
+        <AlertsTab params={params} result={liveResult} nowMs={nowMs} />
+      ) : params.tab === "gateways" ? (
+        <GatewaysTab result={gatewaysResult} nowMs={nowMs} />
+      ) : (
+        <InsightsTab result={insightsResult} />
+      )}
+    </div>
+  );
+}
+
+function ReadFailed({ message, retryHref }: { message: string; retryHref: string }) {
+  return (
+    <div className="empty dngstate">
+      <div className="eicon">
+        <svg className="ic" viewBox="0 0 24 24">
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+          <path d="M12 9v4" />
+          <path d="M12 17h.01" />
+        </svg>
+      </div>
+      <h4>The read failed</h4>
+      <p>{message}</p>
+      <div className="eact">
+        <Link href={retryHref} className="btn sm">
+          Retry
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function LiveMonitorTab({
+  params,
+  result,
+  nowMs,
+}: {
+  params: HerdSignalsParams;
+  result: ApiResult<HerdSignalsLiveResponse>;
+  nowMs: number;
+}) {
+  if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
+  const { summary, items, next_cursor } = result.data;
+  const sheds: ShedOption[] = Array.from(
+    new Map(items.filter((item) => item.shed_id && item.shed_name).map((item) => [item.shed_id as string, item.shed_name as string])).entries(),
+  ).map(([id, label]) => ({ id, label }));
+
+  return (
+    <>
+      <HerdSignalsFilters params={params} sheds={sheds} />
+      <HerdSignalsKpis summary={summary} params={params} />
+      <div className="small faint" style={{ margin: "-6px 0 14px" }}>
+        Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
+        as the table — never summed from the rows on the fetched page.
+      </div>
+      <div className="card">
+        <div className="hd">
+          <svg className="ic" viewBox="0 0 24 24">
+            <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
+            <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
+            <circle cx="12" cy="12" r="2" />
+            <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
+            <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
+          </svg>
+          <h3>Live tag signals</h3>
+          <span className="tag t-mut">{summary.tags_seen} tags</span>
+          <div className="sp" style={{ flex: 1 }} />
+          <HerdSignalsKpiChip params={params} />
+          <span className="small faint">Click a row for tag detail</span>
+        </div>
+        <div className="bd flush">
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function FilteredTableTab({
+  params,
+  result,
+  nowMs,
+  title,
+  note,
+}: {
+  params: HerdSignalsParams;
+  result: ApiResult<HerdSignalsLiveResponse>;
+  nowMs: number;
+  title: string;
+  note: string;
+}) {
+  if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
+  const { items, next_cursor } = result.data;
+  return (
+    <div className="card">
+      <div className="hd">
+        <h3>{title}</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        <span className="small faint">{note}</span>
+      </div>
+      <div className="bd flush">
+        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+      </div>
+    </div>
+  );
+}
+
+function MappingTab({
+  params,
+  result,
+  nowMs,
+}: {
+  params: HerdSignalsParams;
+  result: ApiResult<HerdSignalsLiveResponse>;
+  nowMs: number;
+}) {
+  if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
+  const { items, next_cursor } = result.data;
+  return (
+    <>
+      <div className="fbar">
+        <Link href={herdSignalsHref(params, { hs_map: undefined })} className={`btn sm${!params.mappingState ? " p" : ""}`}>
+          All
+        </Link>
+        <Link href={herdSignalsHref(params, { hs_map: "unmapped" })} className={`btn sm${params.mappingState === "unmapped" ? " p" : ""}`}>
+          Unmapped only
+        </Link>
+        <Link href={herdSignalsHref(params, { hs_map: "conflict" })} className={`btn sm${params.mappingState === "conflict" ? " p" : ""}`}>
+          Conflicts only
+        </Link>
+        <div className="sp" style={{ flex: 1 }} />
+        <button type="button" className="btn sm p" disabled title="No mapping-write endpoint is available yet">
+          Map selected BLE tag
+        </button>
+        <button type="button" className="btn sm" disabled title="No mapping-write endpoint is available yet">
+          Mark as smart tag
+        </button>
+        <button type="button" className="btn sm" disabled title="No mapping-write endpoint is available yet">
+          Replace smart tag
+        </button>
+      </div>
+      <div className="card">
+        <div className="hd">
+          <h3>BLE tag ↔ animal identifier mapping</h3>
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="small faint">Flag lives on the identifier, not the animal — an animal can carry several tags</span>
+        </div>
+        <div className="bd flush">
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AlertsTab({
+  params,
+  result,
+  nowMs,
+}: {
+  params: HerdSignalsParams;
+  result: ApiResult<HerdSignalsLiveResponse>;
+  nowMs: number;
+}) {
+  if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
+  const { items, next_cursor } = result.data;
+  const activePattern = params.pattern ?? "inactive";
+  return (
+    <div className="card">
+      <div className="hd">
+        <h3>Signal alerts</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        <span className="small faint">Signal conditions only — none of these are clinical findings</span>
+      </div>
+      <div className="bd flush">
+        <div className="fbar" style={{ borderRadius: 0, borderLeft: "none", borderRight: "none", borderTop: "none" }}>
+          {ALERT_PATTERNS.map((pattern) => (
+            <Link key={pattern} href={herdSignalsHref(params, { hs_pattern: pattern })} className={`btn sm${activePattern === pattern ? " p" : ""}`}>
+              {pattern.replace("_", " ")}
+            </Link>
+          ))}
+        </div>
+        {items.length === 0 ? (
+          <div className="empty">
+            <div className="eicon">
+              <svg className="ic" viewBox="0 0 24 24">
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+            </div>
+            <h4>No tags in this alert state</h4>
+            <p>Every tag is within thresholds for this pattern — a healthy outcome, not an error.</p>
+          </div>
+        ) : (
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GatewaysTab({ result, nowMs }: { result: ApiResult<HerdGatewaysResponse> | null; nowMs: number }) {
+  if (!result) return null;
+  if (!result.ok) return <ReadFailed message={result.error.message} retryHref="/herd-signals?hs_tab=gateways" />;
+  return <HerdSignalsGateways gateways={result.data.gateways} nowMs={nowMs} />;
+}
+
+function InsightsTab({ result }: { result: ApiResult<HerdInsightsResponse> | null }) {
+  if (!result) return null;
+  if (!result.ok) return <ReadFailed message={result.error.message} retryHref="/herd-signals?hs_tab=insights" />;
+  return <HerdSignalsInsights cards={result.data.cards} />;
+}
