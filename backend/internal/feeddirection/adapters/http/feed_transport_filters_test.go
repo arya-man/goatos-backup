@@ -198,6 +198,29 @@ func TestGetTransportTasksResolvesCapabilityAwareParkScope(t *testing.T) {
 		}
 	})
 
+	t.Run("tenant feed reader sees all assigned transport tasks", func(t *testing.T) {
+		service := &transportScopeSpyService{}
+		req := httptest.NewRequest(http.MethodGet, "/feed-transport/tasks?business_date=2026-07-29", nil)
+		ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+		ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}})
+		recorder := httptest.NewRecorder()
+
+		NewHandler(service, slog.Default()).GetTransportTasks(recorder, req.WithContext(ctx))
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if service.listInput.ActorID != "" {
+			t.Fatalf("actor filter=%q, want empty for tenant-wide feed transport reader -- CEO/CXO must see tasks assigned to any operator", service.listInput.ActorID)
+		}
+		if service.listInput.ParkID != "" {
+			t.Fatalf("park_id=%q, want empty for tenant-wide feed transport reader", service.listInput.ParkID)
+		}
+		if len(service.listInput.AuthorizedParkIDs) != 0 {
+			t.Fatalf("authorized parks=%v, want unrestricted tenant-wide read", service.listInput.AuthorizedParkIDs)
+		}
+	})
+
 	t.Run("foreign park is forbidden before list service read", func(t *testing.T) {
 		service := &transportScopeSpyService{}
 		req := httptest.NewRequest(http.MethodGet, "/feed-transport/tasks?business_date=2026-07-29&park_id="+parkB, nil)

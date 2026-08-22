@@ -89,6 +89,22 @@ func TestFeedTransportDailyShedWorkflowRetainsRejectedAttempt(t *testing.T) {
 	if len(inReview.Items) != 1 || inReview.Items[0].TaskID != task.TaskID {
 		t.Fatalf("verification_due tasks=%+v want task %s", inReview.Items, task.TaskID)
 	}
+	otherOperatorView, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+		TenantID: fdTenant,
+		Day:      day,
+		ActorID:  otherOperator,
+		ParkID:   task.ParkID,
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(otherOperatorView.Items) != 2 {
+		t.Fatalf("other operator sees %d transport tasks, want both park tasks -- transport is shared park work, never assigned: %+v", len(otherOperatorView.Items), otherOperatorView.Items)
+	}
+	if len(otherOperatorView.Filters.Sheds) != 2 {
+		t.Fatalf("other operator shed filters=%+v, want both physical sheds despite another operator's submit", otherOperatorView.Filters.Sheds)
+	}
 	_, err = repo.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: fdTenant, TaskID: task.TaskID, ProofRef: "proof-other", OperatorID: otherOperator, IdempotencyKey: "transport-submit-other", ActorID: otherOperator})
 	if !errors.Is(err, ports.ErrTransportAssignedToAnotherOperator) && !errors.Is(err, ports.ErrTransportTaskNotActionable) {
 		t.Fatalf("other operator err=%v", err)

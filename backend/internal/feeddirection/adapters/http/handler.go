@@ -141,9 +141,13 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, scope.Status, codedError{Code: scope.Code, Message: scope.Message}, nil)
 		return
 	}
+	actorFilter := actor
+	if httpmiddleware.HasTenantWideCapability(httpmiddleware.AuthGrantsFromContext(r.Context()), tenant, permissions.FeedTransportRead) {
+		actorFilter = ""
+	}
 	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
 		TenantID:          tenant,
-		ActorID:           actor,
+		ActorID:           actorFilter,
 		Date:              r.URL.Query().Get("business_date"),
 		ParkID:            scope.ParkID,
 		ShedID:            r.URL.Query().Get("shed_id"),
