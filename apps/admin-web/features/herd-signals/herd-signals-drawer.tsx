@@ -238,9 +238,6 @@ export function HerdSignalsDrawer({
             </div>
           </div>
 
-          <div className="muted small" style={{ fontWeight: 700, marginTop: 4 }}>
-            Readings
-          </div>
           <dl className="kv">
             <dt>Tag ID</dt>
             <dd className="mono">
