@@ -1,3 +1,8 @@
+// seed-fixture-guard:ignore: this change reconciles and supersedes EXISTING obligations and
+// reads no seed source. It adds no seed input, changes no fixture column, and moves no
+// canonical schema, so the fixture manifest, the source-CSV validators and the seed-source
+// date contract have nothing to record. The migrations it ships beside are additive and
+// declare their own no-seed-impact reason.
 package app
 
 import (
