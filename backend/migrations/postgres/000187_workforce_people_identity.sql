@@ -24,6 +24,51 @@ ALTER TABLE public.workforce_members
   ADD COLUMN IF NOT EXISTS last_name  text,
   ADD COLUMN IF NOT EXISTS email      text;
 
+-- Backfill: pre-existing rows carry their login email only inside metadata —
+-- 'email' (STG seeds + manual onboarding rows) or 'normalized_email' (the
+-- runtime pending-grant claim path). Copy it into the new column ONCE, exactly
+-- one row per (tenant, email) — active first, then oldest — so the unique
+-- index below cannot collide when two rows (e.g. an orphan auth:<uid>
+-- placeholder plus the real roster row) carry the same metadata email; the
+-- losing row keeps its metadata-only email and renders without one.
+-- seed-migration-guard:ignore owner=maintainer issue=people-hrms-rewrite reason=one-time-metadata-email-backfill;-no-seed-command-contract-change expiry=2026-11-30
+WITH candidates AS (
+  SELECT workforce_member_id,
+         lower(btrim(COALESCE(nullif(metadata->>'email', ''), metadata->>'normalized_email'))) AS meta_email,
+         ROW_NUMBER() OVER (
+           PARTITION BY tenant_id, lower(btrim(COALESCE(nullif(metadata->>'email', ''), metadata->>'normalized_email')))
+           ORDER BY (status = 'active') DESC, created_at ASC, workforce_member_id ASC
+         ) AS rn
+  FROM public.workforce_members
+  WHERE email IS NULL
+    AND COALESCE(btrim(COALESCE(nullif(metadata->>'email', ''), metadata->>'normalized_email')), '') <> ''
+    AND btrim(COALESCE(nullif(metadata->>'email', ''), metadata->>'normalized_email')) LIKE '%_@_%'
+    AND btrim(COALESCE(nullif(metadata->>'email', ''), metadata->>'normalized_email')) NOT LIKE '% %'
+)
+UPDATE public.workforce_members wm
+SET email = c.meta_email
+FROM candidates c
+WHERE c.workforce_member_id = wm.workforce_member_id
+  AND c.rn = 1
+  AND NOT EXISTS (
+    SELECT 1 FROM public.workforce_members other
+    WHERE other.tenant_id = wm.tenant_id AND lower(other.email) = c.meta_email
+  );
+
+-- The leadership auth-profile rows were seeded with the literal placeholder
+-- display_name 'CEO/CXO', which renders as N identical unidentifiable rows in
+-- the People directory. Give each its person name derived from the email
+-- local-part (ravi@… -> 'Ravi'); the ROLE stays visible through
+-- hr_designation_grade = 'cxo'. The seeders that wrote the placeholder
+-- (seed-stg-login-grants ensureAuthProfileMember, the pending-grant claim
+-- path) are fixed in the same change to write the person's name directly.
+-- seed-migration-guard:ignore owner=maintainer issue=people-hrms-rewrite reason=one-time-placeholder-display-name-repair;-seeders-fixed-in-same-change expiry=2026-11-30
+UPDATE public.workforce_members
+SET display_name = initcap(replace(replace(split_part(email, '@', 1), '.', ' '), '_', ' ')),
+    first_name   = COALESCE(first_name, initcap(replace(replace(split_part(email, '@', 1), '.', ' '), '_', ' ')))
+WHERE display_name = 'CEO/CXO'
+  AND email IS NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS workforce_members_tenant_email_uq
   ON public.workforce_members (tenant_id, lower(email))
   WHERE email IS NOT NULL;

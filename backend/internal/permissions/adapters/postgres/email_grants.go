@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -166,12 +167,22 @@ INSERT INTO workforce_members (
   user_id,
   display_code,
   display_name,
+  email,
   status,
   primary_role_hint,
   hr_designation_grade,
   metadata
 )
-SELECT $1, $2, $3, $4, 'active', $5, $6, jsonb_build_object(
+SELECT $1, $2, $3, $4,
+  -- The login email lands on the row itself for the People/HRMS directory —
+  -- unless another member already carries it (unique per tenant), in which
+  -- case this profile keeps a metadata-only email rather than failing the
+  -- sign-in claim.
+  CASE WHEN EXISTS (
+    SELECT 1 FROM workforce_members other
+    WHERE other.tenant_id = $1 AND lower(other.email) = $7
+  ) THEN NULL ELSE nullif($7::text, '') END,
+  'active', $5, $6, jsonb_build_object(
   'source', 'auth_pending_email_grant',
   'normalized_email', $7::text,
   'role', $8::text
@@ -192,14 +203,39 @@ WHERE NOT EXISTS (
 	return err
 }
 
+// pendingEmailGrantDisplayName names the auto-created profile after the PERSON,
+// derived from the email local-part (ravi@… -> "Ravi"), never after the role:
+// the literal "CEO/CXO" placeholder produced N identical unidentifiable rows in
+// the People/HRMS directory (found 2026-08-22). The role stays visible through
+// the designation grade.
 func pendingEmailGrantDisplayName(normalizedEmail string, role string) string {
+	if name := displayNameFromEmail(normalizedEmail); name != "" {
+		return name
+	}
 	if role == permissions.RoleCEOInternal {
 		return "CEO/CXO"
 	}
-	if normalizedEmail != "" {
-		return "Auth user"
-	}
 	return "Granted user"
+}
+
+// displayNameFromEmail turns an email local-part into a readable person label:
+// dots/underscores become spaces, words are capitalized ("manohar.k" ->
+// "Manohar K"). Empty when no usable local-part exists.
+func displayNameFromEmail(normalizedEmail string) string {
+	local, _, ok := strings.Cut(strings.TrimSpace(normalizedEmail), "@")
+	if !ok || local == "" {
+		return ""
+	}
+	words := strings.FieldsFunc(local, func(r rune) bool { return r == '.' || r == '_' || r == '-' || r == '+' })
+	if len(words) == 0 {
+		return ""
+	}
+	for i, word := range words {
+		runes := []rune(word)
+		runes[0] = unicode.ToUpper(runes[0])
+		words[i] = string(runes)
+	}
+	return strings.Join(words, " ")
 }
 
 func pendingEmailGrantDesignationGrade(role string) any {

@@ -435,15 +435,31 @@ ORDER BY created_at ASC, workforce_member_id ASC`, tenantID, acct.RosterDisplayN
 
 	// department_id: bind only if currently NULL, never override an existing
 	// HR assignment (mirrors provisionDevDepartmentMember in seed-dev-grant).
+	// email: stamp the account's login email onto the roster row (People/HRMS
+	// directory) only when the row has none and no OTHER member already carries
+	// it — the (tenant_id, lower(email)) unique index makes a blind overwrite a
+	// seed failure. An existing email is never rewritten.
 	setDepartment := c.department == nil
 	_, err = pool.Exec(ctx, `
-UPDATE workforce_members
+UPDATE workforce_members wm
 SET user_id = $2,
-    department_id = CASE WHEN $4 THEN $3::uuid ELSE department_id END,
+    department_id = CASE WHEN $4 THEN $3::uuid ELSE wm.department_id END,
+    email = CASE
+      WHEN wm.email IS NULL
+       AND COALESCE(btrim($6::text), '') <> ''
+       AND NOT EXISTS (
+         SELECT 1 FROM workforce_members other
+         WHERE other.tenant_id = wm.tenant_id
+           AND other.workforce_member_id <> wm.workforce_member_id
+           AND lower(other.email) = lower(btrim($6::text))
+       )
+      THEN lower(btrim($6::text))
+      ELSE wm.email
+    END,
     updated_at = now(),
     row_version = row_version + 1
-WHERE workforce_member_id = $1 AND tenant_id = $5`,
-		c.id, userID, departmentID, setDepartment, tenantID)
+WHERE wm.workforce_member_id = $1 AND wm.tenant_id = $5`,
+		c.id, userID, departmentID, setDepartment, tenantID, acct.Email)
 	return err
 }
 
@@ -455,20 +471,30 @@ WHERE workforce_member_id = $1 AND tenant_id = $5`,
 // runtime claim path's ensureWorkforceMember. Idempotent: the insert is a no-op
 // when an active member for this user_id already exists.
 func ensureAuthProfileMember(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string, acct Account) error {
+	// The profile keeps the PERSON's name (acct.DisplayName). Leadership rows
+	// used to collapse to the literal "CEO/CXO", which made five identical
+	// unidentifiable rows in the People/HRMS directory (found 2026-08-22); the
+	// role lives in the hint/designation, never in the display name.
 	displayName := acct.DisplayName
 	roleHint := acct.Role
 	var designation any
 	if acct.Role == permissions.RoleCEOInternal {
-		displayName = "CEO/CXO"
 		roleHint = "cxo"
 		designation = "cxo"
 	}
 	_, err := pool.Exec(ctx, `
 INSERT INTO workforce_members (
-  tenant_id, user_id, display_code, display_name, status,
+  tenant_id, user_id, display_code, display_name, email, status,
   primary_role_hint, hr_designation_grade, metadata
 )
-SELECT $1, $2, $3, $4, 'active', $5, $6, jsonb_build_object(
+SELECT $1, $2, $3, $4,
+  -- Login email on the row itself (People/HRMS directory), unless another
+  -- member already carries it — unique per tenant.
+  CASE WHEN EXISTS (
+    SELECT 1 FROM workforce_members other
+    WHERE other.tenant_id = $1 AND lower(other.email) = lower(btrim($8::text))
+  ) THEN NULL ELSE lower(btrim(nullif($8::text, ''))) END,
+  'active', $5, $6, jsonb_build_object(
   'source', 'seed_stg_login_grants_auth_profile',
   'email', $8::text,
   'role', $7::text
