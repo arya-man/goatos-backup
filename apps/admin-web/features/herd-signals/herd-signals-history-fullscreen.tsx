@@ -261,8 +261,8 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
         </div>
 
         <p className="muted small" style={{ marginTop: 14 }}>
-          Activity uses motion-count deltas from historical packets. Resting for short periods is
-          normal; alerts use sustained patterns.
+          Activity uses motion-count deltas from historical packets. Quiet periods are normal;
+          alerts use sustained patterns.
         </p>
         <p className="faint small">
           Overlaid markers are other recorded farm activity for the same animal or its shed. Read

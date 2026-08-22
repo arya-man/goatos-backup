@@ -108,9 +108,12 @@ export interface HerdGateway {
   ble_mac: string | null;
   status: HerdGatewayStatus;
   last_seen_at: string | null;
-  tags_seen_recently: number;
-  weak_tags: number;
-  unmapped_tags: number;
+  // Nullable on the wire deliberately: the backend has not wired these three aggregates yet
+  // (tracked TODO). A hardcoded 0 would report a false fact ("zero weak tags") that this screen has
+  // not actually measured — render "—" for null, never a bare 0 that looks like a real count.
+  tags_seen_recently: number | null;
+  weak_tags: number | null;
+  unmapped_tags: number | null;
 }
 
 export interface HerdGatewaysResponse {

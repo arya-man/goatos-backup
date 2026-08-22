@@ -20,6 +20,7 @@ import {
   fmtAgo,
   fmtBatteryMv,
   fmtDelta,
+  fmtDelta1h,
   fmtRssi,
   fmtTagTemp,
 } from "./format";
@@ -40,11 +41,16 @@ export function HerdSignalsTable({
   nextCursor,
   params,
   nowMs,
+  tagsSeen,
 }: {
   items: HerdSignalItem[];
   nextCursor: string | null;
   params: HerdSignalsParams;
   nowMs: number;
+  // The tenant-wide summary.tags_seen, NOT items.length — needed so the filtered-to-nothing empty
+  // state can honestly say whether the gateway is receiving anything at all in scope, rather than
+  // asserting reception the page has not actually evidenced.
+  tagsSeen: number;
 }) {
   const [sizeChanging, setSizeChanging] = useState(false);
   const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
@@ -52,7 +58,7 @@ export function HerdSignalsTable({
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
 
   if (items.length === 0) {
-    return <HerdSignalsTableEmpty params={params} />;
+    return <HerdSignalsTableEmpty params={params} tagsSeen={tagsSeen} />;
   }
 
   if (visible.length === 0) {
@@ -121,7 +127,7 @@ export function HerdSignalsTable({
                   </td>
                   <td data-l="Motion count" className="num">{fmtDelta(item.motion_count)}</td>
                   <td data-l="15m delta" className="num delta">{fmtDelta(item.motion_delta)}</td>
-                  <td data-l="1h delta" className="num delta">{fmtDelta(item.motion_delta_1h)}</td>
+                  <td data-l="1h delta" className="num delta" title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">{fmtDelta1h(item.motion_delta_1h, item.motion_delta)}</td>
                   <td data-l="Activity">
                     {item.movement_state ? (
                       <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag>
@@ -201,7 +207,7 @@ export function HerdSignalsTable({
   );
 }
 
-function HerdSignalsTableEmpty({ params }: { params: HerdSignalsParams }) {
+function HerdSignalsTableEmpty({ params, tagsSeen }: { params: HerdSignalsParams; tagsSeen: number }) {
   if (params.hasFilter) {
     return (
       <div className="empty">
@@ -211,7 +217,13 @@ function HerdSignalsTableEmpty({ params }: { params: HerdSignalsParams }) {
           </svg>
         </div>
         <h4>No tags match these filters</h4>
-        <p>The gateway is still receiving packets for this park. Clear filters to see the rest of the fleet.</p>
+        {/* Conditioned on the tenant-wide summary, the one thing this page has actually measured —
+            never asserted as a fact this branch (items.length === 0) has no evidence for. */}
+        <p>
+          {tagsSeen > 0
+            ? "The gateway is still receiving packets for this park. Clear filters to see the rest of the fleet."
+            : "Filters exclude every row in scope."}
+        </p>
         <div className="eact">
           <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_kpi: undefined })} className="btn sm">
             Clear filters

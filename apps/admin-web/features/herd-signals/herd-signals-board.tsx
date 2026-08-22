@@ -222,7 +222,7 @@ function LiveMonitorTab({
           <span className="small faint">Click a row for tag detail</span>
         </div>
         <div className="bd flush">
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
         </div>
       </div>
     </>
@@ -243,7 +243,42 @@ function FilteredTableTab({
   note: string;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
-  const { items, next_cursor } = result.data;
+  const { items, next_cursor, summary } = result.data;
+  // "No mapped animals yet" is an honest, expected state (docs/modules/herd-signals.md "Unmapped
+  // tags are the NORMAL state") -- on staging today NO tag is mapped, so this branch is the common
+  // case, not an error and not the generic "no gateway packets" empty (that would be a false claim
+  // when the gateway IS posting and simply nothing is mapped yet).
+  if (items.length === 0 && !params.hasFilter && summary.mapped_animals === 0) {
+    return (
+      <div className="card">
+        <div className="hd">
+          <h3>{title}</h3>
+        </div>
+        <div className="bd flush">
+          <div className="empty">
+            <div className="eicon">
+              <svg className="ic" viewBox="0 0 24 24">
+                <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
+                <circle cx="12" cy="10" r="3" />
+              </svg>
+            </div>
+            <h4>No mapped animals yet</h4>
+            <p>
+              {summary.tags_seen > 0
+                ? `${summary.tags_seen.toLocaleString("en-IN")} smart tag(s) are broadcasting, but none carry an active smart-tag-capable identifier yet.`
+                : "No BLE gateway has posted for this tenant yet."}{" "}
+              Map a tag to an animal identifier in Tag Mapping to see it here.
+            </p>
+            <div className="eact">
+              <Link href={herdSignalsHref(params, { hs_tab: "mapping" })} className="btn sm">
+                Go to Tag Mapping
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="card">
       <div className="hd">
@@ -252,7 +287,7 @@ function FilteredTableTab({
         <span className="small faint">{note}</span>
       </div>
       <div className="bd flush">
-        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
       </div>
     </div>
   );
@@ -268,7 +303,7 @@ function MappingTab({
   nowMs: number;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
-  const { items, next_cursor } = result.data;
+  const { items, next_cursor, summary } = result.data;
   return (
     <>
       <div className="fbar">
@@ -299,7 +334,7 @@ function MappingTab({
           <span className="small faint">Flag lives on the identifier, not the animal — an animal can carry several tags</span>
         </div>
         <div className="bd flush">
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
         </div>
       </div>
     </>
@@ -316,7 +351,7 @@ function AlertsTab({
   nowMs: number;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
-  const { items, next_cursor } = result.data;
+  const { items, next_cursor, summary } = result.data;
   const activePattern = params.pattern ?? "inactive";
   return (
     <div className="card">
@@ -346,7 +381,7 @@ function AlertsTab({
             <p>Every tag is within thresholds for this pattern — a healthy outcome, not an error.</p>
           </div>
         ) : (
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} />
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
         )}
       </div>
     </div>

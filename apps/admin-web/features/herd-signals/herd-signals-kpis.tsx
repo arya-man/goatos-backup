@@ -11,30 +11,43 @@ type KpiDef = {
   detail: string;
 };
 
+// Every summary field here is TAG-grain and counts unmapped tags exactly like mapped ones
+// (docs/modules/herd-signals.md "Unmapped tags are the NORMAL state" — on staging today NO tag is
+// mapped, so a mapped-only count would read all zeros). Labels say "tags," never "animals," for
+// that reason. Tiers follow Section 8: a recency-thresholded count, a movement-trend bucket, a
+// stale/weak/low-voltage threshold check are all DERIVED, not Direct — only the tag's own reported
+// fields (RSSI, battery mV, tag temperature, motion_count) are Direct.
+//
+// Known gap, left honest rather than papered over: the "low" movement-trend bucket (Section 5) has
+// no dedicated field on HerdSignalsSummary, so it is not counted by any card here. Adding one would
+// mean summing it from the fetched page (banned — see herd-signals-row-filter.ts) rather than from
+// a real backend aggregate.
 const KPI_DEFS: KpiDef[] = [
   {
     key: "moving" as KpiFilterKey,
     label: "Tags seen",
-    type: "Direct",
+    type: "Derived",
     tone: "mut",
     value: (s) => s.tags_seen,
-    detail: "distinct mapped tags with a recent packet",
+    detail: "every tag with a packet within the stale threshold — mapped and unmapped both count",
   },
   {
     key: "moving",
-    label: "Animals moving",
+    label: "Tags moving",
     type: "Derived",
     tone: "ok",
     value: (s) => s.moving,
-    detail: "movement-trend bucket: moving",
+    detail: "movement-trend bucket: moving — mapped and unmapped both count",
   },
   {
     key: "quiet",
-    label: "Quiet animals",
+    label: "Quiet tags",
     type: "Derived",
     tone: "mut",
-    value: (s) => s.quiet + s.not_moving,
-    detail: "low or no motion-count delta in the current window",
+    // Matches the click filter exactly (movement_state=quiet) — summing in not_moving here would
+    // make this number disagree with what clicking the card actually filters to.
+    value: (s) => s.quiet,
+    detail: "quiet movement-trend bucket (delta 1-9 in the window)",
   },
   {
     key: "weak_signal",
