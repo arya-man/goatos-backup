@@ -219,7 +219,6 @@ export function HerdSignalsTable({
         ) : null}
       </span>
       <span className="sp" style={{ flex: 1 }} />
-      <span className="faint">Server-side keyset pagination &mdash; filters and search execute in the query, never on a fetched page.</span>
       <span className="fsel">
         Rows
         <select
