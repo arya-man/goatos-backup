@@ -56,7 +56,7 @@ func (s *Service) GetTagActivity(ctx context.Context, actor domain.Actor, tagID,
 		return domain.ActivityResponse{}, fmt.Errorf("resolve tag activity scope failed: %w", err)
 	}
 	if scope == nil {
-		return domain.ActivityResponse{}, fmt.Errorf("tag %q: %w", tagID, domain.ErrNotFound)
+		return domain.ActivityResponse{}, fmt.Errorf("tag %q: %w", tagID, domain.ErrTagNotFound)
 	}
 
 	resp := domain.ActivityResponse{
