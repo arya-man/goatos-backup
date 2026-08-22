@@ -31,7 +31,14 @@ export function HistoryChart({
   const maxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0));
   const barGap = 1;
   const barWidth = Math.max(1, width / buckets.length - barGap);
-  const baselineY = baseline ? height - (Math.min(baseline, maxDelta) / maxDelta) * (height - 14) : null;
+  // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8). Comparing it unscaled against
+  // a 3600s or 21600s bucket always reads "spike" (a bigger window naturally accumulates more motion)
+  // and against a sub-300s bucket always reads "low" — neither is a real signal, just a unit
+  // mismatch. Scale the baseline to each bucket's own width before comparing or drawing it.
+  const scaledBaseline = (bucketSeconds: number) => (baseline ? baseline * (bucketSeconds / 300) : null);
+  const chartBucketSeconds = buckets[0]?.bucket_seconds || 300;
+  const lineBaseline = scaledBaseline(chartBucketSeconds);
+  const baselineY = lineBaseline ? height - (Math.min(lineBaseline, maxDelta) / maxDelta) * (height - 14) : null;
 
   return (
     <svg
@@ -61,8 +68,9 @@ export function HistoryChart({
         }
         const delta = bucket.motion_delta ?? 0;
         const barHeight = Math.max(delta > 0 ? 1.5 : 1, (delta / maxDelta) * (height - 14));
-        const spike = delta > maxDelta * 0.85 && delta > (baseline ?? 0) * 3;
-        const cls = delta === 0 ? "b-zero" : delta < (baseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
+        const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
+        const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
+        const cls = delta === 0 ? "b-zero" : delta < (bucketBaseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
         return (
           <rect
             key={bucket.bucket_start}

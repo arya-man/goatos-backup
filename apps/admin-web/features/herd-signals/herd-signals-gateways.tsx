@@ -2,6 +2,13 @@ import { Tag } from "@/components/ui-primitives";
 import type { HerdGateway } from "@/lib/api/herd-signals";
 import { fmtAgo } from "./format";
 
+// The backend does not compute these three aggregates yet (tracked TODO) and may return null until
+// it does. A bare 0 here would report a false fact per docs/modules/herd-signals.md ("read failed"
+// vs "empty" is the same distinction — an unmeasured value is not a measured zero).
+function fmtCount(value: number | null): string {
+  return value === null ? "—" : value.toLocaleString("en-IN");
+}
+
 // Gateway health view (docs/modules/herd-signals.md Section 7: refreshes every 15s — the tab's own
 // server read on each visit/refresh; this component is presentation-only).
 export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway[]; nowMs: number }) {
@@ -48,15 +55,21 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
           <div className="muted small mono">{gateway.network_mode || "—"}</div>
           <div className="gwstats">
             <div>
-              <div className="v">{gateway.tags_seen_recently}</div>
+              <div className="v" title={gateway.tags_seen_recently === null ? "Not available yet" : undefined}>
+                {fmtCount(gateway.tags_seen_recently)}
+              </div>
               <div className="l">Seen</div>
             </div>
             <div>
-              <div className="v">{gateway.weak_tags}</div>
+              <div className="v" title={gateway.weak_tags === null ? "Not available yet" : undefined}>
+                {fmtCount(gateway.weak_tags)}
+              </div>
               <div className="l">Weak</div>
             </div>
             <div>
-              <div className="v">{gateway.unmapped_tags}</div>
+              <div className="v" title={gateway.unmapped_tags === null ? "Not available yet" : undefined}>
+                {fmtCount(gateway.unmapped_tags)}
+              </div>
               <div className="l">Unmapped</div>
             </div>
           </div>

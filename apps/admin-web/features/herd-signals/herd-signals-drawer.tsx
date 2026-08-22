@@ -23,6 +23,7 @@ import {
   fmtAgo,
   fmtBatteryMv,
   fmtDelta,
+  fmtDelta1h,
   fmtRssi,
   fmtTagTemp,
 } from "./format";
@@ -198,7 +199,9 @@ export function HerdSignalsDrawer({
             <dt>15m motion delta <span className="srcl direct">Direct</span></dt>
             <dd>{fmtDelta(item.motion_delta)}</dd>
             <dt>1h motion delta <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtDelta(item.motion_delta_1h)}</dd>
+            <dd title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">
+              {fmtDelta1h(item.motion_delta_1h, item.motion_delta)}
+            </dd>
             <dt>RSSI <span className="srcl direct">Direct</span></dt>
             <dd>{fmtRssi(item.rssi_dbm)}</dd>
             <dt>Signal <span className="srcl derived">Derived</span></dt>
@@ -219,7 +222,7 @@ export function HerdSignalsDrawer({
             <dd>{fmtTagTemp(item.tag_temperature_c)}</dd>
             <dt>Movement trend <span className="srcl derived">Derived</span></dt>
             <dd>{item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}</dd>
-            <dt>Pattern <span className="srcl correlated">Correlated</span></dt>
+            <dt>Pattern <span className="srcl derived">Derived</span></dt>
             <dd>{item.pattern_state ? <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag> : "—"}</dd>
             <dt>Sensor status <span className="srcl direct">Direct</span></dt>
             <dd>{item.sensor_state ? <Tag tone={SENSOR_TONE[item.sensor_state]}>{SENSOR_LABEL[item.sensor_state]}</Tag> : "—"}</dd>

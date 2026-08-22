@@ -111,6 +111,16 @@ export function fmtDelta(delta: number | null | undefined): string {
   return delta.toLocaleString("en-IN");
 }
 
+// The backend currently aliases motion_delta_1h to the 15m delta (motion_delta) rather than
+// computing a genuine 1h window (tracked backend fix). Printing the identical number under a "1h"
+// label states a measurement this page has not actually taken, so this renders "—" whenever the 1h
+// value is missing OR indistinguishable from the 15m value — never the repeated number.
+export function fmtDelta1h(delta1h: number | null | undefined, delta15m: number | null | undefined): string {
+  if (delta1h === null || delta1h === undefined) return "—";
+  if (delta15m !== null && delta15m !== undefined && delta1h === delta15m) return "—";
+  return delta1h.toLocaleString("en-IN");
+}
+
 export function fmtAgo(iso: string | null | undefined, nowMs: number): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
