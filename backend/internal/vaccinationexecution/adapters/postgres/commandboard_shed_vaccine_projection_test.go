@@ -623,6 +623,88 @@ func TestVaccinationCommandBoardDoesNotComposeScopeShedWithCurrentPartition(t *t
 	}
 }
 
+func TestVaccinationCommandBoardPartitionCatalogOneToManyPaginationDateShiftScopeHierarchyStatusMatrixMatchesOnNormalizedLabel(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000ab"
+	parkID := uuidFromSuffix("01", "gb")
+	shedID := uuidFromSuffix("02", "gb")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "gb")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Godel 1")
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "gbd"), "sel-a", "ET_TT")
+	execProjectionSQL(t, ctx, pool, "catalog worded partition",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+		 VALUES ($1, $2, 'Part 10', '10', 'active', 'manual')`,
+		tenantID, shedID)
+
+	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	due := asOf.Add(-2 * 24 * time.Hour)
+	goatID := uuidFromSuffix("03", "gba")
+	oblID := uuidFromSuffix("08", "gba")
+	seedBareGoat(t, ctx, pool, tenantID, shedID, goatID, uuidFromSuffix("0a", "gba"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, goatID, oblID, "missed", due, "normalized-catalog")
+	execProjectionSQL(t, ctx, pool, "goat uses numeric partition spelling",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '10', 'Godel 1 - Part 10')`,
+		tenantID, goatID, shedID)
+	execProjectionSQL(t, ctx, pool, "recorded completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'recorded', $5::timestamptz, NULL, 'normalized-catalog-completion')`,
+		uuidFromSuffix("09", "gba"), tenantID, oblID, goatID, due)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+	foundVaccine := false
+	for _, cell := range resp.ShedVaccineMatrix {
+		if cell.VaccineCode == "ET_TT" && cell.State == "verifying" {
+			foundVaccine = true
+			if cell.PartitionLabel != "Part 10" || cell.OperationalLocationDisplay != "Godel 1 - Part 10" {
+				t.Fatalf("shed vaccine cell = %q partition=%q, want Godel 1 - Part 10 from normalized catalog match",
+					cell.OperationalLocationDisplay, cell.PartitionLabel)
+			}
+			if len(cell.FlaggedAnimals) != 1 {
+				t.Fatalf("flaggedAnimals = %d, want 1", len(cell.FlaggedAnimals))
+			}
+			animal := cell.FlaggedAnimals[0]
+			if animal.PartitionLabel != "Part 10" || animal.LocationDisplay != "Godel 1 - Part 10" {
+				t.Fatalf("flagged animal location = %q partition=%q, want catalog label Godel 1 - Part 10",
+					animal.LocationDisplay, animal.PartitionLabel)
+			}
+			break
+		}
+	}
+	if !foundVaccine {
+		t.Fatalf("shed vaccine matrix did not render the verifying ET_TT partition cell: %+v", resp.ShedVaccineMatrix)
+	}
+	foundDose := false
+	for _, cell := range resp.ShedDoseMatrix {
+		if cell.State == "awaiting" && cell.PartitionLabel == "Part 10" && cell.OperationalLocationDisplay == "Godel 1 - Part 10" {
+			foundDose = true
+			break
+		}
+	}
+	if !foundDose {
+		t.Fatalf("shed dose matrix did not render the normalized catalog partition: %+v", resp.ShedDoseMatrix)
+	}
+	foundQueue := false
+	for _, row := range resp.VerificationQueue {
+		if row.PartitionLabel == "Part 10" && row.OperationalLocationDisplay == "Godel 1 - Part 10" {
+			foundQueue = true
+			break
+		}
+	}
+	if !foundQueue {
+		t.Fatalf("verification queue did not render the normalized catalog partition: %+v", resp.VerificationQueue)
+	}
+}
+
 // TestVaccinationCommandBoardShedVaccineColumnsExcludeRetiredProtocolVaccines pins the SOURCE OF
 // TRUTH for the matrix's columns.
 //
