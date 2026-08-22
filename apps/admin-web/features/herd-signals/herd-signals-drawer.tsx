@@ -159,7 +159,7 @@ export function HerdSignalsDrawer({
                 </button>
               ))}
             </div>
-            <LocalOverlayLink href={expandHref} scroll={false} className="btn sm" title="Full history, custom date range and farm-activity overlay">
+            <LocalOverlayLink href={expandHref} scroll={false} className="btn sm hs-btn" title="Full history, custom date range and farm-activity overlay">
               Expand
             </LocalOverlayLink>
           </div>
@@ -183,7 +183,7 @@ export function HerdSignalsDrawer({
                   <h4>History read failed</h4>
                   <p>{chartError}.</p>
                   <div className="eact">
-                    <button type="button" className="btn sm" onClick={() => setRetryToken((current) => current + 1)}>
+                    <button type="button" className="btn sm hs-btn" onClick={() => setRetryToken((current) => current + 1)}>
                       Retry
                     </button>
                   </div>
@@ -259,16 +259,16 @@ export function HerdSignalsDrawer({
             </dd>
             <dt>15m motion delta</dt>
             <dd title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}>
-              
+
               {fmtDelta(item.motion_delta)}
               {item.gap_delta ? <sup title="Gap total">*</sup> : null}
-              <span className="srcl direct">Direct</span>
+              <span className="srcl derived">Derived</span>
             </dd>
             <dt>1h motion delta</dt>
             <dd>
-              
+
               {fmtDelta1h(item.motion_delta_1h, item.motion_delta)}
-              <span className="srcl direct">Direct</span>
+              <span className="srcl derived">Derived</span>
             </dd>
             <dt>RSSI</dt>
             <dd>
