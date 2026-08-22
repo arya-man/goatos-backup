@@ -54,6 +54,16 @@ func seedVaxCancelFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 		if err != nil {
 			t.Fatalf("seed rule %d: %v", v, err)
 		}
+		// Retire it before the next version is drafted. One draft per plan is a database rule
+		// now, and this fixture wants two VERSIONS, not two drafts. Retired rather than
+		// published because two published versions cannot share an effective range either --
+		// and what these tests exercise is cancelling a goat's work ACROSS versions, which
+		// does not care which non-draft state each version ended in.
+		if _, err := pool.Exec(ctx, `
+UPDATE protocol_versions SET status = 'retired'
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid`, tenantID, versionID); err != nil {
+			t.Fatalf("retire version %d: %v", v, err)
+		}
 		return versionID, ruleID
 	}
 	f := vaxCancelFixture{}

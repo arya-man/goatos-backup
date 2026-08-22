@@ -166,6 +166,18 @@ async function gotoPlan() {
  * that arrives first is dropped silently and the navigation simply never happens. One
  * retry covers that. A second dropped click is a real failure and still times out.
  */
+async function clickAndWaitForUrlOn(target, locator, urlPattern) {
+  await locator.waitFor({ state: "visible", timeout: 30000 });
+  await locator.click();
+  try {
+    await target.waitForURL(urlPattern, { timeout: 15000 });
+  } catch {
+    await locator.click();
+    await target.waitForURL(urlPattern, { timeout: 45000 });
+  }
+  await target.waitForLoadState("networkidle");
+}
+
 async function clickAndWaitForUrl(locator, urlPattern) {
   await locator.waitFor({ state: "visible", timeout: 30000 });
   await locator.click();
@@ -244,8 +256,7 @@ await runCase("C01", "List screen reads the live plan from the database", async 
 
 await runCase("C02", "Start a new version copies the live plan", async () => {
   await gotoPlan();
-  await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await clickAndWaitForUrl(page.getByRole("button", { name: /Start a new version/i }), /\/vaccination\/plan\/edit/);
   await page.waitForLoadState("networkidle");
   results.at(-1).shots.push(await shot("C02-draft"));
   check("exactly one draft exists", psql("select count(*) from protocol_versions where status='draft'"), "1");
@@ -260,8 +271,7 @@ await runCase("C02", "Start a new version copies the live plan", async () => {
 await runCase("C03", "Discard removes the draft and nothing else", async () => {
   const before = history();
   await gotoPlan();
-  await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await clickAndWaitForUrl(page.getByRole("button", { name: /Start a new version/i }), /\/vaccination\/plan\/edit/);
   // Discard lives on the list's draft banner, and Start now lands in the editor.
   await gotoPlan();
   await page.getByRole("button", { name: /^Discard it$/i }).click();
@@ -279,8 +289,7 @@ await runCase("C03", "Discard removes the draft and nothing else", async () => {
 
 await runCase("C04", "Keep it cancels the discard", async () => {
   await gotoPlan();
-  await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await clickAndWaitForUrl(page.getByRole("button", { name: /Start a new version/i }), /\/vaccination\/plan\/edit/);
   // Discard lives on the list's draft banner, and Start now lands in the editor.
   await gotoPlan();
   await page.getByRole("button", { name: /^Discard it$/i }).click();
@@ -471,8 +480,7 @@ await runCase("C13", "One draft at a time; the button always lands in the editor
 
   // (a) from a clean plan: creates the draft AND lands in the editor
   await gotoPlan();
-  await page.getByRole("button", { name: /Start a new version/i }).click();
-  await page.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await clickAndWaitForUrl(page.getByRole("button", { name: /Start a new version/i }), /\/vaccination\/plan\/edit/);
   await page.waitForLoadState("networkidle");
   results.at(-1).shots.push(await shot("C13-lands-in-editor"));
   check("it opened the editor, not the list", /\/vaccination\/plan\/edit/.test(page.url()), true);
@@ -482,8 +490,7 @@ await runCase("C13", "One draft at a time; the button always lands in the editor
 
   // (b) that stale tab still shows the button, because it rendered before the
   //     draft existed. Pressing it must open the SAME draft, never make a second.
-  await stale.getByRole("button", { name: /Start a new version/i }).click();
-  await stale.waitForURL(/\/vaccination\/plan\/edit/, { timeout: 30000 });
+  await clickAndWaitForUrlOn(stale, stale.getByRole("button", { name: /Start a new version/i }), /\/vaccination\/plan\/edit/);
   check("the stale tab opened the editor too", /\/vaccination\/plan\/edit/.test(stale.url()), true);
   check("on the SAME draft", stale.url().includes(draftId), true);
   check("still exactly one draft", psql("select count(*) from protocol_versions where status='draft'"), "1");
