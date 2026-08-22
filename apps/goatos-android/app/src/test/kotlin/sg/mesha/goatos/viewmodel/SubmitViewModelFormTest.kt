@@ -1426,7 +1426,16 @@ class SubmitViewModelFormTest {
         viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
-        assertEquals("godel-2|whole", sync.lastGroupKey)
+        // The lane is the SESSION's -- task plus partition -- not the shed's.
+        //
+        // Scans have always enqueued under taskId + partition (CaptureRepository), so a
+        // shed-keyed Submit sat in a lane no scan of that session used, and nothing ordered
+        // the two: the Submit could drain while an animal's scan was still FAILED, closing
+        // the shed one animal short while it read as complete. On a park-scoped route this
+        // means sheds under one parent task share a lane, which is the conservative
+        // direction -- a stuck scan holds a sibling shed's Submit rather than letting a
+        // shed close short.
+        assertEquals("task-shared-parent|whole", sync.lastGroupKey)
         assertEquals("shed-submit:task-shared-parent:scope:godel-2:partition:whole:rv:4", sync.lastIdempotencyKey)
         assertEquals("shed-submit:task-shared-parent:scope:godel-2:partition:whole:rv:4", sync.lastRequest?.idempotencyKey)
     }
