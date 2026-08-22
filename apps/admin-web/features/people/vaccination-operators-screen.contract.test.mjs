@@ -13,8 +13,11 @@ const scopeSource = readFileSync(
   fileURLToPath(new URL("./vaccination-operators-scope.ts", import.meta.url)),
   "utf8",
 );
+// People/HRMS rewrite (2026-08-22): hrms-page.tsx became people-page.tsx — the
+// tab shell that mounts this screen under the Vaccination tab. The URL-park
+// pass-through contract lives there now.
 const hrmsSource = readFileSync(
-  fileURLToPath(new URL("./hrms-page.tsx", import.meta.url)),
+  fileURLToPath(new URL("./people-page.tsx", import.meta.url)),
   "utf8",
 );
 
