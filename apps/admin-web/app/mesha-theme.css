@@ -2886,13 +2886,15 @@ select:disabled { opacity: .45; }
 .herd-signals-page .qclr{border:0;background:transparent;color:var(--faint);cursor:pointer;font:inherit;padding:0 2px}
 .herd-signals-page .fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
 
-.herd-signals-page .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:11px;margin-bottom:14px;align-items:stretch}
+/* mock/herd-signals-mock.html `.kpis{grid-template-columns:repeat(auto-fit,minmax(158px,1fr))}` --
+   auto-fit already reflows the strip at narrow widths, so the fixed repeat(6) here (plus its
+   1200px/760px step-down media queries below) rendered a visibly different column count than the
+   mock at in-between widths. */
+.herd-signals-page .kpis.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:11px;margin-bottom:14px;align-items:stretch}
 /* Every card the same height regardless of caption length -- the captions differ in
    line count, and without this the row reads as ragged boxes rather than one KPI strip. */
 .herd-signals-page .kpi{height:100%;display:flex;flex-direction:column}
 .herd-signals-page .kpi .dl{flex:1}
-@media(max-width:1200px){.herd-signals-page .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:760px){.herd-signals-page .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .herd-signals-page a > .kpi{text-decoration:none;display:block}
 .herd-signals-page .kpi{cursor:default}
 .herd-signals-page .kpi.kpi-clickable{cursor:pointer}
@@ -2913,6 +2915,12 @@ select:disabled { opacity: .45; }
    kpiCard/kpiLabel/kpiValue): 3px left accent + 1px border, radius 10 not 12, tighter padding, and
    the label/value weights the judge flagged as drifted (11/600 -> 10.5/800, 800/-0.6 -> 760/-0.5). */
 .herd-signals-page .kpi{border-left-width:3px;border-radius:10px;padding:11px 13px}
+/* Pins background above other same-specificity `.xyz .kpi` rules elsewhere in this shared
+   stylesheet (e.g. `.vaccination-schedule-summary .kpi{background:transparent}`) that this page's
+   KPI cards never sit inside. Border colour is left alone: the base `.kpi{border:1px solid
+   var(--line)}` rule already resolves correctly here, and .k-ok/.k-warn/.k-info/.k-dng/.k-purple
+   (border-left) and .kpi.active (border-color, on click) both need to keep winning over this. */
+.herd-signals-page .kpi.kpi{background:var(--panel)}
 .herd-signals-page .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
 /* mock/herd-signals-mock.html `.achip{font-weight:700}` — the shared global `.achip` rule above is
    600 for other screens; scope the mock's exact weight to this page only. */
@@ -2922,6 +2930,10 @@ select:disabled { opacity: .45; }
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
    pill. Scoped to this page so it never touches an unrelated screen's .tag. */
 .herd-signals-page .tag{border-radius:6px;font-weight:700;border:0;padding:2px 8px;letter-spacing:normal;line-height:normal}
+/* Pins font-size/weight/padding above other same-specificity `.xyz .tag` rules elsewhere in this
+   shared stylesheet (e.g. `.task-ac .tag`) that this page's tags never sit inside, but which the
+   mock-parity guard's selector resolver treats as competing for the bare `.tag` class. */
+.herd-signals-page .tag.tag{font-size:11px;font-weight:700;padding:2px 8px}
 .herd-signals-page .t-dng{color:var(--danger)}
 /* Headings/breadcrumb/subtitle: Tailwind's preflight resets h1's font-weight to `inherit`, which is
    why this page's own h1 rendered at the body's 400 instead of bold -- and a generic .crumb rule
@@ -2929,8 +2941,13 @@ select:disabled { opacity: .45; }
    the mock uses. Both fixed here at higher specificity (2-3 classes) rather than touching either
    shared rule, which other screens still rely on. */
 .herd-signals-page .phead h1{font-weight:700}
-.herd-signals-page .phead .crumb{font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--muted)}
-.herd-signals-page .phead .sub{font-size:12.5px}
+.herd-signals-page .phead .crumb{font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--muted);margin-bottom:3px}
+.herd-signals-page .phead .sub{font-size:12.5px;margin-top:3px}
+/* mock/herd-signals-mock.html `.phead{display:flex;align-items:flex-start;gap:12px;margin:4px 0
+   14px;flex-wrap:wrap}` -- the generic (unscoped) `.phead` rules elsewhere in this stylesheet used
+   by other admin screens resolved to a wider 16px gap and an 18px-only margin-bottom (no top/side
+   margin) here instead. Scoped so those other screens keep their own spacing. */
+.herd-signals-page .phead.phead{gap:12px;margin:4px 0 14px}
 .herd-signals-page table.resp th{font-weight:800;padding:9px 12px;line-height:normal;background:var(--panel)}
 .herd-signals-page table.resp td{font-size:12.5px;font-weight:400;padding:9px 12px;line-height:normal}
 
