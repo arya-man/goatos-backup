@@ -517,7 +517,12 @@ The load-bearing choices:
   rows carry), `label` the display caption. Composed at enqueue and stored, like `context_rows`, so
   re-authoring the config cannot change which boxes an already-submitted bag is judged with. Served
   to clients inside `measurement_correction.fields`; the verdict's measurement carries `entries`
-  echoing each key.
+  echoing each key. **Only items the sheet DIRECTS for the bag become boxes** (maintainer decision
+  2026-08-22, superseding the initial every-item-blocked-included composition): the frozen grid
+  mentions every feed item the pen's ration rows carry, zero-quantity cells included, and boxes for
+  those forced the verifier to type 0 for items the shed is never fed. `packingEntryFields` keeps
+  only resolved, positive-quantity items (sheet order preserved); an all-zero/blocked bag yields no
+  fields and falls into the same judge-the-video exemption as an unreadable sheet.
 - **Every box must be filled to Accept.** `MeasurementCorrectionSpec` on category `feed_packing`:
   `RequiredForApprove: true`, `PerItemFields: true`. Verification enforces completeness against the
   item's OWN fields before the verdict (422 `measurement_required` naming the missing box), refuses
