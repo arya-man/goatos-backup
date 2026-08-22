@@ -561,7 +561,7 @@ export function HerdSignalsMappingTable({
   // ---- Disabled reasons. Every one of these is specific and true; "not available" tells the
   // operator nothing they can act on.
   function reasonFor(action: MappingAction): string | null {
-    if (!selectionVisible) return "Select a tag first";
+    if (!selectionVisible) return "Select a tag to act on it";
     const item = selected as HerdSignalItem;
     if (item.mapping_state === "conflict") {
       return "This tag value resolves to more than one animal — fix the duplicate identifiers on the animal records first";
@@ -725,7 +725,7 @@ export function HerdSignalsMappingTable({
             Selected <span className="mono">{selected?.tag_id}</span>
           </>
         ) : (
-          "Select a row to act on it"
+          "Select a tag to act on it"
         )}
       </span>
       {/* "Map to animal" is the PRIMARY verb here: on a farm where nothing is mapped yet it is the
