@@ -232,10 +232,6 @@ export function HerdSignalsDrawer({
             <dt>Last seen <span className="srcl direct">Direct</span></dt>
             <dd>{fmtAgo(item.last_seen_at, nowMs)}</dd>
           </dl>
-          <p className="faint small" style={{ marginTop: 4 }}>
-            Tag temperature is the temperature measured at the tag&apos;s own sensor housing — not the
-            animal&apos;s body temperature.
-          </p>
         </div>
         <div className="df">
           <button type="button" className="btn" onClick={closeDrawer}>

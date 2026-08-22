@@ -2976,7 +2976,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.gateway_offline":       "Gateway offline",
 			"disabled.mapping_write":      "Tag mapping writes are not built yet.",
 			"disabled.export":             "Export is not built yet.",
-			"note.tag_temperature":        "Tag temperature is measured at the tag's own sensor housing, not on the animal.",
 			"note.correlation":            "Overlaid markers are other recorded farm activity for the same animal or its shed. Read them as correlation, never as behaviour, cause, or a clinical finding.",
 			"note.activity_basis":         "Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.",
 		}
