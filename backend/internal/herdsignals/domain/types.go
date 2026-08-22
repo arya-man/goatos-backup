@@ -26,6 +26,14 @@ type Thresholds struct {
 
 	// Motion calculation window (seconds).
 	MotionWindowSeconds int // default 60
+
+	// Pattern state thresholds (duration-based).
+	// All provisional; pending operational validation.
+	QuietWatchDurationMinutes  int // 1-2 hours of low delta => quiet_watch
+	InactiveDurationMinutes    int // 3+ hours of low delta with packets => inactive
+	MissingSignalMinutes       int // 30+ minutes with no packets => missing_signal
+	BaselinePercentile         int // p75 of 24h non-gap buckets (not median)
+	SpikeThresholdMultiplier   float64 // how many x baseline = spike
 }
 
 // DefaultThresholds returns provisional default thresholds.
@@ -42,6 +50,11 @@ func DefaultThresholds() Thresholds {
 		MotionNotMovingDelta: 0,
 		StalePacketMinutes:   30,
 		MotionWindowSeconds:  60,
+		QuietWatchDurationMinutes: 90,    // 1.5 hours
+		InactiveDurationMinutes:   180,   // 3 hours
+		MissingSignalMinutes:      30,    // 30 minutes
+		BaselinePercentile:        75,    // p75 of 24h non-gap buckets
+		SpikeThresholdMultiplier:  2.5,   // 2.5x baseline
 	}
 }
 
@@ -104,6 +117,7 @@ type TagLatest struct {
 	PreviousSeenAt        *time.Time
 	MotionWindowSeconds   *int
 	MovementState         string // "moving", "low", "quiet", "not_moving", "stale", "unknown"
+	PatternState          string // "no_movement", "quiet_watch", "inactive", "missing_signal", "spike", "recovered", "unknown"
 	TemperatureSensorOK   *bool
 	AccelerometerSensorOK *bool
 	MappingState          string // "mapped", "unmapped", "conflict"
@@ -125,7 +139,27 @@ type ActivityWindow struct {
 	MaxRSSIdbm       *int16
 	FirstSeenAt      *time.Time
 	LastSeenAt       *time.Time
+	IsGap            bool // true if PacketCount = 0 (no data in window)
 }
+
+// PatternState describes movement pattern over history.
+// no_movement: delta 0 in current 15m window
+// quiet_watch: low delta sustained for 1-2 hours
+// inactive: zero/low delta for 3+ hours WITH packets still arriving (duration-based, not missing)
+// missing_signal: no packets for 30+ minutes
+// spike: current delta far above animal's own baseline (p75 of 24h)
+// recovered: activity resumed after quiet period
+type PatternState string
+
+const (
+	PatternNoMovement    PatternState = "no_movement"
+	PatternQuietWatch    PatternState = "quiet_watch"
+	PatternInactive      PatternState = "inactive"
+	PatternMissingSignal PatternState = "missing_signal"
+	PatternSpike         PatternState = "spike"
+	PatternRecovered     PatternState = "recovered"
+	PatternUnknown       PatternState = "unknown"
+)
 
 // IngestRequest is the payload for POST /herd-signals/packets.
 type IngestRequest struct {
@@ -179,6 +213,7 @@ type LiveItem struct {
 	MotionDelta                *int64   `json:"motion_delta"`
 	MotionWindowSeconds        *int     `json:"motion_window_seconds"`
 	MovementState              string   `json:"movement_state"`
+	PatternState               string   `json:"pattern_state"`
 	TemperatureSensorOK        *bool    `json:"temperature_sensor_ok"`
 	AccelerometerSensorOK      *bool    `json:"accelerometer_sensor_ok"`
 	MappingState               string   `json:"mapping_state"`
@@ -213,13 +248,16 @@ type TimelineResponse struct {
 
 // TimelineWindow is a bucketed motion aggregate in a timeline.
 type TimelineWindow struct {
-	BucketStart   time.Time  `json:"bucket_start"`
-	BucketSeconds int        `json:"bucket_seconds"`
-	MotionDelta   int64      `json:"motion_delta"`
-	PacketCount   int        `json:"packet_count"`
-	AvgRSSIdbm    *float64   `json:"avg_rssi_dbm"`
-	FirstSeenAt   *time.Time `json:"first_seen_at"`
-	LastSeenAt    *time.Time `json:"last_seen_at"`
+	BucketStart      time.Time  `json:"bucket_start"`
+	BucketSeconds    int        `json:"bucket_seconds"`
+	FirstMotionCount *int64     `json:"first_motion_count"`
+	LastMotionCount  *int64     `json:"last_motion_count"`
+	MotionDelta      int64      `json:"motion_delta"`
+	PacketCount      int        `json:"packet_count"`
+	AvgRSSIdbm       *float64   `json:"avg_rssi_dbm"`
+	FirstSeenAt      *time.Time `json:"first_seen_at"`
+	LastSeenAt       *time.Time `json:"last_seen_at"`
+	IsGap            bool       `json:"is_gap"` // true if PacketCount = 0
 }
 
 // GatewayItem is a single gateway in the gateways response.
