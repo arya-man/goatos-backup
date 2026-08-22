@@ -22,6 +22,7 @@ import {
   SIGNAL_TONE,
   fmtAgo,
   fmtBatteryMv,
+  fmtBatteryTrend,
   fmtDelta,
   fmtDelta1h,
   fmtRssi,
@@ -225,11 +226,8 @@ export function HerdSignalsDrawer({
             <dd>{fmtBatteryMv(item.battery_mv)}</dd>
             <dt>Battery state <span className="srcl derived">Derived</span></dt>
             <dd>{item.battery_state ? <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag> : "—"}</dd>
-            <dt>Estimated battery life <span className="srcl inferred">Inferred</span></dt>
-            {/* battery_life_estimate was removed from the wire contract upstream (no longer
-                computed) -- render the standard "not available" dash rather than an empty cell,
-                since a blank <dd> next to a labelled <dt> reads as a rendering bug, not "no data". */}
-            <dd>—</dd>
+            <dt>Battery trend <span className="srcl derived">Derived</span></dt>
+            <dd>{fmtBatteryTrend(item.battery_trend)}</dd>
             <dt>Tag temperature <span className="srcl direct">Direct</span></dt>
             <dd>{fmtTagTemp(item.tag_temperature_c)}</dd>
             <dt>Movement trend <span className="srcl derived">Derived</span></dt>

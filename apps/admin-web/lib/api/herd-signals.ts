@@ -24,7 +24,16 @@ export type HerdSignalMovementState = "moving" | "low" | "quiet" | "not_moving" 
 export type HerdSignalMappingState = "mapped" | "unmapped" | "conflict";
 export type HerdSignalPatternState = "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
 export type HerdSignalTone = "strong" | "ok" | "weak";
-export type HerdSignalBatteryState = "ok" | "low";
+// Backend contract as of the live-stack round: four states, not two. A stale two-state DTO here
+// makes every real "watch"/"critical" reading resolve to undefined label/tone client-side.
+export type HerdSignalBatteryState = "healthy" | "watch" | "low" | "critical";
+export type HerdSignalBatteryTrendDirection = "rising" | "falling" | "flat";
+export interface HerdSignalBatteryTrend {
+  direction: HerdSignalBatteryTrendDirection;
+  window_seconds: number;
+  first_mv: number | null;
+  last_mv: number | null;
+}
 export type HerdSignalSensorState = "ok" | "abnormal";
 
 export interface HerdSignalsSummary {
@@ -64,6 +73,7 @@ export interface HerdSignalItem {
   signal_state: HerdSignalTone | null;
   battery_mv: number | null;
   battery_state: HerdSignalBatteryState | null;
+  battery_trend: HerdSignalBatteryTrend | null;
   tag_temperature_c: number | null;
   motion_count: number | null;
   motion_delta: number | null;

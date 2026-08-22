@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { MOVEMENT_LABEL, MAPPING_LABEL, PATTERN_LABEL } from "./format";
+import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { herdSignalsHref, herdSignalsResetHref, type HerdSignalsParams } from "./params";
 
 export type ShedOption = { id: string; label: string };
@@ -22,8 +22,7 @@ export function HerdSignalsFilters({
   params: HerdSignalsParams;
   sheds: ShedOption[];
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
+  const { isPending, navigate } = useHerdSignalsNav();
   // Synced from the URL's own hs_q on every navigation, using React's "adjust state during render"
   // pattern (react.dev/learn/you-might-not-need-an-effect) rather than an Effect that calls
   // setState synchronously — the debounced local edits below still take priority between renders.
@@ -36,9 +35,7 @@ export function HerdSignalsFilters({
   const debounceRef = useRef<number | null>(null);
 
   function go(href: string) {
-    startTransition(() => {
-      router.push(href, { scroll: false });
-    });
+    navigate(href);
   }
 
   function onSearchChange(value: string) {
@@ -52,7 +49,8 @@ export function HerdSignalsFilters({
   const hasNarrowing = params.hasFilter || Boolean(params.parkId);
 
   return (
-    <div className="fbar herd-signals-fbar">
+    <div className="fbar herd-signals-fbar" aria-busy={isPending}>
+      {isPending ? <span className="wfspin" aria-hidden="true" title="Applying filter" /> : null}
       <span className="fsel search has">
         <input
           type="search"
