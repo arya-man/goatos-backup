@@ -87,6 +87,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"golang.org/x/oauth2"
+
 	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
@@ -458,7 +460,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// and the create-person route fails closed with identity_unavailable.
 	var workforceIdentity workforceports.IdentityProvider
 	if projectID := firebaseIdentityProjectID(cfg.Auth.Issuer); projectID != "" {
-		identityClient, err := firebaseidentity.New(projectID)
+		var identityOpts []firebaseidentity.Option
+		// Emulator/local override: point the adapter at a Firebase Auth
+		// emulator (or a local stand-in) instead of the live Identity Toolkit.
+		// The emulator accepts any bearer, so a static token source suffices.
+		if baseURL := strings.TrimSpace(os.Getenv("GOATOS_FIREBASE_IDENTITY_BASE_URL")); baseURL != "" {
+			identityOpts = append(identityOpts,
+				firebaseidentity.WithBaseURL(baseURL),
+				firebaseidentity.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "emulator"})),
+			)
+		}
+		identityClient, err := firebaseidentity.New(projectID, identityOpts...)
 		if err != nil {
 			pool.Close()
 			return nil, err
