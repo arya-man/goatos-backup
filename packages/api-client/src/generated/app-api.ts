@@ -101,6 +101,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/herd-signals/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The current live view as a CSV file, honouring every filter the list honours.
+         * @description Streams the SAME filtered, keyset-ordered result as GET /herd-signals/live, through the same filter builder and the same per-page enrichment, so what downloads is what the operator is looking at -- not a second query that agrees with the screen by coincidence. Chunked: 500 rows are read, written and released at a time, so peak memory is one page regardless of how many tags match. Capped at 100000 rows, and a capped file says so in its last line rather than reading as complete data. An absent reading is an EMPTY cell, never a zero. `Tag Temperature (C)` is the tag housing's own reading -- the tag has no animal-contact sensor and reports no other temperature.
+         */
+        get: operations["exportHerdSignalsCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tags/{tag_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Farm records for this tag's mapped animal, to overlay on its movement history.
+         * @description Returns the recorded farm activity for the animal this tag is mapped to (and for its shed, where the record is shed-grain), so the records and the movement history can be read SIDE BY SIDE.
+         *     A marker is CORRELATION IN TIME AND NOTHING MORE. A feed marker means feed was directed to the shed this animal is in, never that this animal took any of it. A vaccination marker beside a movement change means the two fall in the same window, never that one caused the other and never that anything is wrong. A health-case or treatment marker is a record a person made, never a diagnosis and never something inferred from motion. Each event carries a `grain` saying which of these it is; a client must not present a shed-grain or scanned-identifier record as an observation of one animal.
+         *     MONITORING BOUNDARY (migration 000196): an animal's history with a tag starts at the instant the tag was mapped to it; everything earlier is device telemetry. `from` is clamped UP to that instant before any record is read, and the returned `from` is the EFFECTIVE window so a client can see the clamp happened. A tag with no animal behind it has no farm activity at all -- an empty `events` with a `reason`, never an error.
+         *     Bounded: at most 31 days per request and at most 500 events; `truncated` says when the window holds more than were returned.
+         */
+        get: operations["getHerdSignalsTagActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/tasks/review-fanouts/retry": {
         parameters: {
             query?: never;
@@ -4240,6 +4283,54 @@ export interface components {
         };
         HerdInsightsResponse: {
             cards: components["schemas"]["HerdInsightCard"][];
+        };
+        /** @enum {string} */
+        HerdSignalActivityEventKind: "vaccination" | "feed_given" | "weighing" | "treatment" | "hoof_trimming" | "shed_move";
+        /**
+         * @description What the underlying record is actually about. `animal`: the source row names this animal. `shed`: the source row names the SHED this animal is in -- every animal there shares the record and it says nothing about this one individually. `scanned_identifier`: the source row names a raw scanned string matching this tag's id or MAC, with no animal resolution anywhere in the chain (weighing and PC-care both record this way and this read never resolves a scan to an animal in either direction).
+         * @enum {string}
+         */
+        HerdSignalActivityGrain: "animal" | "shed" | "scanned_identifier";
+        HerdSignalActivityEvent: {
+            kind: components["schemas"]["HerdSignalActivityEventKind"];
+            /** Format: date-time */
+            at: string;
+            /** @description Backend-owned short label; render verbatim. */
+            label: string;
+            grain: components["schemas"]["HerdSignalActivityGrain"];
+        };
+        HerdSignalActivityUnavailableKind: {
+            kind: components["schemas"]["HerdSignalActivityEventKind"];
+            reason: string;
+        };
+        /**
+         * @description Why `events` is empty for a STRUCTURAL reason -- never set merely because the window held no records. `tag_not_mapped_to_animal`: no animal is behind this tag, so there is no farm activity to show (not zero events for an animal -- no animal). `monitoring_boundary_unknown`: the tag resolves to an animal but carries no mapping instant, so the read fails closed rather than attributing a whole record history to a boundary it cannot state. `window_entirely_before_monitoring_start`: the requested window ends before the tag was mapped to the animal.
+         * @enum {string}
+         */
+        HerdSignalActivityReason: "tag_not_mapped_to_animal" | "monitoring_boundary_unknown" | "window_entirely_before_monitoring_start";
+        HerdSignalActivityResponse: {
+            tag_id: string;
+            /**
+             * Format: date-time
+             * @description The EFFECTIVE window start actually read, after clamping to monitoring_since.
+             */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /**
+             * Format: date-time
+             * @description When this tag became this animal's tag. Null for an unmapped tag.
+             */
+            monitoring_since: string | null;
+            /** @description Ordered by `at` ascending. Never null. */
+            events: components["schemas"]["HerdSignalActivityEvent"][];
+            /** @description Kinds with no source in this deployment, so a client hides that chip instead of showing one that can never light up. Empty today -- all six kinds have a real source. */
+            unavailable_kinds: components["schemas"]["HerdSignalActivityUnavailableKind"][];
+            reason: components["schemas"]["HerdSignalActivityReason"] | null;
+            /** @description True when the window holds more events than the 500-event cap returned. */
+            truncated: boolean;
+            /** @description Backend-owned copy stating what a marker does and does not mean. Render verbatim beside the overlay; it is the reason the claim boundary travels with the data. */
+            correlation_note: string;
         };
         HerdSignalsIngestPacket: {
             tag_id: string;
@@ -12475,6 +12566,87 @@ export interface operations {
             };
             /** @description Authentication required. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportHerdSignalsCsv: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                movement_state?: components["schemas"]["HerdSignalMovementState"];
+                mapping_state?: components["schemas"]["HerdSignalMappingState"];
+                pattern?: components["schemas"]["HerdSignalPatternState"];
+                /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV file of the filtered live view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getHerdSignalsTagActivity: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path: {
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Farm-activity markers for the effective window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalActivityResponse"];
+                };
+            };
+            /** @description Missing from/to, to before from, or a range longer than 31 days. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such tag for this tenant. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
