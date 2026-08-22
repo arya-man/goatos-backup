@@ -113,11 +113,11 @@ type Repository interface {
 	// tag (use ReplaceTagMapping for the re-tag case).
 	BindTagMapping(ctx context.Context, tenantID string, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error)
 
-	// SetSmartTagCapable marks or unmarks an EXISTING identifier as smart-tag capable, for the
-	// case where the animal's ear tag value IS the BLE tag value. Marking stamps
-	// smart_tag_mapped_at (animal monitoring starts now); unmarking clears it back to NULL,
-	// which returns the tag to device-telemetry-only.
-	SetSmartTagCapable(ctx context.Context, tenantID, identifierID string, capable bool) (domain.TagMappingResponse, error)
+	// UnmapTagMapping releases a binding with no replacement (tag lost, animal sold, mapping made
+	// in error). The tag returns to unmapped and its packets keep flowing as device telemetry --
+	// nothing is deleted -- and its monitoring period ends, so no further value is attributed to
+	// the animal. Refuses with domain.ErrMappingConflict when the tag is not mapped at all.
+	UnmapTagMapping(ctx context.Context, tenantID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error)
 
 	// ReplaceTagMapping unbinds the animal's current smart tag and binds a new one in ONE
 	// transaction. Re-tagging is the real-world case (a tag falls off, a replacement goes on) and

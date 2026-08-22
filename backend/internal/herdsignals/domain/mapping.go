@@ -65,12 +65,19 @@ type ReplaceTagMappingRequest struct {
 	IdentifierType string `json:"identifier_type"`
 }
 
-// SetSmartTagCapableRequest is the payload for POST
-// /herd-signals/identifiers/{identifier_id}/smart-tag: mark or unmark an EXISTING identifier as
-// smart-tag capable, for the case where the animal's ear tag value IS the BLE tag value and no
-// new identifier row should be invented.
-type SetSmartTagCapableRequest struct {
-	SmartTagCapable bool `json:"smart_tag_capable"`
+// UnmapTagMappingRequest is the payload for POST /herd-signals/tag-mappings/unmap: release a
+// binding with no replacement -- the tag was lost, the animal was sold, or the mapping was made
+// in error.
+//
+// The tag returns to unmapped and its packets keep flowing as device telemetry: nothing is
+// deleted, the history stays intact, it simply stops being attributed to an animal. There is no
+// separate "mark as smart tag" verb anywhere in this module: EVERY row on the Tag Mapping screen
+// is already a real smart tag -- it is listed precisely because the gateway is receiving its
+// advertisements -- so asking a user to declare one as such is meaningless. smart_tag_capable is
+// an INTERNAL CONSEQUENCE of binding, never a user action.
+type UnmapTagMappingRequest struct {
+	TagID  string `json:"tag_id"`
+	TagMAC string `json:"tag_mac"`
 }
 
 // TagMappingResponse is the shared response of all three mapping writes.
