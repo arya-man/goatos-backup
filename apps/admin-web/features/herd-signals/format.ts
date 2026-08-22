@@ -90,6 +90,24 @@ export const SENSOR_TONE: Record<HerdSignalSensorState, Tone> = {
   abnormal: "dng",
 };
 
+// The live table's Status column is a health VERDICT about the SIGNAL and the DEVICE, never the
+// animal -- it never claims to detect behaviour, posture, or clinical state. Precedence ported
+// exactly from the mock (mock/herd-signals-mock.html, renderLive): a stale/missing movement state
+// outranks a weak radio signal, which outranks a low battery, which outranks an abnormal
+// accelerometer status bit, with "Good" only when none of those four conditions hold.
+export function herdSignalStatus(item: {
+  movement_state: HerdSignalMovementState | null;
+  signal_state: HerdSignalTone | null;
+  battery_state: HerdSignalBatteryState | null;
+  sensor_state: HerdSignalSensorState | null;
+}): { label: string; tone: Tone } {
+  if (item.movement_state === "stale") return { label: "Missing signal", tone: "dng" };
+  if (item.signal_state === "weak") return { label: "Weak signal", tone: "warn" };
+  if (item.battery_state === "low" || item.battery_state === "critical") return { label: "Low battery", tone: "pur" };
+  if (item.sensor_state === "abnormal") return { label: "Sensor abnormal", tone: "warn" };
+  return { label: "Good", tone: "ok" };
+}
+
 export const PATTERN_LABEL: Record<HerdSignalPatternState, string> = {
   no_movement: "No movement now",
   quiet_watch: "Quiet watch",
