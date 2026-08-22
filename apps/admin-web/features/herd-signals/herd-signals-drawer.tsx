@@ -11,11 +11,11 @@ import {
   BATTERY_LABEL,
   BATTERY_TONE,
   MAPPING_LABEL,
-  MAPPING_TONE,
   MOVEMENT_LABEL,
   MOVEMENT_TONE,
   PATTERN_LABEL,
   PATTERN_TONE,
+  PATTERN_WHY,
   SENSOR_LABEL,
   SENSOR_TONE,
   SIGNAL_LABEL,
@@ -23,18 +23,18 @@ import {
   fmtAgo,
   fmtBatteryMv,
   fmtBatteryTrend,
+  fmtBleMac,
   fmtDelta,
   fmtDelta1h,
   fmtRssi,
   fmtTagTemp,
 } from "./format";
-import { HistoryChart } from "./herd-signals-history-chart";
+import { HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 import { useNowMs } from "./herd-signals-poller";
 
 type RangeKey = "1h" | "6h" | "24h";
 const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };
 const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 3600 };
-
 
 async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
   const to = new Date();
@@ -72,6 +72,7 @@ export function HerdSignalsDrawer({
   });
   const [range, setRange] = useState<RangeKey>("1h");
   const nowMs = useNowMs();
+  const [hovered, setHovered] = useState<HerdSignalTimelineBucket | null>(null);
   // Bumped by the Retry button so a failed read can be re-fetched without changing tag or range —
   // included in the effect's dependency array below so a retry actually re-runs the fetch, not just
   // clears the error text back to a loading skeleton that never resolves again.
@@ -109,6 +110,8 @@ export function HerdSignalsDrawer({
     ? item.operational_location_display
     : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
   const expandHref = `${closeHref}${closeHref.includes("?") ? "&" : "?"}hs_history=${encodeURIComponent(item.tag_id)}#hs-history-${encodeURIComponent(item.tag_id)}`;
+  const titleLine = item.display_id ? `${item.display_id} · ${item.tag_id}` : `Unmapped tag ${item.tag_id}`;
+  const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
 
   return (
     <>
@@ -122,9 +125,9 @@ export function HerdSignalsDrawer({
       />
       <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label="Tag detail" aria-hidden={!drawerOpen} inert={!drawerOpen}>
         <div className="dh">
-          <div>
-            <div className="mt mono">{item.tag_id}</div>
-            <h2>{item.display_id || item.goat_id || "Unmapped tag"}</h2>
+          <div style={{ minWidth: 0 }}>
+            <b>{titleLine}</b>
+            <div className="faint small mono">{subtitleLine || "—"}</div>
           </div>
           <span className="sp" style={{ flex: 1 }} />
           <button ref={closeButtonRef} type="button" className="iconbtn" aria-label="Close tag detail" onClick={closeDrawer}>
@@ -132,19 +135,27 @@ export function HerdSignalsDrawer({
           </button>
         </div>
         <div className="dc">
+          {/* Control row directly under the header: pattern + baseline chips, range picker, Expand. */}
+          <div className="patrow" style={{ paddingTop: 0 }}>
+            {item.pattern_state ? <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag> : null}
+            {item.baseline_delta !== null && item.baseline_delta !== undefined ? (
+              <Tag tone="mut">baseline {item.baseline_delta} / 5 min</Tag>
+            ) : null}
+            <span className="sp" style={{ flex: 1 }} />
+            <div className="rangepick" role="group" aria-label="History range">
+              {(["1h", "6h", "24h"] as RangeKey[]).map((key) => (
+                <button key={key} type="button" className={range === key ? "on" : undefined} onClick={() => setRange(key)}>
+                  {key}
+                </button>
+              ))}
+            </div>
+            <LocalOverlayLink href={expandHref} scroll={false} className="btn sm" title="Full history, custom date range and farm-activity overlay">
+              Expand
+            </LocalOverlayLink>
+          </div>
+
           {/* Movement-history chart FIRST, above the readings, so it needs no scrolling. */}
           <div className="card">
-            <div className="hd">
-              <h3>Movement history</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              <div className="rangepick" role="group" aria-label="History range">
-                {(["1h", "6h", "24h"] as RangeKey[]).map((key) => (
-                  <button key={key} type="button" className={range === key ? "on" : undefined} onClick={() => setRange(key)}>
-                    {key}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="bd flush">
               {chartError ? (
                 // A failed read is a distinct state from "this tag has no history" (empty buckets)
@@ -169,37 +180,44 @@ export function HerdSignalsDrawer({
                 </div>
               ) : buckets === null ? (
                 <div style={{ padding: 20 }}>
-                  <div className="skelrow" style={{ width: "100%", height: 90 }} />
+                  <div className="skelrow" style={{ width: "100%", height: 110 }} />
                 </div>
               ) : (
-                <HistoryChart buckets={buckets} baseline={item.baseline_delta} />
+                <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={110} onHover={setHovered} />
               )}
-              <div className="patrow">
-                <LocalOverlayLink href={expandHref} scroll={false} className="btn sm">
-                  Expand
-                </LocalOverlayLink>
+              <div className="legend">
+                {historyChartLegend().map((entry) =>
+                  entry.dashed ? (
+                    <span key={entry.label}>
+                      <i className={`${entry.className} dashed`} /> {entry.label}
+                    </span>
+                  ) : (
+                    <span key={entry.label}>
+                      <i className={entry.className} style={{ background: "currentColor" }} /> {entry.label}
+                    </span>
+                  ),
+                )}
               </div>
-            </div>
-          </div>
-
-          <div className="metagrid">
-            <div>
-              <div className="k">Shed</div>
-              <div className="v">{location || "—"}</div>
-            </div>
-            <div>
-              <div className="k">Gateway</div>
-              <div className="v mono">{item.gateway_id || "—"}</div>
-            </div>
-            <div>
-              <div className="k">BLE MAC</div>
-              <div className="v mono">{item.tag_mac || "—"}</div>
-            </div>
-            <div>
-              <div className="k">Mapping</div>
-              <div className="v">
-                <Tag tone={MAPPING_TONE[item.mapping_state]}>{MAPPING_LABEL[item.mapping_state]}</Tag>
+              <div className="readout" aria-live="polite">
+                {hovered ? (
+                  hovered.is_gap ? (
+                    <>
+                      <b>{hovered.bucket_start}</b> — no packets received in this window (gap), not zero movement.
+                    </>
+                  ) : (
+                    <>
+                      motion_count <b>{fmtDelta(hovered.first_motion_count)}</b> → <b>{fmtDelta(hovered.last_motion_count)}</b> · delta{" "}
+                      <b>{fmtDelta(hovered.motion_delta)}</b> · {hovered.packet_count} packets · avg RSSI <b>{fmtRssi(hovered.avg_rssi_dbm)}</b>
+                    </>
+                  )
+                ) : (
+                  <span className="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span>
+                )}
               </div>
+              <p className="small faint" style={{ padding: "0 15px 12px", margin: 0 }}>
+                {item.pattern_state ? `${PATTERN_WHY[item.pattern_state].charAt(0).toUpperCase()}${PATTERN_WHY[item.pattern_state].slice(1)}. ` : ""}
+                Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.
+              </p>
             </div>
           </div>
 
@@ -207,43 +225,100 @@ export function HerdSignalsDrawer({
             Readings
           </div>
           <dl className="kv">
-            <dt>Motion count <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtDelta(item.motion_count)}</dd>
-            <dt>15m motion delta <span className="srcl direct">Direct</span></dt>
+            <dt>Tag ID</dt>
+            <dd className="mono">
+              {item.tag_id}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>BLE MAC</dt>
+            <dd className="mono">
+              {fmtBleMac(item.tag_mac)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Animal</dt>
+            <dd>
+              {item.display_id || <span className="muted">Unmapped</span>}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Location</dt>
+            <dd>
+              {location || "—"}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Gateway</dt>
+            <dd className="mono">
+              {item.gateway_id || "—"}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Mapping state</dt>
+            <dd>
+              {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state]}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Motion count</dt>
+            <dd>
+              {fmtDelta(item.motion_count)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>15m motion delta</dt>
             <dd title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}>
+              
               {fmtDelta(item.motion_delta)}
               {item.gap_delta ? <sup title="Gap total">*</sup> : null}
+              <span className="srcl direct">Direct</span>
             </dd>
-            <dt>1h motion delta <span className="srcl direct">Direct</span></dt>
+            <dt>1h motion delta</dt>
             <dd title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">
+              
               {fmtDelta1h(item.motion_delta_1h, item.motion_delta)}
+              <span className="srcl direct">Direct</span>
             </dd>
-            <dt>RSSI <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtRssi(item.rssi_dbm)}</dd>
-            <dt>Signal <span className="srcl derived">Derived</span></dt>
-            <dd>{item.signal_state ? <Tag tone={SIGNAL_TONE[item.signal_state]}>{SIGNAL_LABEL[item.signal_state]}</Tag> : "—"}</dd>
-            <dt>Battery voltage <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtBatteryMv(item.battery_mv)}</dd>
-            <dt>Battery state <span className="srcl derived">Derived</span></dt>
-            <dd>{item.battery_state ? <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag> : "—"}</dd>
-            <dt>Battery trend <span className="srcl derived">Derived</span></dt>
-            <dd>{fmtBatteryTrend(item.battery_trend)}</dd>
-            <dt>Tag temperature <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtTagTemp(item.tag_temperature_c)}</dd>
-            <dt>Movement trend <span className="srcl derived">Derived</span></dt>
-            <dd>{item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}</dd>
-            <dt>Pattern <span className="srcl derived">Derived</span></dt>
-            <dd>{item.pattern_state ? <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag> : "—"}</dd>
-            <dt>Sensor status <span className="srcl direct">Direct</span></dt>
-            <dd>{item.sensor_state ? <Tag tone={SENSOR_TONE[item.sensor_state]}>{SENSOR_LABEL[item.sensor_state]}</Tag> : "—"}</dd>
-            <dt>Last seen <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtAgo(item.last_seen_at, nowMs)}</dd>
+            <dt>RSSI</dt>
+            <dd>
+              {fmtRssi(item.rssi_dbm)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Signal</dt>
+            <dd>
+              {item.signal_state ? <Tag tone={SIGNAL_TONE[item.signal_state]}>{SIGNAL_LABEL[item.signal_state]}</Tag> : "—"}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Battery voltage</dt>
+            <dd>
+              {fmtBatteryMv(item.battery_mv)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Battery state</dt>
+            <dd>
+              {item.battery_state ? <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag> : "—"}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Battery trend</dt>
+            <dd>
+              {fmtBatteryTrend(item.battery_trend)}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Tag temperature</dt>
+            <dd>
+              {fmtTagTemp(item.tag_temperature_c)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Movement trend</dt>
+            <dd>
+              {item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}
+              <span className="srcl derived">Derived</span>
+            </dd>
+            <dt>Sensor status</dt>
+            <dd>
+              {item.sensor_state ? <Tag tone={SENSOR_TONE[item.sensor_state]}>{SENSOR_LABEL[item.sensor_state]}</Tag> : "—"}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Last seen</dt>
+            <dd>
+              {fmtAgo(item.last_seen_at, nowMs)}
+              <span className="srcl direct">Direct</span>
+            </dd>
           </dl>
-        </div>
-        <div className="df">
-          <button type="button" className="btn" onClick={closeDrawer}>
-            Close
-          </button>
         </div>
       </aside>
     </>

@@ -9,7 +9,7 @@ type KpiDef = {
   key: KpiFilterKey;
   label: string;
   type: "Direct" | "Derived";
-  tone: "mut" | "ok" | "warn" | "dng";
+  tone: "mut" | "ok" | "warn" | "dng" | "info" | "purple";
   value: (summary: HerdSignalsSummary) => number;
   detail: string;
 };
@@ -30,7 +30,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "moving" as KpiFilterKey,
     label: "Tags seen",
     type: "Derived",
-    tone: "mut",
+    tone: "info",
     value: (s) => s.tags_seen,
     detail: "every tag with a packet within the stale threshold — mapped and unmapped both count",
   },
@@ -58,7 +58,7 @@ const KPI_DEFS: KpiDef[] = [
     type: "Derived",
     tone: "warn",
     value: (s) => s.weak_signal,
-    detail: "RSSI at or below the weak-signal threshold",
+    detail: "RSSI \u2264 -75 dBm",
   },
   {
     key: "missing_signal",
@@ -66,15 +66,15 @@ const KPI_DEFS: KpiDef[] = [
     type: "Derived",
     tone: "dng",
     value: (s) => s.stale,
-    detail: "no packet received within the stale threshold",
+    detail: "not seen for 30+ min",
   },
   {
     key: "low_battery",
     label: "Low battery",
     type: "Derived",
-    tone: "warn",
+    tone: "purple",
     value: (s) => s.low_battery,
-    detail: "battery voltage below the low-battery threshold",
+    detail: "battery voltage below 2800 mV",
   },
 ];
 
