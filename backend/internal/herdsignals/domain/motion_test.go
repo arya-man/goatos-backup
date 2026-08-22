@@ -193,11 +193,12 @@ func TestPatternStateFromHistory(t *testing.T) {
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 
 	tests := []struct {
-		name          string
-		currentDelta  int64
-		lastPacketAt  *time.Time
-		recentWindows []ActivityWindow
-		expectedState string
+		name            string
+		currentDelta    int64
+		lastPacketAt    *time.Time
+		recentWindows   []ActivityWindow
+		previousPattern string
+		expectedState   string
 	}{
 		{
 			name:          "missing signal (no recent packets)",
@@ -229,11 +230,43 @@ func TestPatternStateFromHistory(t *testing.T) {
 			recentWindows: generateQuietWindows(190, 60), // 190 min > 180 min threshold
 			expectedState: string(PatternInactive),
 		},
+		{
+			name:            "recovered (activity resumes after quiet_watch)",
+			currentDelta:    15, // >= MotionLowDelta (10)
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 15, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternQuietWatch),
+			expectedState:   string(PatternRecovered),
+		},
+		{
+			name:            "recovered (activity resumes after inactive)",
+			currentDelta:    50,
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 50, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternInactive),
+			expectedState:   string(PatternRecovered),
+		},
+		{
+			name:            "not recovered: previous quiet_watch but current delta still below threshold",
+			currentDelta:    3, // < MotionLowDelta (10)
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 3, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternQuietWatch),
+			expectedState:   string(PatternUnknown),
+		},
+		{
+			name:            "not recovered: previously unknown/active, currently active is just unknown",
+			currentDelta:    15,
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 15, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternUnknown),
+			expectedState:   string(PatternUnknown),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := PatternStateFromHistory(tt.currentDelta, tt.lastPacketAt, now, tt.recentWindows, thresholds)
+			state := PatternStateFromHistory(tt.currentDelta, tt.lastPacketAt, now, tt.recentWindows, tt.previousPattern, thresholds)
 			if state != tt.expectedState {
 				t.Errorf("state = %s, want %s", state, tt.expectedState)
 			}
@@ -280,6 +313,71 @@ func int64Ptr(v int64) *int64        { return &v }
 func intPtr(v int) *int              { return &v }
 func float64Ptr(v float64) *float64  { return &v }
 func timePtr(v time.Time) *time.Time { return &v }
+
+func TestSelectBucketTier(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		span time.Duration
+		want int
+	}{
+		{"30 minutes -> 60s", 30 * time.Minute, 60},
+		{"exactly 1 hour -> 60s", time.Hour, 60},
+		{"2 hours -> 300s", 2 * time.Hour, 300},
+		{"exactly 24 hours -> 300s", 24 * time.Hour, 300},
+		{"25 hours -> 3600s", 25 * time.Hour, 3600},
+		{"7 days -> 3600s", 7 * 24 * time.Hour, 3600},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SelectBucketTier(base, base.Add(tt.span))
+			if got != tt.want {
+				t.Errorf("SelectBucketTier(span=%v) = %d, want %d", tt.span, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSupportedBucketSeconds(t *testing.T) {
+	for _, b := range []int{60, 300, 3600} {
+		if !IsSupportedBucketSeconds(b) {
+			t.Errorf("IsSupportedBucketSeconds(%d) = false, want true", b)
+		}
+	}
+	for _, b := range []int{0, 30, 120, 900, 7200} {
+		if IsSupportedBucketSeconds(b) {
+			t.Errorf("IsSupportedBucketSeconds(%d) = true, want false", b)
+		}
+	}
+}
+
+func TestBatteryLifeEstimate(t *testing.T) {
+	thresholds := DefaultThresholds()
+
+	if got := BatteryLifeEstimate(nil, thresholds); got != "" {
+		t.Errorf("nil battery = %q, want empty", got)
+	}
+	if got := BatteryLifeEstimate(intPtr(2700), thresholds); got != "< 1 day (provisional)" {
+		t.Errorf("below-low battery = %q, want '< 1 day (provisional)'", got)
+	}
+	if got := BatteryLifeEstimate(intPtr(3000), thresholds); got == "" {
+		t.Errorf("full battery should produce a non-empty estimate")
+	}
+}
+
+func TestBaseline75(t *testing.T) {
+	windows := []ActivityWindow{
+		{MotionDelta: 0, IsGap: false},
+		{MotionDelta: 5, IsGap: false},
+		{MotionDelta: 10, IsGap: false},
+		{MotionDelta: 100, IsGap: true}, // gap must be excluded even though it has a delta value
+	}
+	got := Baseline75(windows)
+	want := percentile75([]int64{0, 5, 10})
+	if got != want {
+		t.Errorf("Baseline75 = %d, want %d (gap window must be excluded)", got, want)
+	}
+}
 
 // generateQuietWindows creates N minutes worth of quiet windows (delta < 10).
 func generateQuietWindows(durationMinutes int, bucketSeconds int) []ActivityWindow {
