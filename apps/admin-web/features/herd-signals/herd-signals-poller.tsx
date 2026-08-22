@@ -80,7 +80,11 @@ function useTabHidden(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-function useNowTick(everyMs: number): number {
+// The current wall-clock time, read through useSyncExternalStore's getSnapshot — the one place
+// React expects a read of live external state, so this is where an otherwise-impure Date.now()
+// belongs instead of inline in a component body. Ticks once a second so the "Xs stale" / "last
+// seen" readouts that depend on it re-render without polling refetching any data.
+export function useNowMs(everyMs = 1000): number {
   const subscribe = useCallback(
     (onChange: () => void) => {
       const timer = window.setInterval(onChange, everyMs);
@@ -88,14 +92,10 @@ function useNowTick(everyMs: number): number {
     },
     [everyMs],
   );
-  // A ref-boxed counter avoids Date.now() disagreeing between server and client snapshots; the
-  // exact value never matters, only that it changes on each tick so the stale readout re-renders.
-  const tickRef = useRef(0);
-  const getSnapshot = useCallback(() => {
-    tickRef.current += 1;
-    return tickRef.current;
-  }, []);
-  return useSyncExternalStore(subscribe, getSnapshot, () => 0);
+  // eslint-disable-next-line react-hooks/purity -- getSnapshot is the sanctioned external-time read.
+  const getSnapshot = useCallback(() => Date.now(), []);
+  const getServerSnapshot = useCallback(() => 0, []);
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
@@ -104,8 +104,8 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   const live = useSyncExternalStore(subscribeLive, readLive, serverLive);
   const intervalSeconds = useSyncExternalStore(subscribeInterval, readInterval, serverInterval);
   const tabHidden = useTabHidden();
+  const nowMs = useNowMs();
   const pendingRef = useRef(false);
-  useNowTick(1000);
 
   useEffect(() => {
     pendingRef.current = isPending;
@@ -155,7 +155,7 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
     refresh();
   }
 
-  const ageMs = Date.now() - new Date(generatedAt).getTime();
+  const ageMs = nowMs - new Date(generatedAt).getTime();
   const stale = live && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
   const staleSeconds = Math.max(0, Math.round(ageMs / 1000));
 

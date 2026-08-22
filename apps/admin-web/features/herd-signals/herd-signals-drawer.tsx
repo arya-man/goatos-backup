@@ -27,6 +27,7 @@ import {
   fmtTagTemp,
 } from "./format";
 import { HistoryChart } from "./herd-signals-history-chart";
+import { useNowMs } from "./herd-signals-poller";
 
 type RangeKey = "1h" | "6h" | "24h";
 const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };
@@ -75,24 +76,36 @@ export function HerdSignalsDrawer({
     closeHref,
   });
   const [range, setRange] = useState<RangeKey>("1h");
-  const [buckets, setBuckets] = useState<HerdSignalTimelineBucket[] | null>(null);
-  const [chartError, setChartError] = useState<string | null>(null);
+  const nowMs = useNowMs();
+  // Chart state is keyed to (tag, range) and reset by comparing that key DURING RENDER (React's
+  // sanctioned alternative to an Effect that resets state — see "You Might Not Need an Effect").
+  // The Effect below only ever calls setState from inside the async .then(), never synchronously at
+  // its top, which is what react-hooks/set-state-in-effect requires.
+  const chartKey = displayedItem ? `${displayedItem.tag_id}|${range}` : "";
+  const [chart, setChart] = useState<{ key: string; buckets: HerdSignalTimelineBucket[] | null; error: string | null }>({
+    key: chartKey,
+    buckets: null,
+    error: null,
+  });
+  if (chartKey !== chart.key) {
+    setChart({ key: chartKey, buckets: null, error: null });
+  }
   const requestId = useRef(0);
 
   useEffect(() => {
     if (!displayedItem) return;
     const id = ++requestId.current;
-    setBuckets(null);
-    setChartError(null);
+    const key = `${displayedItem.tag_id}|${range}`;
     void readTimeline(displayedItem.tag_id, range).then((result) => {
       if (requestId.current !== id) return;
-      if (result.ok) setBuckets(result.buckets);
-      else setChartError(result.error);
+      if (result.ok) setChart((prev) => (prev.key === key ? { ...prev, buckets: result.buckets } : prev));
+      else setChart((prev) => (prev.key === key ? { ...prev, error: result.error } : prev));
     });
   }, [displayedItem, range]);
 
   if (!displayedItem) return null;
   const item = displayedItem;
+  const { buckets, error: chartError } = chart;
   const location = item.operational_location_display
     ? item.operational_location_display
     : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
@@ -211,7 +224,7 @@ export function HerdSignalsDrawer({
             <dt>Sensor status <span className="srcl direct">Direct</span></dt>
             <dd>{item.sensor_state ? <Tag tone={SENSOR_TONE[item.sensor_state]}>{SENSOR_LABEL[item.sensor_state]}</Tag> : "—"}</dd>
             <dt>Last seen <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtAgo(item.last_seen_at, Date.now())}</dd>
+            <dd>{fmtAgo(item.last_seen_at, nowMs)}</dd>
           </dl>
           <p className="faint small" style={{ marginTop: 4 }}>
             Tag temperature is the temperature measured at the tag&apos;s own sensor housing — not the
