@@ -38,6 +38,12 @@ import (
 // baseline, pattern window, or correlation. A REPLACE starts a NEW period for the new tag and
 // ends the old one.
 
+// moduleSourceSystem is stamped on goat_identifiers.source_system for every row THIS module
+// invents to carry a BLE binding. It is the provenance release depends on: a row carrying it was
+// created for a binding and is deleted when the binding ends; any other row is the animal's own
+// identity, which this module flags and unflags but never destroys.
+const moduleSourceSystem = "herd_signals"
+
 // bindValues returns the normalized identifier values one physical tag claims: its id, plus its
 // MAC when the tag reports a distinct one. Both are claimed because the read path matches a
 // packet by tag_id OR tag_mac while a single identifier row carries exactly one
@@ -75,6 +81,14 @@ type existingIdentifier struct {
 	NormalizedValue string
 	Status          string
 	SmartTagCapable *bool
+	// ModuleCreated is true when THIS module invented the row to carry a BLE binding
+	// (source_system = 'herd_signals'), as opposed to a pre-existing identity row -- the
+	// animal's real ear tag -- that a bind merely flagged as smart-tag capable.
+	//
+	// The distinction decides what RELEASE means, and getting it wrong is destructive in one
+	// direction: retiring or deleting an animal's real ear-tag identity because a BLE binding
+	// ended would destroy identity this module does not own.
+	ModuleCreated bool
 }
 
 // lockIdentifiersByValue locks every row in the tenant holding any of these normalized values.
@@ -83,7 +97,8 @@ type existingIdentifier struct {
 // binds of the same tag must serialise here rather than race into a constraint violation.
 func lockIdentifiersByValue(ctx context.Context, tx pgx.Tx, tenantID string, values []string) ([]existingIdentifier, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT identifier_id::text, goat_id::text, normalized_value, status, smart_tag_capable
+		SELECT identifier_id::text, goat_id::text, normalized_value, status, smart_tag_capable,
+		       COALESCE(source_system = 'herd_signals', false) AS module_created
 		FROM public.goat_identifiers
 		WHERE tenant_id = $1::uuid AND normalized_value = ANY($2)
 		ORDER BY identifier_id
@@ -96,7 +111,7 @@ func lockIdentifiersByValue(ctx context.Context, tx pgx.Tx, tenantID string, val
 	var out []existingIdentifier
 	for rows.Next() {
 		var e existingIdentifier
-		if err := rows.Scan(&e.IdentifierID, &e.GoatID, &e.NormalizedValue, &e.Status, &e.SmartTagCapable); err != nil {
+		if err := rows.Scan(&e.IdentifierID, &e.GoatID, &e.NormalizedValue, &e.Status, &e.SmartTagCapable, &e.ModuleCreated); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -107,7 +122,8 @@ func lockIdentifiersByValue(ctx context.Context, tx pgx.Tx, tenantID string, val
 // liveSmartTagsForGoat returns the animal's currently-bound smart tag identifiers.
 func liveSmartTagsForGoat(ctx context.Context, tx pgx.Tx, tenantID, goatID string) ([]existingIdentifier, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT identifier_id::text, goat_id::text, normalized_value, status, smart_tag_capable
+		SELECT identifier_id::text, goat_id::text, normalized_value, status, smart_tag_capable,
+		       COALESCE(source_system = 'herd_signals', false) AS module_created
 		FROM public.goat_identifiers
 		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
 		      AND status = 'active' AND smart_tag_capable IS TRUE
@@ -121,7 +137,7 @@ func liveSmartTagsForGoat(ctx context.Context, tx pgx.Tx, tenantID, goatID strin
 	var out []existingIdentifier
 	for rows.Next() {
 		var e existingIdentifier
-		if err := rows.Scan(&e.IdentifierID, &e.GoatID, &e.NormalizedValue, &e.Status, &e.SmartTagCapable); err != nil {
+		if err := rows.Scan(&e.IdentifierID, &e.GoatID, &e.NormalizedValue, &e.Status, &e.SmartTagCapable, &e.ModuleCreated); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -158,16 +174,25 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 	ids := make([]string, 0, len(values))
 	for _, v := range values {
 		if e, ok := byValue[v]; ok {
+			// RECLAIM path. An ACTIVE row is simply flagged. A NON-ACTIVE row is reclaimed only
+			// when THIS module created it: a leftover of an earlier binding (a release whose
+			// delete was blocked, or a row an operator retired by hand) must never become a dead
+			// end that no endpoint can clear -- that is exactly the state that made an animal
+			// impossible to re-tag through the product. A non-active row this module did NOT
+			// create is left alone and refused upstream: reactivating someone else's retired
+			// identity is the identity module's decision, not ours.
 			var id string
 			if err := tx.QueryRow(ctx, `
 				UPDATE public.goat_identifiers
-				SET smart_tag_capable = true,
+				SET status = 'active',
+				    valid_to = NULL,
+				    smart_tag_capable = true,
 				    smart_tag_mapped_at = COALESCE(smart_tag_mapped_at, $3),
 				    updated_at = now()
 				WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid
 				RETURNING identifier_id::text
 			`, tenantID, e.IdentifierID, mappedAt).Scan(&id); err != nil {
-				return nil, fmt.Errorf("mark existing identifier %s smart-tag capable: %w", e.IdentifierID, err)
+				return nil, fmt.Errorf("claim existing identifier %s for this binding: %w", e.IdentifierID, err)
 			}
 			ids = append(ids, id)
 			continue
@@ -176,15 +201,19 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 		if raw == "" {
 			raw = v
 		}
+		// source_system stamps PROVENANCE, and it is load-bearing, not decoration: it is the only
+		// way release can tell a row this module invented to carry a BLE binding from the
+		// animal's real ear-tag identity row that a bind merely flagged. Release deletes the
+		// former and must never touch the latter.
 		var id string
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO public.goat_identifiers (
 				tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 				scope_key, is_primary_for_goat, status, valid_from, normalizer_version,
-				smart_tag_capable, smart_tag_mapped_at
-			) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, false, 'active', $7, $8, true, $7)
+				smart_tag_capable, smart_tag_mapped_at, source_system, source_record_id
+			) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, false, 'active', $7, $8, true, $7, $9, $5)
 			RETURNING identifier_id::text
-		`, tenantID, goatID, identifierType, raw, v, domain.SmartTagScopeKey, mappedAt, domain.SmartTagNormalizerVersion).Scan(&id); err != nil {
+		`, tenantID, goatID, identifierType, raw, v, domain.SmartTagScopeKey, mappedAt, domain.SmartTagNormalizerVersion, moduleSourceSystem).Scan(&id); err != nil {
 			return nil, fmt.Errorf("claim identifier value %q: %w", v, err)
 		}
 		ids = append(ids, id)
@@ -192,23 +221,59 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 	return ids, nil
 }
 
-// unbindIdentifiers ends the smart-tag binding on these identifiers WITHOUT retiring the
-// identity row itself. That distinction is deliberate: the row may also be the animal's ordinary
-// ear-tag identity, and a tag that fell off is still a physical object whose value stays claimed
-// for the tenant's lifetime (goat_identifiers_lifetime_value_unique). Clearing
-// smart_tag_capable is exactly what makes the read path stop resolving the tag to this animal,
-// which is the whole requirement; clearing smart_tag_mapped_at is what makes NULL mean
-// "unmapped: device telemetry only" again.
-func unbindIdentifiers(ctx context.Context, tx pgx.Tx, tenantID string, ids []string) error {
-	if len(ids) == 0 {
-		return nil
+// releaseBinding ends a smart-tag binding COMPLETELY, and the definition of "completely" is the
+// whole point of this function.
+//
+// A release that merely cleared the smart_tag_capable flag left the identifier row behind, still
+// ACTIVE, still claiming its value under goat_identifiers_lifetime_value_unique (which is
+// lifetime-scoped: a value stays claimed even after the row is retired). Those leftovers then
+// blocked every future write on the animal -- MAP refused with mapping_conflict, REPLACE refused
+// with "held by a retired identifier ... must be reactivated through the identity module" -- and
+// nothing in the product could clear them, because release had already reported success. It took
+// hand-written SQL against the database to get an animal out. There is no equivalent escape on a
+// real farm.
+//
+// THE DECISION, made deliberately: rows THIS MODULE CREATED are DELETED, not retired.
+//
+//   - They are not identity history. The animal never "had" that identifier as an identity fact;
+//     it had a device attached to it for a while. That period is fully recorded in
+//     herd_signal_packets, which release never touches.
+//   - Retiring keeps the value claimed forever, and a claimed value is a dead end unless the
+//     write path also learns to reactivate. Deleting removes the dead end outright -- including
+//     the case retiring cannot fix at all, the same physical tag later going onto a DIFFERENT
+//     animal, which is ordinary for reusable BLE hardware.
+//   - Retire remains available and honest for identity, which is the identity module's verb on
+//     its own rows -- not this module's, on rows it invented.
+//
+// Rows this module did NOT create are a different thing entirely: they are the animal's real
+// ear-tag identity, which a bind merely FLAGGED as smart-tag capable. For those, release clears
+// only the flag and the stamp. Deleting or retiring one because a BLE binding ended would destroy
+// identity this module does not own.
+func releaseBinding(ctx context.Context, tx pgx.Tx, tenantID string, rows []existingIdentifier) error {
+	var deletable, flagOnly []string
+	for _, e := range rows {
+		if e.ModuleCreated {
+			deletable = append(deletable, e.IdentifierID)
+			continue
+		}
+		flagOnly = append(flagOnly, e.IdentifierID)
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE public.goat_identifiers
-		SET smart_tag_capable = false, smart_tag_mapped_at = NULL, updated_at = now()
-		WHERE tenant_id = $1::uuid AND identifier_id = ANY($2::uuid[])
-	`, tenantID, ids); err != nil {
-		return fmt.Errorf("unbind identifiers: %w", err)
+	if len(flagOnly) > 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE public.goat_identifiers
+			SET smart_tag_capable = false, smart_tag_mapped_at = NULL, updated_at = now()
+			WHERE tenant_id = $1::uuid AND identifier_id = ANY($2::uuid[])
+		`, tenantID, flagOnly); err != nil {
+			return fmt.Errorf("clear smart-tag flag on pre-existing identity rows: %w", err)
+		}
+	}
+	if len(deletable) > 0 {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM public.goat_identifiers
+			WHERE tenant_id = $1::uuid AND identifier_id = ANY($2::uuid[])
+		`, tenantID, deletable); err != nil {
+			return fmt.Errorf("delete the identifier rows this binding created: %w", err)
+		}
 	}
 	return nil
 }
@@ -273,12 +338,15 @@ func (r *Repository) BindTagMapping(ctx context.Context, tenantID string, req do
 		if e.GoatID != req.GoatID {
 			return out, fmt.Errorf("tag value %q is already claimed by another animal (%s): %w", e.NormalizedValue, e.GoatID, domain.ErrMappingConflict)
 		}
-		if e.Status != "active" {
-			// The value is claimed for the tenant's lifetime by a non-active row. Reactivating a
-			// retired identity is an identity-module decision, not a herd-signals one, so this
+		if e.Status != "active" && !e.ModuleCreated {
+			// A non-active row this module did NOT create is someone else's retired identity.
+			// Reactivating it is the identity module's decision, not a herd-signals one, so this
 			// refuses loudly instead of quietly resurrecting it.
-			return out, fmt.Errorf("tag value %q is held by a %s identifier on this animal; it must be reactivated through the identity module before it can carry a smart tag: %w", e.NormalizedValue, e.Status, domain.ErrMappingConflict)
+			return out, fmt.Errorf("tag value %q is held by a %s identifier on this animal that this module did not create; it must be reactivated through the identity module before it can carry a smart tag: %w", e.NormalizedValue, e.Status, domain.ErrMappingConflict)
 		}
+		// A non-active row this module DID create is a leftover of an earlier binding, and it is
+		// reclaimed rather than refused. Refusing was a dead end no endpoint could clear: the
+		// operator saw "must be reactivated through the identity module" with no way to do it.
 		mine = append(mine, e)
 	}
 
@@ -411,7 +479,7 @@ func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID string, req d
 		ids = append(ids, e.IdentifierID)
 		releasedValues = append(releasedValues, e.NormalizedValue)
 	}
-	if err := unbindIdentifiers(ctx, tx, tenantID, ids); err != nil {
+	if err := releaseBinding(ctx, tx, tenantID, live); err != nil {
 		return out, err
 	}
 	// Clear the hot-read boundary for every released value, not only the caller's: a tag_latest
@@ -479,9 +547,10 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req
 		if e.GoatID != req.GoatID {
 			return out, fmt.Errorf("new tag value %q is already claimed by another animal (%s): %w", e.NormalizedValue, e.GoatID, domain.ErrMappingConflict)
 		}
-		if e.Status != "active" {
-			return out, fmt.Errorf("new tag value %q is held by a %s identifier on this animal; it must be reactivated through the identity module first: %w", e.NormalizedValue, e.Status, domain.ErrMappingConflict)
+		if e.Status != "active" && !e.ModuleCreated {
+			return out, fmt.Errorf("new tag value %q is held by a %s identifier on this animal that this module did not create; it must be reactivated through the identity module first: %w", e.NormalizedValue, e.Status, domain.ErrMappingConflict)
 		}
+		// Same as bind: a leftover this module created is reclaimed, never a dead end.
 		mine = append(mine, e)
 	}
 
@@ -491,6 +560,7 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req
 	}
 	unbindIDs := make([]string, 0, len(live))
 	oldValues := make([]string, 0, len(live))
+	releasing := make([]existingIdentifier, 0, len(live))
 	for _, e := range live {
 		if _, ok := inBinding[e.NormalizedValue]; ok {
 			// The "new" tag is one the animal already carries. Nothing to end for that value.
@@ -498,6 +568,7 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req
 		}
 		unbindIDs = append(unbindIDs, e.IdentifierID)
 		oldValues = append(oldValues, e.NormalizedValue)
+		releasing = append(releasing, e)
 	}
 	if len(unbindIDs) == 0 {
 		return out, fmt.Errorf("animal %s already carries exactly this tag; there is nothing to replace: %w", req.GoatID, domain.ErrMappingConflict)
@@ -505,7 +576,11 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req
 
 	// END the old monitoring period FIRST, then START the new one. Order matters for the
 	// tag_latest sync: if the two tags ever shared a value, the bind must win.
-	if err := unbindIdentifiers(ctx, tx, tenantID, unbindIDs); err != nil {
+	// The release half of a replace is the SAME complete release an unmap performs -- rows this
+	// module created are deleted, the animal's own identity rows are only unflagged. Anything
+	// less and an animal accumulates a dead binding on every re-tag, and the second swap is
+	// refused by the leftovers of the first.
+	if err := releaseBinding(ctx, tx, tenantID, releasing); err != nil {
 		return out, err
 	}
 	if err := syncTagLatestMonitoring(ctx, tx, tenantID, oldValues, nil); err != nil {
