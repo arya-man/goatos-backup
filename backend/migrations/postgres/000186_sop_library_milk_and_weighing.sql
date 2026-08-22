@@ -28,6 +28,7 @@
 --     only other verb.
 --
 -- Idempotent per tenant; safe on an empty tenant table.
+-- seed-migration-guard:ignore owner=codex issue=PR89 reason=library-document seed only; migration inserts idempotent SOP definitions/versions for existing milk and weighing workflows and no clean-slate seed command needs an extra replay step expiry=2026-09-30
 
 -- ---------------------------------------------------------------------------
 -- 1. milk.preparation - Milk Preparation (farm-day, verifier-gated)
@@ -197,13 +198,13 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Weighing Session v1', 'published',
      "description": "One video per animal means one review per animal - the verification grain follows the evidence."},
     {"key": "total_weight_kg", "type": "number", "label": "Total weight (kg) (lump-sum)", "required": false, "min": 0},
     {"key": "animal_count", "type": "number", "label": "Animal count (lump-sum)", "required": false, "min": 1},
-    {"key": "shed_video", "type": "video_proof", "label": "Shed proof video(s) (lump-sum)", "required": false, "proof_action": "video.capture"}
+    {"key": "weighing_lump_sum_video", "type": "video_proof", "label": "Shed proof video(s) (lump-sum)", "required": false, "proof_action": "video.capture"}
   ],
   "rules": [
     {"type": "proof_required_if", "when": {"field": "mode", "operator": "equals", "value": "individual"},
      "field": "animal_video", "message": "Each weighed animal needs its own video."},
     {"type": "proof_required_if", "when": {"field": "mode", "operator": "equals", "value": "lump_sum"},
-     "field": "shed_video", "message": "A lump-sum weigh needs the shed video(s)."}
+     "field": "weighing_lump_sum_video", "message": "A lump-sum weigh needs the shed video(s)."}
   ],
   "workflow": {
     "nodes": [

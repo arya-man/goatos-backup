@@ -575,7 +575,7 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 			Proofs: domain.MilkPreparationProofs{
 				UHTMilkQuantityProofRef: "proof-uht-" + idem, CitricAcidMixingProofRef: "proof-citric-" + idem,
 			},
-			SubmittedBy: "90000000-0000-4000-8000-000000000101", SubmittedAt: time.Now().UTC(),
+			SubmittedBy: "90000000-0000-4000-8000-000000000101", SubmittedAt: time.Now().In(biztime.DefaultLocation()),
 			IdempotencyKey: "milk-prep:" + idem, TraceID: "trace-" + idem,
 		})
 		if err != nil {
@@ -595,7 +595,7 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
 		TenantID: countsTenant, CompletionID: first.CompletionID,
 		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "blurry",
-		OccurredAt: time.Now().UTC(), TraceID: "verdict-1",
+		OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-1",
 	}); err != nil || !applied {
 		t.Fatalf("rework: applied=%v err=%v", applied, err)
 	}
@@ -611,7 +611,7 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 	}
 	if _, err := repo.ApplyVerifiedMilkPreparation(ctx, domain.MilkPreparationVerdictCommand{
 		TenantID: countsTenant, CompletionID: first.CompletionID,
-		VerifiedBy: "90000000-0000-4000-8000-000000000101", OccurredAt: time.Now().UTC(), TraceID: "verdict-2",
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-2",
 	}); err != nil {
 		t.Fatalf("approve second attempt: %v", err)
 	}
@@ -628,7 +628,7 @@ func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
 	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
 		TenantID: countsTenant, CompletionID: first.CompletionID,
 		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "late duplicate",
-		OccurredAt: time.Now().UTC(), TraceID: "verdict-3",
+		OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-3",
 	}); err != nil || applied {
 		t.Fatalf("stale rework must be a no-op: applied=%v err=%v", applied, err)
 	}

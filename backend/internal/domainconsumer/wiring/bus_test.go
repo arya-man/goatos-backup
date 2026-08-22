@@ -128,6 +128,10 @@ func (f *fakeFeedStore) BounceTransportForRework(context.Context, feedports.Boun
 	return true, nil
 }
 
+func (f *fakeFeedStore) RecordExternalConsumption(context.Context, feedports.RecordExternalConsumptionCommand) error {
+	return nil
+}
+
 // fakeShiftingRepo satisfies eventwiring.ShiftingVerificationRepo.
 type fakeShiftingRepo struct{ applied []string }
 
