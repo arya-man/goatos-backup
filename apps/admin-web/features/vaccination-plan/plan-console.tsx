@@ -27,10 +27,10 @@ type Props = {
   versions: ProtocolConfigItem[];
   catalog: VaccineGroup[];
   changeNotes: Record<string, string>;
-  loadError: string | null;
+  loadFailed: boolean;
 };
 
-export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadError }: Props) {
+export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFailed }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -96,14 +96,14 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadErr
     });
   }, []);
 
-  if (loadError) {
+  if (loadFailed) {
     return (
       <div className="vplan">
         <section className="card">
           <div className="card-b">
             <div className="alert">
               <span className="ic">!</span>
-              <span>{loadError}</span>
+              <span>The vaccination plan could not be loaded.</span>
             </div>
           </div>
         </section>

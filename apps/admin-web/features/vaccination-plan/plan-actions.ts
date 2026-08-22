@@ -175,6 +175,10 @@ export async function saveDraftPlan(
   // drafts exist in between, which one-draft-per-plan now refuses in the database -- so
   // every save would have failed with a conflict. Reversing the order in the client is no
   // better: a failure after the discard leaves the farm with nothing.
+  // The replace needs this draft's label, which only the list carries, and its
+  // protocol/scope, which only the version read carries. Both must be in hand before the
+  // swap can be described at all, so there is no independent work to overlap here.
+  // serial-await: allow the write cannot be built until the two reads it describes have arrived
   const saved = await replaceProtocolDraftVersion(draftVersionId, {
     protocol_id: existing.data.protocol_id,
     scope_type: existing.data.scope_type ?? "tenant",

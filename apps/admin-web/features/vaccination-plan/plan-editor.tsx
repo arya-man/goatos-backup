@@ -27,12 +27,13 @@ type Props = {
   draftLabel: string;
   liveLabel: string | null;
   liveSince: string | null;
-  scopeLabel: string;
+  scopeType: string;
   originalRuleDsl: unknown;
   proofPolicy: unknown;
   initialPlan: EditorPlan;
   impact: ImpactSummary | null;
   canPublish: boolean;
+  // The backend's own words when it has them; the fallback below is this screen's.
   cannotPublishReason: string | null;
 };
 
@@ -221,7 +222,7 @@ export function VaccinationPlanEditor(props: Props) {
         <div className="scope">
           <div>
             <div className="k">Applies to</div>
-            <div className="vv">{props.scopeLabel}</div>
+            <div className="vv">{props.scopeType === "park" ? "One park" : "Both parks"}</div>
           </div>
           <div>
             <div className="k">Vaccines switched on</div>
@@ -514,8 +515,10 @@ export function VaccinationPlanEditor(props: Props) {
           </span>
           <span className={saved && !dirty ? "saved-note show" : "saved-note"}>Draft saved.</span>
           {blockedReason ? <span className="ab-block">{blockedReason}</span> : null}
-          {!blockedReason && props.cannotPublishReason ? (
-            <span className="ab-block">{props.cannotPublishReason}</span>
+          {!blockedReason && !props.canPublish ? (
+            <span className="ab-block">
+              {props.cannotPublishReason ?? "Your role cannot publish the vaccination plan."}
+            </span>
           ) : null}
           <span className="ab-spacer" />
           <button
@@ -542,7 +545,10 @@ export function VaccinationPlanEditor(props: Props) {
             className="btn pubb"
             type="button"
             disabled={pending || blockedReason !== null || !props.canPublish}
-            title={blockedReason ?? props.cannotPublishReason ?? undefined}
+            title={
+              blockedReason ??
+              (props.canPublish ? undefined : (props.cannotPublishReason ?? "Your role cannot publish the vaccination plan."))
+            }
             onClick={onPublish}
           >
             Publish plan
