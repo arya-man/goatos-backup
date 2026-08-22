@@ -78,13 +78,13 @@ val releaseVersionCode = (
     )
     ?.takeIf { it.isNotBlank() }
     ?.toInt()
-    ?: 29
+    ?: 30
 val releaseVersionName = (
     project.findProperty("goatosVersionName") as String?
         ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
     )
     ?.takeIf { it.isNotBlank() }
-    ?: "0.1.28"
+    ?: "0.1.29"
 
 android {
     namespace = "sg.mesha.goatos"
