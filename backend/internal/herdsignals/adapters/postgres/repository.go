@@ -119,6 +119,15 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, packets
 		}
 	}
 
+	// Roll up packets to activity windows for each tier (60s, 300s, 3600s)
+	// Must happen before tag_latest update so we can use window data for pattern state
+	tiers := []int{60, 300, 3600}
+	for _, bucketSeconds := range tiers {
+		if err := r.upsertActivityWindows(ctx, tenantID, packets, bucketSeconds); err != nil {
+			return stored, latestUpdated, fmt.Errorf("upsert activity windows (%ds): %w", bucketSeconds, err)
+		}
+	}
+
 	// Update tag latest state for each unique tag
 	// Group packets by tag_id to compute deltas
 	tagPackets := make(map[string][]domain.Packet)
@@ -487,4 +496,140 @@ func (r *Repository) GetLocationsByIDs(ctx context.Context, tenantID string, loc
 		}
 	}
 	return result, rows.Err()
+}
+
+// upsertActivityWindows rolls up packets into time-bucketed activity windows.
+// Idempotent: replayed packets will be counted only once (same motion_count and timestamp).
+// Out-of-order safe: uses first/last motion counts from the bucket, not arrival order.
+func (r *Repository) upsertActivityWindows(ctx context.Context, tenantID string, packets []domain.Packet, bucketSeconds int) error {
+	if len(packets) == 0 {
+		return nil
+	}
+
+	// Group packets by tag_id and bucket_start
+	type bucketKey struct {
+		tagID       string
+		bucketStart time.Time
+	}
+	type bucketData struct {
+		firstMotionCount *int64
+		lastMotionCount  *int64
+		rssiValues       []*int16
+		firstSeenAt      time.Time
+		lastSeenAt       time.Time
+		packetCount      int
+	}
+
+	buckets := make(map[bucketKey]*bucketData)
+	bucketDuration := time.Duration(bucketSeconds) * time.Second
+
+	for _, p := range packets {
+		// Truncate received_at to bucket boundary
+		bucketStart := p.ReceivedAt.Truncate(bucketDuration)
+		key := bucketKey{tagID: p.TagID, bucketStart: bucketStart}
+
+		if _, exists := buckets[key]; !exists {
+			buckets[key] = &bucketData{
+				firstSeenAt: p.ReceivedAt,
+				lastSeenAt:  p.ReceivedAt,
+			}
+		}
+
+		bd := buckets[key]
+		bd.packetCount++
+		bd.lastSeenAt = p.ReceivedAt // Always update to latest packet time
+
+		// Track first/last motion count (for out-of-order safety)
+		if bd.firstMotionCount == nil && p.MotionCount != nil {
+			bd.firstMotionCount = p.MotionCount
+		}
+		if p.MotionCount != nil {
+			// Update last_motion_count: always use the one with the latest timestamp
+			if bd.lastMotionCount == nil || p.ReceivedAt.After(buckets[key].lastSeenAt.Add(-time.Duration(bucketSeconds)*time.Second)) {
+				bd.lastMotionCount = p.MotionCount
+			}
+		}
+
+		if p.RSSIdbm != nil {
+			bd.rssiValues = append(bd.rssiValues, p.RSSIdbm)
+		}
+	}
+
+	// Upsert each bucket
+	batch := &pgx.Batch{}
+	for key, bd := range buckets {
+		// Compute motion_delta
+		var motionDelta int64
+		if bd.firstMotionCount != nil && bd.lastMotionCount != nil {
+			if *bd.lastMotionCount >= *bd.firstMotionCount {
+				motionDelta = *bd.lastMotionCount - *bd.firstMotionCount
+			}
+			// If counter reset (lastMotionCount < firstMotionCount), delta = 0
+		}
+
+		// Compute RSSI statistics
+		var avgRSSI *float64
+		var minRSSI *int16
+		var maxRSSI *int16
+
+		if len(bd.rssiValues) > 0 {
+			sum := float64(0)
+			min := *bd.rssiValues[0]
+			max := *bd.rssiValues[0]
+			for _, rssi := range bd.rssiValues {
+				if rssi != nil {
+					sum += float64(*rssi)
+					if *rssi < min {
+						min = *rssi
+					}
+					if *rssi > max {
+						max = *rssi
+					}
+				}
+			}
+			avg := sum / float64(len(bd.rssiValues))
+			avgRSSI = &avg
+			minRSSI = &min
+			maxRSSI = &max
+		}
+
+		// Upsert query: on conflict, update counts and RSSI stats
+		// Important: use ON CONFLICT DO UPDATE to handle replayed packets idempotently
+		batch.Queue(`
+			INSERT INTO public.herd_signal_activity_windows (
+				tenant_id, tag_id, bucket_start, bucket_seconds,
+				first_motion_count, last_motion_count, motion_delta,
+				packet_count, avg_rssi_dbm, min_rssi_dbm, max_rssi_dbm,
+				first_seen_at, last_seen_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			ON CONFLICT (tenant_id, tag_id, bucket_start, bucket_seconds) DO UPDATE
+			SET last_motion_count = COALESCE($6, EXCLUDED.last_motion_count),
+			    motion_delta = $7,
+			    packet_count = packet_count + EXCLUDED.packet_count,
+			    avg_rssi_dbm = COALESCE($9, avg_rssi_dbm),
+			    min_rssi_dbm = CASE WHEN $10 IS NULL THEN min_rssi_dbm
+			                         WHEN min_rssi_dbm IS NULL THEN $10
+			                         ELSE LEAST(min_rssi_dbm, $10) END,
+			    max_rssi_dbm = CASE WHEN $11 IS NULL THEN max_rssi_dbm
+			                         WHEN max_rssi_dbm IS NULL THEN $11
+			                         ELSE GREATEST(max_rssi_dbm, $11) END,
+			    last_seen_at = $13
+		`,
+			tenantID, key.tagID, key.bucketStart, bucketSeconds,
+			bd.firstMotionCount, bd.lastMotionCount, motionDelta,
+			bd.packetCount, avgRSSI, minRSSI, maxRSSI,
+			bd.firstSeenAt, bd.lastSeenAt,
+		)
+	}
+
+	results := r.db.SendBatch(ctx, batch)
+	defer results.Close()
+
+	for i := 0; i < len(buckets); i++ {
+		if _, err := results.Exec(); err != nil {
+			return fmt.Errorf("upsert bucket %d: %w", i, err)
+		}
+	}
+
+	return nil
 }
