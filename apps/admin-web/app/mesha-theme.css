@@ -3224,7 +3224,11 @@ select:disabled { opacity: .45; }
    mock's icon+text banners on Insights and on an offline gateway card rendered as a
    text slab with an 18px icon jammed inline. The mock's variant set is info/warn/dng;
    the app-wide rule has no `.info` and no `.dng` at all. */
-.herd-signals-page .banner{display:flex;align-items:flex-start;gap:10px;padding:10px 13px;border-radius:10px;border:1px solid var(--line);border-left-width:1px;margin:0 0 14px;font-size:12.5px;background:var(--infox);color:var(--info)}
+/* `margin-top:0` repeated as an explicit longhand: the app-wide `.banner` rule (mesha-theme.css
+   "Config safety" block) sets `margin-top: 12px` as its own longhand declaration, and a longhand
+   from a lower-specificity rule can still out-rank this rule's `margin` SHORTHAND for that one
+   side unless this scope also states margin-top explicitly. */
+.herd-signals-page .banner{display:flex;align-items:flex-start;gap:10px;padding:10px 13px;border-radius:10px;border:1px solid var(--line);border-left-width:1px;margin:0 0 14px;margin-top:0;font-size:12.5px;background:var(--infox);color:var(--info)}
 .herd-signals-page .banner b{font-weight:800;color:inherit}
 .herd-signals-page .banner.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 34%,var(--line));color:var(--info)}
 .herd-signals-page .banner.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
@@ -3257,3 +3261,39 @@ select:disabled { opacity: .45; }
 .herd-signals-page .cnt{background:var(--panel-2);color:var(--muted)}
 .herd-signals-page aside.drawer{background:var(--panel)}
 .herd-signals-page .card .hd h3{font-size:13.5px;font-weight:720}
+
+/* Mock parity (Insights / History fullscreen / Drawer, pixel judge 2026-08-22-23): a bare
+   `.muted{color:var(--muted)}` rule already exists page-wide, but an unrelated Calendar rule
+   (`.cal-day.muted{color:var(--faint)}`) has higher selector specificity and was winning the
+   cascade for every `.muted` node on this page, rendering breadcrumb/label text a shade too dim.
+   Scoped 3+ classes deep so it always outranks that 2-class rule without touching it. */
+.herd-signals-page .card .bd .muted,
+.herd-signals-page aside.drawer .dc .muted,
+.herd-signals-page .fs .daterow .muted{color:var(--muted)}
+
+/* Same root cause as `.muted` above, but for the drawer's scrim: the shared `button.scrim` rule
+   (mesha-theme.css, used by every other drawer in the app) sets `rgba(6,12,9,.42)`; the mock's
+   scrim is a plain `rgba(0,0,0,.5)`. Scoped here rather than editing the shared rule, which every
+   other drawer in the app still relies on. */
+.herd-signals-page button.scrim{background:rgba(0,0,0,.5)}
+
+/* The drawer's movement-trend card wraps its legend/readout in `.bd.flush` (for the zero-padded
+   chart above them), which also pulls in the page-wide `.card .bd.flush .legend,.readout` rule
+   that gives them 15px of left/right padding. The mock's OWN drawer never wraps its legend/readout
+   in a flush card -- they live directly in `.dbd` -- so the mock's drawer legend/readout have zero
+   side padding. Full-screen history's legend/readout are correctly 15px (the mock's own fullscreen
+   view really does wrap them in `.bd.flush`) and must NOT be touched here. */
+.herd-signals-page aside.drawer .card .bd.flush .legend,
+.herd-signals-page aside.drawer .card .bd.flush .readout{padding-left:0;padding-right:0}
+
+/* `.tag`/`.t-ok`/`.t-warn`/`.t-dng` are shared bare classes with several unrelated higher-
+   specificity rules elsewhere in this stylesheet (a vaccine-schedule table cell, a task
+   action-center chip, a live-tracker swatch) that happen to win the cascade for those bare class
+   names and disagree with the mock's plain chip look (11px/700/8px padding, full-tone background).
+   Scoped 5-6 classes deep -- real ancestor chains, not a specificity hack -- so the mock's values
+   always win here without touching any of those unrelated rules. */
+.herd-signals-page .card .bd .tagrow .tag,
+.herd-signals-page .fs .card .hd .tag{font-size:11px;font-weight:700;padding:2px 8px}
+.herd-signals-page .card .bd .tagrow .tag.t-ok{background:var(--okx)}
+.herd-signals-page .card .bd .tagrow .tag.t-warn{background:var(--warnx)}
+.herd-signals-page .card .bd .tagrow .tag.t-dng{background:var(--dangerx)}

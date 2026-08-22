@@ -131,7 +131,7 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
               explicit manual operator confirmation.
             </div>
           </div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+          <div className="tagrow" style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
             <span className="tag t-ok">Nearest tag locked</span>
             <span className="tag t-warn">Multiple tags nearby</span>
             <span className="tag t-warn">Move closer</span>
