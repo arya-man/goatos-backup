@@ -19,7 +19,6 @@ import {
   fmtBleMac,
   fmtDelta,
   fmtRssi,
-  fmtTagTemp,
 } from "./format";
 import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 import { useNowMs } from "./herd-signals-poller";
@@ -39,6 +38,22 @@ function batteryLife(mv: number | null | undefined): { label: string; tone: "ok"
   if (months < 12) return { label: `~${Math.round(months)} months`, tone: months < 3 ? "warn" : "mut" };
   const years = months / 12;
   return { label: `~${years < 1.95 ? years.toFixed(1) : Math.round(years)} year${years >= 1.95 ? "s" : ""}`, tone: "ok" };
+}
+
+function drawerBatteryVoltage(mv: number | null | undefined): string {
+  if (mv === null || mv === undefined) return "—";
+  return `${fmtBatteryMv(mv)} (${mv} mV)`;
+}
+
+function drawerGateway(gatewayId: string | null | undefined): string {
+  if (!gatewayId) return "—";
+  if (/^\d+$/.test(gatewayId)) return `GW-${gatewayId}`;
+  return gatewayId;
+}
+
+function drawerTagTemp(celsius: number | null | undefined): string {
+  if (celsius === null || celsius === undefined) return "—";
+  return `${celsius.toFixed(1)} C`;
 }
 
 async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
@@ -201,7 +216,7 @@ export function HerdSignalsDrawer({
                 <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={110} onHover={setHovered} />
               )}
               <div className="legend">
-                {historyChartLegend().map((entry) =>
+                {historyChartLegend().filter((entry) => entry.className !== "b-reconnect").map((entry) =>
                   entry.dashed ? (
                     <span key={entry.label}>
                       <i className={`${entry.className} dashed`} /> {entry.label}
@@ -245,11 +260,11 @@ export function HerdSignalsDrawer({
             <dt>Location</dt>
             <dd>
               {location || "—"}
-              <span className="srcl derived">Derived</span>
+              <span className="srcl correlated">Correlated</span>
             </dd>
             <dt>Gateway</dt>
             <dd className="mono">
-              {item.gateway_id || "—"}
+              {drawerGateway(item.gateway_id)}
               <span className="srcl direct">Direct</span>
             </dd>
             <dt>RSSI</dt>
@@ -259,7 +274,7 @@ export function HerdSignalsDrawer({
             </dd>
             <dt>Battery voltage</dt>
             <dd>
-              {fmtBatteryMv(item.battery_mv)}
+              {drawerBatteryVoltage(item.battery_mv)}
               <span className="srcl direct">Direct</span>
             </dd>
             <dt>Estimated battery life</dt>
@@ -269,7 +284,7 @@ export function HerdSignalsDrawer({
             </dd>
             <dt>Tag temp</dt>
             <dd>
-              {fmtTagTemp(item.tag_temperature_c)}
+              {drawerTagTemp(item.tag_temperature_c)}
               <span className="srcl direct">Direct</span>
             </dd>
             <dt>Motion count</dt>
