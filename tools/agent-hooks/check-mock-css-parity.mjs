@@ -32,14 +32,40 @@
 //    format, shorthand vs. longhand where resolvable, whitespace, declaration order, equivalent
 //    zero units, and CSS custom properties that resolve to the mock's literal via :root).
 //
+// SCOPED RESOLUTION (v3) — the app side of rule 2 is now scope-aware
+// --------------------------------------------------------------------
+// This app's CSS is deliberately written scoped: `.herd-signals-page .fbar`,
+// `.herd-signals-page .drawer .hchart`, because bare classes like `.btn`/`.tag`/`.kpi` are shared
+// by dozens of other admin screens and restyling the bare class would break them. v2 only ever
+// resolved a selector that was EXACTLY `.classname`, so every correctly-scoped app rule was
+// invisible to it — it reported mismatches that were not real, and (once, in this file's own
+// history) invited "fixing" a false finding by adding a bare `.classname` duplicate purely so the
+// guard could see it, which pollutes a shared global stylesheet just to satisfy a checker. v3
+// (getScopedClassRules / resolveScopedProps) instead gathers every APP rule whose selector's
+// most specific (rightmost) compound includes the target class — `.foo`, `.a .foo`, `.a .b .foo`
+// all count — and resolves the winning declaration the way a browser would: real CSS specificity
+// ([ids, classes, elements]) decides, and among equal-specificity rules, later source order wins
+// UNLESS the tied rules have different selector text AND disagree on a property's value — that
+// specific shape (e.g. `.drawer .hchart` vs `.fs .hchart` sizing the same class differently in
+// different places) is legitimate context-dependent styling, not a defect, and is reported as a
+// NOTE, never as a mismatch or a failure. A compound like `.btn.dng` only attaches to `dng` (the
+// LAST-written class token in its last compound) — never to `btn` — because it only matches
+// elements that carry BOTH classes, so its declarations are conditional on the modifier class,
+// not something plain `.btn` resolution may borrow. The mock side of the comparison is
+// intentionally left on the v1/v2 exact-`.classname` resolver — the mock is one flat page, not a
+// multi-screen shared stylesheet, so it has no scoping problem to solve.
+//
 // WHAT IT STILL DOES NOT CLAIM (read this before trusting a clean run)
 // ----------------------------------------------------------------------
 // - No media queries. Only top-level rules are read; @media/@supports/@keyframes blocks are
 //   stripped before parsing, so a class styled differently at a breakpoint is invisible here.
-// - No pseudo-classes or pseudo-elements. A selector is only used when it is EXACTLY `.name`
-//   with nothing else attached — `.foo:hover`, `.foo::before`, `.foo.bar`, `.foo .bar` are all
-//   ignored for declaration purposes (though the single-token existence check below still
-//   half-sees `.foo` and `.bar` inside a compound selector — see the compound-selector note).
+// - No pseudo-classes, pseudo-elements, or attribute selectors, in either resolver. A mock-side
+//   selector is only used when it is EXACTLY `.name` with nothing else attached. An app-side
+//   selector is dropped from scoped resolution entirely if it contains `:` or `[` anywhere —
+//   `.foo:hover`, `.foo::before`, `.btn[disabled]` are conditional on state or markup this guard
+//   cannot evaluate statically, so they are left out of scope rather than guessed at (the
+//   single-token existence check below still half-sees `.foo` and `.bar` inside a compound
+//   selector regardless of pseudo/attribute parts — see the compound-selector note).
 // - No runtime-computed values. Anything set via inline `style={{...}}`, styled-components,
 //   CSS-in-JS, or JS-computed class names is invisible.
 // - No Tailwind or other utility classes — only classes the MOCK defines are ever in scope,
@@ -55,9 +81,11 @@
 //   "unresolved" rather than silently passed or silently failed.
 // - Compound selectors: the EXISTENCE check (v1, kept) uses a regex that pulls every class TOKEN
 //   out of a selector, so `.srcl.inferred{...}` registers both `srcl` and `inferred` as "defined"
-//   even though neither is separately selectable. The DECLARATION check does not have this hole
-//   — it only resolves declarations for selectors that are exactly one class, so `inferred` alone
-//   resolves to no declarations from that rule and is never compared on manufactured data.
+//   even though neither is separately selectable. The mock-side DECLARATION check does not have
+//   this hole — it only resolves declarations for selectors that are exactly one class, so
+//   `inferred` alone resolves to no declarations from that rule and is never compared on
+//   manufactured data. The app-side scoped resolver attaches a compound rule like `.a.foo{...}`
+//   only to `foo` (the last class token), per the scoped-resolution rule above.
 // - This is not a substitute for actually opening both screens side by side. It catches the
 //   mechanical class of defect (markup ported, CSS not, or CSS drifted) — it does not catch a
 //   mock element being dropped from the markup entirely (no icon rendered at all, a chip
@@ -249,6 +277,131 @@ function getSimpleClassRules(source) {
     }
   }
   return map;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scoped resolution (v3, app stylesheet only): this app's CSS is deliberately written scoped —
+// `.herd-signals-page .fbar`, `.herd-signals-page .drawer .hchart` — because bare classes like
+// `.btn`, `.tag`, `.kpi` are shared by dozens of other admin screens and restyling the bare class
+// globally would break them. getSimpleClassRules() above only ever sees an EXACT `.classname`
+// selector, so every correctly-scoped app rule was invisible to it — it reported ~300 mismatches
+// that were not real, and an earlier pass "fixed" some of them by adding bare `.classname`
+// duplicates purely so this guard could see them, which pollutes a global stylesheet just to
+// satisfy a checker. This resolver instead gathers every rule whose selector's MOST SPECIFIC
+// (rightmost) compound includes the target class — `.foo`, `.a .foo`, `.a .b .foo` all count,
+// but a compound like `.a.foo` counts only for `foo` (the last-written class token), never for
+// `a`, because it only matches elements that carry BOTH classes — and resolves declarations the
+// way a browser would: higher specificity wins; among rules of EQUAL specificity, later source
+// order wins UNLESS the tied rules have different selector text and disagree on a property's
+// value, in which case that is a legitimate context-dependent split (e.g. `.drawer .hchart` vs
+// `.fs .hchart` sizing the same class differently in different places) and is reported as a NOTE,
+// never a mismatch or a failure.
+//
+// Excluded, same as the existing declared blind spots: any selector containing a pseudo-class /
+// pseudo-element (`:`) or an attribute selector (`[`) — those are conditional on state or markup
+// this guard cannot evaluate statically, so they are left out of scope rather than guessed at.
+
+/** Split a selector into its compound-selector chain, e.g. "a.b > c.d" -> ["a.b", "c.d"]. */
+function splitCompounds(selectorText) {
+  return selectorText
+    .replace(/[>+~]/g, " ")
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Real CSS specificity as [ids, classes-ish, elements], for the small subset of selectors we support. */
+function selectorSpecificity(selectorText) {
+  const ids = (selectorText.match(/#[\w-]+/g) || []).length;
+  const classes = (selectorText.match(/\.[\w-]+/g) || []).length;
+  let elements = 0;
+  for (const compound of splitCompounds(selectorText)) {
+    if (/^[a-zA-Z]/.test(compound)) elements += 1; // compound starts with a tag name, not . or #
+  }
+  return [ids, classes, elements];
+}
+
+function cmpSpecificity(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+/**
+ * classname -> [{ props, specificity, order, selectorText }] for every app rule whose selector's
+ * rightmost compound includes that class, excluding pseudo/attribute-conditioned selectors.
+ */
+function getScopedClassRules(source) {
+  const stripped = stripAtRuleBlocks(source);
+  const map = new Map();
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  let order = 0;
+  while ((m = ruleRe.exec(stripped)) !== null) {
+    const selectors = m[1].split(",").map((s) => s.trim());
+    const body = m[2];
+    for (const sel of selectors) {
+      if (!sel || sel.includes(":") || sel.includes("[")) continue; // pseudo/attr — out of scope
+      const compounds = splitCompounds(sel);
+      if (compounds.length === 0) continue;
+      const last = compounds[compounds.length - 1];
+      const lastClasses = (last.match(/\.[a-zA-Z][\w-]*/g) || []).map((c) => c.slice(1));
+      if (lastClasses.length === 0) continue; // last compound has no class at all — id/tag only
+      // A compound like `.a.foo` only matches elements that carry BOTH classes, so its
+      // declarations are conditional on the OTHER class(es) too — e.g. `.btn.dng` and
+      // `.btn.ghost` must never bleed into plain `.btn` resolution (each requires a modifier
+      // class `.btn` alone doesn't have). Only the last-written class token in the last compound
+      // is "the most specific class" this rule resolves for; earlier tokens in the same compound
+      // are a condition on that class, not a class this rule is a candidate for on their own.
+      const cls = lastClasses[lastClasses.length - 1];
+      const props = resolveDeclProps([body]);
+      const specificity = selectorSpecificity(sel);
+      order += 1;
+      if (!map.has(cls)) map.set(cls, []);
+      map.get(cls).push({ props, specificity, order, selectorText: sel });
+    }
+  }
+  return map;
+}
+
+/**
+ * Resolve one class's cascade from its scoped rule entries. Returns the winning prop -> value
+ * map plus the set of properties where equal-specificity rules disagreed across different
+ * selector contexts (legitimate context-dependent styling — report as a NOTE, not a mismatch).
+ */
+function resolveScopedProps(entries) {
+  const byProp = new Map();
+  for (const entry of entries) {
+    for (const [prop, value] of Object.entries(entry.props)) {
+      if (!byProp.has(prop)) byProp.set(prop, []);
+      byProp.get(prop).push({ value, specificity: entry.specificity, order: entry.order, selectorText: entry.selectorText });
+    }
+  }
+  const props = {};
+  const ambiguousProps = new Set();
+  for (const [prop, candidates] of byProp) {
+    let maxSpec = candidates[0].specificity;
+    for (const c of candidates) {
+      if (cmpSpecificity(c.specificity, maxSpec) > 0) maxSpec = c.specificity;
+    }
+    const top = candidates.filter((c) => cmpSpecificity(c.specificity, maxSpec) === 0);
+    const uniqueValues = new Set(top.map((c) => c.value.trim()));
+    if (uniqueValues.size === 1) {
+      props[prop] = top[0].value;
+      continue;
+    }
+    const uniqueSelectors = new Set(top.map((c) => c.selectorText));
+    if (uniqueSelectors.size > 1) {
+      // Same specificity, different scope, genuinely different values — context-dependent, not a bug.
+      ambiguousProps.add(prop);
+    } else {
+      // Same selector repeated (e.g. duplicated rule) — real cascade: latest source order wins.
+      top.sort((a, b) => a.order - b.order);
+      props[prop] = top[top.length - 1].value;
+    }
+  }
+  return { props, ambiguousProps };
 }
 
 /** Flatten a class's ordered declaration bodies into a single prop -> raw value map (cascade). */
@@ -445,12 +598,18 @@ const TRACKED_TEXT_PROPS = [
  * actually sets are compared — the mock is authoritative on what matters for that class; if the
  * app additionally sets something the mock doesn't mention, that's not this guard's concern.
  */
-function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars) {
+function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars, ambiguousProps = new Set()) {
   const mismatches = [];
   const unresolvedNotes = [];
 
   for (const prop of TRACKED_COLOR_PROPS) {
     if (mockProps[prop] === undefined) continue;
+    if (ambiguousProps.has(prop)) {
+      unresolvedNotes.push(
+        `${cls}.${prop}: context-dependent in the app (equal-specificity rules under different scopes disagree) — not compared, not a mismatch`,
+      );
+      continue;
+    }
     const mockNorm = normalizeMaybeColor(mockProps[prop], mockVars);
     if (appProps[prop] === undefined) {
       mismatches.push({ prop, mock: mockProps[prop], app: "(not set)" });
@@ -468,6 +627,12 @@ function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars) {
 
   for (const prop of TRACKED_TEXT_PROPS) {
     if (mockProps[prop] === undefined) continue;
+    if (ambiguousProps.has(prop)) {
+      unresolvedNotes.push(
+        `${cls}.${prop}: context-dependent in the app (equal-specificity rules under different scopes disagree) — not compared, not a mismatch`,
+      );
+      continue;
+    }
     const mockNorm = normalizeGeneric(mockProps[prop], mockVars);
     if (appProps[prop] === undefined) {
       mismatches.push({ prop, mock: mockProps[prop], app: "(not set)" });
@@ -489,6 +654,10 @@ function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars) {
   ]) {
     const mockBox = resolveBox(mockProps, shorthand, prefix, mockVars);
     if (!mockBox) continue;
+    if ([shorthand, ...BOX_SIDES.map((s) => `${prefix}-${s}`)].some((p) => ambiguousProps.has(p))) {
+      unresolvedNotes.push(`${cls}.${box}: context-dependent in the app — not compared, not a mismatch`);
+      continue;
+    }
     const appBox = resolveBox(appProps, shorthand, prefix, appVars);
     if (!appBox) {
       mismatches.push({ prop: box, mock: mockProps[shorthand] ?? "(longhand)", app: "(not set)" });
@@ -506,8 +675,17 @@ function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars) {
     }
   }
 
+  const RADIUS_PROPS = [
+    "border-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+  ];
   const mockRadius = resolveRadius(mockProps, mockVars);
-  if (mockRadius) {
+  if (mockRadius && RADIUS_PROPS.some((p) => ambiguousProps.has(p))) {
+    unresolvedNotes.push(`${cls}.border-radius: context-dependent in the app — not compared, not a mismatch`);
+  } else if (mockRadius) {
     const appRadius = resolveRadius(appProps, appVars);
     if (!appRadius) {
       mismatches.push({ prop: "border-radius", mock: mockProps["border-radius"] ?? "(longhand)", app: "(not set)" });
@@ -524,8 +702,11 @@ function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars) {
     }
   }
 
+  const BORDER_PROPS = ["border", "border-width", "border-style", "border-color"];
   const mockBorder = resolveBorder(mockProps, mockVars);
-  if (mockBorder) {
+  if (mockBorder && BORDER_PROPS.some((p) => ambiguousProps.has(p))) {
+    unresolvedNotes.push(`${cls}.border: context-dependent in the app — not compared, not a mismatch`);
+  } else if (mockBorder) {
     const appBorder = resolveBorder(appProps, appVars);
     if (!appBorder) {
       mismatches.push({ prop: "border", mock: mockProps.border ?? "(longhand)", app: "(not set)" });
@@ -570,16 +751,16 @@ function checkModule(mod) {
 
   const styled = new Set();
   const appVars = {};
-  const appRules = new Map();
+  const appScopedRules = new Map(); // cls -> [{props, specificity, order, selectorText}], scope-aware (v3)
   for (const sheet of mod.stylesheets) {
     const p = join(repoRoot, sheet);
     if (!existsSync(p)) continue;
     const sheetSource = readFileSync(p, "utf8");
     for (const c of classesDefinedIn(sheetSource)) styled.add(c);
     Object.assign(appVars, parseRootVars(sheetSource));
-    for (const [cls, bodies] of getSimpleClassRules(sheetSource)) {
-      if (!appRules.has(cls)) appRules.set(cls, []);
-      appRules.get(cls).push(...bodies);
+    for (const [cls, entries] of getScopedClassRules(sheetSource)) {
+      if (!appScopedRules.has(cls)) appScopedRules.set(cls, []);
+      appScopedRules.get(cls).push(...entries);
     }
   }
 
@@ -605,13 +786,16 @@ function checkModule(mod) {
       }
       const mockProps = mockRules.has(cls) ? resolveDeclProps(mockRules.get(cls)) : null;
       if (!mockProps || Object.keys(mockProps).length === 0) continue; // no simple-selector rule to compare (e.g. compound-only)
-      const appProps = appRules.has(cls) ? resolveDeclProps(appRules.get(cls)) : {};
+      const { props: appProps, ambiguousProps } = appScopedRules.has(cls)
+        ? resolveScopedProps(appScopedRules.get(cls))
+        : { props: {}, ambiguousProps: new Set() };
       const { mismatches: found, unresolvedNotes: notes } = compareClassDeclarations(
         cls,
         mockProps,
         appProps,
         mockVars,
         appVars,
+        ambiguousProps,
       );
       for (const f of found) {
         mismatches.push({ file: relFile, cls, mockFile: mod.mock, prop: f.prop, mockValue: f.mock, appValue: f.app });
@@ -683,6 +867,78 @@ function selfTest() {
     const mockCss = ".srcl.inferred{background:#a78bf5}";
     const mockRules = getSimpleClassRules(mockCss);
     if (mockRules.has("inferred")) problems.push("compound selector leaked into the simple-class-rule map");
+  }
+
+  // Scoped resolution (v3): a scoped app rule matching the mock must PASS — this is the exact
+  // shape (`.herd-signals-page .fbar`) the guard used to be blind to and would false-positive on.
+  {
+    const mockCss = ".fbar{display:flex;gap:8px;padding:10px 14px}";
+    const appCss = ".herd-signals-page .fbar{display:flex;gap:8px;padding:10px 14px}";
+    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("fbar"));
+    const scoped = getScopedClassRules(appCss).get("fbar") || [];
+    const { props: appProps, ambiguousProps } = resolveScopedProps(scoped);
+    const { mismatches } = compareClassDeclarations("fbar", mockProps, appProps, {}, {}, ambiguousProps);
+    if (mismatches.length) problems.push("scoped resolution false-positived on a correctly-scoped rule matching the mock");
+  }
+
+  // Scoped resolution: a scoped app rule that genuinely diverges from the mock must FAIL.
+  {
+    const mockCss = ".fbar{padding:10px 14px}";
+    const appCss = ".herd-signals-page .fbar{padding:4px 4px}";
+    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("fbar"));
+    const scoped = getScopedClassRules(appCss).get("fbar") || [];
+    const { props: appProps, ambiguousProps } = resolveScopedProps(scoped);
+    const { mismatches } = compareClassDeclarations("fbar", mockProps, appProps, {}, {}, ambiguousProps);
+    if (!mismatches.length) problems.push("scoped resolution did not catch a real divergence in a scoped rule");
+  }
+
+  // Scoped resolution: a bare app-wide rule must lose to a same-feature scoped override.
+  {
+    const mockCss = ".btn{padding:7px 12px}";
+    const appCss = ".btn{padding:8px 13px}\n.herd-signals-page .fs .btn{padding:7px 12px}";
+    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("btn"));
+    const scoped = getScopedClassRules(appCss).get("btn") || [];
+    const { props: appProps, ambiguousProps } = resolveScopedProps(scoped);
+    const { mismatches } = compareClassDeclarations("btn", mockProps, appProps, {}, {}, ambiguousProps);
+    if (mismatches.length) problems.push("scoped resolution let a lower-specificity bare rule beat a higher-specificity scoped override");
+  }
+
+  // Scoped resolution: a compound modifier rule (`.btn.dng`) must never bleed into the BASE
+  // class's resolution — it only matches elements that also carry the modifier class.
+  {
+    const appCss = ".btn{color:#111}\n.btn.dng{color:#f00}";
+    const scoped = getScopedClassRules(appCss).get("btn") || [];
+    const { props } = resolveScopedProps(scoped);
+    if (props.color !== "#111") problems.push("a compound modifier rule (.btn.dng) leaked into the base class (.btn) resolution");
+    const dngScoped = getScopedClassRules(appCss).get("dng") || [];
+    if (!dngScoped.length) problems.push("a compound modifier rule (.btn.dng) did not attach to its own last-class token (dng)");
+  }
+
+  // Scoped resolution: equal-specificity rules under DIFFERENT scopes that disagree on a property
+  // (e.g. `.drawer .hchart` vs `.fs .hchart`) must be reported as a NOTE, never a FAIL — this is
+  // the maintainer's explicit example of legitimate context-dependent styling.
+  {
+    const appCss = ".herd-signals-page .drawer .hchart{height:110px}\n.herd-signals-page .fs .hchart{height:240px}";
+    const scoped = getScopedClassRules(appCss).get("hchart") || [];
+    const { ambiguousProps } = resolveScopedProps(scoped);
+    if (!ambiguousProps.has("height")) problems.push("equal-specificity, different-scope divergence was not flagged as context-dependent");
+
+    // height isn't in the tracked-props list; use a tracked one (gap) to prove the end-to-end NOTE path.
+    const mockCss2 = ".x{gap:8px}";
+    const appCss2 = ".herd-signals-page .drawer .x{gap:4px}\n.herd-signals-page .fs .x{gap:12px}";
+    const mockProps2 = resolveDeclProps(getSimpleClassRules(mockCss2).get("x"));
+    const scoped2 = getScopedClassRules(appCss2).get("x") || [];
+    const { props: appProps2, ambiguousProps: amb2 } = resolveScopedProps(scoped2);
+    const { mismatches: m2, unresolvedNotes: notes2 } = compareClassDeclarations("x", mockProps2, appProps2, {}, {}, amb2);
+    if (m2.length) problems.push("context-dependent equal-specificity divergence was reported as a mismatch instead of a note");
+    if (!notes2.some((n) => n.includes("context-dependent"))) problems.push("context-dependent divergence produced no NOTE");
+  }
+
+  // Scoped resolution: pseudo-class / attribute-conditioned selectors stay out of scope.
+  {
+    const appCss = ".herd-signals-page .btn:hover{color:red}\n.herd-signals-page .btn[disabled]{color:blue}";
+    const scoped = getScopedClassRules(appCss).get("btn") || [];
+    if (scoped.length) problems.push("pseudo-class/attribute selector leaked into scoped rule resolution");
   }
 
   // Banned-divergence scan: the literal battery-life text must be caught even though its class
