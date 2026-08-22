@@ -92,7 +92,6 @@ export function useNowMs(everyMs = 1000): number {
     },
     [everyMs],
   );
-  // eslint-disable-next-line react-hooks/purity -- getSnapshot is the sanctioned external-time read.
   const getSnapshot = useCallback(() => Date.now(), []);
   const getServerSnapshot = useCallback(() => 0, []);
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

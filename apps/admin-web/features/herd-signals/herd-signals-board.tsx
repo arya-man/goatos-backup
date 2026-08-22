@@ -96,6 +96,10 @@ export async function HerdSignalsBoard({
   pageContract: AdminUiPageContract;
 }) {
   const params = parseHerdSignalsParams(searchParams);
+  // This IS a server-rendered "as of now" read (matches the sibling live-tracker board's
+  // router.refresh()-driven model): the wall-clock instant is the point of the request, not
+  // incidental impurity to memoize away.
+  // eslint-disable-next-line react-hooks/purity -- see comment above.
   const nowMs = Date.now();
 
   const [liveResult, gatewaysResult, insightsResult] = await Promise.all([

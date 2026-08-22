@@ -40,13 +40,11 @@ export function HerdSignalsTable({
   nextCursor,
   params,
   nowMs,
-  columns = "full",
 }: {
   items: HerdSignalItem[];
   nextCursor: string | null;
   params: HerdSignalsParams;
   nowMs: number;
-  columns?: "full" | "compact";
 }) {
   const [sizeChanging, setSizeChanging] = useState(false);
   const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
