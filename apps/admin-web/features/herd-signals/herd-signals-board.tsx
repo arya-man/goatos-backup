@@ -17,6 +17,9 @@ import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
 import { HerdSignalsTable } from "./herd-signals-table";
 import { HerdSignalsGateways } from "./herd-signals-gateways";
 import { HerdSignalsInsights } from "./herd-signals-insights";
+import { Tag } from "@/components/ui-primitives";
+import type { HerdSignalItem } from "@/lib/api/herd-signals";
+import { PATTERN_LABEL, PATTERN_TONE, PATTERN_WHY, fmtAgo } from "./format";
 import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
@@ -392,9 +395,55 @@ function AlertsTab({
             <p>Every tag is within thresholds for this pattern — a healthy outcome, not an error.</p>
           </div>
         ) : (
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
+          <>
+            {/* The mock renders Alerts as a `.rowlist`, not as the shared live table: one row per
+                signal condition, severity chip first, the explanation in prose, shed right-aligned.
+                A table here re-states fourteen telemetry columns the reader did not ask for. */}
+            <div className="rowlist">
+              {items.map((item) => (
+                <AlertRow key={item.tag_id} item={item} nowMs={nowMs} />
+              ))}
+            </div>
+            {next_cursor ? (
+              <div className="pager">
+                <Link href={herdSignalsHref(params, { hs_cursor: next_cursor })} className="pgbtn">
+                  Next &rarr;
+                </Link>
+                <span>
+                  Showing <b>{items.length.toLocaleString("en-IN")}</b> of <b>{summary.tags_seen.toLocaleString("en-IN")}</b> tags in scope
+                </span>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+// One alert row. The severity chip is the pattern's own approved tone/label (features/herd-signals/
+// format.ts) — this row never invents a synonym or a severity of its own.
+function AlertRow({ item, nowMs }: { item: HerdSignalItem; nowMs: number }) {
+  const pattern = item.pattern_state ?? "normal";
+  // Missing signal names the GATEWAY before the animal, always: the reader must check the radio
+  // path first, and the row must not read as "this animal is missing".
+  const missing = pattern === "missing" || item.movement_state === "stale";
+  const explanation = missing
+    ? `Gateway ${item.gateway_id ?? "coverage for this tag"} has delivered no packet for ${fmtAgo(item.last_seen_at, nowMs)}. Missing signal — never a missing animal. Check the gateway before checking the animal.`
+    : `${PATTERN_WHY[pattern].charAt(0).toUpperCase()}${PATTERN_WHY[pattern].slice(1)}.`;
+  const location = item.operational_location_display ?? item.shed_name ?? item.park_name ?? "—";
+  return (
+    <div className="rowitem">
+      <Tag tone={missing ? PATTERN_TONE.missing : PATTERN_TONE[pattern]}>
+        {missing ? PATTERN_LABEL.missing : PATTERN_LABEL[pattern]}
+      </Tag>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="rt">
+          {item.display_id ?? "No animal mapped to this tag"} <span className="mono faint">{item.tag_id}</span>
+        </div>
+        <div className="rs">{explanation}</div>
+      </div>
+      <span className="faint small">{location}</span>
     </div>
   );
 }
