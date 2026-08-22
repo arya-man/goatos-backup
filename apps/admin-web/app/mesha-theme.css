@@ -3402,6 +3402,7 @@ select:disabled { opacity: .45; }
   overflow:visible;
 }
 .herd-signals-page aside.drawer .card .bd.flush{padding:0}
+.herd-signals-page aside.drawer .card{padding-top:8px}
 .herd-signals-page aside.drawer .hchartwrap{height:104px!important}
 .herd-signals-page aside.drawer .hchart{
   height:104px!important;
@@ -3411,7 +3412,7 @@ select:disabled { opacity: .45; }
   padding:8px 0 0;
   gap:10px 12px;
   font-size:11px;
-  line-height:normal;
+  line-height:1.45;
 }
 .herd-signals-page aside.drawer .readout{
   padding:8px 0 0;
@@ -3439,6 +3440,7 @@ select:disabled { opacity: .45; }
   display:grid;
   grid-template-columns:auto 1fr;
   gap:7px 12px;
+  margin-top:6px;
   border:0;
   border-radius:0;
   overflow:visible;
