@@ -23,6 +23,9 @@ interface ProofArtifactValidator {
     data class ValidationResult(
         val isValid: Boolean,
         val reason: String? = null,  // null if valid
+        val failureKind: String? = null,
+        val containerDurationMs: Long? = null,
+        val videoTrackDurationMs: Long? = null,
     )
 
     /**
@@ -119,6 +122,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 return ProofArtifactValidator.ValidationResult(
                     isValid = false,
                     reason = "Recording file not found.",
+                    failureKind = "file_missing",
                 )
             }
 
@@ -127,6 +131,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 return ProofArtifactValidator.ValidationResult(
                     isValid = false,
                     reason = "Recording was empty.",
+                    failureKind = "file_empty",
                 )
             }
 
@@ -145,42 +150,43 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 runCatching { retriever.release() }
             }
 
-            // B5: Probe succeeded; check validity of extracted metadata
-            when (probeResult) {
-                is ProbeSuccess -> {
-                    // Reject if probe succeeded but duration is invalid (not plausible-accept)
-                    if (probeResult.durationMs <= 0L) {
-                        return ProofArtifactValidator.ValidationResult(
-                            isValid = false,
-                            reason = "Recording has no valid duration.",
-                        )
-                    }
-                    // Reject if probe succeeded but dimensions unreadable (not plausible-accept)
-                    if (probeResult.width.isNullOrBlank() || probeResult.height.isNullOrBlank()) {
-                        return ProofArtifactValidator.ValidationResult(
-                            isValid = false,
-                            reason = "Recording has unreadable video dimensions.",
-                        )
-                    }
-                    if (!allowPlausibleAccept) {
-                        val videoTrackDurationMs = readVideoTrackDurationMs(file)
-                        if (videoTrackDurationMs <= 0L) {
-                            return ProofArtifactValidator.ValidationResult(
-                                isValid = false,
-                                reason = "Recording has no readable video track duration.",
-                            )
-                        }
-                        if (videoTrackDurationMs < (probeResult.durationMs * MIN_VIDEO_TRACK_DURATION_RATIO).toLong()) {
-                            return ProofArtifactValidator.ValidationResult(
-                                isValid = false,
-                                reason = "Recording video track ended before audio.",
-                            )
-                        }
-                    }
-                    // All checks passed
-                    return ProofArtifactValidator.ValidationResult(isValid = true)
+            // B5: Probe succeeded; check validity of extracted metadata.
+            if (probeResult.durationMs <= 0L) {
+                return ProofArtifactValidator.ValidationResult(
+                    isValid = false,
+                    reason = "Recording has no valid duration.",
+                    failureKind = "invalid_duration",
+                )
+            }
+            if (probeResult.width.isNullOrBlank() || probeResult.height.isNullOrBlank()) {
+                return ProofArtifactValidator.ValidationResult(
+                    isValid = false,
+                    reason = "Recording has unreadable video dimensions.",
+                    failureKind = "unreadable_dimensions",
+                )
+            }
+            if (!allowPlausibleAccept) {
+                val videoTrackDurationMs = readVideoTrackDurationMs(file)
+                if (videoTrackDurationMs <= 0L) {
+                    return ProofArtifactValidator.ValidationResult(
+                        isValid = false,
+                        reason = "Recording has no readable video track duration.",
+                        failureKind = "video_track_duration_unreadable",
+                        containerDurationMs = probeResult.durationMs,
+                        videoTrackDurationMs = videoTrackDurationMs,
+                    )
+                }
+                if (videoTrackDurationMs < (probeResult.durationMs * MIN_VIDEO_TRACK_DURATION_RATIO).toLong()) {
+                    return ProofArtifactValidator.ValidationResult(
+                        isValid = false,
+                        reason = "Recording video track ended before audio.",
+                        failureKind = "processed_video_track_truncated",
+                        containerDurationMs = probeResult.durationMs,
+                        videoTrackDurationMs = videoTrackDurationMs,
+                    )
                 }
             }
+            return ProofArtifactValidator.ValidationResult(isValid = true)
         }.getOrElse { error ->
             // B5: Probe threw (transient failure).
             // ITEM 6: For processed files (allowPlausibleAccept=false), this is DEFINITIVE rejection.
@@ -190,6 +196,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 return ProofArtifactValidator.ValidationResult(
                     isValid = false,
                     reason = "Could not validate processed recording: ${error.message}",
+                    failureKind = "metadata_probe_failed",
                 )
             }
             // exception:exempt malformed/non-file URI just falls through to the size-check branch below, which already handles a null file safely
@@ -201,6 +208,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 ProofArtifactValidator.ValidationResult(
                     isValid = false,
                     reason = "Could not validate recording: ${error.message}",
+                    failureKind = "metadata_probe_failed",
                 )
             }
         }

@@ -198,7 +198,7 @@ class AnalyticsContractTest {
                 AnalyticsEvents.Params.PREVIOUS to "editable",
                 AnalyticsEvents.Params.NEXT to "readonly",
                 AnalyticsEvents.Params.STATUS to "pending_verification",
-                AnalyticsEvents.Params.KIND to "birth",
+                "failure_kind" to "processed_video_track_truncated",
             ),
         )
 
@@ -212,9 +212,10 @@ class AnalyticsContractTest {
         assertEquals("editable", params[AnalyticsEvents.Params.PREVIOUS])
         assertEquals("readonly", params[AnalyticsEvents.Params.NEXT])
         assertEquals("pending_verification", params[AnalyticsEvents.Params.STATUS])
-        assertEquals("birth", params[AnalyticsEvents.Params.KIND])
+        assertEquals("processed_video_track_truncated", params["failure_kind"])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.FEED_VIDEO_SOURCE])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.WATER_VIDEO_SOURCE])
+        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.KIND])
     }
 
     @Test

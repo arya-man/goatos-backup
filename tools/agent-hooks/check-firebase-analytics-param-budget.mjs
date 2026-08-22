@@ -66,6 +66,7 @@ const requiredAllowlistEntries = [
   // retry / failure reason
   { label: "retry_count (Params.RETRY_COUNT)", pattern: /AnalyticsEvents\.Params\.RETRY_COUNT/ },
   { label: "reason (Params.REASON)", pattern: /AnalyticsEvents\.Params\.REASON\b/ },
+  { label: "failure_kind", pattern: /"failure_kind"/ },
   // live-status transition
   { label: "previous (Params.PREVIOUS)", pattern: /AnalyticsEvents\.Params\.PREVIOUS/ },
   { label: "next (Params.NEXT)", pattern: /AnalyticsEvents\.Params\.NEXT/ },
@@ -120,7 +121,7 @@ function selfTest() {
     '"processing_state"', '"duration_bucket"', '"proof_upload_status"', '"submit_status"',
     "AnalyticsEvents.Params.SLOT_MASK", "AnalyticsEvents.Params.LOCAL_SLOT_STATE",
     "AnalyticsEvents.Params.SOURCE", "AnalyticsEvents.Params.RETRY_COUNT",
-    "AnalyticsEvents.Params.REASON", "AnalyticsEvents.Params.PREVIOUS",
+    "AnalyticsEvents.Params.REASON", '"failure_kind"', "AnalyticsEvents.Params.PREVIOUS",
     "AnalyticsEvents.Params.NEXT", "AnalyticsEvents.Params.STATUS",
   ].join(", ");
 
