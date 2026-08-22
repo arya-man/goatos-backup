@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	oblports "github.com/vgoats/goatos/backend/internal/obligation/ports"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -1747,7 +1748,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if found && strings.TrimSpace(survivor.IdempotencyKey) != "" && survivor.IdempotencyKey != key {
 					reconcileKey = survivor.IdempotencyKey
 					if !deferred && !survivor.DueAt.Equal(due) {
-						if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, reconcileKey, due, newObligation.WindowEnd, asOf); err != nil {
+						// A taken date is not a failure. The duplicate guard spans every status,
+						// so the recomputed date can already hold a dose that was given, or a
+						// canceled row -- and the survivor simply stays where it is rather than
+						// poisoning this animal for every later pass as well.
+						_, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, reconcileKey, due, newObligation.WindowEnd, asOf)
+						if err != nil && !errors.Is(err, oblports.ErrDueDateTaken) {
 							return err
 						}
 					}
