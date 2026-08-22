@@ -1,6 +1,26 @@
 # Goat OS Workspace Agent Context
 
-## Local Stack Canonical Ports
+## Ravi Laptop Default: OCI DB, Not Local Docker Postgres
+
+On Ravi's laptop, default local Goat OS backend/admin-web development to the OCI
+Postgres tunnel when it is available:
+
+```text
+Database: postgres://postgres:${REMOTE_POSTGRES_PASSWORD}@127.0.0.1:15432/goatos?sslmode=disable
+Tunnel:   127.0.0.1:15432 -> OCI VM 127.0.0.1:5432
+```
+
+Do not start Colima, Docker Desktop, `goatos-local-current`, or any other local
+Postgres container just because older local-stack docs mention `5433`. Before
+starting Docker/Colima for Goat OS, first check whether the OCI tunnel on
+`15432` is active and whether the task can use it. Use local Docker Postgres
+only when the maintainer explicitly asks for a disposable/local Docker DB, a
+Docker-specific integration test, or an isolated mutation test that must not
+touch OCI/staging-like data. If a stale `goatos-local-current` container or
+Colima VM is running while the active dev stack uses OCI, stop it instead of
+treating it as canonical.
+
+## Legacy Local Stack Canonical Ports
 
 For local Goat OS browser/debug work, use one shared local stack unless the user
 explicitly asks for an isolated throwaway stack:
@@ -12,10 +32,14 @@ Database: postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable
 Docker DB container: goatos-local-current
 ```
 
+This `5433` Docker DB setup is legacy/local-only on Ravi's machine and is not
+the default when the OCI tunnel is active.
+
 Before cloning, seeding, importing, or debugging local data, first verify the
-running backend's `DATABASE_URL` and make it match the canonical DB above. Do
-not infer the local DB from a previous temp worktree, a random Docker port, or a
-stale shell variable. If a temp stack is unavoidable, clearly label it as
+running backend's `DATABASE_URL`. On Ravi's laptop, prefer the OCI tunnel above;
+use the legacy `5433` Docker DB only after an explicit Docker/local DB request.
+Do not infer the local DB from a previous temp worktree, a random Docker port,
+or a stale shell variable. If a temp stack is unavoidable, clearly label it as
 throwaway and do not call it "the local DB".
 
 **HARD RULE - Weights/admin-web fixes require Chrome proof after the final
