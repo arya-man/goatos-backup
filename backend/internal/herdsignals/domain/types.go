@@ -222,7 +222,15 @@ type IngestPacket struct {
 	TemperatureSensorOK   *bool    `json:"temperature_sensor_ok"`
 	AccelerometerSensorOK *bool    `json:"accelerometer_sensor_ok"`
 	RawAdv                *string  `json:"raw_adv"`
-	SeenAt                string   `json:"seen_at"` // RFC3339 timestamp
+	SeenAt                string   `json:"seen_at"` // RFC3339 timestamp (server-relevant capture time; received_at is derived from server processing, this is what the caller asserts as when the tag was heard)
+	// GatewaySeenAt is this PACKET's own gateway-clock timestamp (RFC3339, uncorrected -- the
+	// gateway payload audit found one gateway running a constant +02:30:00 ahead of real IST).
+	// Optional: older firmware may only send the envelope-level batch timestamp
+	// (IngestRequest.GatewaySeen), in which case that is used as a fallback. Never used to decide
+	// gap detection or ordering -- received_at (server clock) is truth for both; this is stored
+	// purely as diagnostic/audit data. Previously ABSENT from this struct, which was the bug: the
+	// loader collapsed every packet in a batch to the batch's single relay timestamp.
+	GatewaySeenAt *string `json:"gateway_seen_at"`
 }
 
 // IngestResponse is the response to POST /herd-signals/packets.

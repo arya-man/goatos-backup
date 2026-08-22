@@ -45,7 +45,10 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 		return domain.IngestResponse{}, fmt.Errorf("actor tenant_id and user_id required")
 	}
 
-	// Parse gateway_seen_at timestamp
+	// Envelope-level gateway_seen_at is the RELAY time (when the gateway forwarded this batch to
+	// us), used as a fallback only. It must never overwrite a packet's own gateway timestamp
+	// (that was the bug: every packet in a batch of up to ~200 was stamped with this single
+	// value, collapsing per-packet gateway clock data to one number, off by up to minutes).
 	gatewaySeen, err := time.Parse(time.RFC3339, req.GatewaySeen)
 	if err != nil {
 		return domain.IngestResponse{}, fmt.Errorf("invalid gateway_seen_at: %w", err)
@@ -60,6 +63,18 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 			continue
 		}
 
+		// Per-packet gateway timestamp when the caller sends one; falls back to the envelope's
+		// batch relay time only when absent (older firmware). received_at (seenAt, server-
+		// relevant) is truth for ordering/gaps regardless -- this is diagnostic only.
+		packetGatewaySeen := gatewaySeen
+		if p.GatewaySeenAt != nil && *p.GatewaySeenAt != "" {
+			if parsed, err := time.Parse(time.RFC3339, *p.GatewaySeenAt); err == nil {
+				packetGatewaySeen = parsed
+			} else {
+				s.log.Warn("invalid per-packet gateway_seen_at, falling back to envelope relay time", "gateway_seen_at", *p.GatewaySeenAt, "tag_id", p.TagID)
+			}
+		}
+
 		packets = append(packets, domain.Packet{
 			PacketID:              "", // DB will generate
 			TenantID:              actor.TenantID,
@@ -68,7 +83,7 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 			TagID:                 p.TagID,
 			TagMAC:                &p.TagMAC,
 			ReceivedAt:            seenAt,
-			GatewaySeenAt:         &gatewaySeen,
+			GatewaySeenAt:         &packetGatewaySeen,
 			RSSIdbm:               p.RSSI,
 			BatteryMV:             p.Battery,
 			TagTemperatureC:       p.TagTemperature,

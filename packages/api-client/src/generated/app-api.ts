@@ -4239,6 +4239,11 @@ export interface components {
             raw_adv?: string | null;
             /** Format: date-time */
             seen_at: string;
+            /**
+             * Format: date-time
+             * @description This PACKET's own gateway-clock timestamp, uncorrected (a real gateway has been observed running a constant +02:30:00 ahead of IST -- a timezone misconfiguration). Optional: falls back to the envelope's gateway_seen_at (relay time) when absent. Diagnostic only -- never used for ordering or gap detection, which use seen_at (server-relevant capture time) exclusively.
+             */
+            gateway_seen_at?: string | null;
         };
         HerdSignalsIngestRequest: {
             gateway_id: string;
