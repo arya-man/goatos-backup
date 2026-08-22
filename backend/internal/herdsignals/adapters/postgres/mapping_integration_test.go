@@ -149,6 +149,38 @@ func liveSmartTagValues(t *testing.T, ctx context.Context, pool *pgxpool.Pool, g
 	return out
 }
 
+// identifierRowsForValues reads EVERY goat_identifiers row holding these values, whatever its
+// status. The coordinator's second symptom was invisible to a status='active' query: an unmap
+// left RETIRED rows behind, which still claim the value under the lifetime-unique index and then
+// refuse every future MAP and REPLACE on that animal, with nothing in the product able to clear
+// them. So the assertion has to be "no row survives", not "no ACTIVE row survives".
+func identifierRowsForValues(t *testing.T, ctx context.Context, pool *pgxpool.Pool, values ...string) []string {
+	t.Helper()
+	norm := make([]string, len(values))
+	for i, v := range values {
+		norm[i] = domain.NormalizeTagIdentifier(v)
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT normalized_value || ' ' || status || ' smart_tag_capable=' || COALESCE(smart_tag_capable::text, 'null')
+		FROM goat_identifiers
+		WHERE tenant_id = $1::uuid AND normalized_value = ANY($2)
+		ORDER BY normalized_value
+	`, hsiTenant, norm)
+	if err != nil {
+		t.Fatalf("read identifier rows: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 // TestMapTagToAnimalFlipsTheLiveReadToMapped is the primary proof: the action the Tag Mapping
 // screen could not perform at all now makes the live view say "mapped", through the read path's
 // own predicate.
@@ -417,6 +449,12 @@ func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
 	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 0 {
 		t.Fatalf("after unmap the animal still carries live smart-tag values %v, want NONE. The tag reads as unmapped, so nothing in the product can see or release this -- the animal is stuck", live)
 	}
+	// And NOT ONE row of ANY status survives. A retired leftover is just as fatal as an active
+	// one: it keeps the value claimed under goat_identifiers_lifetime_value_unique, and then
+	// every future MAP and REPLACE on this animal is refused with no product-side escape.
+	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC); len(rows) != 0 {
+		t.Fatalf("after unmap these identifier rows survive: %v -- want none. A row this module created to carry a binding is deleted when the binding ends; leaving it in ANY status makes the animal impossible to re-tag through the product", rows)
+	}
 
 	// THE ROUND TRIP a real re-tagging performs: map A, unmap A, map B to the SAME animal.
 	// This is what was impossible: the leftover row made the second map a 409.
@@ -630,5 +668,99 @@ func TestGatewayHeartbeatAndPacketLossAccounting(t *testing.T) {
 	}
 	if hbReboots != 1 {
 		t.Errorf("heartbeat_reboot_count = %d, want 1", hbReboots)
+	}
+}
+
+// TestOrdinaryRetaggingRoundTripNeedsNoSQL walks the exact sequence a farm performs and that the
+// product could not complete: MAP A -> UNMAP A -> MAP A again -> REPLACE A with B -> UNMAP B.
+//
+// Every step must succeed with no hand-written SQL in between. Before the release fix, step 3
+// was refused with mapping_conflict and step 4 with "held by a retired identifier ... must be
+// reactivated through the identity module" -- and REPLACE's success path had therefore never once
+// been observed end to end, by any test or by anyone driving the API.
+func TestOrdinaryRetaggingRoundTripNeedsNoSQL(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	step := func(n int, what string, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("step %d (%s) failed: %v\nordinary re-tagging must need no manual intervention", n, what, err)
+		}
+	}
+
+	first, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	step(1, "MAP A", err)
+
+	_, err = repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA})
+	step(2, "UNMAP A", err)
+	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC); len(rows) != 0 {
+		t.Fatalf("after step 2 these rows survive: %v -- they are what refuses step 3", rows)
+	}
+
+	again, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	step(3, "MAP A again to the same animal", err)
+	if again.MonitoringSince == nil || !again.MonitoringSince.After(*first.MonitoringSince) {
+		t.Errorf("step 3 monitoring_since = %v, want a NEW period after %v", again.MonitoringSince, first.MonitoringSince)
+	}
+
+	_, err = repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{GoatID: hsmGoatB, NewTagID: hsmTagB, NewTagMAC: hsmTagBMAC})
+	step(4, "REPLACE A with B", err)
+	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC); len(rows) != 0 {
+		t.Fatalf("after step 4 the OLD tag's rows survive: %v -- an animal would accumulate a dead binding on every re-tag", rows)
+	}
+	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 2 {
+		t.Fatalf("after step 4 the animal carries %v, want exactly the new tag's 2 values", live)
+	}
+
+	_, err = repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagB})
+	step(5, "UNMAP B", err)
+	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC, hsmTagB, hsmTagBMAC); len(rows) != 0 {
+		t.Fatalf("after the full round trip these rows survive: %v -- want a clean slate", rows)
+	}
+	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 0 {
+		t.Fatalf("after the full round trip the animal still carries %v", live)
+	}
+}
+
+// TestReleaseNeverDestroysTheAnimalsOwnIdentity is the guard on the destructive direction of the
+// same decision.
+//
+// Release DELETES rows this module invented to carry a binding. It must never delete -- or
+// retire -- a pre-existing identity row that a bind merely FLAGGED as smart-tag capable. That row
+// is the animal's real ear tag, and this module does not own it. Getting this backwards would
+// silently destroy identity every time an operator unmapped a tag.
+func TestReleaseNeverDestroysTheAnimalsOwnIdentity(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+
+	// hsiMappedTag is seeded as the fixture animal's OWN animal_identifier_1 -- created outside
+	// this module, exactly like a real ear tag imported by the identity module.
+	var beforeStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM goat_identifiers WHERE tenant_id = $1::uuid AND normalized_value = $2`,
+		hsiTenant, domain.NormalizeTagIdentifier(hsiMappedTag)).Scan(&beforeStatus); err != nil {
+		t.Fatalf("read the fixture identity row: %v", err)
+	}
+
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsiMappedTag}); err != nil {
+		t.Fatalf("unmap the animal's own ear-tag identifier: %v", err)
+	}
+
+	var afterStatus string
+	var capable *bool
+	var mappedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT status, smart_tag_capable, smart_tag_mapped_at FROM goat_identifiers WHERE tenant_id = $1::uuid AND normalized_value = $2`,
+		hsiTenant, domain.NormalizeTagIdentifier(hsiMappedTag)).Scan(&afterStatus, &capable, &mappedAt); err != nil {
+		t.Fatalf("the animal's OWN identity row was DELETED by an unmap: %v\nthis module flags and unflags identity it did not create -- it must never destroy it", err)
+	}
+	if afterStatus != beforeStatus {
+		t.Errorf("the animal's own identity row changed status %q -> %q on unmap; releasing a BLE binding must not retire an ear tag", beforeStatus, afterStatus)
+	}
+	if capable == nil || *capable {
+		t.Errorf("smart_tag_capable = %v after unmap, want false: the binding ended", capable)
+	}
+	if mappedAt != nil {
+		t.Errorf("smart_tag_mapped_at = %v after unmap, want NULL: no animal-attributed value may be produced for an unmapped tag", mappedAt)
 	}
 }
