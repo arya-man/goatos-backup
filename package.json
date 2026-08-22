@@ -10,5 +10,10 @@
     "check:contracts": "bash tools/agent-hooks/check-contract-drift.sh",
     "check:scope": "bash tools/agent-hooks/check-write-scope.sh",
     "format:touched": "bash tools/agent-hooks/format-touched.sh"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "19.2.17"
+    }
   }
 }
