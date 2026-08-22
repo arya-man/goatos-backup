@@ -29,12 +29,15 @@ import {
   fmtRssi,
   fmtTagTemp,
 } from "./format";
-import { HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
+import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 import { useNowMs } from "./herd-signals-poller";
 
 type RangeKey = "1h" | "6h" | "24h";
 const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };
-const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 3600 };
+// Every drawer range stays on the 300s (5-minute) tier, exactly as the mock draws it: rolling 24h
+// up to hourly leaves 24 fat bars instead of 288 readable ones, and the baseline chip is quoted per
+// 5 minutes, so a 3600s bar cannot be compared against it without a unit mismatch.
+const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 300 };
 
 async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
   const to = new Date();
@@ -70,7 +73,7 @@ export function HerdSignalsDrawer({
     initialSelectedId,
     closeHref,
   });
-  const [range, setRange] = useState<RangeKey>("1h");
+  const [range, setRange] = useState<RangeKey>("6h");
   const nowMs = useNowMs();
   const [hovered, setHovered] = useState<HerdSignalTimelineBucket | null>(null);
   // Bumped by the Retry button so a failed read can be re-fetched without changing tag or range —
@@ -199,22 +202,9 @@ export function HerdSignalsDrawer({
                 )}
               </div>
               <div className="readout" aria-live="polite">
-                {hovered ? (
-                  hovered.is_gap ? (
-                    <>
-                      <b>{hovered.bucket_start}</b> — no packets received in this window (gap), not zero movement.
-                    </>
-                  ) : (
-                    <>
-                      motion_count <b>{fmtDelta(hovered.first_motion_count)}</b> → <b>{fmtDelta(hovered.last_motion_count)}</b> · delta{" "}
-                      <b>{fmtDelta(hovered.motion_delta)}</b> · {hovered.packet_count} packets · avg RSSI <b>{fmtRssi(hovered.avg_rssi_dbm)}</b>
-                    </>
-                  )
-                ) : (
-                  <span className="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span>
-                )}
+                <ChartReadout buckets={buckets} hovered={hovered} />
               </div>
-              <p className="small faint" style={{ padding: "0 15px 12px", margin: 0 }}>
+              <p className="chartnote">
                 {item.pattern_state ? `${PATTERN_WHY[item.pattern_state].charAt(0).toUpperCase()}${PATTERN_WHY[item.pattern_state].slice(1)}. ` : ""}
                 Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.
               </p>
@@ -268,7 +258,7 @@ export function HerdSignalsDrawer({
               <span className="srcl direct">Direct</span>
             </dd>
             <dt>1h motion delta</dt>
-            <dd title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">
+            <dd>
               
               {fmtDelta1h(item.motion_delta_1h, item.motion_delta)}
               <span className="srcl direct">Direct</span>

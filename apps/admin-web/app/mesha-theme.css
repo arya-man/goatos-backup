@@ -2995,6 +2995,13 @@ select:disabled { opacity: .45; }
 .herd-signals-page .rangepick button{border:0;background:transparent;padding:3px 9px;border-radius:6px;font:inherit;font-weight:700;font-size:11px;color:var(--muted);cursor:pointer}
 .herd-signals-page .rangepick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
 .herd-signals-page .patrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 15px}
+/* Inside the drawer the body (.dc) already supplies the 15px gutter, so the control row must NOT
+   add its own or the pattern/baseline chips, range picker and Expand button sit 30px in from the
+   edge while the readings below them sit at 15px. The mock's own .patrow is padding:10px 0 0. */
+.herd-signals-page .drawer .patrow{padding:10px 0 0}
+/* Mock's .chartnote: the small print under a chart or a correlated table. */
+.herd-signals-page .chartnote{font-size:11px;color:var(--faint);padding:0 15px 13px;margin:0;line-height:1.5}
+.herd-signals-page .daterow .rowlabel{font-weight:800;letter-spacing:.4px;text-transform:uppercase}
 .herd-signals-page .legend{display:flex;flex-wrap:wrap;gap:10px 12px;padding:8px 15px 0;font-size:11px;color:var(--muted)}
 .herd-signals-page .legend span{display:inline-flex;align-items:center;gap:5px}
 .herd-signals-page .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
@@ -3092,3 +3099,28 @@ select:disabled { opacity: .45; }
 .herd-signals-page .card .bd.flush .legend,.herd-signals-page .card .bd.flush .readout{padding-left:15px;padding-right:15px}
 .herd-signals-page .fsel.search.has .qclr{display:block}
 @media(max-width:860px){.herd-signals-page table.resp td.wide{grid-column:1/-1}}
+
+/* Ported from mock/herd-signals-mock.html. The app-wide `.banner` (mesha-theme.css
+   "Config safety" block) is a left-accent BLOCK with `margin-top` and no icon row, so the
+   mock's icon+text banners on Insights and on an offline gateway card rendered as a
+   text slab with an 18px icon jammed inline. The mock's variant set is info/warn/dng;
+   the app-wide rule has no `.info` and no `.dng` at all. */
+.herd-signals-page .banner{display:flex;align-items:flex-start;gap:10px;padding:10px 13px;border-radius:10px;border:1px solid var(--line);border-left-width:1px;margin:0 0 14px;font-size:12.5px;background:var(--infox);color:var(--info)}
+.herd-signals-page .banner b{font-weight:800;color:inherit}
+.herd-signals-page .banner.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 34%,var(--line));color:var(--info)}
+.herd-signals-page .banner.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
+.herd-signals-page .banner.dng{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
+
+/* Alerts tab is a `.rowlist` in the mock, not a table. Neither class had a rule here. */
+.herd-signals-page .rowlist{display:flex;flex-direction:column}
+.herd-signals-page .rowitem{display:flex;align-items:center;gap:10px;padding:10px 15px;border-bottom:1px solid var(--line2);font-size:12.5px}
+.herd-signals-page .rowitem:last-child{border-bottom:0}
+.herd-signals-page .rowitem .rt{font-weight:650}
+.herd-signals-page .rowitem .rs{color:var(--muted);font-size:11.5px}
+@media(max-width:760px){.herd-signals-page .rowitem{flex-wrap:wrap;align-items:flex-start}}
+
+/* The app-wide `.card` carries `margin-top:16px`; inside a `.grid2` that pushes the second
+   row of cards out of alignment with the first. The mock's `.card` has no margin. */
+.herd-signals-page .grid2>.card{margin-top:0}
+/* `.sp` is a flex spacer in the mock; the app defines it only under `.card .hd`. */
+.herd-signals-page .gwh .sp{flex:1}

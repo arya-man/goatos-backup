@@ -1,5 +1,5 @@
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
-import { fmtClockIst } from "./format";
+import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
 
 // Shared bucket-chart renderer for the drawer's mini chart and the full-screen history view.
 //
@@ -171,4 +171,52 @@ export function gapWindowForReconnect(
     start = buckets[i].bucket_start;
   }
   return { startIso: start, endIso: reconnect.bucket_start };
+}
+
+// ONE readout renderer for the drawer's mini chart and the full-screen chart, so the three facts
+// (gap / zero delta / reconnect total) are worded identically wherever they are hovered. The
+// reconnect case is the one that must never read like a normal bucket: it names the gap window in
+// IST and says outright that the timing inside that window is unknown.
+export function ChartReadout({
+  buckets,
+  hovered,
+}: {
+  buckets: HerdSignalTimelineBucket[] | null;
+  hovered: HerdSignalTimelineBucket | null;
+}) {
+  if (!hovered) {
+    return <span className="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span>;
+  }
+  if (hovered.is_gap) {
+    return (
+      <>
+        <b>{fmtClockIst(hovered.bucket_start)} IST</b> · <span style={{ color: "var(--danger)" }}>Missing signal</span> — no
+        packets received in this window. Not the same as no movement.
+      </>
+    );
+  }
+  if (hovered.gap_delta) {
+    const index = buckets ? buckets.findIndex((bucket) => bucket.bucket_start === hovered.bucket_start) : -1;
+    const window = buckets && index >= 0 ? gapWindowForReconnect(buckets, index) : null;
+    return (
+      <>
+        <b>{fmtClockIst(hovered.bucket_start)} IST</b> · <span style={{ color: "var(--purple)" }}>Reconnect</span> — delta{" "}
+        <b>+{hovered.motion_delta ?? 0}</b> is the total accumulated while no packets were received
+        {window ? (
+          <>
+            {" "}
+            (<b>{fmtClockIst(window.startIso)}</b> – <b>{fmtClockIst(window.endIso)} IST</b>)
+          </>
+        ) : null}
+        . When inside that window it happened is not known.
+      </>
+    );
+  }
+  return (
+    <>
+      <b>{fmtClockIst(hovered.bucket_start)} IST</b> · motion_count <b>{fmtDelta(hovered.first_motion_count)}</b> →{" "}
+      <b>{fmtDelta(hovered.last_motion_count)}</b> · delta <b>+{hovered.motion_delta ?? 0}</b> ·{" "}
+      <b>{hovered.packet_count}</b> packets · avg RSSI <b>{fmtRssi(hovered.avg_rssi_dbm)}</b>
+    </>
+  );
 }
