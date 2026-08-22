@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // Thresholds for herd signals analysis. All values are configurable and documented
 // as provisional placeholders pending vendor confirmation or operational tuning.
@@ -19,11 +22,13 @@ type Thresholds struct {
 	BatteryNominalFullMV   int
 	BatteryNominalLifeDays int
 
-	// Motion state thresholds (cumulative motion_count delta over window).
-	MotionActiveDelta    int64 // >= 100 => moving
-	MotionLowDelta       int64 // 10-99 => low activity
-	MotionQuietDelta     int64 // 1-9 => quiet
-	MotionNotMovingDelta int64 // 0 => not moving
+	// Motion state thresholds (cumulative motion_count delta over window). Not-moving is
+	// hardcoded as delta==0 in MovementStateFromDelta -- there is no lower threshold to
+	// configure, so no MotionNotMovingDelta field exists (a config knob with no reader is worse
+	// than none, maintainer correctness review defect 6).
+	MotionActiveDelta int64 // >= 100 => moving
+	MotionLowDelta    int64 // 10-99 => low activity
+	MotionQuietDelta  int64 // 1-9 => quiet
 
 	// Stale packet threshold (minutes).
 	StalePacketMinutes int // >= 30min with no packet => stale
@@ -33,11 +38,13 @@ type Thresholds struct {
 
 	// Pattern state thresholds (duration-based).
 	// All provisional; pending operational validation.
-	QuietWatchDurationMinutes int     // 1-2 hours of low delta => quiet_watch
-	InactiveDurationMinutes   int     // 3+ hours of low delta with packets => inactive
-	MissingSignalMinutes      int     // 30+ minutes with no packets => missing_signal
-	BaselinePercentile        int     // p75 of 24h non-gap buckets (not median)
-	SpikeThresholdMultiplier  float64 // how many x baseline = spike
+	QuietWatchDurationMinutes int // 1-2 hours of low delta => quiet_watch
+	InactiveDurationMinutes   int // 3+ hours of low delta with packets => inactive
+	MissingSignalMinutes      int // 30+ minutes with no packets => missing_signal
+	// The baseline percentile (p75) is hardcoded in percentile75/Baseline75 -- AGENTS.md is
+	// explicit that p75, not the median, is the required statistic (a resting animal's median
+	// bucket is 0), so there is no BaselinePercentile field to configure it away from p75.
+	SpikeThresholdMultiplier float64 // how many x baseline = spike
 }
 
 // DefaultThresholds returns provisional default thresholds.
@@ -53,13 +60,11 @@ func DefaultThresholds() Thresholds {
 		MotionActiveDelta:         100,
 		MotionLowDelta:            10,
 		MotionQuietDelta:          1,
-		MotionNotMovingDelta:      0,
 		StalePacketMinutes:        30,
 		MotionWindowSeconds:       60,
 		QuietWatchDurationMinutes: 90,  // 1.5 hours
 		InactiveDurationMinutes:   180, // 3 hours
 		MissingSignalMinutes:      30,  // 30 minutes
-		BaselinePercentile:        75,  // p75 of 24h non-gap buckets
 		SpikeThresholdMultiplier:  2.5, // 2.5x baseline
 	}
 }
@@ -118,7 +123,8 @@ type TagLatest struct {
 	BatteryState          string // "ok", "low", "unknown"
 	TagTemperatureC       *float64
 	MotionCount           *int64
-	MotionDelta           *int64
+	MotionDelta           *int64 // 15-minute window delta (motion_window_seconds=900)
+	MotionDelta1h         *int64 // real 1-hour (3600s-tier) delta -- distinct from MotionDelta, see 000193
 	PreviousMotionCount   *int64
 	PreviousSeenAt        *time.Time
 	MotionWindowSeconds   *int
@@ -338,3 +344,9 @@ type Actor struct {
 	TenantID string
 	UserID   string
 }
+
+// ErrValidation wraps a caller-input validation failure so the HTTP layer can distinguish "bad
+// request" from "server error" without string-matching error text (maintainer correctness
+// review, defect 7: invalid bucket_seconds/range previously mapped to 500 like a real failure).
+// Wrap with fmt.Errorf("...: %w", ErrValidation) and check with errors.Is at the handler.
+var ErrValidation = errors.New("herdsignals: validation error")

@@ -187,6 +187,29 @@ func TestBatteryStateFromMillivolts(t *testing.T) {
 	}
 }
 
+// TestCountConsecutiveQuietWindowsBreaksOnReceptionGap is the direct proof for defect 7's
+// densification bug: a quiet run that BRIDGES a 40-minute reception gap must not accrue as one
+// unbroken "inactive" duration, because inactive is explicitly defined as low movement WHILE
+// PACKETS STILL ARRIVE, not despite a hole in reception.
+func TestCountConsecutiveQuietWindowsBreaksOnReceptionGap(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	bucketSeconds := 300 // 5-minute tier
+	// Two quiet windows immediately before "now" (10 minutes), then a 40-minute reception gap
+	// (SPARSE: those rows simply do not exist), then two more quiet windows far in the past.
+	windows := []ActivityWindow{
+		{BucketStart: base, BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+		{BucketStart: base.Add(5 * time.Minute), BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+		// gap: base+10m .. base+50m has no rows at all
+		{BucketStart: base.Add(50 * time.Minute), BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+		{BucketStart: base.Add(55 * time.Minute), BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+	}
+	got := countConsecutiveQuietWindows(windows, 10)
+	want := 10 * time.Minute // only the trailing two contiguous 5-minute buckets, not all four
+	if got != want {
+		t.Errorf("countConsecutiveQuietWindows = %v, want %v (must not bridge the reception gap)", got, want)
+	}
+}
+
 func TestPatternStateFromHistory(t *testing.T) {
 	thresholds := DefaultThresholds()
 	now := time.Now()
@@ -380,11 +403,17 @@ func TestBaseline75(t *testing.T) {
 }
 
 // generateQuietWindows creates N minutes worth of quiet windows (delta < 10).
+// generateQuietWindows produces a CONTIGUOUS run of quiet windows with sequential BucketStart
+// timestamps, matching the real time-continuity walk in countConsecutiveQuietWindows (defect 7
+// fix: consecutiveness is now judged by time, not slice position, so a fixture must have real
+// timestamps to exercise it).
 func generateQuietWindows(durationMinutes int, bucketSeconds int) []ActivityWindow {
 	var windows []ActivityWindow
 	bucketsNeeded := (durationMinutes * 60) / bucketSeconds
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < bucketsNeeded; i++ {
 		windows = append(windows, ActivityWindow{
+			BucketStart:   base.Add(time.Duration(i*bucketSeconds) * time.Second),
 			BucketSeconds: bucketSeconds,
 			MotionDelta:   3, // Low delta (below MotionLowDelta threshold of 10)
 			PacketCount:   1,

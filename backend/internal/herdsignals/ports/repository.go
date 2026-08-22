@@ -80,6 +80,19 @@ type Repository interface {
 	// the Postgres implementation -- never a single compute-on-read god query
 	// (AGENTS.md scale anti-patterns).
 	GetInsightsData(ctx context.Context, tenantID string) (InsightsData, error)
+
+	// GetGatewayTagStats computes tags_seen_recently/weak_tags/unmapped_tags for EVERY gateway
+	// in ONE grouped query (never one query per gateway on GET /herd-signals/gateways).
+	// Previously hardcoded 0 with a TODO while the frontend rendered it as a real number
+	// (maintainer correctness review, defect 6 -- "scaffolded, never populated").
+	GetGatewayTagStats(ctx context.Context, tenantID string) (map[string]GatewayTagStats, error)
+}
+
+// GatewayTagStats is the per-gateway tag rollup for GET /herd-signals/gateways.
+type GatewayTagStats struct {
+	TagsSeenRecently int
+	WeakTags         int
+	UnmappedTags     int
 }
 
 // ShedLocation is the batched form of oploc.OperationalLocation keyed by shed id.
