@@ -566,3 +566,85 @@ The regression test for this is: ingest packets for a tag with no matching
 `goat_identifier`, then assert the live row carries every packet-derived field,
 the summary counts it, and the timeline returns its buckets.
 
+## Time, clocks, and what happens during a network outage
+
+### Two clocks, one truth
+
+| Field | Source | Trusted? | Used for |
+|---|---|---|---|
+| `received_at` | our server, when the packet arrived | **yes — this is truth** | ordering, staleness, gap detection, every rendered time |
+| `gateway_seen_at` | the gateway's own clock, stored verbatim | **no** | diagnostics only |
+
+The observed HoneyComm gateway runs **+02:30:00 ahead of real IST** — measured
+across the capture, not assumed. The two clocks are never reconciled by
+shifting one onto the other: the skew *is* the signal that a gateway's NTP or
+timezone is misconfigured, and averaging it away hides a real fault. All UI
+times are `received_at` rendered in Asia/Kolkata.
+
+### The outage model
+
+The gateway is a BLE scanner and network forwarder:
+
+```
+BLE tags -> gateway -> network -> our ingest endpoint
+```
+
+During a WAN outage it may keep scanning locally, but **assume it does not
+buffer scan reports and replay them later**, and note that the tag itself only
+ever broadcasts its CURRENT cumulative values — it never re-sends old history.
+So:
+
+```
+no network   =>  the backend receives nothing for that period
+reconnect    =>  the backend receives the latest cumulative motion_count again
+```
+
+### Movement during an outage is recoverable in TOTAL, not in TIME
+
+Because `motion_count` is cumulative, the movement that happened while we were
+blind is not lost — only its distribution is:
+
+```
+before the outage:  motion_count 7961
+after reconnect:    motion_count 8200
+                    -----------------
+                    +239 happened somewhere inside the gap
+```
+
+We know the total. We do **not** know when inside the gap it happened, and we
+must not pretend otherwise.
+
+### How the system models it
+
+A delta computed across a reception gap is flagged `gap_delta = true` — carried
+on the latest-state row, on the reconnect bucket, and in the live and timeline
+API responses. Rules that follow:
+
+- A `gap_delta` is **never smeared** across the buckets it spans. Attributing it
+  to any bucket invents a timeline we do not have.
+- A `gap_delta` is **excluded from the p75 baseline** and from the spike
+  comparison. A tag that was offline for two hours and returns +239 is a gap
+  with an attributed total, not a movement spike.
+- The counter-reset guard still applies inside a gap: a decrease yields 0,
+  never a negative.
+- Three facts stay distinct everywhere — storage, API and UI:
+
+| Fact | Meaning | Drawn as |
+|---|---|---|
+| **Gap** | no packets received in the window | gap band, not a bar |
+| **Zero delta** | packets received, motion_count unchanged | flush zero bar |
+| **Reconnect delta** | first packet after a gap, `gap_delta=true` | flagged bar carrying the gap total |
+
+### Open question for the vendor
+
+Ask, verbatim:
+
+> Does the gateway buffer BLE scan reports during a WAN outage and upload them
+> later with their original scan timestamps? If yes, how many packets / how many
+> hours, and where is this documented?
+
+Until that is answered in writing, treat the gateway as having **no reliable
+offline storage**. If the answer turns out to be yes, the reconnect-delta model
+above stays correct for the periods it does not cover — a buffer with a bound
+still produces gaps once the bound is exceeded.
+
