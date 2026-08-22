@@ -1115,10 +1115,20 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		activeGoats := activeGenerationGoats(goats)
-		if v.ScopeType == "tenant" {
-			if err := s.fillEffectiveVersionsForGoats(ctx, tenantID, activeGoats, asOf, effectiveVersionsByPark); err != nil {
-				return res, err
-			}
+		// Which versions are effective for each animal's park, resolved the same way whatever
+		// this run's own scope is.
+		//
+		// This used to run only for tenant-scoped versions, so a park-scoped run left the map
+		// empty, the supersede below saw no effective version for the park and skipped, and
+		// the previous plan's open work sat beside the new plan's for exactly the animals a
+		// park override exists to move.
+		//
+		// Resolved rather than assumed: a park can hold an override for one vaccine and take
+		// the tenant default for the rest, so seeding a single-entry map with this run's own
+		// version would retire every one of those tenant-default obligations as "no longer
+		// effective".
+		if err := s.fillEffectiveVersionsForGoats(ctx, tenantID, activeGoats, asOf, effectiveVersionsByPark); err != nil {
+			return res, err
 		}
 		effectiveVersionSets := make(map[string]map[string]struct{})
 		// Plan replacement: publishing a new matrix retires the old version in the same

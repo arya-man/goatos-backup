@@ -40,11 +40,9 @@ let baselineUpdated = 0;
 // (e.g. a seed-empty Action Center) aborting the whole gate before Calendar is reached.
 // Validate the selection UP FRONT — before waiting on the app or resolving any per-route fixture — so a
 // typo (or a selection that matches nothing) fails immediately, not after an unrelated network lookup.
-const KNOWN_ROUTE_NAMES = [
-  "login", "control-tower", "action-center", "calendar", "protocol-adherence", "workflows",
-  "vaccination", "vaccination-schedule", "vaccination-execution", "procurement-source-entry", "procurement-sales", "vaccination-plan", "counts-herd", "counts-analytics", "counts-breakdown", "counts-milk-preparation", "operations-audit", "operations-dlq",
-  "goat-passport", "procurement-load-detail",
-];
+// Derived, never hand-maintained: a list that must be kept in step with another list
+// eventually is not. The placeholder ids only shape two paths, never the names.
+const KNOWN_ROUTE_NAMES = buildRoutes("placeholder", "placeholder").map((route) => route.name);
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
 const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 // Present-but-empty (e.g. "," or whitespace) is an error: the caller asked to filter but named nothing.
@@ -72,40 +70,50 @@ const procurementLoadId = runsRoute("procurement-load-detail")
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
-const routes = [
-  { name: "login", path: "/login" },
-  { name: "control-tower", path: "/?scope_mode=company" },
-  { name: "action-center", path: "/action-center?scope_mode=company" },
-  { name: "calendar", path: "/calendar?scope_mode=company&day=week" },
-  { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
-  { name: "workflows", path: "/workflows?scope_mode=company" },
-  { name: "vaccination", path: "/vaccination?scope_mode=company" },
+// The routes this sweep visits, as a function of the ids two of them need.
+//
+// It is a function so the NAME LIST can be derived from it before those ids are resolved --
+// the allow-list used to be a second hand-maintained copy and it drifted: counts-sops and
+// counts-sops-builder were in this table, so a full sweep visited them, while a focused run
+// naming either was rejected as an unknown route.
+function buildRoutes(goatId, procurementLoadId) {
+  const routes = [
+    { name: "login", path: "/login" },
+    { name: "control-tower", path: "/?scope_mode=company" },
+    { name: "action-center", path: "/action-center?scope_mode=company" },
+    { name: "calendar", path: "/calendar?scope_mode=company&day=week" },
+    { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
+    { name: "workflows", path: "/workflows?scope_mode=company" },
+    { name: "vaccination", path: "/vaccination?scope_mode=company" },
   {
     name: "vaccination-schedule",
     path: `/vaccination?scope_mode=company&view=schedule&schedule_year=${new Date().getFullYear()}`,
     viewports: ["desktop"],
   },
-  { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
-  { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
-  { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
-  { name: "procurement-sales", path: "/procurement/sales?scope_mode=company" },
-  { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
-  { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
-  { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },
-  { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
-  { name: "counts-analytics", path: "/counts/analytics?scope_mode=company" },
-  { name: "counts-breakdown", path: "/counts/breakdown?scope_mode=company" },
-  { name: "counts-milk-preparation", path: "/counts/milk-preparation?scope_mode=company" },
-  { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
-  { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
-  { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
-];
-if (procurementLoadId) {
-  routes.push({
-    name: "procurement-load-detail",
-    path: `/procurement/source-entry/loads/${encodeURIComponent(procurementLoadId)}?scope_mode=company`,
-  });
+    { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
+    { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
+    { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
+    { name: "procurement-sales", path: "/procurement/sales?scope_mode=company" },
+    { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
+    { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
+    { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },
+    { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
+    { name: "counts-analytics", path: "/counts/analytics?scope_mode=company" },
+    { name: "counts-breakdown", path: "/counts/breakdown?scope_mode=company" },
+    { name: "counts-milk-preparation", path: "/counts/milk-preparation?scope_mode=company" },
+    { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
+    { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
+    { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
+    {
+      name: "procurement-load-detail",
+      path: `/procurement/source-entry/loads/${encodeURIComponent(procurementLoadId)}?scope_mode=company`,
+    },
+  ];
+  // The load-detail route needs a real load to visit; its NAME is still valid to ask for.
+  return procurementLoadId ? routes : routes.filter((route) => route.name !== "procurement-load-detail");
 }
+
+const routes = buildRoutes(goatId, procurementLoadId);
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
 // routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load)

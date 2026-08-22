@@ -17,6 +17,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { todayIso } from "@/lib/format";
+
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
 import type { EditorPlan } from "./editor-model";
@@ -211,9 +213,20 @@ export async function publishPlan(draftVersionId: string): Promise<PlanActionRes
  * rejects a date-only string -- the whole request then fails as "invalid_json",
  * naming the body rather than the field, so this is worth stating outright.
  */
+/**
+ * Midnight of the current Goat OS BUSINESS day, as the backend wants it (RFC3339).
+ *
+ * The server's own calendar day is the wrong one. Cloud Run runs in UTC, so between
+ * midnight and 05:29 IST the server is still on yesterday -- and a CEO publishing a plan
+ * early in the morning would have stamped it as effective from the day before, which reads
+ * as a plan that was already in force before anyone approved it.
+ *
+ * Asia/Kolkata is the tenant's operating calendar, and `todayIso` is where every screen
+ * already gets it, so the date the farm sees and the date the plan carries are the same
+ * date by construction.
+ */
 function today(): string {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString();
+  return `${todayIso()}T00:00:00Z`;
 }
 
 /**

@@ -2917,6 +2917,9 @@ type generationProtoFake struct {
 	batchGetVersionCalls int
 	batchListRulesCalls  int
 	batchEffectiveCalls  int
+	// Set to test a park-scoped plan: versionFor then reports that scope instead of tenant.
+	scopeType string
+	scopeID   string
 }
 
 func (p *generationProtoFake) GetVersion(_ context.Context, _ string, versionID string) (protodomain.Version, error) {
@@ -2932,7 +2935,14 @@ func (p *generationProtoFake) versionFor(versionID string) protodomain.Version {
 	if versionID == "" {
 		versionID = "version-1"
 	}
-	return protodomain.Version{ProtocolVersionID: versionID, Status: "published", ScopeType: "tenant", RuleDsl: ruleDSL}
+	scopeType := p.scopeType
+	if scopeType == "" {
+		scopeType = "tenant"
+	}
+	return protodomain.Version{
+		ProtocolVersionID: versionID, Status: "published",
+		ScopeType: scopeType, ScopeID: p.scopeID, RuleDsl: ruleDSL,
+	}
 }
 
 func (p *generationProtoFake) ListRules(context.Context, string, string) ([]protodomain.Rule, error) {
@@ -4346,5 +4356,53 @@ func TestGenerationMovesTheSurvivingRepeatCycleInsteadOfLeavingItStale(t *testin
 	want := businessDayStart(administered).AddDate(0, 0, 274)
 	if !got.DueAt.Equal(want) {
 		t.Fatalf("survivor due %s, want %s -- the recomputed date never reached the row it suppressed against", got.DueAt, want)
+	}
+}
+
+// A park override has to retire the plan it replaces, same as a tenant plan does.
+//
+// The effective-version map was filled only for tenant-scoped runs. A park-scoped run left it
+// empty, so the plan-replacement sweep saw no effective version for that park and skipped --
+// and the previous plan's open work sat beside the new plan's for exactly the animals a park
+// override exists to move. Nothing failed; the lists just showed both.
+func TestParkScopedGenerationStillSupersedesTheWorkItReplaces(t *testing.T) {
+	ctx := context.Background()
+	parkGoatDOB := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd-adult", DoseCode: "fmd_adult_w1", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 63, DueWindowDays: 30, Repeat: "none",
+		}},
+		// This park's effective plan is the override being generated. Anything else the animals
+		// still hold is the plan it replaced.
+		effectiveVersions: []string{"version-park-override"},
+		scopeType:         "park",
+		scopeID:           "cpt",
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "park-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-1", ParkID: "cpt",
+			DOB: &parkGoatDOB,
+		}},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-park-override",
+		time.Date(2026, time.September, 1, 6, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("generate for park-scoped version: %v", err)
+	}
+
+	if len(obl.canceledExceptVersions) == 0 {
+		t.Fatal("a park-scoped run superseded nothing: the plan it replaced keeps its open work forever")
+	}
+	got := obl.canceledExceptVersions[0]
+	if len(got) != 1 || got[0] != "version-park-override" {
+		t.Fatalf("kept effective versions = %#v, want only the park's own override", got)
+	}
+	if obl.cancelReasons[0] != "protocol_version_replaced" {
+		t.Fatalf("cancel reason = %q, want protocol_version_replaced", obl.cancelReasons[0])
 	}
 }
