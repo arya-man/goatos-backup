@@ -28,8 +28,8 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 	query := `
 		INSERT INTO public.herd_signal_gateways (
 			tenant_id, gateway_id, label, park_id, shed_id, location_id,
-			wifi_mac, ble_mac, network_mode, status, last_seen_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+			wifi_mac, ble_mac, network_mode, status, last_seen_at, last_pkt_sn, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 		ON CONFLICT (tenant_id, gateway_id) DO UPDATE
 		SET label = COALESCE($3, label),
 		    park_id = COALESCE($4, park_id),
@@ -120,10 +120,26 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 		    network_mode = COALESCE($9, public.herd_signal_gateways.network_mode),
 		    status = COALESCE($10, public.herd_signal_gateways.status),
 		    last_seen_at = COALESCE($11, public.herd_signal_gateways.last_seen_at),
+		    -- pkt_sn accounting (000197). This is the ONLY packet-loss instrument the gateway
+		    -- protocol gives us. A FORWARD jump means reports we never received: missed =
+		    -- new - last - 1, accrued into packets_missed_total. A DECREASE means the GATEWAY
+		    -- REBOOTED (its counter restarted) -- exactly the motion_count reset case -- so it
+		    -- counts a reboot and re-anchors, and NEVER subtracts: loss can never go negative.
+		    packets_missed_total = public.herd_signal_gateways.packets_missed_total
+		        + CASE WHEN $12 IS NOT NULL
+		                AND public.herd_signal_gateways.last_pkt_sn IS NOT NULL
+		                AND $12 > public.herd_signal_gateways.last_pkt_sn + 1
+		               THEN $12 - public.herd_signal_gateways.last_pkt_sn - 1 ELSE 0 END,
+		    pkt_sn_reboot_count = public.herd_signal_gateways.pkt_sn_reboot_count
+		        + CASE WHEN $12 IS NOT NULL
+		                AND public.herd_signal_gateways.last_pkt_sn IS NOT NULL
+		                AND $12 < public.herd_signal_gateways.last_pkt_sn
+		               THEN 1 ELSE 0 END,
+		    last_pkt_sn = COALESCE($12, public.herd_signal_gateways.last_pkt_sn),
 		    updated_at = now()
 	`,
 		tenantID, gw.GatewayID, gw.Label, gw.ParkID, gw.ShedID, gw.LocationID,
-		gw.WifiMAC, gw.BLEMAC, gw.NetworkMode, gw.Status, gw.LastSeenAt,
+		gw.WifiMAC, gw.BLEMAC, gw.NetworkMode, gw.Status, gw.LastSeenAt, gw.LastPktSN,
 	); err != nil {
 		return 0, 0, fmt.Errorf("upsert gateway: %w", err)
 	}
@@ -137,8 +153,8 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 				tenant_id, gateway_id, source, tag_id, tag_mac, received_at, device_seen_at,
 				gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c,
 				motion_count, sensor_state, temperature_sensor_ok,
-				accelerometer_sensor_ok, raw_adv, raw_payload
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+				accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 			-- Dedup identity is device_seen_at (000195), NOT received_at: received_at is now
 			-- server-stamped fresh per ingest call (security fix), so a retried batch would get a
 			-- NEW received_at and this predicate would stop catching retries if it still keyed on
@@ -148,7 +164,7 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 			tenantID, p.GatewayID, p.Source, p.TagID, p.TagMAC, p.ReceivedAt, p.DeviceSeenAt,
 			p.GatewaySeenAt, p.RSSIdbm, p.BatteryMV, p.TagTemperatureC,
 			p.MotionCount, p.SensorState, p.TemperatureSensorOK,
-			p.AccelerometerSensorOK, p.RawAdv, p.RawPayload,
+			p.AccelerometerSensorOK, p.PktSN, p.RawAdv, p.RawPayload,
 		)
 	}
 
@@ -323,6 +339,28 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		}
 	}
 
+	// Tag->animal mapping is resolved on ingest so live/timeline reads never pay for the join.
+	// Re-resolved on every ingest (cheap point lookup) rather than only once, since
+	// smart_tag_capable / identifier status can change after the tag was first seen.
+	//
+	// Resolved HERE, before the history load below, because the monitoring boundary it carries
+	// decides how far back that history is allowed to reach.
+	mapping, _, err = resolveTagMapping(ctx, tx, tenantID, &tagID, latestPkt.TagMAC)
+	if err != nil {
+		return false, fmt.Errorf("resolve tag mapping: %w", err)
+	}
+
+	// THE MONITORING BOUNDARY (migration 000196). A tag is commissioned, powered up and
+	// broadcasting long before it is attached to an animal; on staging none of them are mapped at
+	// all. Everything emitted before the mapping instant is telemetry ABOUT A DEVICE -- someone
+	// carrying it in a pocket, jostling a bench, driving it to a farm -- and must never be blended
+	// into an animal's history. NULL means unmapped: device telemetry only, and no
+	// animal-attributed value may be produced for the tag at all.
+	monitoringSince, err := monitoringBoundaryTx(ctx, tx, tenantID, tagID, latestPkt.TagMAC)
+	if err != nil {
+		return false, err
+	}
+
 	// movement_state and pattern_state are computed over history, not the single ingest-batch
 	// delta (AGENTS.md: compare like grain to like grain). Pull the trailing 15-minute window
 	// from the 60s tier (already upserted above in this same tx) for the movement-state delta,
@@ -348,7 +386,17 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		movementState = "stale"
 	}
 
-	history, err := r.listActivityWindowsTx(ctx, tx, tenantID, tagID, 300, latestPkt.ReceivedAt.Add(-24*time.Hour), latestPkt.ReceivedAt)
+	// The pattern window (quiet_watch / inactive / spike, and the p75 baseline the spike
+	// comparison uses) is an ANIMAL-attributed judgement, so it may not look back past the
+	// mapping instant. Bench movement from a tag rattling in a box must never enter a real
+	// animal's baseline. For an unmapped tag the boundary is NULL and the window is unchanged --
+	// there is no animal to attribute anything to, and the device's own history is legitimately
+	// its own.
+	historyFrom := latestPkt.ReceivedAt.Add(-24 * time.Hour)
+	if monitoringSince != nil && monitoringSince.After(historyFrom) {
+		historyFrom = *monitoringSince
+	}
+	history, err := r.listActivityWindowsTx(ctx, tx, tenantID, tagID, 300, historyFrom, latestPkt.ReceivedAt)
 	if err != nil {
 		return false, fmt.Errorf("load 24h pattern history: %w", err)
 	}
@@ -358,22 +406,14 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	signalState := domain.SignalStateFromRSSI(latestPkt.RSSIdbm, nil, thresholds)
 	batteryState := domain.BatteryStateFromVoltage(latestPkt.BatteryMV, thresholds)
 
-	// Tag->animal mapping is resolved on ingest so live/timeline reads never pay for the join.
-	// Re-resolved on every ingest (cheap point lookup) rather than only once, since
-	// smart_tag_capable / identifier status can change after the tag was first seen.
-	mapping, _, err = resolveTagMapping(ctx, tx, tenantID, &tagID, latestPkt.TagMAC)
-	if err != nil {
-		return false, fmt.Errorf("resolve tag mapping: %w", err)
-	}
-
 	_, err = tx.Exec(ctx, `
 		INSERT INTO public.herd_signal_tag_latest (
 			tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
 			last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
 			motion_count, motion_delta, motion_delta_1h, previous_motion_count, previous_seen_at,
 			motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
-			accelerometer_sensor_ok, mapping_state, gap_delta, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
+			accelerometer_sensor_ok, mapping_state, gap_delta, animal_monitoring_since, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, now())
 		ON CONFLICT (tenant_id, tag_id) DO UPDATE
 		SET tag_mac = COALESCE($3, public.herd_signal_tag_latest.tag_mac),
 		    gateway_id = COALESCE($4, public.herd_signal_tag_latest.gateway_id),
@@ -396,6 +436,10 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		    accelerometer_sensor_ok = COALESCE($21, public.herd_signal_tag_latest.accelerometer_sensor_ok),
 		    mapping_state = $22,
 		    gap_delta = $23,
+		    -- Denormalised from goat_identifiers.smart_tag_mapped_at so the hot read path never
+		    -- joins to decide whether a number may be attributed to an animal. Assigned, not
+		    -- COALESCEd: an UNMAP must be able to push this back to NULL.
+		    animal_monitoring_since = $24,
 		    updated_at = now()
 	`,
 		tenantID, tagID, latestPkt.TagMAC, latestPkt.GatewayID, latestPkt.Source, latestPkt.ReceivedAt,
@@ -407,6 +451,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		900, movementState,
 		patternStateComputed,
 		latestPkt.TemperatureSensorOK, latestPkt.AccelerometerSensorOK, mapping, gapDelta,
+		monitoringSince,
 	)
 	if err != nil {
 		return false, fmt.Errorf("upsert tag_latest: %w", err)
@@ -775,6 +820,34 @@ func resolveTagMapping(ctx context.Context, q pgxQuerier, tenantID string, tagID
 	}
 }
 
+// monitoringBoundaryTx reads the instant animal monitoring starts for this tag: the earliest
+// smart_tag_mapped_at across the ACTIVE, smart-tag-capable identifiers whose normalized_value is
+// the tag's id or MAC. nil means the tag is not bound to an animal.
+//
+// Deliberately the same predicate resolveTagMapping uses, and deliberately the same normalizer
+// (domain.NormalizeTagIdentifier -> the identity module's canonical
+// strings.ToUpper(strings.TrimSpace(v))), so a tag can never be "mapped" with no boundary or
+// carry a boundary while unmapped.
+func monitoringBoundaryTx(ctx context.Context, tx pgx.Tx, tenantID, tagID string, tagMAC *string) (*time.Time, error) {
+	values := []string{domain.NormalizeTagIdentifier(tagID)}
+	if tagMAC != nil {
+		if n := domain.NormalizeTagIdentifier(*tagMAC); n != "" && n != values[0] {
+			values = append(values, n)
+		}
+	}
+	var since *time.Time
+	err := tx.QueryRow(ctx, `
+		SELECT min(smart_tag_mapped_at)
+		FROM public.goat_identifiers
+		WHERE tenant_id = $1 AND normalized_value = ANY($2)
+		      AND status = 'active' AND smart_tag_capable IS TRUE
+	`, tenantID, values).Scan(&since)
+	if err != nil {
+		return nil, fmt.Errorf("read monitoring boundary: %w", err)
+	}
+	return since, nil
+}
+
 // GetGoatsByIDs fetches display_id and location for multiple goats.
 func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs []string) (map[string]ports.GoatData, error) {
 	if len(goatIDs) == 0 {
@@ -949,13 +1022,26 @@ func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tag
 	// animal's normal per-bucket movement (maintainer decision on offline behaviour, mirrors
 	// domain.Baseline75's Go-side exclusion for the same reason). Never remove this predicate to
 	// "smooth" the baseline -- that is exactly the mistake this exclusion exists to prevent.
+	// THE MONITORING BOUNDARY (000196) is enforced here, not just documented. The baseline is
+	// the most animal-attributed number in this module -- it is what a spike is measured
+	// against -- so:
+	//   * a tag with a NULL boundary (unmapped) gets NO baseline at all. Not a zero, not a
+	//     default: there is no animal, so there is nothing to attribute a baseline to.
+	//   * buckets EARLIER than the boundary are excluded. Bench movement from a tag rattling in
+	//     a box must never enter a real animal's baseline, and without this predicate the first
+	//     thing the system would tell a farm about a newly tagged goat is derived from exactly
+	//     that.
 	rows, err := r.db.Query(ctx, `
-		SELECT tag_id, percentile_disc(0.75) WITHIN GROUP (ORDER BY motion_delta)
-		FROM public.herd_signal_activity_windows
-		WHERE tenant_id = $1 AND tag_id = ANY($2)
-		      AND bucket_seconds = 300 AND packet_count > 0 AND gap_delta = false
-		      AND bucket_start >= now() - interval '24 hours'
-		GROUP BY tag_id
+		SELECT w.tag_id, percentile_disc(0.75) WITHIN GROUP (ORDER BY w.motion_delta)
+		FROM public.herd_signal_activity_windows w
+		JOIN public.herd_signal_tag_latest tl
+		  ON tl.tenant_id = w.tenant_id AND tl.tag_id = w.tag_id
+		WHERE w.tenant_id = $1 AND w.tag_id = ANY($2)
+		      AND w.bucket_seconds = 300 AND w.packet_count > 0 AND w.gap_delta = false
+		      AND w.bucket_start >= now() - interval '24 hours'
+		      AND tl.animal_monitoring_since IS NOT NULL
+		      AND w.bucket_start >= tl.animal_monitoring_since
+		GROUP BY w.tag_id
 	`, tenantID, tagIDs)
 	if err != nil {
 		return nil, err
@@ -1060,6 +1146,12 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		WHERE vc.tenant_id = $1
 		  AND vc.status = 'accepted'
 		  AND vc.administered_at >= now() - interval '24 hours'
+		  -- Monitoring boundary (000196): a correlated card is an animal-attributed claim, so it
+		  -- may only consider a tag that IS bound to an animal, and only events that happened
+		  -- after that binding. A vaccination recorded while the tag was still on a bench says
+		  -- nothing about the animal now wearing it.
+		  AND tl.animal_monitoring_since IS NOT NULL
+		  AND vc.administered_at >= tl.animal_monitoring_since
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive', 'missing')
 	`, tenantID).Scan(&d.PostVaccinationWatchCount)
 	if err != nil {
@@ -1078,6 +1170,8 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND (UPPER(BTRIM(tl.tag_id)) = gi.normalized_value OR UPPER(BTRIM(tl.tag_mac)) = gi.normalized_value)
 		WHERE hc.tenant_id = $1
 		  AND hc.status = 'active'
+		  -- Monitoring boundary (000196), same rule as the vaccination card above.
+		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive')
 	`, tenantID).Scan(&d.HealthCaseActivityCount)
 	if err != nil {
@@ -1097,6 +1191,9 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		    FROM public.herd_signal_tag_latest tl
 		    %s
 		    WHERE tl.tenant_id = fdc.tenant_id AND g.shed_id = fdc.shed_id
+		      -- Monitoring boundary (000196): the shed only counts as covered by a tag that is
+		      -- actually bound to an animal in it.
+		      AND tl.animal_monitoring_since IS NOT NULL
 		  )
 	`, tagLocationJoin), tenantID).Scan(&d.FeedActivityShedsCount)
 	if err != nil {
@@ -1119,6 +1216,12 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		WHERE wo.tenant_id = $1
 		  AND btrim(wo.scanned_identifier) <> ''
 		  AND wo.accepted_at >= now() - interval '24 hours'
+		  -- Monitoring boundary (000196): still no goat_identifiers join and still correlated by
+		  -- the RAW scanned string (weighing is free-flow and never resolves a scan to identity),
+		  -- but a weighing that happened before this tag was bound to an animal is bench history,
+		  -- not an observation of the animal now wearing it.
+		  AND tl.animal_monitoring_since IS NOT NULL
+		  AND wo.accepted_at >= tl.animal_monitoring_since
 	`, tenantID).Scan(&d.WeightActivityTagsCount)
 	if err != nil {
 		return d, fmt.Errorf("insights weight activity: %w", err)
