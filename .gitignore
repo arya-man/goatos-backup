@@ -177,3 +177,5 @@ fixtures/vaccination-hrms-source-full/seed-stage-correction-*.json
 backend/import-procurement-vendors
 /backend/mcp
 /.qa/
+backend/main
+herd-signals-proof/
