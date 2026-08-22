@@ -15,6 +15,7 @@ import { HerdSignalsNavProvider } from "./herd-signals-nav-context";
 import { HerdSignalsKpis, HerdSignalsKpiChip } from "./herd-signals-kpis";
 import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
 import { HerdSignalsTable } from "./herd-signals-table";
+import { HerdSignalsMappingTable } from "./herd-signals-mapping-table";
 import { HerdSignalsGateways } from "./herd-signals-gateways";
 import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag } from "@/components/ui-primitives";
@@ -163,7 +164,7 @@ export async function HerdSignalsBoard({
         ) : params.tab === "animals" ? (
           <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
         ) : params.tab === "mapping" ? (
-          <MappingTab params={params} result={liveResult} nowMs={nowMs} />
+          <MappingTab params={params} result={liveResult} />
         ) : params.tab === "alerts" ? (
           <AlertsTab params={params} result={liveResult} nowMs={nowMs} />
         ) : params.tab === "gateways" ? (
@@ -310,11 +311,9 @@ function FilteredTableTab({
 function MappingTab({
   params,
   result,
-  nowMs,
 }: {
   params: HerdSignalsParams;
   result: ApiResult<HerdSignalsLiveResponse>;
-  nowMs: number;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { items, next_cursor, summary } = result.data;
@@ -348,7 +347,7 @@ function MappingTab({
           <span className="small faint">Flag lives on the identifier, not the animal — an animal can carry several tags</span>
         </div>
         <div className="bd flush">
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
+          <HerdSignalsMappingTable items={items} nextCursor={next_cursor} params={params} tagsSeen={summary.tags_seen} />
         </div>
       </div>
     </>
