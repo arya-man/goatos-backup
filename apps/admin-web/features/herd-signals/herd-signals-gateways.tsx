@@ -70,9 +70,10 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
                 {gateway.status === "online" ? "Online" : "Offline"}
               </Tag>
               <div className="sp" />
-              {/* No chip at all when the gateway has not reported how it backhauls — a chip
-                  reading "—" is a label with nothing in it, and a guessed mode is a fabricated fact. */}
-              {gateway.network_mode ? <Tag tone="mut">{NETWORK_MODE_LABEL[gateway.network_mode]}</Tag> : null}
+              {/* The mock always shows this chip; an absent one silently drops a field the reader
+                  expects to see. Em dash when the gateway has not reported how it backhauls yet —
+                  never a guessed mode, but never a missing chip either. */}
+              <Tag tone="mut">{gateway.network_mode ? NETWORK_MODE_LABEL[gateway.network_mode] : "—"}</Tag>
             </div>
 
             <div className="muted small">{locationLine(gateway)}</div>
@@ -118,18 +119,13 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
               </div>
             </div>
 
-            {/* Same reason: "BLE —" is a label for a value the gateway never sent. The line
-                appears only when there is at least one real MAC to print. */}
-            {gateway.ble_mac || gateway.wifi_mac ? (
-              <div className="mono faint small">
-                {[
-                  gateway.ble_mac ? `BLE ${fmtBleMac(gateway.ble_mac)}` : null,
-                  gateway.wifi_mac ? `WiFi ${fmtBleMac(gateway.wifi_mac)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
-            ) : null}
+            {/* The mock always prints this footer line. Matching that structurally means an
+                unreported MAC reads as an honest em dash, not a vanished line the reader has no
+                way to tell apart from "this card has no footer". */}
+            <div className="mono faint small">
+              {`BLE ${gateway.ble_mac ? fmtBleMac(gateway.ble_mac) : "—"}`}
+              {gateway.wifi_mac ? ` · WiFi ${fmtBleMac(gateway.wifi_mac)}` : ""}
+            </div>
           </div>
         ))}
       </div>
