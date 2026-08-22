@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS public.herd_signal_tag_latest (
   previous_seen_at timestamptz,
   motion_window_seconds integer,
   movement_state text NOT NULL DEFAULT 'unknown',
+  pattern_state text NOT NULL DEFAULT 'unknown',
   temperature_sensor_ok boolean,
   accelerometer_sensor_ok boolean,
   mapping_state text NOT NULL DEFAULT 'unmapped',

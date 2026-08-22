@@ -2,6 +2,7 @@ package domain
 
 import (
 	"testing"
+	"time"
 )
 
 func TestMotionDelta(t *testing.T) {
@@ -186,8 +187,111 @@ func TestBatteryStateFromMillivolts(t *testing.T) {
 	}
 }
 
+func TestPatternStateFromHistory(t *testing.T) {
+	thresholds := DefaultThresholds()
+	now := time.Now()
+	fiveMinutesAgo := now.Add(-5 * time.Minute)
+
+	tests := []struct {
+		name           string
+		currentDelta   int64
+		lastPacketAt   *time.Time
+		recentWindows  []ActivityWindow
+		expectedState  string
+	}{
+		{
+			name:         "missing signal (no recent packets)",
+			currentDelta: 0,
+			lastPacketAt: timePtr(now.Add(-time.Hour)),
+			recentWindows: []ActivityWindow{},
+			expectedState: string(PatternMissingSignal),
+		},
+		{
+			name:         "no movement (delta = 0)",
+			currentDelta: 0,
+			lastPacketAt: &fiveMinutesAgo,
+			recentWindows: []ActivityWindow{
+				{BucketSeconds: 60, MotionDelta: 0, PacketCount: 1, IsGap: false},
+			},
+			expectedState: string(PatternNoMovement),
+		},
+		{
+			name:         "quiet watch (sustained low delta 1-2h)",
+			currentDelta: 5,
+			lastPacketAt: &fiveMinutesAgo,
+			recentWindows: generateQuietWindows(100, 60), // 100 min > 90 min threshold
+			expectedState: string(PatternQuietWatch),
+		},
+		{
+			name:         "inactive (sustained low delta 3+ hours with packets)",
+			currentDelta: 5,
+			lastPacketAt: &fiveMinutesAgo,
+			recentWindows: generateQuietWindows(190, 60), // 190 min > 180 min threshold
+			expectedState: string(PatternInactive),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := PatternStateFromHistory(tt.currentDelta, tt.lastPacketAt, now, tt.recentWindows, thresholds)
+			if state != tt.expectedState {
+				t.Errorf("state = %s, want %s", state, tt.expectedState)
+			}
+		})
+	}
+}
+
+func TestPercentile75(t *testing.T) {
+	tests := []struct {
+		name     string
+		deltas   []int64
+		expected int64
+	}{
+		{
+			name:     "empty",
+			deltas:   []int64{},
+			expected: 0,
+		},
+		{
+			name:     "single value",
+			deltas:   []int64{10},
+			expected: 10,
+		},
+		{
+			name:     "four values (p75 = 3rd)",
+			deltas:   []int64{1, 2, 3, 4},
+			expected: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := percentile75(tt.deltas)
+			if result != tt.expected {
+				t.Errorf("percentile75 = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
+
 // Helper functions for test pointers
 func int16Ptr(v int16) *int16       { return &v }
 func int64Ptr(v int64) *int64       { return &v }
 func intPtr(v int) *int             { return &v }
 func float64Ptr(v float64) *float64 { return &v }
+func timePtr(v time.Time) *time.Time { return &v }
+
+// generateQuietWindows creates N minutes worth of quiet windows (delta < 10).
+func generateQuietWindows(durationMinutes int, bucketSeconds int) []ActivityWindow {
+	var windows []ActivityWindow
+	bucketsNeeded := (durationMinutes * 60) / bucketSeconds
+	for i := 0; i < bucketsNeeded; i++ {
+		windows = append(windows, ActivityWindow{
+			BucketSeconds: bucketSeconds,
+			MotionDelta:   3, // Low delta (below MotionLowDelta threshold of 10)
+			PacketCount:   1,
+			IsGap:         false,
+		})
+	}
+	return windows
+}
