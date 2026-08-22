@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
@@ -30,6 +31,48 @@ const TAB_LABEL: Record<HerdSignalsTab, string> = {
   alerts: "Alerts",
   mapping: "Tag Mapping",
   insights: "Insights",
+};
+
+// One glyph per tab, using exactly the paths the reference `.segs` buttons carry. Labels alone made
+// the six tabs a wall of same-weight text; the icon is what lets the eye find "Gateways" without
+// reading the row. Rendered at `ic sm` (14px) as the reference does, not the 18px default `ic`.
+const TAB_ICON: Record<HerdSignalsTab, ReactNode> = {
+  live: (
+    <>
+      <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
+      <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
+      <circle cx="12" cy="12" r="2" />
+      <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
+      <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
+    </>
+  ),
+  animals: (
+    <>
+      <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </>
+  ),
+  gateways: (
+    <>
+      <path d="M5 12.5a7 7 0 0 1 14 0" />
+      <path d="M2 9a11 11 0 0 1 20 0" />
+      <circle cx="12" cy="17" r="2" />
+    </>
+  ),
+  alerts: (
+    <>
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </>
+  ),
+  mapping: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19" />
+    </>
+  ),
+  insights: <path d="M3 12h4l3 8 4-16 3 8h4" />,
 };
 
 const ALERT_PATTERNS = ["missing", "inactive", "spike", "quiet_watch", "recovered"] as const;
@@ -153,6 +196,9 @@ export async function HerdSignalsBoard({
         <div className="segs">
           {HERD_SIGNALS_TABS.map((tab) => (
             <Link key={tab} href={herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab })} className={params.tab === tab ? "on" : undefined}>
+              <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
+                {TAB_ICON[tab]}
+              </svg>
               {TAB_LABEL[tab]}
               {tabCounts[tab] !== undefined ? <span className="cnt">{tabCounts[tab]}</span> : null}
             </Link>
@@ -317,41 +363,10 @@ function MappingTab({
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { items, next_cursor, summary } = result.data;
-  return (
-    <>
-      <div className="fbar">
-        <Link href={herdSignalsHref(params, { hs_map: undefined })} className={`btn sm${!params.mappingState ? " p" : ""}`}>
-          All
-        </Link>
-        <Link href={herdSignalsHref(params, { hs_map: "unmapped" })} className={`btn sm${params.mappingState === "unmapped" ? " p" : ""}`}>
-          Unmapped only
-        </Link>
-        <Link href={herdSignalsHref(params, { hs_map: "conflict" })} className={`btn sm${params.mappingState === "conflict" ? " p" : ""}`}>
-          Conflicts only
-        </Link>
-        <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn sm p" disabled title="No mapping-write endpoint is available yet">
-          Map selected BLE tag
-        </button>
-        <button type="button" className="btn sm" disabled title="No mapping-write endpoint is available yet">
-          Mark as smart tag
-        </button>
-        <button type="button" className="btn sm" disabled title="No mapping-write endpoint is available yet">
-          Replace smart tag
-        </button>
-      </div>
-      <div className="card">
-        <div className="hd">
-          <h3>BLE tag ↔ animal identifier mapping</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="small faint">Flag lives on the identifier, not the animal — an animal can carry several tags</span>
-        </div>
-        <div className="bd flush">
-          <HerdSignalsMappingTable items={items} nextCursor={next_cursor} params={params} tagsSeen={summary.tags_seen} />
-        </div>
-      </div>
-    </>
-  );
+  // The mapping-state chips, the three write actions (MAP / REPLACE / UNMAP), the table and its
+  // pagination all live in ONE client component: they share a selected row, and splitting the
+  // toolbar off into this server component left the buttons unable to see what was selected.
+  return <HerdSignalsMappingTable items={items} nextCursor={next_cursor} params={params} tagsSeen={summary.tags_seen} />;
 }
 
 function AlertsTab({
