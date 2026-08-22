@@ -23,6 +23,9 @@ func (*milkPreparationStoreStub) ApplyVerifiedMilkPreparation(context.Context, d
 func (*milkPreparationStoreStub) BounceMilkPreparationForRework(context.Context, domain.MilkPreparationVerdictCommand) (bool, error) {
 	return false, nil
 }
+func (*milkPreparationStoreStub) VerifiedUHTConsumption(context.Context, string, string) (domain.MilkPreparationUHTConsumption, bool, error) {
+	return domain.MilkPreparationUHTConsumption{}, false, nil
+}
 
 type milkPreparationProofValidatorStub struct {
 	steps []domain.MilkPreparationStepProof

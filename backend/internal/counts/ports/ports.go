@@ -170,6 +170,12 @@ type MilkPreparationCompletionStore interface {
 	SubmitMilkPreparation(ctx context.Context, in domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
 	ApplyVerifiedMilkPreparation(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
 	BounceMilkPreparationForRework(ctx context.Context, in domain.MilkPreparationVerdictCommand) (bool, error)
+	// VerifiedUHTConsumption reads the accepted attempt's UHT-milk litres for a
+	// COMPLETED preparation. ok=false (no error) when the completion is missing
+	// or not completed — a rework/pending row has no accepted consumption yet.
+	// Read on every APPROVE delivery, duplicates included, so an at-least-once
+	// verdict can always re-forward the fact to the feed stock recorder.
+	VerifiedUHTConsumption(ctx context.Context, tenantID, completionID string) (domain.MilkPreparationUHTConsumption, bool, error)
 }
 
 type MilkFeedingStore interface {

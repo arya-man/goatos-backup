@@ -582,7 +582,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, and locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow); group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_external_consumption at its (tenant, farm_label, feed_item_key, feed_day) natural key (sheet-tracked feeds GoatOS does not direct — UHT Milk); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
 // PER-FARM GRAIN (maintainer decision 2026-08-21): each farm keeps its own
 // physical feed store, so a tenant-wide balance/days-left is a number nobody's
@@ -604,14 +604,30 @@ WITH bought AS (
     GROUP BY farm_label, feed_item_key
 ),
 locked_cells AS (
-    SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
-    FROM feed_direction_issues i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE i.tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
-      AND i.state = 'locked'
-    GROUP BY i.park_id, r.feed_item_key, i.feed_day
+    -- Consumption from BOTH sources at one grain: locked-sheet directed kg,
+    -- plus the feed_external_consumption ledger for sheet-tracked feeds GoatOS
+    -- does not direct (UHT Milk; migration 000185). The outer GROUP BY
+    -- collapses the union so a feed appearing in both sources on one day sums
+    -- once per (park, item, day) — total consumed, never a duplicate row.
+    SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg
+    FROM (
+        SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+        FROM feed_direction_issues i
+        JOIN feed_direction_issue_rows r
+          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        WHERE i.tenant_id = $1
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
+          AND i.state = 'locked'
+        GROUP BY i.park_id, r.feed_item_key, i.feed_day
+        UNION ALL
+        SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+        GROUP BY x.park_id, x.feed_item_key, x.feed_day
+    ) both_sources
+    GROUP BY park_id, feed_item_key, feed_day
 ),
 directed AS (
     SELECT b.farm_label, b.feed_item_key, COALESCE(SUM(lc.kg), 0) AS kg
@@ -650,20 +666,34 @@ LEFT JOIN recent r
  AND r.feed_item_key = b.feed_item_key
 ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
 
-// Expenditure: each (day, farm, item)'s directed kg priced at that farm's most
-// recent load rate on or before that day. Park-less purchase rows have no
+// Expenditure: each (day, farm, item)'s directed kg — plus external
+// consumption of sheet-tracked feeds (UHT Milk) — priced at that farm's most
+// recent load rate on or before that day, matching the sheet's daily feed
+// cost, which has always included the milk. Park-less purchase rows have no
 // execution source to price and are deliberately excluded from spend.
 const stockExpenditureSQL = `
 WITH day_item AS (
-    SELECT i.feed_day, i.park_id, r.feed_item_key, SUM(r.quantity_kg) AS kg
-    FROM feed_direction_issues i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE i.tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
-      AND i.state IN ('issued', 'amended', 'locked')
-      AND i.feed_day BETWEEN $3 AND $4
-    GROUP BY i.feed_day, i.park_id, r.feed_item_key
+    SELECT feed_day, park_id, feed_item_key, SUM(kg) AS kg
+    FROM (
+        SELECT i.feed_day, i.park_id, r.feed_item_key, SUM(r.quantity_kg) AS kg
+        FROM feed_direction_issues i
+        JOIN feed_direction_issue_rows r
+          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        WHERE i.tenant_id = $1
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
+          AND i.state IN ('issued', 'amended', 'locked')
+          AND i.feed_day BETWEEN $3 AND $4
+        GROUP BY i.feed_day, i.park_id, r.feed_item_key
+        UNION ALL
+        SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+          AND x.feed_day BETWEEN $3 AND $4
+        GROUP BY x.feed_day, x.park_id, x.feed_item_key
+    ) both_sources
+    GROUP BY feed_day, park_id, feed_item_key
 )
 SELECT di.feed_day::text,
        round(SUM(di.kg * price.per_kg), 0)::text AS rupees
@@ -689,16 +719,29 @@ ORDER BY di.feed_day`
 // out, matching every other figure on the page.
 const stockSpendSQL = `
 WITH day_item AS (
-    SELECT i.feed_day, i.park_id, r.feed_item_key, SUM(r.quantity_kg) AS kg
-    FROM feed_direction_issues i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE i.tenant_id = $1
-      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
-      AND i.state IN ('issued', 'amended', 'locked')
-      AND i.feed_day >= date_trunc('year', $3::date)::date
-      AND i.feed_day < $3::date
-    GROUP BY i.feed_day, i.park_id, r.feed_item_key
+    SELECT feed_day, park_id, feed_item_key, SUM(kg) AS kg
+    FROM (
+        SELECT i.feed_day, i.park_id, r.feed_item_key, SUM(r.quantity_kg) AS kg
+        FROM feed_direction_issues i
+        JOIN feed_direction_issue_rows r
+          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        WHERE i.tenant_id = $1
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
+          AND i.state IN ('issued', 'amended', 'locked')
+          AND i.feed_day >= date_trunc('year', $3::date)::date
+          AND i.feed_day < $3::date
+        GROUP BY i.feed_day, i.park_id, r.feed_item_key
+        UNION ALL
+        SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+          AND x.feed_day >= date_trunc('year', $3::date)::date
+          AND x.feed_day < $3::date
+        GROUP BY x.feed_day, x.park_id, x.feed_item_key
+    ) both_sources
+    GROUP BY feed_day, park_id, feed_item_key
 ),
 priced AS (
     SELECT di.feed_day, di.kg * price.per_kg AS spend
