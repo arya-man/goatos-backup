@@ -1,0 +1,378 @@
+package postgres
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+)
+
+// Proofs of the herd-signals SQL against the REAL migration schema (000190/000191/000192):
+// packet ingest, activity-window rollup, tag_latest state computation, the live-view join, the
+// summary aggregate, the timeline query, and the insights joins.
+//
+// THE CENTRAL INVARIANT THIS FILE PROVES (maintainer decision): the BLE tags are bench units,
+// not yet attached to real animals. On STG, on the day this ships, ZERO tags will be mapped to a
+// goat. Every packet-derived field -- tag id, MAC, gateway, RSSI/signal, battery, temperature,
+// motion count and deltas, movement_state, pattern_state, last_seen_at, sensor bits, and the
+// full timeline -- must render for an UNMAPPED tag exactly as it does for a mapped one. Only
+// genuinely animal-derived fields (display_id, park/shed/location, and the four correlated
+// insight cards) may be empty for an unmapped tag, and they must degrade to an honest empty
+// result, never an error and never a page that silently drops the row.
+const (
+	hsiTenant      = "45000000-0000-4000-8000-000000000001"
+	hsiPark        = "45000000-0000-4000-8000-000000003001"
+	hsiShed        = "45000000-0000-4000-8000-000000004001"
+	hsiParty       = "45000000-0000-4000-8000-000000001001"
+	hsiGoat        = "45000000-0000-4000-8000-000000002001"
+	hsiMappedTag   = "hsi-mapped-tag-01"
+	hsiMappedMAC   = "AA:BB:CC:DD:EE:01"
+	hsiUnmappedTag = "hsi-unmapped-tag-01"
+	hsiUnmappedMAC = "AA:BB:CC:DD:EE:02"
+)
+
+func setupHerdSignalsDB(t *testing.T, ctx context.Context) (*Repository, *pgxpool.Pool) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	pool := pgtest.StartPostgres(t, ctx)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v\nsql: %s", err, sql)
+		}
+	}
+	exec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Herd Signals Test', 'active')
+ON CONFLICT (tenant_id) DO NOTHING`, hsiTenant)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'HSI', 'HSI Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, hsiTenant, hsiPark)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($2::uuid, $1::uuid, 'shed', 'HSI-SHED', 'HSI Shed', $3::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, hsiTenant, hsiShed, hsiPark)
+	exec(`INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ($1::uuid, 'org', 'Herd Signals Test Custodian', 'active')
+ON CONFLICT (party_id) DO NOTHING`, hsiParty)
+	exec(`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
+VALUES ($2::uuid, $1::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'Synthetic Boer', 'female')
+ON CONFLICT (goat_id) DO NOTHING`, hsiTenant, hsiGoat, hsiParty, hsiShed, hsiPark)
+	// normalized_value = UPPER(BTRIM($3)) mirrors the identity module's own canonical
+	// normalizer exactly (strings.ToUpper(strings.TrimSpace(...))), rather than hand-typing an
+	// already-uppercase literal here -- so this fixture proves the SAME normalization contract
+	// production data has, not a test-only shortcut.
+	exec(`INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, UPPER(BTRIM($3)), 'global', true, 'active', now(), 'test_v1', true)`,
+		hsiTenant, hsiGoat, hsiMappedTag)
+	// hsiUnmappedTag deliberately gets NO goat_identifiers row: this is the STG day-one state.
+	return NewRepository(pool), pool
+}
+
+func i64(v int64) *int64     { return &v }
+func i16(v int16) *int16     { return &v }
+func iv(v int) *int          { return &v }
+func f64(v float64) *float64 { return &v }
+func bp(v bool) *bool        { return &v }
+func sp(v string) *string    { return &v }
+
+func makePacket(tenantID, tagID, tagMAC string, gatewayID string, receivedAt time.Time, motionCount int64, rssi int16) domain.Packet {
+	gw := gatewayID
+	mac := tagMAC
+	return domain.Packet{
+		TenantID:              tenantID,
+		GatewayID:             &gw,
+		Source:                "gateway",
+		TagID:                 tagID,
+		TagMAC:                &mac,
+		ReceivedAt:            receivedAt,
+		GatewaySeenAt:         &receivedAt,
+		RSSIdbm:               i16(rssi),
+		BatteryMV:             iv(3000),
+		TagTemperatureC:       f64(24.5),
+		MotionCount:           i64(motionCount),
+		SensorState:           i16(0),
+		TemperatureSensorOK:   bp(true),
+		AccelerometerSensorOK: bp(true),
+		RawPayload:            map[string]interface{}{},
+	}
+}
+
+// TestIngestAndReadUnmappedTagRendersEveryPacketDerivedField is the central STG-day-one proof:
+// a tag with NO matching goat_identifier still gets a full live row, a counted summary, and a
+// non-empty timeline. Only goat_id/display_id/park/shed/location must be absent.
+func TestIngestAndReadUnmappedTagRendersEveryPacketDerivedField(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-1", Status: "active"}
+	base := time.Now().UTC().Add(-20 * time.Minute).Truncate(time.Second)
+
+	// Two ingests, 5 minutes apart, motion_count increasing: a realistic delta, not a bare
+	// single reading.
+	stored1, latest1, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-1", base, 1000, -60),
+		makePacket(hsiTenant, hsiMappedTag, hsiMappedMAC, "gw-hsi-1", base, 500, -60),
+	})
+	if err != nil {
+		t.Fatalf("first ingest: %v", err)
+	}
+	if stored1 != 2 || latest1 != 2 {
+		t.Fatalf("first ingest stored=%d latest=%d, want 2 and 2", stored1, latest1)
+	}
+
+	second := base.Add(5 * time.Minute)
+	stored2, latest2, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-1", second, 1150, -62),
+		makePacket(hsiTenant, hsiMappedTag, hsiMappedMAC, "gw-hsi-1", second, 560, -62),
+	})
+	if err != nil {
+		t.Fatalf("second ingest: %v", err)
+	}
+	if stored2 != 2 || latest2 != 2 {
+		t.Fatalf("second ingest stored=%d latest=%d, want 2 and 2", stored2, latest2)
+	}
+
+	// --- GetTagLatest: every packet-derived field must be populated for the unmapped tag. ---
+	unmapped, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest(unmapped): %v", err)
+	}
+	if unmapped == nil {
+		t.Fatal("GetTagLatest(unmapped) = nil, want a row: an unmapped tag must still have a snapshot")
+	}
+	if unmapped.MappingState != "unmapped" {
+		t.Errorf("mapping_state = %q, want unmapped", unmapped.MappingState)
+	}
+	if unmapped.MotionCount == nil || *unmapped.MotionCount != 1150 {
+		t.Errorf("motion_count = %v, want 1150", unmapped.MotionCount)
+	}
+	if unmapped.MotionDelta == nil {
+		t.Error("motion_delta is nil, want a computed value even for an unmapped tag")
+	}
+	if unmapped.SignalState == "" {
+		t.Error("signal_state is empty, want a computed value (strong/ok/weak) regardless of mapping")
+	}
+	if unmapped.BatteryState == "" {
+		t.Error("battery_state is empty, want a computed value regardless of mapping")
+	}
+	if unmapped.MovementState == "" {
+		t.Error("movement_state is empty, want a computed value regardless of mapping")
+	}
+	if unmapped.PatternState == "" {
+		t.Error("pattern_state is empty, want a computed value regardless of mapping")
+	}
+	if unmapped.LastRSSIdbm == nil || *unmapped.LastRSSIdbm != -62 {
+		t.Errorf("last_rssi_dbm = %v, want -62", unmapped.LastRSSIdbm)
+	}
+
+	// --- ListTagsLatest: unmapped tag must appear with no park/shed filter, and the summary
+	// must count it (KPI summary is packet-derived, not mapped-animal-derived). ---
+	tags, summary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest: %v", err)
+	}
+	foundUnmapped := false
+	for _, tag := range tags {
+		if tag.TagID == hsiUnmappedTag {
+			foundUnmapped = true
+		}
+	}
+	if !foundUnmapped {
+		t.Fatalf("ListTagsLatest did not return the unmapped tag %q -- a default (no-filter) live view must include tags with no animal behind them", hsiUnmappedTag)
+	}
+	if summary.TagsSeen < 2 {
+		t.Errorf("summary.TagsSeen = %d, want >= 2 (must count the unmapped tag)", summary.TagsSeen)
+	}
+	if summary.UnmappedTags < 1 {
+		t.Errorf("summary.UnmappedTags = %d, want >= 1", summary.UnmappedTags)
+	}
+	if summary.MappedAnimals < 1 {
+		t.Errorf("summary.MappedAnimals = %d, want >= 1 (the mapped fixture tag)", summary.MappedAnimals)
+	}
+
+	// A park filter, on the other hand, correctly excludes the unmapped tag (it has no
+	// location) -- this is expected, not a bug, and is asserted so a future change doesn't try
+	// to "fix" it by faking a location.
+	parkFiltered, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, sp(hsiPark), nil, nil, nil, nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest (park filter): %v", err)
+	}
+	for _, tag := range parkFiltered {
+		if tag.TagID == hsiUnmappedTag {
+			t.Errorf("park-filtered live view returned the unmapped tag %q; an unmapped tag has no park and must not match a park filter", hsiUnmappedTag)
+		}
+	}
+
+	// --- Timeline: an unmapped tag's motion history must be readable exactly like a mapped
+	// one's. ---
+	timeline, err := repo.ListActivityWindows(ctx, hsiTenant, hsiUnmappedTag, base.Add(-time.Hour), second.Add(time.Hour), 60)
+	if err != nil {
+		t.Fatalf("ListActivityWindows(unmapped): %v", err)
+	}
+	if len(timeline) == 0 {
+		t.Fatal("ListActivityWindows(unmapped) returned no buckets, want at least one non-gap bucket from the two ingests")
+	}
+
+	// --- Insights: must not error with zero (or partial) mapping, and must count the unmapped
+	// tag in the direct/derived cards. ---
+	insights, err := repo.GetInsightsData(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetInsightsData: %v", err)
+	}
+	if insights.TagsLiveNow < 2 {
+		t.Errorf("insights.TagsLiveNow = %d, want >= 2 (packet-derived, must include the unmapped tag)", insights.TagsLiveNow)
+	}
+}
+
+// TestListTagsLatestFiltersByMappingStatePatternAndSearch proves the mapping_state/pattern/q
+// filters this endpoint's contract requires (GET /herd-signals/live?...&mapping_state=&pattern=&q=).
+func TestListTagsLatestFiltersByMappingStatePatternAndSearch(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-2", Status: "active"}
+	now := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-2", now, 10, -60),
+		makePacket(hsiTenant, hsiMappedTag, hsiMappedMAC, "gw-hsi-2", now, 10, -60),
+	}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	mappedOnly, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, sp("mapped"), nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest(mapping_state=mapped): %v", err)
+	}
+	for _, tag := range mappedOnly {
+		if tag.TagID == hsiUnmappedTag {
+			t.Errorf("mapping_state=mapped returned the unmapped tag %q", hsiUnmappedTag)
+		}
+	}
+
+	unmappedOnly, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, sp("unmapped"), nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest(mapping_state=unmapped): %v", err)
+	}
+	found := false
+	for _, tag := range unmappedOnly {
+		if tag.TagID == hsiUnmappedTag {
+			found = true
+		}
+		if tag.TagID == hsiMappedTag {
+			t.Errorf("mapping_state=unmapped returned the mapped tag %q", hsiMappedTag)
+		}
+	}
+	if !found {
+		t.Errorf("mapping_state=unmapped did not return %q", hsiUnmappedTag)
+	}
+
+	byQ, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, sp(hsiUnmappedTag), "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest(q=%s): %v", hsiUnmappedTag, err)
+	}
+	if len(byQ) != 1 || byQ[0].TagID != hsiUnmappedTag {
+		t.Errorf("q=%s returned %d rows, want exactly the unmapped tag", hsiUnmappedTag, len(byQ))
+	}
+}
+
+// TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest is the direct proof for defect 1
+// (maintainer correctness review): a tag that STOPS transmitting never gets another ingest, so
+// movement_state="stale"/pattern_state="missing" must be computed at READ time from
+// last_seen_at, not trusted from whatever was written at the tag's last ingest. This test
+// ingests once, backdates last_seen_at past the 30-minute threshold WITHOUT a second ingest (the
+// exact production failure mode: a real tag going quiet issues no further packets, so nothing
+// ever re-triggers computation), and asserts every read path reflects it.
+func TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-stale", Status: "active"}
+	seenAt := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-stale", seenAt, 100, -60),
+	}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	// Sanity: immediately after ingest, the tag is fresh -- neither stale nor missing.
+	fresh, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest (fresh): %v", err)
+	}
+	if fresh.MovementState == "stale" {
+		t.Fatalf("movement_state = stale immediately after ingest, want fresh (this ingest just happened)")
+	}
+	if fresh.PatternState == "missing" {
+		t.Fatalf("pattern_state = missing immediately after ingest, want fresh")
+	}
+
+	// Directly backdate last_seen_at past the 30-minute threshold, WITHOUT another ingest --
+	// this is the exact production scenario: the tag stopped transmitting and nothing will ever
+	// call IngestPackets for it again.
+	backdated := time.Now().UTC().Add(-45 * time.Minute)
+	if _, err := pool.Exec(ctx, `UPDATE public.herd_signal_tag_latest SET last_seen_at = $1 WHERE tenant_id = $2 AND tag_id = $3`,
+		backdated, hsiTenant, hsiUnmappedTag); err != nil {
+		t.Fatalf("backdate last_seen_at: %v", err)
+	}
+
+	// --- GetTagLatest must now read stale/missing, with NO ingest since the backdate. ---
+	stale, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest (stale): %v", err)
+	}
+	if stale.MovementState != "stale" {
+		t.Errorf("movement_state = %q, want stale (last_seen_at is 45 minutes old, no re-ingest occurred)", stale.MovementState)
+	}
+	if stale.PatternState != "missing" {
+		t.Errorf("pattern_state = %q, want missing", stale.PatternState)
+	}
+
+	// --- ListTagsLatest / summary must agree. ---
+	tags, summary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest: %v", err)
+	}
+	found := false
+	for _, tag := range tags {
+		if tag.TagID == hsiUnmappedTag {
+			found = true
+			if tag.MovementState != "stale" {
+				t.Errorf("ListTagsLatest row movement_state = %q, want stale", tag.MovementState)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("ListTagsLatest did not return the backdated tag")
+	}
+	if summary.Stale < 1 {
+		t.Errorf("summary.Stale = %d, want >= 1", summary.Stale)
+	}
+
+	// --- The movement_state=stale FILTER must actually match it (the reported symptom: clicking
+	// the stale KPI card yielded an empty table because the filter compared against the raw,
+	// stuck column). ---
+	staleFiltered, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, sp("stale"), nil, nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest(movement_state=stale): %v", err)
+	}
+	foundInFilter := false
+	for _, tag := range staleFiltered {
+		if tag.TagID == hsiUnmappedTag {
+			foundInFilter = true
+		}
+	}
+	if !foundInFilter {
+		t.Error("movement_state=stale filter did not return the backdated tag -- the KPI card would show an empty table")
+	}
+
+	// --- Insights must reflect it too: missing_signal counts it, tags_live_now excludes it. ---
+	insights, err := repo.GetInsightsData(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetInsightsData: %v", err)
+	}
+	if insights.MissingSignalCount < 1 {
+		t.Errorf("insights.MissingSignalCount = %d, want >= 1", insights.MissingSignalCount)
+	}
+}

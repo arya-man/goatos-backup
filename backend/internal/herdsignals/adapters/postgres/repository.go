@@ -275,15 +275,24 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		mapping = existing.MappingState
 	}
 
-	delta, _ := domain.MotionDelta(latestPkt.MotionCount, previousMotionCount)
-
 	// movement_state and pattern_state are computed over history, not the single ingest-batch
 	// delta (AGENTS.md: compare like grain to like grain). Pull the trailing 15-minute window
 	// from the 60s tier (already upserted above in this same tx) for the movement-state delta,
 	// and the trailing 24h of 300s-tier windows for the pattern-state baseline.
+	//
+	// motion_delta is stored as THIS 15-minute windowDelta, not the raw ingest-batch-vs-previous-
+	// snapshot delta (defect 4 / scale review M5): the old code computed `delta` from a single
+	// point-to-point comparison that could span 5 seconds or 3 days depending on ingest cadence,
+	// wrote motion_window_seconds=900 alongside it anyway, and then served that same number
+	// again as motion_delta_1h -- two differently-named fields with an identical, mislabeled
+	// value. motion_delta_1h below is now a REAL 1-hour (3600s-tier) sum.
 	windowDelta, err := r.sumActivityWindowDeltaTx(ctx, tx, tenantID, tagID, 60, latestPkt.ReceivedAt.Add(-15*time.Minute), latestPkt.ReceivedAt)
 	if err != nil {
 		return false, fmt.Errorf("sum 15m activity window delta: %w", err)
+	}
+	hourDelta, err := r.sumActivityWindowDeltaTx(ctx, tx, tenantID, tagID, 300, latestPkt.ReceivedAt.Add(-time.Hour), latestPkt.ReceivedAt)
+	if err != nil {
+		return false, fmt.Errorf("sum 1h activity window delta: %w", err)
 	}
 	movementState := domain.MovementStateFromDelta(windowDelta, 900, thresholds)
 	// Stale overrides an otherwise-computed movement state: no packet in 30+ minutes.
@@ -304,7 +313,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	// Tag->animal mapping is resolved on ingest so live/timeline reads never pay for the join.
 	// Re-resolved on every ingest (cheap point lookup) rather than only once, since
 	// smart_tag_capable / identifier status can change after the tag was first seen.
-	mapping, _, err = r.ResolveTagMapping(ctx, tenantID, &tagID, latestPkt.TagMAC)
+	mapping, _, err = resolveTagMapping(ctx, tx, tenantID, &tagID, latestPkt.TagMAC)
 	if err != nil {
 		return false, fmt.Errorf("resolve tag mapping: %w", err)
 	}
@@ -313,10 +322,10 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		INSERT INTO public.herd_signal_tag_latest (
 			tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
 			last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
-			motion_count, motion_delta, previous_motion_count, previous_seen_at,
+			motion_count, motion_delta, motion_delta_1h, previous_motion_count, previous_seen_at,
 			motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
 			accelerometer_sensor_ok, mapping_state, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now())
 		ON CONFLICT (tenant_id, tag_id) DO UPDATE
 		SET tag_mac = COALESCE($3, public.herd_signal_tag_latest.tag_mac),
 		    gateway_id = COALESCE($4, public.herd_signal_tag_latest.gateway_id),
@@ -329,21 +338,22 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		    tag_temperature_c = COALESCE($11, public.herd_signal_tag_latest.tag_temperature_c),
 		    motion_count = COALESCE($12, public.herd_signal_tag_latest.motion_count),
 		    motion_delta = $13,
-		    previous_motion_count = $14,
-		    previous_seen_at = $15,
-		    motion_window_seconds = $16,
-		    movement_state = $17,
-		    pattern_state = $18,
-		    temperature_sensor_ok = COALESCE($19, public.herd_signal_tag_latest.temperature_sensor_ok),
-		    accelerometer_sensor_ok = COALESCE($20, public.herd_signal_tag_latest.accelerometer_sensor_ok),
-		    mapping_state = $21,
+		    motion_delta_1h = $14,
+		    previous_motion_count = $15,
+		    previous_seen_at = $16,
+		    motion_window_seconds = $17,
+		    movement_state = $18,
+		    pattern_state = $19,
+		    temperature_sensor_ok = COALESCE($20, public.herd_signal_tag_latest.temperature_sensor_ok),
+		    accelerometer_sensor_ok = COALESCE($21, public.herd_signal_tag_latest.accelerometer_sensor_ok),
+		    mapping_state = $22,
 		    updated_at = now()
 	`,
 		tenantID, tagID, latestPkt.TagMAC, latestPkt.GatewayID, latestPkt.Source, latestPkt.ReceivedAt,
 		latestPkt.RSSIdbm, signalState,
 		latestPkt.BatteryMV, batteryState,
 		latestPkt.TagTemperatureC,
-		latestPkt.MotionCount, delta,
+		latestPkt.MotionCount, windowDelta, hourDelta,
 		previousMotionCount, previousSeenAt,
 		900, movementState,
 		patternStateComputed,
@@ -404,20 +414,23 @@ func (r *Repository) listActivityWindowsTx(ctx context.Context, tx pgx.Tx, tenan
 
 // GetTagLatest fetches the current state of a single tag.
 func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (*domain.TagLatest, error) {
+	// movement_state/pattern_state computed at READ time from last_seen_at freshness (defect 1),
+	// same as ListTagsLatest -- aliased `tl` so effectiveMovementStateExpr/
+	// effectivePatternStateExpr apply unchanged.
 	query := `
-		SELECT tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
-		       last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
-		       motion_count, motion_delta, previous_motion_count, previous_seen_at,
-		       motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
-		       accelerometer_sensor_ok, mapping_state, updated_at
-		FROM public.herd_signal_tag_latest
-		WHERE tenant_id = $1 AND tag_id = $2
+		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
+		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
+		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
+		       tl.motion_window_seconds, ` + effectiveMovementStateExpr + `, ` + effectivePatternStateExpr + `, tl.temperature_sensor_ok,
+		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.updated_at
+		FROM public.herd_signal_tag_latest tl
+		WHERE tl.tenant_id = $1 AND tl.tag_id = $2
 	`
 	var tag domain.TagLatest
 	err := r.db.QueryRow(ctx, query, tenantID, tagID).Scan(
 		&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 		&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
-		&tag.MotionCount, &tag.MotionDelta, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
+		&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 		&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 		&tag.AccelerometerSensorOK, &tag.MappingState, &tag.UpdatedAt,
 	)
@@ -429,6 +442,23 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 	}
 	return &tag, nil
 }
+
+// effectiveMovementStateExpr / effectivePatternStateExpr compute movement_state/pattern_state at
+// READ TIME from last_seen_at freshness, rather than trusting the column written at the tag's
+// LAST INGEST (maintainer correctness review, defect 1 -- "stale and missing can never fire").
+//
+// A tag that stops transmitting never gets another ingest, so a write-time-only movement_state/
+// pattern_state keeps whatever it was computed as on the last packet FOREVER: a tag last seen a
+// week ago still reads whatever it read a week ago, never "stale"/"missing". Confirmed against
+// the OCI database: all 20 tags carried a stale write-time state despite hours-old last_seen_at.
+// 30 minutes matches domain.DefaultThresholds().StalePacketMinutes /
+// .MissingSignalMinutes (both 30, provisional); duplicated here as a literal because this
+// package has no DB-level access to the domain Thresholds value without threading it through
+// every query, and the interval only needs to change if that provisional default does.
+const staleAfterInterval = "interval '30 minutes'"
+
+var effectiveMovementStateExpr = "CASE WHEN now() - tl.last_seen_at > " + staleAfterInterval + " THEN 'stale' ELSE tl.movement_state END"
+var effectivePatternStateExpr = "CASE WHEN now() - tl.last_seen_at > " + staleAfterInterval + " THEN 'missing' ELSE tl.pattern_state END"
 
 // ListTagsLatest fetches tags with optional filters, keyset pagination, and summary counts.
 // tagLocationJoin resolves each tag's current park_id/shed_id through its mapped animal.
@@ -442,7 +472,12 @@ const tagLocationJoin = `
 		FROM public.goat_identifiers gi
 		WHERE gi.tenant_id = tl.tenant_id
 		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
-		  AND gi.normalized_value IN (tl.tag_id, COALESCE(tl.tag_mac, ''))
+		  -- defect 2 (normalization): tl.tag_id/tl.tag_mac are raw device strings (a BLE MAC
+		  -- conventionally arrives lowercase); goat_identifiers.normalized_value is already
+		  -- UPPER(TRIM(...)) per the identity module's canonical normalizer. Wrap the small,
+		  -- already-tenant-narrowed tl side rather than the indexed gi.normalized_value column,
+		  -- so the (tenant_id, normalized_value) index on goat_identifiers stays usable.
+		  AND gi.normalized_value IN (UPPER(BTRIM(tl.tag_id)), UPPER(BTRIM(COALESCE(tl.tag_mac, ''))))
 		LIMIT 1
 	) mapped_goat ON true
 	LEFT JOIN public.goats g ON g.tenant_id = tl.tenant_id AND g.goat_id = mapped_goat.goat_id
@@ -476,7 +511,7 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 	}
 
 	if movementState != nil && *movementState != "" {
-		whereClause += fmt.Sprintf(" AND tl.movement_state = $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND ("+effectiveMovementStateExpr+") = $%d", argIndex)
 		args = append(args, *movementState)
 		argIndex++
 	}
@@ -488,7 +523,7 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 	}
 
 	if pattern != nil && *pattern != "" {
-		whereClause += fmt.Sprintf(" AND tl.pattern_state = $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND ("+effectivePatternStateExpr+") = $%d", argIndex)
 		args = append(args, *pattern)
 		argIndex++
 	}
@@ -520,8 +555,8 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	query := fmt.Sprintf(`
 		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
 		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
-		       tl.motion_count, tl.motion_delta, tl.previous_motion_count, tl.previous_seen_at,
-		       tl.motion_window_seconds, tl.movement_state, tl.pattern_state, tl.temperature_sensor_ok,
+		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
+		       tl.motion_window_seconds, `+effectiveMovementStateExpr+`, `+effectivePatternStateExpr+`, tl.temperature_sensor_ok,
 		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.updated_at
 		FROM public.herd_signal_tag_latest tl
 		%s
@@ -543,7 +578,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		if err := rows.Scan(
 			&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 			&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
-			&tag.MotionCount, &tag.MotionDelta, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
+			&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.UpdatedAt,
 		); err != nil {
@@ -577,14 +612,18 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 
 // computeSummary computes the whole-filter aggregate counts in a single bounded query.
 func (r *Repository) computeSummary(ctx context.Context, join, whereClause string, args []interface{}) (domain.Summary, error) {
+	// movement_state is read-time-effective (defect 1: a tag that stopped transmitting must
+	// count as stale/missing here, not whatever it read at its last ingest) -- all rows are
+	// packet-derived, so this counts unmapped tags exactly like mapped ones; only
+	// mapped_animals/unmapped_tags themselves are mapping-derived.
 	query := fmt.Sprintf(`
 		SELECT count(*) FILTER (WHERE true),
 		       count(*) FILTER (WHERE tl.mapping_state = 'mapped'),
 		       count(*) FILTER (WHERE tl.mapping_state = 'unmapped'),
-		       count(*) FILTER (WHERE tl.movement_state = 'moving'),
-		       count(*) FILTER (WHERE tl.movement_state = 'quiet'),
-		       count(*) FILTER (WHERE tl.movement_state = 'not_moving'),
-		       count(*) FILTER (WHERE tl.movement_state = 'stale'),
+		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'moving'),
+		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'quiet'),
+		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'not_moving'),
+		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'stale'),
 		       count(*) FILTER (WHERE tl.signal_state = 'weak'),
 		       count(*) FILTER (WHERE tl.battery_state = 'low'),
 		       count(*) FILTER (WHERE tl.temperature_sensor_ok IS FALSE OR tl.accelerometer_sensor_ok IS FALSE)
@@ -657,31 +696,49 @@ func (r *Repository) GetGoatIdentifier(ctx context.Context, tenantID, normalized
 
 // ResolveTagMapping resolves a tag to a goat (mapped, unmapped, conflict).
 func (r *Repository) ResolveTagMapping(ctx context.Context, tenantID string, tagID, tagMAC *string) (string, *string, error) {
+	return resolveTagMapping(ctx, r.db, tenantID, tagID, tagMAC)
+}
+
+// pgxQuerier is satisfied by both *pgxpool.Pool and pgx.Tx. resolveTagMapping is written against
+// it so the SAME query runs either against the pool (read-only API callers) or against an
+// in-flight ingest transaction (updateTagLatest) -- see the H2 fix note at updateTagLatest: a
+// pool query issued while a tx holds a `FOR UPDATE` row lock acquires a SECOND connection from
+// the pool, which self-deadlocks under pool saturation with concurrent gateway posts. That bug
+// is why this function no longer hardcodes r.db.
+type pgxQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func resolveTagMapping(ctx context.Context, q pgxQuerier, tenantID string, tagID, tagMAC *string) (string, *string, error) {
 	// Try to match tag_id or tag_mac against goat_identifiers
 	if tagID == nil && tagMAC == nil {
 		return "unmapped", nil, nil
 	}
 
-	// Normalize values
+	// Normalize exactly like the identity module's own normalizer (defect 2: a raw lowercase
+	// device MAC must match the uppercase-stored goat_identifiers.normalized_value).
 	var values []string
 	if tagID != nil && *tagID != "" {
-		values = append(values, *tagID)
+		values = append(values, domain.NormalizeTagIdentifier(*tagID))
 	}
 	if tagMAC != nil && *tagMAC != "" {
-		values = append(values, *tagMAC)
+		values = append(values, domain.NormalizeTagIdentifier(*tagMAC))
 	}
 
 	if len(values) == 0 {
 		return "unmapped", nil, nil
 	}
 
-	// Query for matching goats
+	// Query for matching goats. normalized_value is already the identity module's canonical
+	// form, so comparing it bare (no UPPER/TRIM wrapper on this side) keeps the tenant_id +
+	// normalized_value index usable -- only the small, already-narrowed input `values` side is
+	// normalized, in Go, above.
 	query := `
 		SELECT DISTINCT goat_id
 		FROM public.goat_identifiers
 		WHERE tenant_id = $1 AND normalized_value = ANY($2) AND status = 'active' AND smart_tag_capable IS TRUE
 	`
-	rows, err := r.db.Query(ctx, query, tenantID, values)
+	rows, err := q.Query(ctx, query, tenantID, values)
 	if err != nil {
 		return "unmapped", nil, err
 	}
@@ -749,12 +806,19 @@ func (r *Repository) ResolveTagsBatch(ctx context.Context, tenantID string, valu
 	if len(values) == 0 {
 		return result, nil
 	}
+	// Normalize every input the same way resolveTagMapping does (defect 2). The result map is
+	// keyed by the NORMALIZED value -- callers must look it up with
+	// domain.NormalizeTagIdentifier(tagID/tagMAC), not the raw device string.
+	normalized := make([]string, len(values))
+	for i, v := range values {
+		normalized[i] = domain.NormalizeTagIdentifier(v)
+	}
 	rows, err := r.db.Query(ctx, `
 		SELECT normalized_value, goat_id
 		FROM public.goat_identifiers
 		WHERE tenant_id = $1 AND status = 'active' AND smart_tag_capable IS TRUE
 		      AND normalized_value = ANY($2)
-	`, tenantID, values)
+	`, tenantID, normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -846,6 +910,36 @@ func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tag
 	return result, rows.Err()
 }
 
+// GetGatewayTagStats computes tags_seen_recently/weak_tags/unmapped_tags for every gateway in
+// ONE grouped query. "Recently" uses the same 30-minute staleness window as
+// effectiveMovementStateExpr, so a gateway's "tags seen recently" count agrees with which of its
+// tags the live view itself would still call non-stale.
+func (r *Repository) GetGatewayTagStats(ctx context.Context, tenantID string) (map[string]ports.GatewayTagStats, error) {
+	result := make(map[string]ports.GatewayTagStats)
+	rows, err := r.db.Query(ctx, `
+		SELECT gateway_id,
+		       count(*) FILTER (WHERE now() - last_seen_at <= `+staleAfterInterval+`),
+		       count(*) FILTER (WHERE signal_state = 'weak'),
+		       count(*) FILTER (WHERE mapping_state = 'unmapped')
+		FROM public.herd_signal_tag_latest
+		WHERE tenant_id = $1 AND gateway_id IS NOT NULL
+		GROUP BY gateway_id
+	`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var gatewayID string
+		var stats ports.GatewayTagStats
+		if err := rows.Scan(&gatewayID, &stats.TagsSeenRecently, &stats.WeakTags, &stats.UnmappedTags); err != nil {
+			return nil, err
+		}
+		result[gatewayID] = stats
+	}
+	return result, rows.Err()
+}
+
 // GetInsightsData computes the raw counts behind the 12 GET /herd-signals/insights cards. Each
 // card is its own small, tenant-scoped, indexed, time-bounded query -- never one
 // compute-on-read god CTE across every table (AGENTS.md scale anti-patterns).
@@ -856,15 +950,15 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 	// tenant-scoped aggregate query.
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			count(*) FILTER (WHERE movement_state <> 'stale'),
-			count(*) FILTER (WHERE pattern_state = 'missing'),
-			count(*) FILTER (WHERE pattern_state IN ('quiet_watch', 'inactive')),
-			count(*) FILTER (WHERE pattern_state = 'spike'),
-			count(*) FILTER (WHERE signal_state = 'weak'),
-			count(*) FILTER (WHERE battery_state = 'low'),
-			count(*) FILTER (WHERE mapping_state = 'unmapped')
-		FROM public.herd_signal_tag_latest
-		WHERE tenant_id = $1
+			count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) <> 'stale'),
+			count(*) FILTER (WHERE (`+effectivePatternStateExpr+`) = 'missing'),
+			count(*) FILTER (WHERE (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive')),
+			count(*) FILTER (WHERE (`+effectivePatternStateExpr+`) = 'spike'),
+			count(*) FILTER (WHERE tl.signal_state = 'weak'),
+			count(*) FILTER (WHERE tl.battery_state = 'low'),
+			count(*) FILTER (WHERE tl.mapping_state = 'unmapped')
+		FROM public.herd_signal_tag_latest tl
+		WHERE tl.tenant_id = $1
 	`, tenantID).Scan(
 		&d.TagsLiveNow, &d.MissingSignalCount, &d.LowMovementWatchCount, &d.HighMovementSpikeCount,
 		&d.WeakSignalTagsCount, &d.BatteryAttentionCount, &d.UnmappedSmartTagsCount,
@@ -884,7 +978,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		SELECT count(DISTINCT g.shed_id)
 		FROM public.herd_signal_tag_latest tl
 		%s
-		WHERE tl.tenant_id = $1 AND tl.movement_state <> 'stale' AND g.shed_id IS NOT NULL
+		WHERE tl.tenant_id = $1 AND (`+effectiveMovementStateExpr+`) <> 'stale' AND g.shed_id IS NOT NULL
 	`, tagLocationJoin), tenantID).Scan(&d.ShedsWithCoverage)
 	if err != nil {
 		return d, fmt.Errorf("insights sheds with coverage: %w", err)
@@ -900,11 +994,11 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
 		JOIN public.herd_signal_tag_latest tl
 		  ON tl.tenant_id = vc.tenant_id
-		  AND (tl.tag_id = gi.normalized_value OR tl.tag_mac = gi.normalized_value)
+		  AND (UPPER(BTRIM(tl.tag_id)) = gi.normalized_value OR UPPER(BTRIM(tl.tag_mac)) = gi.normalized_value)
 		WHERE vc.tenant_id = $1
 		  AND vc.status = 'accepted'
 		  AND vc.administered_at >= now() - interval '24 hours'
-		  AND tl.pattern_state IN ('quiet_watch', 'inactive', 'missing')
+		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive', 'missing')
 	`, tenantID).Scan(&d.PostVaccinationWatchCount)
 	if err != nil {
 		return d, fmt.Errorf("insights post-vaccination watch: %w", err)
@@ -919,10 +1013,10 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
 		JOIN public.herd_signal_tag_latest tl
 		  ON tl.tenant_id = hc.tenant_id
-		  AND (tl.tag_id = gi.normalized_value OR tl.tag_mac = gi.normalized_value)
+		  AND (UPPER(BTRIM(tl.tag_id)) = gi.normalized_value OR UPPER(BTRIM(tl.tag_mac)) = gi.normalized_value)
 		WHERE hc.tenant_id = $1
 		  AND hc.status = 'active'
-		  AND tl.pattern_state IN ('quiet_watch', 'inactive')
+		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive')
 	`, tenantID).Scan(&d.HealthCaseActivityCount)
 	if err != nil {
 		return d, fmt.Errorf("insights health case activity: %w", err)
@@ -947,19 +1041,21 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		return d, fmt.Errorf("insights feed activity: %w", err)
 	}
 
-	// Card 11: weight_activity. Bounded to the last 24h of weighing_observations, joined to a
-	// mapped tag by animal_id.
+	// Card 11: weight_activity. Weighing is FREE-FLOW and ISOLATED (AGENTS.md): it dropped
+	// weighing_observations.animal_id outright (migration 000078) and never resolves a scan to
+	// goat identity on ANY path, in EITHER direction. This card must not reintroduce that
+	// resolution from the herd-signals side either -- it correlates by the RAW scanned string
+	// against the tag's own id/MAC, exactly the same un-resolved shape weighing itself stores,
+	// with no goat_identifiers join at all.
 	err = r.db.QueryRow(ctx, `
-		SELECT count(DISTINCT wo.animal_id)
+		SELECT count(DISTINCT wo.scanned_identifier)
 		FROM public.weighing_observations wo
-		JOIN public.goat_identifiers gi
-		  ON gi.tenant_id = wo.tenant_id AND gi.goat_id = wo.animal_id
-		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
 		JOIN public.herd_signal_tag_latest tl
 		  ON tl.tenant_id = wo.tenant_id
-		  AND (tl.tag_id = gi.normalized_value OR tl.tag_mac = gi.normalized_value)
+		  AND (UPPER(BTRIM(tl.tag_id)) = UPPER(BTRIM(wo.scanned_identifier))
+		       OR UPPER(BTRIM(tl.tag_mac)) = UPPER(BTRIM(wo.scanned_identifier)))
 		WHERE wo.tenant_id = $1
-		  AND wo.animal_id IS NOT NULL
+		  AND btrim(wo.scanned_identifier) <> ''
 		  AND wo.accepted_at >= now() - interval '24 hours'
 	`, tenantID).Scan(&d.WeightActivityTagsCount)
 	if err != nil {
@@ -982,9 +1078,21 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 		tagID       string
 		bucketStart time.Time
 	}
+	// firstMotionAt/lastMotionAt track the received_at of the packet that CURRENTLY holds
+	// firstMotionCount/lastMotionCount, so an out-of-order packet within the same ingest batch
+	// is compared by TIME, not by iteration/arrival order.
+	//
+	// M4 fix (maintainer scale review): the previous condition compared a packet's received_at
+	// against `lastSeenAt - bucketSeconds`, a value that is nearly always in the past relative
+	// to any packet inside the bucket, so it was effectively always true -- last_motion_count
+	// silently became "whichever packet iterated last" (Go map/slice order), not the
+	// chronologically last one. That corrupted motion_delta, which feeds movement_state,
+	// pattern_state, and the p75 baseline.
 	type bucketData struct {
 		firstMotionCount *int64
+		firstMotionAt    time.Time
 		lastMotionCount  *int64
+		lastMotionAt     time.Time
 		rssiValues       []*int16
 		firstSeenAt      time.Time
 		lastSeenAt       time.Time
@@ -999,25 +1107,28 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 		bucketStart := p.ReceivedAt.Truncate(bucketDuration)
 		key := bucketKey{tagID: p.TagID, bucketStart: bucketStart}
 
-		if _, exists := buckets[key]; !exists {
-			buckets[key] = &bucketData{
-				firstSeenAt: p.ReceivedAt,
-				lastSeenAt:  p.ReceivedAt,
-			}
+		bd, exists := buckets[key]
+		if !exists {
+			bd = &bucketData{firstSeenAt: p.ReceivedAt, lastSeenAt: p.ReceivedAt}
+			buckets[key] = bd
 		}
 
-		bd := buckets[key]
 		bd.packetCount++
-		bd.lastSeenAt = p.ReceivedAt // Always update to latest packet time
-
-		// Track first/last motion count (for out-of-order safety)
-		if bd.firstMotionCount == nil && p.MotionCount != nil {
-			bd.firstMotionCount = p.MotionCount
+		if p.ReceivedAt.Before(bd.firstSeenAt) {
+			bd.firstSeenAt = p.ReceivedAt
 		}
+		if p.ReceivedAt.After(bd.lastSeenAt) {
+			bd.lastSeenAt = p.ReceivedAt
+		}
+
 		if p.MotionCount != nil {
-			// Update last_motion_count: always use the one with the latest timestamp
-			if bd.lastMotionCount == nil || p.ReceivedAt.After(buckets[key].lastSeenAt.Add(-time.Duration(bucketSeconds)*time.Second)) {
+			if bd.firstMotionCount == nil || p.ReceivedAt.Before(bd.firstMotionAt) {
+				bd.firstMotionCount = p.MotionCount
+				bd.firstMotionAt = p.ReceivedAt
+			}
+			if bd.lastMotionCount == nil || !p.ReceivedAt.Before(bd.lastMotionAt) {
 				bd.lastMotionCount = p.MotionCount
+				bd.lastMotionAt = p.ReceivedAt
 			}
 		}
 
@@ -1064,8 +1175,25 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 			maxRSSI = &max
 		}
 
-		// Upsert query: on conflict, update counts and RSSI stats
-		// Important: use ON CONFLICT DO UPDATE to handle replayed packets idempotently
+		// Upsert query: on conflict, MERGE across batches rather than overwrite.
+		//
+		// M4 fix (maintainer scale review): the previous ON CONFLICT clause (a) replaced
+		// avg_rssi_dbm with the incoming batch's average instead of a packet-count-weighted
+		// merge, (b) always overwrote last_motion_count/last_seen_at from the incoming batch
+		// regardless of whether it was actually chronologically later (an out-of-order-EARLY
+		// retried batch could move last_seen_at backwards), and (c) never reconsidered
+		// first_motion_count/first_seen_at at all, so a late-arriving-but-chronologically-EARLIER
+		// packet could never correct the bucket's start point. All three drift motion_delta,
+		// which feeds movement_state, pattern_state, AND the p75 baseline -- this is silent data
+		// corruption, not a cosmetic bug.
+		//
+		// first_seen_at/last_seen_at only move outward (LEAST/GREATEST); first_motion_count/
+		// last_motion_count are re-derived from whichever side (stored vs incoming) actually owns
+		// the new first_seen_at/last_seen_at; motion_delta is recomputed from the merged pair
+		// rather than trusted from a single batch, and only when both sides of the merged pair
+		// are known (a battery/temperature-only packet updating last_seen_at with no
+		// motion_count present leaves motion_delta untouched rather than corrupting it toward
+		// zero).
 		batch.Queue(`
 			INSERT INTO public.herd_signal_activity_windows (
 				tenant_id, tag_id, bucket_start, bucket_seconds,
@@ -1074,17 +1202,40 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 				first_seen_at, last_seen_at
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			ON CONFLICT (tenant_id, tag_id, bucket_start, bucket_seconds) DO UPDATE
-			SET last_motion_count = COALESCE($6, EXCLUDED.last_motion_count),
-			    motion_delta = $7,
-			    packet_count = packet_count + EXCLUDED.packet_count,
-			    avg_rssi_dbm = COALESCE($9, avg_rssi_dbm),
-			    min_rssi_dbm = CASE WHEN $10 IS NULL THEN min_rssi_dbm
-			                         WHEN min_rssi_dbm IS NULL THEN $10
-			                         ELSE LEAST(min_rssi_dbm, $10) END,
-			    max_rssi_dbm = CASE WHEN $11 IS NULL THEN max_rssi_dbm
-			                         WHEN max_rssi_dbm IS NULL THEN $11
-			                         ELSE GREATEST(max_rssi_dbm, $11) END,
-			    last_seen_at = $13
+			SET first_motion_count = CASE WHEN $12 < public.herd_signal_activity_windows.first_seen_at
+			                               THEN $5 ELSE public.herd_signal_activity_windows.first_motion_count END,
+			    last_motion_count  = CASE WHEN $13 > public.herd_signal_activity_windows.last_seen_at
+			                               THEN COALESCE($6, public.herd_signal_activity_windows.last_motion_count)
+			                               ELSE public.herd_signal_activity_windows.last_motion_count END,
+			    motion_delta = CASE
+			      WHEN (CASE WHEN $12 < public.herd_signal_activity_windows.first_seen_at THEN $5
+			                 ELSE public.herd_signal_activity_windows.first_motion_count END) IS NOT NULL
+			       AND (CASE WHEN $13 > public.herd_signal_activity_windows.last_seen_at
+			                 THEN COALESCE($6, public.herd_signal_activity_windows.last_motion_count)
+			                 ELSE public.herd_signal_activity_windows.last_motion_count END) IS NOT NULL
+			      THEN GREATEST(0,
+			             (CASE WHEN $13 > public.herd_signal_activity_windows.last_seen_at
+			                   THEN COALESCE($6, public.herd_signal_activity_windows.last_motion_count)
+			                   ELSE public.herd_signal_activity_windows.last_motion_count END)
+			             - (CASE WHEN $12 < public.herd_signal_activity_windows.first_seen_at THEN $5
+			                     ELSE public.herd_signal_activity_windows.first_motion_count END))
+			      ELSE public.herd_signal_activity_windows.motion_delta
+			    END,
+			    packet_count = public.herd_signal_activity_windows.packet_count + $8,
+			    avg_rssi_dbm = CASE
+			      WHEN $9 IS NULL THEN public.herd_signal_activity_windows.avg_rssi_dbm
+			      WHEN public.herd_signal_activity_windows.avg_rssi_dbm IS NULL THEN $9
+			      ELSE (public.herd_signal_activity_windows.avg_rssi_dbm * public.herd_signal_activity_windows.packet_count + $9 * $8)
+			           / (public.herd_signal_activity_windows.packet_count + $8)
+			    END,
+			    min_rssi_dbm = CASE WHEN $10 IS NULL THEN public.herd_signal_activity_windows.min_rssi_dbm
+			                         WHEN public.herd_signal_activity_windows.min_rssi_dbm IS NULL THEN $10
+			                         ELSE LEAST(public.herd_signal_activity_windows.min_rssi_dbm, $10) END,
+			    max_rssi_dbm = CASE WHEN $11 IS NULL THEN public.herd_signal_activity_windows.max_rssi_dbm
+			                         WHEN public.herd_signal_activity_windows.max_rssi_dbm IS NULL THEN $11
+			                         ELSE GREATEST(public.herd_signal_activity_windows.max_rssi_dbm, $11) END,
+			    first_seen_at = LEAST(public.herd_signal_activity_windows.first_seen_at, $12),
+			    last_seen_at  = GREATEST(public.herd_signal_activity_windows.last_seen_at, $13)
 		`,
 			tenantID, key.tagID, key.bucketStart, bucketSeconds,
 			bd.firstMotionCount, bd.lastMotionCount, motionDelta,
