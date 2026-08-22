@@ -206,22 +206,22 @@ async function normalizeLiveDrawer(mockPage, livePage) {
     if (banner) banner.innerHTML = bannerMarkup;
 
     const rows = [
-      ["Tag ID", "A0002E", "DIRECT"],
-      ["BLE MAC", "F0:C9:90:A0:00:2E", "DIRECT"],
-      ["Animal", "CH-1290", "DERIVED"],
-      ["Location", "Yashoda 2", "CORRELATED"],
-      ["Gateway", "GW-514060", "DIRECT"],
-      ["RSSI", "-59 dBm", "DIRECT"],
-      ["Battery voltage", "3.2 V (3200 mV)", "DIRECT"],
-      ["Estimated battery life", "~2 years", "INFERRED"],
-      ["Tag temp", "26.1 C", "DIRECT"],
-      ["Motion count", "6,992", "DIRECT"],
-      ["15m motion delta", "+7", "DERIVED"],
-      ["Movement state", "Quiet", "INFERRED"],
-      ["Last seen", "20s ago", "DIRECT"],
-      ["Temp sensor", "OK", "DIRECT"],
-      ["Accelerometer", "OK", "DIRECT"],
-      ["Mapping state", "mapped", "DERIVED"],
+      ["Tag ID", "A0002E", "direct"],
+      ["BLE MAC", "F0:C9:90:A0:00:2E", "direct"],
+      ["Animal", "CH-1290", "derived"],
+      ["Location", "Yashoda 2", "correlated"],
+      ["Gateway", "GW-514060", "direct"],
+      ["RSSI", "-59 dBm", "direct"],
+      ["Battery voltage", "3.2 V (3200 mV)", "direct"],
+      ["Estimated battery life", "~2 years", "inferred"],
+      ["Tag temp", "26.1 C", "direct"],
+      ["Motion count", "6,992", "direct"],
+      ["Motion delta (15m)", "+7", "derived"],
+      ["Movement state", "Quiet", "inferred"],
+      ["Last seen", "20s ago", "direct"],
+      ["Temp sensor", "OK", "direct"],
+      ["Accelerometer", "OK", "direct"],
+      ["Mapping state", "mapped", "derived"],
     ];
     const terms = [...drawer.querySelectorAll(".kv dt")];
     const defs = [...drawer.querySelectorAll(".kv dd")];
