@@ -143,7 +143,7 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 			-- server-stamped fresh per ingest call (security fix), so a retried batch would get a
 			-- NEW received_at and this predicate would stop catching retries if it still keyed on
 			-- received_at.
-			ON CONFLICT (tenant_id, tag_id, device_seen_at, motion_count) DO NOTHING
+			ON CONFLICT (tenant_id, tag_id, device_seen_at, motion_count) WHERE device_seen_at IS NOT NULL DO NOTHING
 		`,
 			tenantID, p.GatewayID, p.Source, p.TagID, p.TagMAC, p.ReceivedAt, p.DeviceSeenAt,
 			p.GatewaySeenAt, p.RSSIdbm, p.BatteryMV, p.TagTemperatureC,

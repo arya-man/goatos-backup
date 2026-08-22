@@ -259,6 +259,10 @@ type IngestPacket struct {
 	// purely as diagnostic/audit data. Previously ABSENT from this struct, which was the bug: the
 	// loader collapsed every packet in a batch to the batch's single relay timestamp.
 	GatewaySeenAt *string `json:"gateway_seen_at"`
+	// RawPayload is optional free-form diagnostic context for this packet (e.g. the MQTT bridge
+	// stores gw_addr, pkt_sn, and the raw dev_info fields here). Additive/optional: a caller that
+	// omits it gets the previous behaviour (an empty object stored on the row).
+	RawPayload map[string]interface{} `json:"raw_payload,omitempty"`
 }
 
 // IngestResponse is the response to POST /herd-signals/packets.
