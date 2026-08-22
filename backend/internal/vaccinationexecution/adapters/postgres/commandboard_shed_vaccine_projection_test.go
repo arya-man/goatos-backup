@@ -569,6 +569,60 @@ func seedShedVideo(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant
 		proofID, tenantID, proofID, shedID, uploadedAt, fieldKey)
 }
 
+func TestVaccinationCommandBoardDoesNotComposeScopeShedWithCurrentPartition(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000aa"
+	parkID := uuidFromSuffix("01", "ga")
+	castroID := uuidFromSuffix("02", "ga")
+	yashodaID := uuidFromSuffix("04", "ga")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "ga")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, castroID, "Castro")
+	execProjectionSQL(t, ctx, pool, "rename command-board shed to Castro",
+		`UPDATE locations SET name = 'Castro' WHERE tenant_id = $1 AND location_id = $2`,
+		tenantID, castroID)
+	execProjectionSQL(t, ctx, pool, "create current Yashoda shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Yashoda', 'shed', $3, 'active')`,
+		yashodaID, tenantID, parkID)
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "gad"), "sel-a", "ET_TT")
+
+	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	past := asOf.Add(-4 * 24 * time.Hour)
+	goatID := uuidFromSuffix("03", "gaa")
+	oblID := uuidFromSuffix("08", "gaa")
+	seedBareGoat(t, ctx, pool, tenantID, castroID, goatID, uuidFromSuffix("0a", "gaa"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, castroID, goatID, oblID, "missed", past, "hybrid-castro-yashoda")
+
+	execProjectionSQL(t, ctx, pool, "move goat to Yashoda partition 10",
+		`UPDATE goats SET shed_id = $3 WHERE tenant_id = $1 AND goat_id = $2`,
+		tenantID, goatID, yashodaID)
+	execProjectionSQL(t, ctx, pool, "record current Yashoda partition",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '10', 'Yashoda 10')`,
+		tenantID, goatID, yashodaID)
+
+	cells := shedVaccineCellsByCode(t, ctx, pool, tenantID, asOf)
+	et := cells["ET_TT"]
+	if et.OperationalLocationDisplay == "Castro 10" || et.PartitionLabel == "10" {
+		t.Fatalf("cell location = %q partition=%q; command board must not compose obligation shed Castro with current Yashoda partition 10",
+			et.OperationalLocationDisplay, et.PartitionLabel)
+	}
+	if et.OperationalLocationDisplay != "Castro" {
+		t.Fatalf("cell location = %q, want obligation shed Castro without invented partition", et.OperationalLocationDisplay)
+	}
+	if len(et.FlaggedAnimals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1", len(et.FlaggedAnimals))
+	}
+	if got := et.FlaggedAnimals[0].LocationDisplay; got != "Yashoda 10" {
+		t.Fatalf("flagged animal location = %q, want current ground location Yashoda 10", got)
+	}
+}
+
 // TestVaccinationCommandBoardShedVaccineColumnsExcludeRetiredProtocolVaccines pins the SOURCE OF
 // TRUTH for the matrix's columns.
 //
