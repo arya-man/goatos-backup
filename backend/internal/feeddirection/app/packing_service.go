@@ -218,9 +218,11 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 // quantities are deliberately NOT carried: the verifier enters what she can see packed, blind, and
 // the intended-vs-entered variance surfaces only on the leadership feed analytics execution view.
 //
-// ONE SESSION'S items, not the day's -- one clip proves one bag. A blocked item is still listed:
-// whatever is in the bag is what she reports, and a box for an item the sheet could not price
-// still records what was actually packed.
+// ONE SESSION'S items, not the day's -- one clip proves one bag. And only items the sheet DIRECTS
+// for this bag (resolved, positive quantity -- see packingEntryFields): the frozen grid mentions
+// every feed item the pen's ration rows carry, zero-quantity cells included, and boxes for those
+// made the verifier type 0 for items the shed is never fed (maintainer decision 2026-08-22,
+// superseding the initial list-every-item-blocked-included composition).
 //
 // FAIL-OPEN, deliberately. A completion is the operator's work reaching the server; it must never
 // fail because a decoration could not be composed. An unreadable or never-issued sheet yields no
@@ -248,16 +250,38 @@ func (s *Service) packingMeasurementFields(ctx context.Context, in CompletePacki
 		if domain.PartitionMatchKey(row.PartitionLabel) != wantPartition {
 			continue
 		}
-		fields := make([]PackingMeasurementField, 0, len(row.Items))
-		for _, item := range row.Items {
-			fields = append(fields, PackingMeasurementField{
-				// The SAME normalization the worklist and the frozen sheet use, so the verifier's
-				// reading lands on the key the variance read joins by.
-				Key:   domain.NormalizeConfigKey(item.FeedItem),
-				Label: item.FeedItem,
-			})
-		}
-		return fields
+		return packingEntryFields(row.Items)
 	}
 	return nil
+}
+
+// packingEntryFields turns ONE frozen packing row's items into the verifier's entry boxes:
+// only items the sheet actually directs this bag to contain (resolved, positive quantity).
+//
+// The frozen sheet carries every feed item the pen's ration rows mention, INCLUDING zero-quantity
+// cells -- the grid shape, not the bag's contents. Shipping those as boxes made the verifier type
+// 0 for every item the shed was never fed (maintainer report 2026-08-22), which is busywork that
+// also buries the readings that matter. A blocked item is likewise omitted: it carries no directed
+// quantity, and a bag whose line is blocked is not packable in the first place.
+func packingEntryFields(items []domain.ItemQuantity) []PackingMeasurementField {
+	fields := make([]PackingMeasurementField, 0, len(items))
+	for _, item := range items {
+		if item.Status != domain.QuantityResolved || item.QuantityKg == nil {
+			continue
+		}
+		kg, err := strconv.ParseFloat(strings.TrimSpace(*item.QuantityKg), 64)
+		if err != nil || kg <= 0 {
+			continue
+		}
+		fields = append(fields, PackingMeasurementField{
+			// The SAME normalization the worklist and the frozen sheet use, so the verifier's
+			// reading lands on the key the variance read joins by.
+			Key:   domain.NormalizeConfigKey(item.FeedItem),
+			Label: item.FeedItem,
+		})
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
 }
