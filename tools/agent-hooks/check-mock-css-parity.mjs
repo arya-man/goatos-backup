@@ -143,8 +143,12 @@ const DELIBERATE_MOCK_DIVERGENCES = [
       "trip the CSS checks above because `.srcl.inferred` is already ported for other " +
       "Derived/Inferred fields, so reintroduced text would render styled and clean.",
     forbiddenInComponents: [
-      /\bsrcl\s+inferred\b/i,
-      /\binferred\s+srcl\b/i,
+      // NOTE: a bare `srcl inferred` is NOT banned -- Movement state and Pattern legitimately
+      // carry an Inferred marker, and the mock shows them that way. Only an Inferred marker
+      // sitting in BATTERY context is the reintroduced life estimate. Matching the bare marker
+      // flagged those honest rows and would have pushed someone to delete correct labelling.
+      /battery[^\n]{0,200}\bsrcl\s+inferred\b/i,
+      /\bsrcl\s+inferred\b[^\n]{0,200}battery/i,
       /estimated?\s+battery\s+life/i,
       /battery.{0,10}life.{0,10}(left|remaining|estimate)/i,
       /est\.\s*~?\s*\d+(\.\d+)?\s*(year|month)s?\s*left/i,
