@@ -34,13 +34,6 @@ type RangeKey = "1h" | "6h" | "24h";
 const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };
 const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 3600 };
 
-function batteryLifeTone(estimate: string | null): "ok" | "warn" | "dng" | "mut" {
-  if (!estimate) return "mut";
-  const lower = estimate.toLowerCase();
-  if (lower.includes("week")) return "dng";
-  if (lower.includes("1 month") || lower.includes("2 month")) return "warn";
-  return "ok";
-}
 
 async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
   const to = new Date();
@@ -78,11 +71,15 @@ export function HerdSignalsDrawer({
   });
   const [range, setRange] = useState<RangeKey>("1h");
   const nowMs = useNowMs();
-  // Chart state is keyed to (tag, range) and reset by comparing that key DURING RENDER (React's
-  // sanctioned alternative to an Effect that resets state — see "You Might Not Need an Effect").
-  // The Effect below only ever calls setState from inside the async .then(), never synchronously at
-  // its top, which is what react-hooks/set-state-in-effect requires.
-  const chartKey = displayedItem ? `${displayedItem.tag_id}|${range}` : "";
+  // Bumped by the Retry button so a failed read can be re-fetched without changing tag or range —
+  // included in the effect's dependency array below so a retry actually re-runs the fetch, not just
+  // clears the error text back to a loading skeleton that never resolves again.
+  const [retryToken, setRetryToken] = useState(0);
+  // Chart state is keyed to (tag, range, retryToken) and reset by comparing that key DURING RENDER
+  // (React's sanctioned alternative to an Effect that resets state — see "You Might Not Need an
+  // Effect"). The Effect below only ever calls setState from inside the async .then(), never
+  // synchronously at its top, which is what react-hooks/set-state-in-effect requires.
+  const chartKey = displayedItem ? `${displayedItem.tag_id}|${range}|${retryToken}` : "";
   const [chart, setChart] = useState<{ key: string; buckets: HerdSignalTimelineBucket[] | null; error: string | null }>({
     key: chartKey,
     buckets: null,
@@ -96,13 +93,13 @@ export function HerdSignalsDrawer({
   useEffect(() => {
     if (!displayedItem) return;
     const id = ++requestId.current;
-    const key = `${displayedItem.tag_id}|${range}`;
+    const key = `${displayedItem.tag_id}|${range}|${retryToken}`;
     void readTimeline(displayedItem.tag_id, range).then((result) => {
       if (requestId.current !== id) return;
       if (result.ok) setChart((prev) => (prev.key === key ? { ...prev, buckets: result.buckets } : prev));
       else setChart((prev) => (prev.key === key ? { ...prev, error: result.error } : prev));
     });
-  }, [displayedItem, range]);
+  }, [displayedItem, range, retryToken]);
 
   if (!displayedItem) return null;
   const item = displayedItem;
@@ -149,10 +146,25 @@ export function HerdSignalsDrawer({
             </div>
             <div className="bd flush">
               {chartError ? (
-                <div className="empty">
-                  <p className="muted small" style={{ margin: 0 }}>
-                    Could not load history: {chartError}.
-                  </p>
+                // A failed read is a distinct state from "this tag has no history" (empty buckets)
+                // and must never render as a blank/grey panel indistinguishable from either —
+                // docs/modules/herd-signals.md "Required UI states" is explicit about this exact
+                // case. Same icon/heading/retry shape as every other read-failed state in this page.
+                <div className="empty dngstate">
+                  <div className="eicon">
+                    <svg className="ic" viewBox="0 0 24 24">
+                      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                      <path d="M12 9v4" />
+                      <path d="M12 17h.01" />
+                    </svg>
+                  </div>
+                  <h4>History read failed</h4>
+                  <p>{chartError}.</p>
+                  <div className="eact">
+                    <button type="button" className="btn sm" onClick={() => setRetryToken((current) => current + 1)}>
+                      Retry
+                    </button>
+                  </div>
                 </div>
               ) : buckets === null ? (
                 <div style={{ padding: 20 }}>
@@ -214,13 +226,10 @@ export function HerdSignalsDrawer({
             <dt>Battery state <span className="srcl derived">Derived</span></dt>
             <dd>{item.battery_state ? <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag> : "—"}</dd>
             <dt>Estimated battery life <span className="srcl inferred">Inferred</span></dt>
-            <dd>
-              {item.battery_life_estimate ? (
-                <Tag tone={batteryLifeTone(item.battery_life_estimate)}>{item.battery_life_estimate}</Tag>
-              ) : (
-                "—"
-              )}
-            </dd>
+            {/* battery_life_estimate was removed from the wire contract upstream (no longer
+                computed) -- render the standard "not available" dash rather than an empty cell,
+                since a blank <dd> next to a labelled <dt> reads as a rendering bug, not "no data". */}
+            <dd>—</dd>
             <dt>Tag temperature <span className="srcl direct">Direct</span></dt>
             <dd>{fmtTagTemp(item.tag_temperature_c)}</dd>
             <dt>Movement trend <span className="srcl derived">Derived</span></dt>
