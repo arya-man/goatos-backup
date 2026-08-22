@@ -41,8 +41,8 @@ const CATEGORY = "vaccination";
 
 /** Human message for a failed API call, never a raw transport error. */
 function failure(prefix: string, detail: unknown): PlanActionResult {
-  // A dropped connection surfaces as a TypeError from fetch ("fetch failed",
-  // ECONNREFUSED, ENOTFOUND). Those are true but useless on screen, and this
+  // A dropped connection surfaces as a TypeError from the transport layer
+  // ("fetch failed", ECONNREFUSED, ENOTFOUND). Those are true but useless on screen, and this
   // function exists precisely to keep transport noise off it, so they are
   // reported as what they mean: the server could not be reached.
   if (isUnreachable(detail)) {
@@ -214,7 +214,7 @@ export async function publishPlan(draftVersionId: string): Promise<PlanActionRes
  * naming the body rather than the field, so this is worth stating outright.
  */
 /**
- * Midnight of the current Goat OS BUSINESS day, as the backend wants it (RFC3339).
+ * Midnight of the current BUSINESS day (Asia/Kolkata), as the backend wants it (RFC3339).
  *
  * The server's own calendar day is the wrong one. Cloud Run runs in UTC, so between
  * midnight and 05:29 IST the server is still on yesterday -- and a CEO publishing a plan
