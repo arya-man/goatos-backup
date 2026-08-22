@@ -134,14 +134,18 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 	for _, p := range packets {
 		batch.Queue(`
 			INSERT INTO public.herd_signal_packets (
-				tenant_id, gateway_id, source, tag_id, tag_mac, received_at,
+				tenant_id, gateway_id, source, tag_id, tag_mac, received_at, device_seen_at,
 				gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c,
 				motion_count, sensor_state, temperature_sensor_ok,
 				accelerometer_sensor_ok, raw_adv, raw_payload
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-			ON CONFLICT (tenant_id, tag_id, received_at, motion_count) DO NOTHING
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			-- Dedup identity is device_seen_at (000195), NOT received_at: received_at is now
+			-- server-stamped fresh per ingest call (security fix), so a retried batch would get a
+			-- NEW received_at and this predicate would stop catching retries if it still keyed on
+			-- received_at.
+			ON CONFLICT (tenant_id, tag_id, device_seen_at, motion_count) DO NOTHING
 		`,
-			tenantID, p.GatewayID, p.Source, p.TagID, p.TagMAC, p.ReceivedAt,
+			tenantID, p.GatewayID, p.Source, p.TagID, p.TagMAC, p.ReceivedAt, p.DeviceSeenAt,
 			p.GatewaySeenAt, p.RSSIdbm, p.BatteryMV, p.TagTemperatureC,
 			p.MotionCount, p.SensorState, p.TemperatureSensorOK,
 			p.AccelerometerSensorOK, p.RawAdv, p.RawPayload,
