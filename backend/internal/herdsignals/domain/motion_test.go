@@ -216,12 +216,13 @@ func TestPatternStateFromHistory(t *testing.T) {
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 
 	tests := []struct {
-		name            string
-		currentDelta    int64
-		lastPacketAt    *time.Time
-		recentWindows   []ActivityWindow
-		previousPattern string
-		expectedState   string
+		name              string
+		currentDelta      int64
+		lastPacketAt      *time.Time
+		recentWindows     []ActivityWindow
+		previousPattern   string
+		currentIsGapDelta bool
+		expectedState     string
 	}{
 		{
 			name:          "missing signal (no recent packets)",
@@ -285,11 +286,26 @@ func TestPatternStateFromHistory(t *testing.T) {
 			previousPattern: string(PatternUnknown),
 			expectedState:   string(PatternUnknown),
 		},
+		{
+			// Maintainer decision on offline behaviour: a huge reconnect lump (delta far above
+			// baseline) must NOT read as "spike" -- it is a total across an unknown-duration gap,
+			// not a burst of activity in this window.
+			name:         "gap delta is never a spike, even when it dwarfs the baseline",
+			currentDelta: 5000, // wildly above any baseline*grainRatio*multiplier
+			lastPacketAt: &fiveMinutesAgo,
+			recentWindows: []ActivityWindow{
+				{BucketSeconds: 300, MotionDelta: 5, PacketCount: 1, IsGap: false},
+				{BucketSeconds: 300, MotionDelta: 6, PacketCount: 1, IsGap: false},
+			},
+			previousPattern:   string(PatternUnknown),
+			currentIsGapDelta: true,
+			expectedState:     string(PatternUnknown),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := PatternStateFromHistory(tt.currentDelta, tt.lastPacketAt, now, tt.recentWindows, tt.previousPattern, thresholds)
+			state := PatternStateFromHistory(tt.currentDelta, tt.lastPacketAt, now, tt.recentWindows, tt.previousPattern, tt.currentIsGapDelta, thresholds)
 			if state != tt.expectedState {
 				t.Errorf("state = %s, want %s", state, tt.expectedState)
 			}
@@ -399,6 +415,46 @@ func TestBaseline75(t *testing.T) {
 	want := percentile75([]int64{0, 5, 10})
 	if got != want {
 		t.Errorf("Baseline75 = %d, want %d (gap window must be excluded)", got, want)
+	}
+}
+
+// TestBaseline75ExcludesGapDelta proves the offline-behaviour exclusion: a reconnect lump must
+// never feed the baseline, even though it is a real (non-gap, packets-received) window.
+func TestBaseline75ExcludesGapDelta(t *testing.T) {
+	windows := []ActivityWindow{
+		{MotionDelta: 3, IsGap: false, GapDelta: false},
+		{MotionDelta: 4, IsGap: false, GapDelta: false},
+		{MotionDelta: 5, IsGap: false, GapDelta: false},
+		{MotionDelta: 5000, IsGap: false, GapDelta: true}, // reconnect lump: real window, must still be excluded
+	}
+	got := Baseline75(windows)
+	want := percentile75([]int64{3, 4, 5})
+	if got != want {
+		t.Errorf("Baseline75 = %d, want %d (gap_delta window must be excluded even though it is not a gap)", got, want)
+	}
+}
+
+func TestIsGapDelta(t *testing.T) {
+	thresholds := DefaultThresholds() // ReceptionGapMinutes = 30
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	if IsGapDelta(nil, now, thresholds) {
+		t.Error("first-ever packet (previousSeenAt=nil) must not be a gap delta")
+	}
+
+	within := now.Add(-10 * time.Minute)
+	if IsGapDelta(&within, now, thresholds) {
+		t.Error("10-minute interval must not be a gap delta (threshold is 30 minutes)")
+	}
+
+	exactly := now.Add(-30 * time.Minute)
+	if IsGapDelta(&exactly, now, thresholds) {
+		t.Error("exactly 30 minutes must not exceed the threshold (strictly greater-than)")
+	}
+
+	beyond := now.Add(-31 * time.Minute)
+	if !IsGapDelta(&beyond, now, thresholds) {
+		t.Error("31-minute interval must be a gap delta")
 	}
 }
 

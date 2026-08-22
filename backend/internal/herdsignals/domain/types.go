@@ -33,6 +33,18 @@ type Thresholds struct {
 	// Stale packet threshold (minutes).
 	StalePacketMinutes int // >= 30min with no packet => stale
 
+	// ReceptionGapMinutes is the threshold above which a delta between two consecutive packets
+	// for the same tag is a GAP DELTA (maintainer decision on offline behaviour): the gateway
+	// does not buffer scan reports through a WAN outage and a tag only broadcasts its CURRENT
+	// cumulative motion_count, so a gap this long means the backend received NOTHING for that
+	// period and the eventual reconnect delta is a TOTAL with an unknown time distribution, not
+	// ordinary in-window movement. Configurable and reused from a single call site
+	// (domain.IsGapDelta) rather than hardcoded -- kept as its OWN field, separate from
+	// StalePacketMinutes, even though both default to 30, because they answer different
+	// questions (is this row too old to trust vs is this delta smeared across a hole) and a
+	// future change to one must not silently change the other.
+	ReceptionGapMinutes int
+
 	// Motion calculation window (seconds).
 	MotionWindowSeconds int // default 60
 
@@ -61,6 +73,7 @@ func DefaultThresholds() Thresholds {
 		MotionLowDelta:            10,
 		MotionQuietDelta:          1,
 		StalePacketMinutes:        30,
+		ReceptionGapMinutes:       30,
 		MotionWindowSeconds:       60,
 		QuietWatchDurationMinutes: 90,  // 1.5 hours
 		InactiveDurationMinutes:   180, // 3 hours
@@ -133,7 +146,12 @@ type TagLatest struct {
 	TemperatureSensorOK   *bool
 	AccelerometerSensorOK *bool
 	MappingState          string // "mapped", "unmapped", "conflict"
-	UpdatedAt             time.Time
+	// GapDelta is true when MotionDelta (the 15-minute windowed sum) includes a reconnect lump:
+	// this ingest's received_at was more than Thresholds.ReceptionGapMinutes after the tag's
+	// previous_seen_at, so the delta is a TOTAL over an unknown span, not this window's own
+	// movement.
+	GapDelta  bool
+	UpdatedAt time.Time
 }
 
 // ActivityWindow represents a bucketed motion aggregate.
@@ -152,6 +170,12 @@ type ActivityWindow struct {
 	FirstSeenAt      *time.Time
 	LastSeenAt       *time.Time
 	IsGap            bool // true if PacketCount = 0 (no data in window)
+	// GapDelta is true when this bucket carries a RECONNECT delta: the first packet after a
+	// reception gap longer than Thresholds.ReceptionGapMinutes. MotionDelta on such a bucket is
+	// a TOTAL over the whole gap with unknown time distribution -- it must never feed the p75
+	// baseline (see Baseline75) or the spike comparison (see PatternStateFromHistory), and it is
+	// never smeared across the buckets the gap spans (those buckets simply have no row: IsGap).
+	GapDelta bool
 }
 
 // PatternState describes movement pattern over history.
@@ -247,6 +271,10 @@ type LiveItem struct {
 	TemperatureSensorOK   *bool   `json:"temperature_sensor_ok"`
 	AccelerometerSensorOK *bool   `json:"accelerometer_sensor_ok"`
 	MappingState          string  `json:"mapping_state"`
+	// GapDelta: true when motion_delta is a reconnect TOTAL across a reception gap (maintainer
+	// decision on offline behaviour), not this window's own movement. A client must render this
+	// distinctly (e.g. "+239 since reconnect, timing unknown"), never as a normal delta.
+	GapDelta bool `json:"gap_delta"`
 }
 
 // LiveResponse is the response to GET /herd-signals/live.
@@ -293,7 +321,12 @@ type TimelineWindow struct {
 	MaxRSSIdbm       *int16     `json:"max_rssi_dbm"`
 	FirstSeenAt      *time.Time `json:"first_seen_at"`
 	LastSeenAt       *time.Time `json:"last_seen_at"`
-	IsGap            bool       `json:"is_gap"` // true if PacketCount = 0
+	IsGap            bool       `json:"is_gap"` // true if PacketCount = 0: NO packets received.
+	// GapDelta is true only on a RECONNECT bucket: packets WERE received, and motion_delta is a
+	// TOTAL across a prior reception gap with unknown time distribution -- distinct from both
+	// IsGap (no packets) and an ordinary zero delta (packets received, no movement). A client
+	// must be able to render all three as different facts.
+	GapDelta bool `json:"gap_delta"`
 }
 
 // GatewayItem is a single gateway in the gateways response.

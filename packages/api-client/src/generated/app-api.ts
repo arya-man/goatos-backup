@@ -4152,6 +4152,8 @@ export interface components {
             temperature_sensor_ok: boolean | null;
             accelerometer_sensor_ok: boolean | null;
             mapping_state: components["schemas"]["HerdSignalMappingState"];
+            /** @description True when motion_delta is a reconnect TOTAL across a reception gap (maintainer decision on offline behaviour: the gateway does not buffer through a WAN outage, so a gap this long means nothing was received, and the delta on reconnect is a total with unknown time distribution), not this window's own movement. Render distinctly, never as an ordinary delta. */
+            gap_delta: boolean;
         };
         HerdSignalsLiveResponse: {
             summary: components["schemas"]["HerdSignalsSummary"];
@@ -4174,6 +4176,8 @@ export interface components {
             max_rssi_dbm: number | null;
             /** @description True when the window has NO packets. Never collapsed with packet_count>0/motion_delta=0. */
             is_gap: boolean;
+            /** @description True only on a RECONNECT bucket: packets WERE received, and motion_delta is a TOTAL across a prior reception gap with unknown time distribution. Distinct from BOTH is_gap (no packets) and an ordinary zero delta (packets received, no movement) -- a client must be able to render all three as different facts. */
+            gap_delta: boolean;
         };
         HerdSignalTimelineResponse: {
             buckets: components["schemas"]["HerdSignalTimelineBucket"][];
