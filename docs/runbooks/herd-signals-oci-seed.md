@@ -52,7 +52,7 @@ the fix belongs in the ingest service, not here.
 
    That file is machine-local and `chmod 600`. Never copy it into the repo.
 
-3. **Migrations 000190, 000191 and 000192 applied.** 000192 creates
+3. **Migrations 000191, 000192 and 000193 applied.** 000193 creates
    `herd_signal_packets_dedup_uidx`; without it the seed's `ON CONFLICT DO
    NOTHING` has no unique index to conflict against and a re-run silently doubles
    the packet table. Check:
@@ -197,7 +197,7 @@ address that is neither loopback nor Tailscale `10.88/16`. You are not on the
 tunnel.
 
 **Packet count doubles on re-run** — `herd_signal_packets_dedup_uidx` is missing.
-Apply migration 000192.
+Apply migration 000193.
 
 **`movement_state` is `unknown` everywhere** — stage 2 has not run. Run
 `bash tools/local/seed-herd-signals-oci.sh --replay-only`.
@@ -207,6 +207,6 @@ Apply migration 000192.
 - `tools/local/seed-herd-signals-oci.sql` — stage 1, external facts
 - `backend/cmd/seed-herd-signals-oci/main.go` — stage 2, real ingest replay
 - `tools/dev/seed-closeout.sh` — projection rebuild registration
-- `backend/migrations/postgres/000190..000192` — schema
+- `backend/migrations/postgres/000191..000193` — schema
 - `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` — projection obligations
 - `docs/runbooks/initial-seed-migration-coupling.md` — why the guard exists

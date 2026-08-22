@@ -22,7 +22,7 @@ import (
 //     returns everything is worse than no export at all -- the operator downloads a file that
 //     does not answer the question they asked on screen);
 //  2. the activity overlay joins REAL farm records across three different grains; and
-//  3. it never returns a record from before the tag was mapped to the animal (migration 000196).
+//  3. it never returns a record from before the tag was mapped to the animal (migration 000197).
 
 func mustExec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, what, sql string, args ...any) {
 	t.Helper()
@@ -118,7 +118,7 @@ func seedFarmActivity(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (bo
 	before = boundary.Add(-2 * time.Hour)
 	after = boundary.Add(2 * time.Hour)
 
-	// The mapping instant itself: the authoritative stamp lives on the identifier (000196).
+	// The mapping instant itself: the authoritative stamp lives on the identifier (000197).
 	mustExec(t, ctx, pool, "monitoring boundary",
 		`UPDATE goat_identifiers SET smart_tag_mapped_at = $2 WHERE tenant_id = $1::uuid`, hsiTenant, boundary)
 

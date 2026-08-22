@@ -368,7 +368,7 @@ func (b *bridge) handleHeartbeat(env gwEnvelope) {
 	if gatewayID == "" {
 		gatewayID = b.cfg.DefaultGateway
 	}
-	// Persisted through the module's own heartbeat write path (000197) rather than a bare
+	// Persisted through the module's own heartbeat write path (000198) rather than a bare
 	// gateway upsert: that path also records last_heartbeat_at (distinct from last_seen_at, so
 	// "up but hearing no tags" is distinguishable from "down") and ticks_cnt, and counts a reboot
 	// when ticks_cnt goes BACKWARDS -- never a negative, same discipline as motion_count and
@@ -456,7 +456,7 @@ func decodeHoneyCombPacket(dev devInfo, raw []byte, env gwEnvelope, pktSN int64)
 		SensorState:           &sensorState,
 		TemperatureSensorOK:   &sensorOK,
 		AccelerometerSensorOK: &sensorOK,
-		// pkt_sn is now a real COLUMN (migration 000197), not only a jsonb crumb in RawPayload
+		// pkt_sn is now a real COLUMN (migration 000198), not only a jsonb crumb in RawPayload
 		// below: it is the only packet-loss instrument this protocol gives us, and inside jsonb
 		// it could neither be aggregated nor compared across a bridge restart. It stays in
 		// RawPayload too so the stored raw diagnostic record remains complete.

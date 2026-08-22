@@ -70,7 +70,7 @@ most likely to be underestimated in a real shed layout.
 
 ### 1.4 Bytes per packet row
 
-`herd_signal_packets` (migration `000191`) carries a `raw_adv` text column and
+`herd_signal_packets` (migration `000192`) carries a `raw_adv` text column and
 a `raw_payload` jsonb alongside the typed columns.
 
 | Component | Bytes (est.) |
@@ -83,7 +83,7 @@ a `raw_payload` jsonb alongside the typed columns.
 | `raw_adv` (a 31-byte advertisement as hex ≈ 62 chars) | ~66 |
 | `raw_payload` jsonb (`'{}'` today) | ~12 |
 | **Heap subtotal** | **~235, round to 250** |
-| 4 btree entries (3 from `000191` + the `000192` dedup unique index), ~48 B each | **~190** |
+| 4 btree entries (3 from `000192` + the `000193` dedup unique index), ~48 B each | **~190** |
 | **Total per row incl. indexes** | **~440** |
 
 The index overhead is ~43% of the row cost. That is not a tuning detail at
@@ -161,7 +161,7 @@ storage IOPS budgets all derive from that number, not from the row count.
 | Per-packet timestamp tolerance | `service.go:56-60` | a packet with an unparseable `seen_at` is logged and skipped; the rest of the batch proceeds. |
 | Empty batch | `service.go:82` | rejected with an error, not accepted as a no-op. |
 | Single transaction | `repository.go:102` | gateway upsert, packet inserts, all three window tiers, and every `tag_latest` update commit or roll back together. |
-| Dedup | migration `000192` | unique index on `(tenant_id, tag_id, received_at, motion_count) NULLS NOT DISTINCT`; inserts use `ON CONFLICT DO NOTHING`. |
+| Dedup | migration `000193` | unique index on `(tenant_id, tag_id, received_at, motion_count) NULLS NOT DISTINCT`; inserts use `ON CONFLICT DO NOTHING`. |
 | Replay accounting | `repository.go:151-170` | only rows whose insert reported `RowsAffected > 0` enter `newPackets`; rollup and `tag_latest` operate on that subset. |
 | Snapshot monotonicity | `repository.go:222` | `tag_latest` advances only when the incoming `received_at` is strictly newer than the stored `last_seen_at`. |
 
@@ -184,7 +184,7 @@ mid-second, and nothing about two gateways forwarding the same advertisement
 A battery- or temperature-only advertisement can carry a NULL `motion_count`.
 Under standard SQL semantics every NULL is distinct from every other NULL, so
 such packets would never conflict and a retried batch would double-insert them
-— the exact failure the index exists to prevent. Migration `000192` closes this
+— the exact failure the index exists to prevent. Migration `000193` closes this
 with `NULLS NOT DISTINCT`, so **the hole is closed in the committed
 migration**, not outstanding.
 
@@ -269,7 +269,7 @@ orders of magnitude larger per day than any of them. The ADR's ladder ends with
 "add partitioning… for the measured hotspot"; the arithmetic in Section 1 is
 that measurement, taken before the table is filled rather than after.
 
-Note that the `000192` dedup unique index must include the partition key to
+Note that the `000193` dedup unique index must include the partition key to
 remain enforceable on a partitioned table — `received_at` is already in it, so
 the key is partition-compatible as written. This is a fortunate accident worth
 preserving.
@@ -426,7 +426,7 @@ in *this* document:
 |---|---|---|
 | **Gateway offline** | `gatewayStatus` (`service.go:570`) computes `online`/`offline` from `last_seen_at` freshness against `StalePacketMinutes = 30`, ignoring the stored status string. Tags fall to `pattern_state = missing` after 30 min. No data is lost; the window rows for that period simply do not exist, and the timeline renders them as `is_gap = true` — distinguishable from "packets arrived, zero movement". | No alert on a gateway that stops reporting; an operator must be looking at the gateways view. |
 | **Clock skew (gateway vs server)** | `received_at` is taken verbatim from the gateway's `seen_at` (`service.go:56`). Nothing validates it against server time. | **Real incident:** the bench capture's timestamps were Asia/Kolkata wall clock and were once stored as UTC, placing every packet **5.5 hours in the future**. Consequences are systemic, not cosmetic: `tag_latest` monotonicity locks to a future `last_seen_at` and refuses correctly-stamped packets; buckets land in future partitions; "stale" and "missing" invert. **Required:** reject or clamp a packet whose `received_at` is more than a small skew window (provisional: 5 min future, 24 h past) from server time, and record the rejection rather than dropping it silently. Not implemented. |
-| **Duplicate / replayed batch** | Fully handled. `000192` + `ON CONFLICT DO NOTHING` dedup the rows; `newPackets` ensures rollup and `tag_latest` skip them; an all-replay batch commits as a no-op returning `stored=0, latestUpdated=0` (`repository.go:172-179`). | The response does not distinguish "0 stored because replay" from "0 stored because rejected" beyond the counts. |
+| **Duplicate / replayed batch** | Fully handled. `000193` + `ON CONFLICT DO NOTHING` dedup the rows; `newPackets` ensures rollup and `tag_latest` skip them; an all-replay batch commits as a no-op returning `stored=0, latestUpdated=0` (`repository.go:172-179`). | The response does not distinguish "0 stored because replay" from "0 stored because rejected" beyond the counts. |
 | **Gateway flooding the endpoint** | Nothing. No per-gateway rate limit, no batch-size cap, no request-body size cap beyond the platform default. A misconfigured or compromised gateway can issue arbitrarily large batches, each inside one transaction. | **Required:** cap packets per batch (provisional: 5,000), and rate-limit per `(tenant_id, gateway_id)`. Not implemented. |
 | **Partial batch failure** | Two different behaviours by failure class, both deliberate: a packet with an unparseable timestamp is *skipped* and the batch proceeds (`service.go:56-60`); any DB error aborts the whole transaction, so nothing partial is ever committed. | The skipped-packet count is not returned; `Accepted` counts the request payload and `Stored` the inserts, so the difference conflates "skipped bad timestamp" with "deduped replay". |
 | **Ingest slower than arrival** | No queue. The gateway POST is synchronous against Postgres; backpressure is the request timing out, and the gateway's own retry is what recovers — which the dedup key makes safe. | At 50k tags this becomes the binding constraint before any read path does. See Section 7.1. |

@@ -185,9 +185,9 @@ run_required_projectors() {
   run_go_cmd vaccination-eligibility-rollup-recompute -tenant-id "$tenant_id"
 }
 
-# Herd Signals projections (migration 000191): herd_signal_tag_latest and
+# Herd Signals projections (migration 000192): herd_signal_tag_latest and
 # herd_signal_activity_windows are both DERIVED from herd_signal_packets --
-# 000191 says so in its own comment ("Materialized from herd_signal_packets").
+# 000192 says so in its own comment ("Materialized from herd_signal_packets").
 # The operational-kernel-5k-50k-scale-envelope ADR requires a new projection
 # table to be rebuildable from canonical data through this closeout, so it is
 # registered here rather than existing only as a one-off script.
