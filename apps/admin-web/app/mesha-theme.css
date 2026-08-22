@@ -3460,6 +3460,7 @@ select:disabled { opacity: .45; }
   border-bottom:0;
 }
 .herd-signals-page aside.drawer .kv dt{
+  display:block;
   white-space:nowrap;
   color:var(--muted);
   font-weight:400;
@@ -3483,6 +3484,12 @@ select:disabled { opacity: .45; }
   border-radius:4px;
   vertical-align:middle;
   font-family:-apple-system,system-ui,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+.herd-signals-page aside.drawer .kv dd>.tag{
+  display:inline-flex;
+  align-items:center;
+  height:17px;
+  line-height:15.95px;
 }
 .herd-signals-page aside.drawer .hs-drawer-note{
   margin:12px 0 0;
