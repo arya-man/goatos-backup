@@ -10,11 +10,13 @@ export function HistoryChart({
   baseline,
   height = 120,
   width = 900,
+  onHover,
 }: {
   buckets: HerdSignalTimelineBucket[];
   baseline?: number | null;
   height?: number;
   width?: number;
+  onHover?: (bucket: HerdSignalTimelineBucket | null) => void;
 }) {
   if (buckets.length === 0) {
     return (
@@ -32,19 +34,46 @@ export function HistoryChart({
   const baselineY = baseline ? height - (Math.min(baseline, maxDelta) / maxDelta) * (height - 14) : null;
 
   return (
-    <svg className="hchart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Motion-count delta history">
+    <svg
+      className="hchart"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Motion-count delta history"
+      onMouseLeave={() => onHover?.(null)}
+    >
       <line x1={0} y1={height - 1} x2={width} y2={height - 1} className="gl" />
       {baselineY !== null ? <line x1={0} y1={baselineY} x2={width} y2={baselineY} className="base" /> : null}
       {buckets.map((bucket, index) => {
         const x = index * (barWidth + barGap);
         if (bucket.is_gap) {
-          return <rect key={bucket.bucket_start} x={x} y={0} width={barWidth} height={height} className="gap" />;
+          return (
+            <rect
+              key={bucket.bucket_start}
+              x={x}
+              y={0}
+              width={barWidth}
+              height={height}
+              className="gap"
+              onMouseEnter={() => onHover?.(bucket)}
+            />
+          );
         }
         const delta = bucket.motion_delta ?? 0;
         const barHeight = Math.max(delta > 0 ? 1.5 : 1, (delta / maxDelta) * (height - 14));
         const spike = delta > maxDelta * 0.85 && delta > (baseline ?? 0) * 3;
         const cls = delta === 0 ? "b-zero" : delta < (baseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
-        return <rect key={bucket.bucket_start} x={x} y={height - barHeight} width={barWidth} height={barHeight} className={cls} />;
+        return (
+          <rect
+            key={bucket.bucket_start}
+            x={x}
+            y={height - barHeight}
+            width={barWidth}
+            height={barHeight}
+            className={cls}
+            onMouseEnter={() => onHover?.(bucket)}
+          />
+        );
       })}
     </svg>
   );

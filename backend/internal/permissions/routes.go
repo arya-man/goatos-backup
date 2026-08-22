@@ -460,6 +460,13 @@ var protectedRoutes = []Route{
 	// recording what WAS fed belongs to backend/internal/feed. No route here needs an
 	// Idempotency-Key because no route here has a side effect to replay.
 	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
+	// Herd Signals (BLE ear-tag telemetry, backend/internal/herdsignals): ingest is the gateway
+	// device's own write, separate from every operator/admin read below it.
+	{OperationID: "ingestHerdSignalPackets", Method: "POST", Pattern: "/herd-signals/packets", Permissions: []string{HerdSignalsIngest}},
+	{OperationID: "listHerdSignalsLive", Method: "GET", Pattern: "/herd-signals/live", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getHerdSignalsTagTimeline", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/timeline", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "listHerdSignalsGateways", Method: "GET", Pattern: "/herd-signals/gateways", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getHerdSignalsInsights", Method: "GET", Pattern: "/herd-signals/insights", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getFeedAnalyticsDirected", Method: "GET", Pattern: "/feed-analytics/directed", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsExecution", Method: "GET", Pattern: "/feed-analytics/execution", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsExperiment", Method: "GET", Pattern: "/feed-analytics/experiment", Permissions: []string{FeedDirectionRead}},

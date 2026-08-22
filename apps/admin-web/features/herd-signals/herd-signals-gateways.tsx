@@ -1,29 +1,66 @@
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { fmtStaleness } from "./format";
-import type { HerdSignalsGateway } from "./types";
+import { Tag } from "@/components/ui-primitives";
+import type { HerdGateway } from "@/lib/api/herd-signals";
+import { fmtAgo } from "./format";
 
-export function HerdSignalsGateways({ gateways, pageContract, nowMs }: { gateways: HerdSignalsGateway[]; pageContract: AdminUiPageContract; nowMs: number }) {
+// Gateway health view (docs/modules/herd-signals.md Section 7: refreshes every 15s — the tab's own
+// server read on each visit/refresh; this component is presentation-only).
+export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway[]; nowMs: number }) {
   if (gateways.length === 0) {
-    return <div className="hs-empty">{copy(pageContract, "gateways.empty", "No gateways are registered yet.")}</div>;
+    return (
+      <div className="empty">
+        <div className="eicon">
+          <svg className="ic" viewBox="0 0 24 24">
+            <path d="M5 12.5a7 7 0 0 1 14 0" />
+            <path d="M2 9a11 11 0 0 1 20 0" />
+            <circle cx="12" cy="17" r="2" />
+          </svg>
+        </div>
+        <h4>No gateways registered yet</h4>
+        <p>No BLE gateway has posted for this tenant. Confirm a gateway is powered and networked.</p>
+      </div>
+    );
   }
   return (
-    <div className="hs-gateway-grid">
+    <div className="grid2">
       {gateways.map((gateway) => (
-        <div key={gateway.gateway_id} className={`card hs-gwcard hs-gw-${gateway.status}`}>
-          <div className="hd">
-            <span className="hs-gw-label">{gateway.label}</span>
-            <span className={`hs-badge hs-gw-status-${gateway.status}`}>{gateway.status}</span>
+        <div key={gateway.gateway_id} className="gwcard">
+          <div className="gwh">
+            <b>{gateway.label || gateway.gateway_id}</b>
+            <span className="sp" style={{ flex: 1 }} />
+            <Tag tone={gateway.status === "online" ? "ok" : "dng"}>{gateway.status === "online" ? "Online" : "Offline"}</Tag>
           </div>
-          <div className="bd hs-gwstats">
-            <div>{gateway.park_name}{gateway.shed_name ? ` · ${gateway.shed_name}` : ""}</div>
-            <div className="muted">{gateway.network_mode}</div>
-            <div className="hs-gwstats-row">
-              <span>{gateway.tags_seen_recently} seen</span>
-              <span>{gateway.weak_tags} weak</span>
-              <span>{gateway.unmapped_tags} unmapped</span>
+          {gateway.status !== "online" ? (
+            <div className="banner warn" style={{ margin: "0 0 10px" }}>
+              <svg className="ic" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+              <div>
+                <b>Gateway offline.</b> Its tags read as missing signal below — that is a statement
+                about the radio path, never a claim that those animals are missing.
+              </div>
             </div>
-            <div className="muted">Last seen {fmtStaleness(gateway.last_seen_at, nowMs)}</div>
+          ) : null}
+          <div className="muted small">
+            {gateway.park_name || "—"}
+            {gateway.shed_name ? ` · ${gateway.shed_name}` : ""}
           </div>
+          <div className="muted small mono">{gateway.network_mode || "—"}</div>
+          <div className="gwstats">
+            <div>
+              <div className="v">{gateway.tags_seen_recently}</div>
+              <div className="l">Seen</div>
+            </div>
+            <div>
+              <div className="v">{gateway.weak_tags}</div>
+              <div className="l">Weak</div>
+            </div>
+            <div>
+              <div className="v">{gateway.unmapped_tags}</div>
+              <div className="l">Unmapped</div>
+            </div>
+          </div>
+          <div className="muted small">Last seen {fmtAgo(gateway.last_seen_at, nowMs)}</div>
         </div>
       ))}
     </div>

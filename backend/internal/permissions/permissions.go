@@ -507,6 +507,17 @@ const (
 	// Monitoring: "Any feeding that happened late, in the wrong quantity, or to the wrong cohort
 	// must be flagged, investigated, and corrected immediately"). No role loses anything.
 	FeedDirectionOversee = "feed_direction.oversee"
+	// HerdSignalsRead gates the herd-signals READ surface (GET /herd-signals/live,
+	// /herd-signals/tags/{tag_id}/timeline, /herd-signals/gateways, /herd-signals/insights):
+	// the BLE ear-tag telemetry live/inventory view. Read-only; granted alongside GoatRead
+	// wherever the founder/builder visibility invariant applies (RoleCEOInternal), since this
+	// is a new module with no other role wired to it yet.
+	HerdSignalsRead = "herd_signals.read"
+	// HerdSignalsIngest gates POST /herd-signals/packets, the gateway device ingest endpoint.
+	// Deliberately separate from HerdSignalsRead: reading the live view is not the same
+	// authority as writing raw telemetry into it, and ingest is a machine/service credential's
+	// permission, not an operator's.
+	HerdSignalsIngest = "herd_signals.ingest"
 	// FeedDirectionComplete is the operator WRITE twin FeedPackingRead's comment anticipated: it gates
 	// POST /feed-direction/complete, where an operator records that one shed-session's feed direction
 	// was carried out (with optional video proof). It is deliberately separate from the feed reads --
@@ -1027,8 +1038,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedDirectionRead:    {},
 		FeedDirectionOversee: {},
 		FeedTransportRead:    {},
-		VerificationReview:   {},
-		VerificationAct:      {},
+		// Herd Signals (BLE ear-tag telemetry): founder/builder visibility invariant, same as
+		// every other built module above. Ingest is a device/service credential's permission,
+		// not something the CEO account itself is expected to call, but is granted here too so
+		// the CEO account can never be locked out of exercising the whole module end to end.
+		HerdSignalsRead:    {},
+		HerdSignalsIngest:  {},
+		VerificationReview: {},
+		VerificationAct:    {},
 		// Founder/builder visibility invariant, and the tenant-wide oversight filters (module
 		// chips, capture-date range) on /verify -- CEO/CxO is exactly one of the two roles that
 		// receives the unrestricted, cross-category branch of resolveVerifierCategories. See

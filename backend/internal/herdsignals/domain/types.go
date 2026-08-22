@@ -16,7 +16,7 @@ type Thresholds struct {
 	BatteryLowMV int
 	// BatteryNominalFullMV / BatteryNominalLifeDays anchor the linear, PROVISIONAL
 	// battery_life_estimate shown on the live view. Pending vendor discharge-curve data.
-	BatteryNominalFullMV  int
+	BatteryNominalFullMV   int
 	BatteryNominalLifeDays int
 
 	// Motion state thresholds (cumulative motion_count delta over window).
@@ -33,34 +33,34 @@ type Thresholds struct {
 
 	// Pattern state thresholds (duration-based).
 	// All provisional; pending operational validation.
-	QuietWatchDurationMinutes  int // 1-2 hours of low delta => quiet_watch
-	InactiveDurationMinutes    int // 3+ hours of low delta with packets => inactive
-	MissingSignalMinutes       int // 30+ minutes with no packets => missing_signal
-	BaselinePercentile         int // p75 of 24h non-gap buckets (not median)
-	SpikeThresholdMultiplier   float64 // how many x baseline = spike
+	QuietWatchDurationMinutes int     // 1-2 hours of low delta => quiet_watch
+	InactiveDurationMinutes   int     // 3+ hours of low delta with packets => inactive
+	MissingSignalMinutes      int     // 30+ minutes with no packets => missing_signal
+	BaselinePercentile        int     // p75 of 24h non-gap buckets (not median)
+	SpikeThresholdMultiplier  float64 // how many x baseline = spike
 }
 
 // DefaultThresholds returns provisional default thresholds.
 // These are operational placeholders and should be tuned based on real data.
 func DefaultThresholds() Thresholds {
 	return Thresholds{
-		SignalStrong:         -65,
-		SignalWeak:           -75,
-		SignalAvgWeak:        -80,
-		BatteryLowMV:           2800,
-		BatteryNominalFullMV:   3000, // provisional: fresh CR2032-class coin cell
-		BatteryNominalLifeDays: 90,   // provisional: pending vendor discharge-curve data
-		MotionActiveDelta:    100,
-		MotionLowDelta:       10,
-		MotionQuietDelta:     1,
-		MotionNotMovingDelta: 0,
-		StalePacketMinutes:   30,
-		MotionWindowSeconds:  60,
-		QuietWatchDurationMinutes: 90,    // 1.5 hours
-		InactiveDurationMinutes:   180,   // 3 hours
-		MissingSignalMinutes:      30,    // 30 minutes
-		BaselinePercentile:        75,    // p75 of 24h non-gap buckets
-		SpikeThresholdMultiplier:  2.5,   // 2.5x baseline
+		SignalStrong:              -65,
+		SignalWeak:                -75,
+		SignalAvgWeak:             -80,
+		BatteryLowMV:              2800,
+		BatteryNominalFullMV:      3000, // provisional: fresh CR2032-class coin cell
+		BatteryNominalLifeDays:    90,   // provisional: pending vendor discharge-curve data
+		MotionActiveDelta:         100,
+		MotionLowDelta:            10,
+		MotionQuietDelta:          1,
+		MotionNotMovingDelta:      0,
+		StalePacketMinutes:        30,
+		MotionWindowSeconds:       60,
+		QuietWatchDurationMinutes: 90,  // 1.5 hours
+		InactiveDurationMinutes:   180, // 3 hours
+		MissingSignalMinutes:      30,  // 30 minutes
+		BaselinePercentile:        75,  // p75 of 24h non-gap buckets
+		SpikeThresholdMultiplier:  2.5, // 2.5x baseline
 	}
 }
 
