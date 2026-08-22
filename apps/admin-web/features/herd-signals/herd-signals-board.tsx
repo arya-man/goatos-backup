@@ -10,11 +10,11 @@ import {
   type HerdInsightsResponse,
   type HerdSignalsLiveResponse,
 } from "@/lib/api/herd-signals";
-import type { ApiResult } from "@/lib/api/server";
+import { listLocations, type ApiResult } from "@/lib/api/server";
 import { HerdSignalsPoller } from "./herd-signals-poller";
 import { HerdSignalsNavProvider } from "./herd-signals-nav-context";
 import { HerdSignalsKpis, HerdSignalsKpiChip } from "./herd-signals-kpis";
-import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
+import { HerdSignalsFilters, type ParkOption, type ShedOption } from "./herd-signals-filters";
 import { HerdSignalsTable } from "./herd-signals-table";
 import { HerdSignalsMappingTable } from "./herd-signals-mapping-table";
 import { HerdSignalsGateways } from "./herd-signals-gateways";
@@ -77,12 +77,12 @@ const TAB_ICON: Record<HerdSignalsTab, ReactNode> = {
 
 // What the Alerts tab lists: every tag whose pattern classification is anything other than
 // "normal". pattern_state is a single, always-populated classification (the backend computes it on
-// every read), so "not normal" is a partition, which is what lets the tab badge below be a real
-// server-side aggregate (fleet total minus the tenant-wide `normal` count) instead of a count of
-// the rows that happen to be on the fetched page.
-function isAlerting(item: HerdSignalItem): boolean {
-  return (item.pattern_state ?? "normal") !== "normal";
-}
+// every read), so "not normal" is a partition -- selected SERVER-SIDE via `pattern: "not_normal"`
+// in fetchForTab (herdSignalsLiveFilter, pattern_state <> 'normal'), not by filtering whatever page
+// of rows happens to come back. Client-side selection from one fetched page is wrong at scale: a
+// page can be entirely non-alerting rows while thousands of alerting tags exist elsewhere in the
+// fleet. The tab badge stays a real server-side aggregate (fleet total minus the tenant-wide
+// `normal` count) either way.
 
 export function loadHerdSignalsLive(searchParams: RouteSearchParams | undefined): Promise<ApiResult<HerdSignalsLiveResponse>> {
   const params = parseHerdSignalsParams(searchParams);
@@ -104,11 +104,12 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
     return getHerdSignalsLive({ ...common, mappingState: params.mappingState });
   }
   if (params.tab === "alerts") {
-    // No pattern filter. The mock's Alerts tab is ONE unified list of every alerting tag, with no
-    // type-filter row at all; defaulting this to `inactive` (a pattern no tag is currently in) is
-    // what made the tab read "No tags in this alert state" while twenty missing-signal alerts
-    // existed. The alerting subset is selected from the fetched page by `isAlerting` below.
-    return getHerdSignalsLive({ ...common });
+    // The mock's Alerts tab is ONE unified list of every alerting tag, with no type-filter row at
+    // all -- so the query asks the server for the whole "not normal" partition (pattern_state <>
+    // 'normal') rather than fetching one page unfiltered and picking the alerting rows out of it
+    // client-side. At fleet scale a page can be entirely non-alerting rows; a server-side filter is
+    // the only way the Alerts tab stays correct past the first page.
+    return getHerdSignalsLive({ ...common, pattern: "not_normal" });
   }
   // live tab
   return getHerdSignalsLive({
@@ -174,7 +175,7 @@ export async function HerdSignalsBoard({
   // case costs no extra read.
   const tabNarrowsSummary = params.tab === "animals" || Boolean(params.mappingState) || Boolean(params.pattern);
 
-  const [liveResult, fleetOwnResult, normalResult, gatewaysResult, insightsResult] = await Promise.all([
+  const [liveResult, fleetOwnResult, normalResult, gatewaysResult, insightsResult, locationsResult] = await Promise.all([
     fetchForTab(params),
     tabNarrowsSummary ? getHerdSignalsLive(scopeOnly) : Promise.resolve(null),
     // The tenant-wide "normal pattern" count. Alerting = fleet total - normal, both server-side
@@ -182,7 +183,13 @@ export async function HerdSignalsBoard({
     getHerdSignalsLive({ ...scopeOnly, pattern: "normal" }),
     getHerdSignalsGateways(),
     params.tab === "insights" ? getHerdSignalsInsights() : Promise.resolve(null),
+    // Park options for the filter bar come from the canonical locations master (BUG-019: never a
+    // client-derived list built from whatever parks happen to appear on the current page of rows).
+    listLocations({ type: "park", status: "active" }),
   ]);
+  const parks: ParkOption[] = locationsResult.ok
+    ? locationsResult.data.items.map((location) => ({ id: location.location_id, label: location.name }))
+    : [];
 
   const fleetResult = fleetOwnResult ?? liveResult;
   const tabCounts: Partial<Record<HerdSignalsTab, number>> = {};
@@ -236,7 +243,7 @@ export async function HerdSignalsBoard({
         </div>
 
         {params.tab === "live" ? (
-          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
+          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} parks={parks} />
         ) : params.tab === "animals" ? (
           <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
         ) : params.tab === "mapping" ? (
@@ -278,10 +285,12 @@ function LiveMonitorTab({
   params,
   result,
   nowMs,
+  parks,
 }: {
   params: HerdSignalsParams;
   result: ApiResult<HerdSignalsLiveResponse>;
   nowMs: number;
+  parks: ParkOption[];
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { summary, items, next_cursor } = result.data;
@@ -291,7 +300,7 @@ function LiveMonitorTab({
 
   return (
     <>
-      <HerdSignalsFilters params={params} sheds={sheds} />
+      <HerdSignalsFilters params={params} sheds={sheds} parks={parks} />
       <HerdSignalsKpis summary={summary} params={params} />
       <div className="small faint" style={{ margin: "-6px 0 14px" }}>
         Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
@@ -413,12 +422,15 @@ function AlertsTab({
   alertingTotal: number | undefined;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
-  const { items, next_cursor } = result.data;
   // The mock has NO alert-type filter row: `renderAlerts` builds ONE `.rowlist` holding every
-  // alerting tag, whatever its type. The row of missing/inactive/spike/quiet-watch/recovered
-  // buttons this tab used to carry defaulted to `inactive`, so the tab opened on an empty list
-  // while twenty missing-signal alerts were live.
-  const alerting = items.filter(isAlerting);
+  // alerting tag, whatever its type. `fetchForTab` already asked the server for the whole
+  // "not_normal" partition (pattern="not_normal", see herdSignalsLiveFilter in the Postgres
+  // repository) -- every row on this page is already alerting, at any fleet scale, because the
+  // filter runs in the WHERE clause, not after the page lands. Re-filtering here with the old
+  // client-side `isAlerting` predicate would just be a no-op on top of an already-server-filtered
+  // page, so `items` IS the alerting set.
+  const { items, next_cursor } = result.data;
+  const alerting = items;
   return (
     <div className="card">
       <div className="hd">
