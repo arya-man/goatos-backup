@@ -42,6 +42,8 @@ try {
     .waitForFunction(() => !document.querySelector("aside.drawer .skelrow"), null, { timeout: 15_000 })
     .catch(() => undefined);
   await livePage.waitForTimeout(800);
+  const rawLiveAxisLabels = await axisLabels(livePage, "aside.drawer");
+  assertLiveAxisScale(rawLiveAxisLabels);
   if (normalizeContent) await normalizeLiveDrawer(mockPage, livePage);
 
   const mock = await capture(mockPage, "mock", "#drawer");
@@ -49,7 +51,18 @@ try {
   const comparisons = compareRegions(mock, live);
   const geometryFailures = compareGeometry(mock.metrics, live.metrics);
 
-  const report = { artifactDir, mockUrl, liveUrl: livePage.url(), normalizeContent, comparisons, mock: mock.metrics, live: live.metrics };
+  const report = {
+    artifactDir,
+    mockUrl,
+    liveUrl: livePage.url(),
+    normalizeContent,
+    rawLiveAxisLabels,
+    mockAxisLabels: await axisLabels(mockPage, "#drawer"),
+    liveAxisLabels: await axisLabels(livePage, "aside.drawer"),
+    comparisons,
+    mock: mock.metrics,
+    live: live.metrics,
+  };
   writeFileSync(join(artifactDir, "report.json"), JSON.stringify(report, null, 2));
 
   const failed = comparisons.filter((comparison) => !comparison.pass);
@@ -99,6 +112,21 @@ async function box(page, selector) {
   const result = await locator.boundingBox();
   if (!result) throw new Error(`missing region: ${selector}`);
   return result;
+}
+
+async function axisLabels(page, drawerSelector) {
+  return page.locator(`${drawerSelector} .hchart text`).evaluateAll((nodes) =>
+    nodes
+      .slice(0, 4)
+      .map((node) => node.textContent?.trim() ?? "")
+      .filter(Boolean),
+  );
+}
+
+function assertLiveAxisScale(labels) {
+  if (labels[0] === "400") {
+    throw new Error(`Herd Signals drawer chart is using the old gap fallback scale: ${labels.join(" / ")}`);
+  }
 }
 
 function compareRegions(mock, live) {
