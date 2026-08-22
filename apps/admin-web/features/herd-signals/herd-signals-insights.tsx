@@ -7,6 +7,11 @@ const TYPE_LABEL: Record<HerdSignalType, string> = {
   inferred: "Inferred",
 };
 
+// The backend now ports the label (Title Case), formula (plain-English, not SQL) and signal_type
+// (badge tier) verbatim from the design reference's card set card-for-card (see
+// backend/internal/herdsignals/app/service.go GetInsights) -- this component renders those fields
+// as returned, with no frontend copy override, so backend and screen can never drift.
+//
 // One icon per PROVENANCE tier, not per card key. The mock gives each of its sample cards its own
 // glyph; our card list is backend-owned and open-ended, so keying the glyph off `signal_type` is
 // the only mapping that stays honest when the backend adds a card this file has never seen.
@@ -54,10 +59,10 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
           <path d="M12 8h.01" />
         </svg>
         <div>
-          <b>What the tag actually reports:</b> tag ID, BLE MAC, RSSI, battery voltage, tag
-          temperature, a cumulative motion counter, sensor-OK bits, gateway ID and timestamps. It
-          does not detect eating, rumination, posture, walking, fever, body temperature or disease.
-          Every card below is labelled Direct, Derived, Correlated or Inferred.
+          <b>What the tag actually reports:</b> tag ID, BLE MAC, RSSI, battery mV, tag temperature,
+          a cumulative motion counter, sensor-OK bits, gateway ID and timestamps. It does not
+          detect eating, rumination, posture, walking, fever, body temperature or disease.
+          Everything below is labelled Direct, Derived, Correlated or Inferred.
         </div>
       </div>
       {cards.length === 0 ? (
@@ -92,6 +97,50 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
           ))}
         </div>
       )}
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="hd">
+          <svg className="ic" viewBox="0 0 24 24">
+            <rect x="5" y="2" width="14" height="20" rx="2" />
+            <path d="M12 18h.01" />
+          </svg>
+          <h3>Vaccination proof — BLE scan flow (design)</h3>
+          <div className="sp" />
+          <span className="tag t-mut">Not built</span>
+        </div>
+        <div className="bd">
+          <ol className="muted" style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.8 }}>
+            <li>Operator opens the vaccination task.</li>
+            <li>App starts a nearby BLE scan, tags sorted by RSSI.</li>
+            <li>Operator brings the phone close to the ear tag.</li>
+            <li>
+              App highlights the strongest <b>mapped</b> tag.
+            </li>
+            <li>Operator confirms animal ↔ tag.</li>
+            <li>Camera opens.</li>
+            <li>Proof stores animal_id, BLE tag ID, BLE MAC, RSSI, scanner source, timestamp, video proof ID.</li>
+          </ol>
+          <div className="banner dng" style={{ margin: "0 0 10px" }}>
+            <svg className="ic" viewBox="0 0 24 24">
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+            </svg>
+            <div>
+              <b>Safety gate.</b> The camera never auto-opens because a BLE tag is merely visible.
+              Require strongest RSSI ≥ −60 dBm <b>and</b> ≥ 8 dB clear of the next strongest, or an
+              explicit manual operator confirmation.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            <span className="tag t-ok">Nearest tag locked</span>
+            <span className="tag t-warn">Multiple tags nearby</span>
+            <span className="tag t-warn">Move closer</span>
+            <span className="tag t-dng">Tag not mapped</span>
+            <span className="tag t-dng">Bluetooth permission required</span>
+            <span className="tag t-mut">Scanner unavailable — manual verification path</span>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
