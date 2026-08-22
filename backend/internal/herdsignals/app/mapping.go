@@ -10,8 +10,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
-// The mapping WRITES: bind a BLE tag to an animal, mark/unmark an existing identifier as
-// smart-tag capable, and replace a mapping (re-tagging) in one transaction.
+// The mapping WRITES: MAP a BLE tag to an animal, REPLACE a tag (re-tagging), and UNMAP.
+//
+// There is no fourth "mark as smart tag" verb: every tag the gateway reports is already a smart
+// tag, so declaring one as such asserts nothing. smart_tag_capable is an internal consequence of
+// binding.
 //
 // This layer validates the caller's input and hands the transactional work to the repository --
 // the whole point of a mapping write is that the identifier rows and the denormalised monitoring
@@ -61,22 +64,21 @@ func (s *Service) BindTagMapping(ctx context.Context, actor domain.Actor, req do
 	return resp, nil
 }
 
-// SetSmartTagCapable marks or unmarks an existing identifier as smart-tag capable.
-func (s *Service) SetSmartTagCapable(ctx context.Context, actor domain.Actor, identifierID string, req domain.SetSmartTagCapableRequest) (domain.TagMappingResponse, error) {
+// UnmapTagMapping releases a binding with no replacement.
+func (s *Service) UnmapTagMapping(ctx context.Context, actor domain.Actor, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error) {
 	if actor.TenantID == "" || actor.UserID == "" {
 		return domain.TagMappingResponse{}, fmt.Errorf("actor tenant_id and user_id required")
 	}
-	identifierID = strings.TrimSpace(identifierID)
-	if !uuidLike(identifierID) {
-		return domain.TagMappingResponse{}, fmt.Errorf("identifier_id must be a valid UUID: %w", domain.ErrValidation)
+	if strings.TrimSpace(req.TagID) == "" {
+		return domain.TagMappingResponse{}, fmt.Errorf("tag_id is required: %w", domain.ErrValidation)
 	}
-	resp, err := s.repo.SetSmartTagCapable(ctx, actor.TenantID, identifierID, req.SmartTagCapable)
+	resp, err := s.repo.UnmapTagMapping(ctx, actor.TenantID, req)
 	if err != nil {
-		s.log.Warn("set_smart_tag_capable_failed", "identifier_id", identifierID, "capable", req.SmartTagCapable, "error", err)
+		s.log.Warn("unmap_tag_mapping_failed", "tag_id", req.TagID, "error", err)
 		return domain.TagMappingResponse{}, err
 	}
-	s.log.Info("herd_signals_smart_tag_flag_set", "identifier_id", identifierID, "capable", req.SmartTagCapable,
-		"monitoring_since", resp.MonitoringSince, "actor_id", actor.UserID)
+	s.log.Info("herd_signals_tag_mapping_released", "goat_id", resp.GoatID, "tag_id", resp.TagID,
+		"unbound_identifier_ids", resp.UnboundIdentifierIDs, "actor_id", actor.UserID)
 	return resp, nil
 }
 

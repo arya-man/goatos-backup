@@ -144,7 +144,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/herd-signals/identifiers/{identifier_id}/smart-tag": {
+    "/herd-signals/tag-mappings/unmap": {
         parameters: {
             query?: never;
             header?: never;
@@ -154,11 +154,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mark or unmark an existing identifier as smart-tag capable.
-         * @description Requires herd_signals.map. For the case where the animal's existing ear-tag value IS the BLE tag value, so no new identifier row should be invented.
-         *     Marking stamps the monitoring boundary (animal monitoring starts now). Unmarking clears it back to null, which returns the tag to device-telemetry-only: no animal-attributed value may be produced for it at all -- not a zero, not a default.
+         * Release a tag's binding with no replacement.
+         * @description Requires herd_signals.map. For a tag that was lost, an animal that was sold, or a mapping made in error.
+         *     The tag returns to unmapped and its packets keep flowing as device telemetry: nothing is deleted and its stored history stays intact, it simply stops being attributed to an animal. Its monitoring period ends, so no further animal-attributed value is produced for it -- not a zero, not a default.
+         *     There is no "mark as smart tag" counterpart anywhere in this API. Every tag the gateway reports is already a smart tag; smart_tag_capable is an internal consequence of binding, never a user action.
          */
-        post: operations["setHerdSignalSmartTagCapable"];
+        post: operations["unmapHerdSignalTagMapping"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4479,9 +4480,10 @@ export interface components {
             /** @enum {string} */
             identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
         };
-        HerdSignalsSetSmartTagCapableRequest: {
-            /** @description True marks the identifier as a smart tag and starts monitoring; false unbinds it and returns the tag to device telemetry only. */
-            smart_tag_capable: boolean;
+        HerdSignalsUnmapTagMappingRequest: {
+            tag_id: string;
+            /** @description Optional. Released alongside the id when the tag claimed both values. */
+            tag_mac?: string;
         };
         HerdSignalsTagMappingResponse: {
             /** Format: uuid */
@@ -12829,22 +12831,20 @@ export interface operations {
             };
         };
     };
-    setHerdSignalSmartTagCapable: {
+    unmapHerdSignalTagMapping: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                identifier_id: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["HerdSignalsSetSmartTagCapableRequest"];
+                "application/json": components["schemas"]["HerdSignalsUnmapTagMappingRequest"];
             };
         };
         responses: {
-            /** @description The binding now in force. */
+            /** @description The binding that was released. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12853,7 +12853,7 @@ export interface operations {
                     "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
                 };
             };
-            /** @description Malformed identifier_id or request body. */
+            /** @description Missing tag_id. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12867,14 +12867,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No such identifier in this tenant. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The identifier is not active, or the animal already carries a different live smart tag. */
+            /** @description That tag is not mapped to an animal. */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -473,7 +473,7 @@ var protectedRoutes = []Route{
 	// monitoring period.
 	{OperationID: "bindHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings", Permissions: []string{HerdSignalsMap}},
 	{OperationID: "replaceHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings/replace", Permissions: []string{HerdSignalsMap}},
-	{OperationID: "setHerdSignalSmartTagCapable", Method: "POST", Pattern: "/herd-signals/identifiers/{identifier_id}/smart-tag", Permissions: []string{HerdSignalsMap}},
+	{OperationID: "unmapHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings/unmap", Permissions: []string{HerdSignalsMap}},
 	// Gateway heartbeat: a DEVICE write, same credential class as packet ingest, so it carries
 	// HerdSignalsIngest rather than an operator permission.
 	{OperationID: "recordHerdSignalGatewayHeartbeat", Method: "POST", Pattern: "/herd-signals/heartbeats", Permissions: []string{HerdSignalsIngest}},
