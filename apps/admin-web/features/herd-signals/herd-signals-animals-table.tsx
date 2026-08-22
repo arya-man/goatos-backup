@@ -97,6 +97,13 @@ export function HerdSignalsAnimalsRow({
       }}
     >
       <td data-l="Animal" className="wide">
+        <LocalOverlayLink
+          href={href}
+          scroll={false}
+          className="hs-row-hit"
+          title="Open tag detail"
+          aria-label={`Open tag detail for ${animalPrimaryLabel(item)}`}
+        />
         <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
           <b>{animalPrimaryLabel(item)}</b>
         </LocalOverlayLink>

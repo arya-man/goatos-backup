@@ -3183,11 +3183,12 @@ select:disabled { opacity: .45; }
    the table needs a selection affordance the mock's read-only reference design never had. It is
    deliberately a row highlight rather than an eleventh column: the mock's ten columns are the
    contract for this table's shape, and a checkbox gutter would break its parity. */
-.herd-signals-page tr.hs-selectable{cursor:pointer}
+.herd-signals-page tr.hs-selectable{cursor:pointer;position:relative}
 .herd-signals-page tr.hs-selectable:hover{background:var(--panel-2)}
 .herd-signals-page tr.hs-selectable:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 .herd-signals-page tr.hs-selectable.on{background:var(--brand-soft)}
 .herd-signals-page tr.hs-selectable.on td:first-child{box-shadow:inset 3px 0 0 var(--brand)}
+.herd-signals-page tr.hs-selectable .hs-row-hit{position:absolute;inset:0;z-index:1;overflow:hidden;white-space:nowrap;text-indent:200%;border:0}
 
 /* Post-write confirmation. Sits between the action bar and the card so the outcome is next to the
    control that produced it, and it is a status region rather than a toast that can be missed. */
