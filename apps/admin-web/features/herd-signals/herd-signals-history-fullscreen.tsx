@@ -73,8 +73,6 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   const [range, setRange] = useState<RangeKey>("24h");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [buckets, setBuckets] = useState<HerdSignalTimelineBucket[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<HerdSignalTimelineBucket | null>(null);
   const [overlaysOn, setOverlaysOn] = useState<Record<string, boolean>>({});
 
@@ -89,20 +87,33 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
     return { from: from.toISOString(), to: to.toISOString() };
   }, [range, customFrom, customTo]);
 
+  // Reset-on-key-change happens DURING RENDER (React's sanctioned alternative to an Effect that
+  // resets state), not as a synchronous setState at the top of the Effect body — the Effect below
+  // only calls setState from inside the async .then().
+  const chartKey = displayedItem && bounds ? `${displayedItem.tag_id}|${bounds.from}|${bounds.to}|${range}` : "";
+  const [chart, setChart] = useState<{ key: string; buckets: HerdSignalTimelineBucket[] | null; error: string | null }>({
+    key: chartKey,
+    buckets: null,
+    error: null,
+  });
+  if (chartKey !== chart.key) {
+    setChart({ key: chartKey, buckets: null, error: null });
+  }
+
   useEffect(() => {
     if (!displayedItem || !bounds) return;
     let active = true;
-    setBuckets(null);
-    setError(null);
+    const key = `${displayedItem.tag_id}|${bounds.from}|${bounds.to}|${range}`;
     void readTimeline(displayedItem.tag_id, bounds.from, bounds.to, bucketSecondsFor(range)).then((result) => {
       if (!active) return;
-      if (result.ok) setBuckets(result.buckets);
-      else setError(result.error);
+      if (result.ok) setChart((prev) => (prev.key === key ? { ...prev, buckets: result.buckets } : prev));
+      else setChart((prev) => (prev.key === key ? { ...prev, error: result.error } : prev));
     });
     return () => {
       active = false;
     };
   }, [displayedItem, bounds, range]);
+  const { buckets, error } = chart;
 
   if (!displayedItem) return null;
   const item = displayedItem;
