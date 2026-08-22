@@ -96,20 +96,18 @@ export function HistoryChart({
         {buckets.map((bucket, index) => {
           const x = padL + index * (barWidth + barGap);
           if (bucket.is_gap) {
+            // Two layers, matching the mock exactly: a faint danger band across the full plot
+            // height (so a run of gaps reads as one continuous band) plus a solid strip at the
+            // bottom edge (so a SINGLE isolated gap bucket is still visible even at narrow widths).
             return (
-              <rect
-                key={bucket.bucket_start}
-                x={x}
-                y={padT}
-                width={barWidth}
-                height={plotH}
-                className="gap"
-                onMouseEnter={() => onHover?.(bucket)}
-              />
+              <g key={bucket.bucket_start} onMouseEnter={() => onHover?.(bucket)}>
+                <rect x={x} y={padT} width={barWidth} height={plotH} className="gap" />
+                <rect x={x} y={padT + plotH - 3} width={barWidth} height={3} className="gapline" />
+              </g>
             );
           }
           const delta = bucket.motion_delta ?? 0;
-          const barHeight = Math.max(delta > 0 ? 1.5 : 1, (delta / maxDelta) * plotH);
+          const barHeight = Math.max(delta > 0 ? 1.5 : 2, (delta / maxDelta) * plotH);
           // A reconnect delta is a recovered TOTAL across an unknown span of time inside the gap,
           // not a normal reading — it must never be classified as "spike" (a burst claim this data
           // cannot support) and never compared against the per-bucket baseline like an ordinary bar.
