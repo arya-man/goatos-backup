@@ -153,10 +153,10 @@ function shedLabelWithComposition(
  * The shed chart's two columns. With rows from more than one park, each park gets its
  * own column (heading = park), so the two farms stop interleaving in one long list.
  * With one park — the park filter, or a period only one park weighed in — the single
- * park's ranked list is split in half across both columns instead of leaving the
- * right half of a full-width card empty; the ranking reads down the left column and
- * continues down the right. Rows arrive sorted best-first and grouping preserves
- * that order.
+ * park's list is split in half across both columns instead of leaving the right half
+ * of a full-width card empty; the list reads down the left column and continues down
+ * the right. Rows arrive pre-sorted (the gain chart alphabetically by shed/pen, the
+ * weight chart heaviest-first) and grouping preserves that order.
  *
  * Grouped by park NAME, not id, because the growth leaderboard rows carry no park id
  * — the contract requires `park_name` on both series specifically so they name a
@@ -396,12 +396,15 @@ export async function WeighingWeightsPage({
         // shed names exist in BOTH parks, so "Mandela 1 - Part 5" alone names two
         // different pens — but the chart now renders one column per park and the
         // column heading names the park once. `park_name` is required on both series
-        // by contract precisely so they group identically here.
+        // by contract precisely so they group identically here: the row's OWN park,
+        // not the selected filter — a literal "All parks" here split the chart into a
+        // pseudo-park column of per-animal rows beside real CBE/CPT columns holding
+        // only the lump-sum sheds, so Castro never appeared under the All-parks view.
         // `operational_location_display` is the canonical shed+pen string;
         // `display_name` is the weighing bucket's free-text planning label, which has
         // held "M1P5" and "C1" for sheds whose real names are "Mandela 1 - Part 5"
         // and "Castro 1".
-        park_name: selectedParkName || copy(pageContract, "kpi.park_gain.all"),
+        park_name: shed.park_name,
         label: shedLabelWithComposition(
           shed.operational_location_display || shed.display_name,
           compositionByShed.get(shedKey(shed.location_id, shed.partition_label)),
@@ -443,8 +446,11 @@ export async function WeighingWeightsPage({
         ...modeBarTag(row, pageContract),
       };
     });
+  // Alphabetical by shed/pen, not ranked by gain (maintainer decision 2026-08-22): every park
+  // column keeps the same stable A→Z order so an operator can find a specific pen by name.
+  // `numeric` keeps "Castro 2" ahead of "Castro 10".
   const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows, ...singleWeighRows].sort(
-    (a, b) => b.value - a.value,
+    (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }),
   );
 
   const hasAnyData = summary.animals_weighed > 0;
@@ -897,8 +903,13 @@ export async function WeighingWeightsPage({
                           <b>{row.operational_location_display || row.shed_display_name}</b>
                           {composition?.chips.length ? (
                             <span className="wcomp-chips" aria-label="Breed and sex composition">
-                              {composition.chips.map((chip) => (
-                                <span className="wcomp-chip" key={`${chip.breed ?? ""}|${chip.sex ?? ""}`}>
+                              {composition.chips.map((chip, chipIndex) => (
+                                // breed|sex alone is NOT unique — the backend can emit two chips
+                                // for the same breed+sex (one per resident cohort), and Godel 1
+                                // - Part 7 really does carry "Osmanabadi - female" twice. The
+                                // list is render-only (never reordered or edited in place), so
+                                // the index disambiguates safely.
+                                <span className="wcomp-chip" key={`${chip.breed ?? ""}|${chip.sex ?? ""}|${chipIndex}`}>
                                   {compositionLabel(chip, pageContract)}
                                   <span>{chip.animals.toLocaleString("en-IN")}</span>
                                 </span>
