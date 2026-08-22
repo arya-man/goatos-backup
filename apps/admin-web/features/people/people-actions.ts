@@ -9,7 +9,11 @@ import { revalidatePath } from "next/cache";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." and have matching
 // page-contract copy — actionFeedbackCopy throws on a missing key.
-import { createWorkforcePerson, type CreateWorkforcePersonRequest } from "@/lib/api/server";
+import {
+  createWorkforcePerson,
+  setWorkforcePersonStatus,
+  type CreateWorkforcePersonRequest,
+} from "@/lib/api/server";
 
 const PEOPLE_PATH = "/people";
 
@@ -52,5 +56,33 @@ export async function createPersonAction(formData: FormData): Promise<void> {
     formData,
     "success",
     result.data.login.account_status === "existing" ? "action.person_created_existing" : "action.person_created",
+  );
+}
+
+/**
+ * Activate/deactivate a person from the drawer's confirm step. Uses the existing
+ * operator status routes; row_version is the fence read with the row, so a
+ * concurrent edit is refused rather than silently overwritten.
+ */
+export async function changePersonStatusAction(formData: FormData): Promise<void> {
+  const personId = requiredString(formData, "person_id");
+  const target = requiredString(formData, "target_status");
+  const rowVersion = Number(formData.get("row_version")?.toString() ?? "0");
+  if (target !== "activate" && target !== "deactivate") {
+    actionRedirect(formData, "error", "action.person_status_failed");
+  }
+
+  const result = await setWorkforcePersonStatus(personId, target as "activate" | "deactivate", {
+    reason: "people_hrms_admin_action",
+    row_version: rowVersion,
+  });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.person_status_failed");
+  }
+  revalidatePath(PEOPLE_PATH);
+  actionRedirect(
+    formData,
+    "success",
+    target === "deactivate" ? "action.person_deactivated" : "action.person_activated",
   );
 }

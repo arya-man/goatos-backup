@@ -4801,6 +4801,11 @@ components:
         - department_label
         - created_at
         - row_version
+        - proof_uploads
+        - proof_approved
+        - proof_rejected
+        - proof_pending
+        - proof_rejection_pct
       properties:
         person_id:
           type: string
@@ -4863,6 +4868,18 @@ components:
           type: string
         row_version:
           type: integer
+        proof_uploads:
+          type: integer
+        proof_approved:
+          type: integer
+        proof_rejected:
+          type: integer
+        proof_pending:
+          type: integer
+        proof_rejection_pct:
+          type:
+            - integer
+            - "null"
     PeopleCatalogOption:
       type: object
       additionalProperties: false

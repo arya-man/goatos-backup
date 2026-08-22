@@ -11,7 +11,7 @@ import {
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkforcePeopleCatalog, WorkforcePerson } from "@/lib/api/server";
-import { createPersonAction } from "./people-actions";
+import { changePersonStatusAction, createPersonAction } from "./people-actions";
 
 /** Reads the selected person from the address bar. "" means the drawer is closed. */
 function readPersonParam(): string {
@@ -72,7 +72,18 @@ export function PersonAddDrawer({
   // Role selection drives whether the park select is REQUIRED — the option's
   // title carries the grant's scope shape ("park"/"tenant") from the backend.
   const [role, setRole] = useState("");
+  // Two-step confirm for the activate/deactivate action: the first click arms
+  // the confirm block, the second submits. Reset whenever the selection moves.
+  const [confirmingStatus, setConfirmingStatus] = useState(false);
   const parkRequired = roles.find((r) => r.key === role)?.title === "park";
+
+  // Reset the armed confirm during render when the selection moves (never in an
+  // effect — same pattern as the vendor drawer's mode reset).
+  const [syncedSelection, setSyncedSelection] = useState(selection);
+  if (syncedSelection !== selection) {
+    setSyncedSelection(selection);
+    setConfirmingStatus(false);
+  }
 
   // Minted once per drawer OPEN so a double-submit or retry converges on one
   // person server-side; re-opening the drawer starts a fresh create.
@@ -84,6 +95,7 @@ export function PersonAddDrawer({
 
   const close = useCallback(() => {
     setRole("");
+    setConfirmingStatus(false);
     if (currentHistoryEntryIsLocalOverlay()) {
       window.history.back();
       return;
@@ -250,22 +262,97 @@ export function PersonAddDrawer({
             </div>
           </form>
         ) : person ? (
-          <div className="dc">
-            <div className="metagrid">
-              {cell(field("first_name"), person.first_name)}
-              {cell(field("last_name"), person.last_name)}
-              {cell(field("email"), person.email)}
-              {cell(field("park"), person.park_label)}
-              {cell(field("department"), person.department_label)}
-              {cell(field("designation"), person.designation_grade ?? person.role_hint)}
-              <div>
-                <div className="k">{copy(pageContract, "column.status")}</div>
-                <div className="v">
-                  <Tag tone={statusTone(person.status)}>{person.status}</Tag>
+          <>
+            <div className="dc">
+              <div className="metagrid">
+                {cell(field("first_name"), person.first_name)}
+                {cell(field("last_name"), person.last_name)}
+                {cell(field("email"), person.email)}
+                {cell(field("park"), person.park_label)}
+                {cell(field("department"), person.department_label)}
+                {cell(field("designation"), person.designation_grade ?? person.role_hint)}
+                <div>
+                  <div className="k">{copy(pageContract, "column.status")}</div>
+                  <div className="v">
+                    <Tag tone={statusTone(person.status)}>{person.status}</Tag>
+                  </div>
                 </div>
               </div>
+
+              {/* Proof-work statistics: one verification item = one submitted
+                  proof set; withdrawn/superseded items are excluded backend-side. */}
+              <div className="hd" style={{ marginTop: 16 }}>
+                <h3>{copy(pageContract, "stats.title")}</h3>
+              </div>
+              {person.proof_uploads > 0 ? (
+                <div className="metagrid">
+                  {cell(copy(pageContract, "stats.uploaded"), String(person.proof_uploads))}
+                  {cell(copy(pageContract, "stats.approved"), String(person.proof_approved))}
+                  {cell(copy(pageContract, "stats.rejected"), String(person.proof_rejected))}
+                  {cell(copy(pageContract, "stats.pending"), String(person.proof_pending))}
+                  <div>
+                    <div className="k">{copy(pageContract, "stats.rejection_rate")}</div>
+                    <div className="v">
+                      {person.proof_rejection_pct === null || person.proof_rejection_pct === undefined ? (
+                        <span className="muted">{copy(pageContract, "stats.no_reviews")}</span>
+                      ) : (
+                        <Tag tone={person.proof_rejection_pct >= 20 ? "dng" : person.proof_rejection_pct > 0 ? "warn" : "ok"}>
+                          {person.proof_rejection_pct}%
+                        </Tag>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="muted small">{copy(pageContract, "stats.none")}</div>
+              )}
+
+              {confirmingStatus ? (
+                <div className="note" style={{ marginTop: 16 }}>
+                  <b>
+                    {copy(
+                      pageContract,
+                      person.status === "active" ? "confirm.deactivate.title" : "confirm.activate.title",
+                    )}
+                  </b>
+                  <div style={{ marginTop: 4 }}>
+                    {copy(
+                      pageContract,
+                      person.status === "active" ? "confirm.deactivate.body" : "confirm.activate.body",
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          </div>
+            <div className="df">
+              {confirmingStatus ? (
+                <form action={changePersonStatusAction} style={{ display: "contents" }}>
+                  <input type="hidden" name="return_to" value={listHref} />
+                  <input type="hidden" name="person_id" value={person.person_id} />
+                  <input type="hidden" name="row_version" value={person.row_version} />
+                  <input
+                    type="hidden"
+                    name="target_status"
+                    value={person.status === "active" ? "deactivate" : "activate"}
+                  />
+                  <button type="submit" className={person.status === "active" ? "btn dng" : "btn primary"}>
+                    {copy(pageContract, "action.confirm")}
+                  </button>
+                  <button type="button" className="btn" onClick={() => setConfirmingStatus(false)}>
+                    {copy(pageContract, "action.cancel")}
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className={person.status === "active" ? "btn dng" : "btn primary"}
+                  onClick={() => setConfirmingStatus(true)}
+                >
+                  {copy(pageContract, person.status === "active" ? "action.deactivate" : "action.activate")}
+                </button>
+              )}
+            </div>
+          </>
         ) : null}
       </aside>
     </>

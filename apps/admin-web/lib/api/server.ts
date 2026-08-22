@@ -1166,6 +1166,29 @@ export async function createWorkforcePerson(
   );
 }
 
+/**
+ * Activate/deactivate a person (POST /admin/operators/{id}/activate|/deactivate — a workforce
+ * member IS an operator row; person_id == operator_id). row_version is the optimistic fence from
+ * the rendered row; a stale one is refused with a conflict rather than silently overwriting.
+ */
+export async function setWorkforcePersonStatus(
+  personId: string,
+  status: "activate" | "deactivate",
+  body: { reason: string; row_version: number },
+): Promise<ApiResult<AdminApiComponents["schemas"]["OperatorResponse"]>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operators/${encodeURIComponent(personId)}/${status}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["OperatorResponse"]>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Procurement vendor register (/procurement/vendors)
 // ---------------------------------------------------------------------------------------------
