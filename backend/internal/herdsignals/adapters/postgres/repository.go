@@ -622,9 +622,18 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 	}
 
 	if pattern != nil && *pattern != "" {
-		whereClause += fmt.Sprintf(" AND ("+effectivePatternStateExpr+") = $%d", argIndex)
-		args = append(args, *pattern)
-		argIndex++
+		// "not_normal" is a sentinel, not a literal pattern_state value: it is the whole-fleet
+		// "alerting" partition the Alerts tab needs server-side (a page can be 10k+ rows and
+		// entirely non-alerting, so selecting the alerting subset client-side from one fetched
+		// page is wrong at scale — see herd-signals-board.tsx AlertsTab). Every other value is
+		// still an exact pattern_state match.
+		if *pattern == "not_normal" {
+			whereClause += " AND (" + effectivePatternStateExpr + ") <> 'normal'"
+		} else {
+			whereClause += fmt.Sprintf(" AND ("+effectivePatternStateExpr+") = $%d", argIndex)
+			args = append(args, *pattern)
+			argIndex++
+		}
 	}
 
 	if q != nil && strings.TrimSpace(*q) != "" {
