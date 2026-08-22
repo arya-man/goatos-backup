@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,6 +32,16 @@ type fakeService struct {
 
 	insightsResp domain.InsightsResponse
 	insightsErr  error
+
+	exportBody string
+	exportErr  error
+	exportGot  struct {
+		parkID, shedID, movementState, mappingState, pattern, q *string
+	}
+
+	activityResp domain.ActivityResponse
+	activityErr  error
+	activityGot  struct{ tagID, from, to string }
 }
 
 func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error) {
@@ -53,6 +64,22 @@ func (f *fakeService) ListGateways(_ context.Context, _ domain.Actor) (domain.Ga
 
 func (f *fakeService) GetInsights(_ context.Context, _ domain.Actor) (domain.InsightsResponse, error) {
 	return f.insightsResp, f.insightsErr
+}
+
+func (f *fakeService) ExportCSV(_ context.Context, _ domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, w io.Writer) error {
+	f.exportGot.parkID, f.exportGot.shedID = parkID, shedID
+	f.exportGot.movementState, f.exportGot.mappingState = movementState, mappingState
+	f.exportGot.pattern, f.exportGot.q = pattern, q
+	if f.exportErr != nil {
+		return f.exportErr
+	}
+	_, err := io.WriteString(w, f.exportBody)
+	return err
+}
+
+func (f *fakeService) GetTagActivity(_ context.Context, _ domain.Actor, tagID, from, to string) (domain.ActivityResponse, error) {
+	f.activityGot.tagID, f.activityGot.from, f.activityGot.to = tagID, from, to
+	return f.activityResp, f.activityErr
 }
 
 func authedRequest(method, target string, body []byte) *http.Request {

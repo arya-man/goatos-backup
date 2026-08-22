@@ -467,6 +467,8 @@ var protectedRoutes = []Route{
 	{OperationID: "getHerdSignalsTagTimeline", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/timeline", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "listHerdSignalsGateways", Method: "GET", Pattern: "/herd-signals/gateways", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getHerdSignalsInsights", Method: "GET", Pattern: "/herd-signals/insights", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "exportHerdSignalsCsv", Method: "GET", Pattern: "/herd-signals/export.csv", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getHerdSignalsTagActivity", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/activity", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getFeedAnalyticsDirected", Method: "GET", Pattern: "/feed-analytics/directed", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsExecution", Method: "GET", Pattern: "/feed-analytics/execution", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsExperiment", Method: "GET", Pattern: "/feed-analytics/experiment", Permissions: []string{FeedDirectionRead}},
