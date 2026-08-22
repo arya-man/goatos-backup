@@ -380,7 +380,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	if err != nil {
 		return false, fmt.Errorf("sum 15m activity window delta: %w", err)
 	}
-	hourDelta, err := r.sumActivityWindowDeltaTx(ctx, tx, tenantID, tagID, 300, latestPkt.ReceivedAt.Add(-time.Hour), latestPkt.ReceivedAt)
+	hourDelta, err := r.sumActivityWindowDeltaTx(ctx, tx, tenantID, tagID, 3600, latestPkt.ReceivedAt.Add(-time.Hour), latestPkt.ReceivedAt)
 	if err != nil {
 		return false, fmt.Errorf("sum 1h activity window delta: %w", err)
 	}
