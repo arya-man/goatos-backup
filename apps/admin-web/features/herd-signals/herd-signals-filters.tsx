@@ -9,7 +9,14 @@ export type ShedOption = { id: string; label: string };
 export type ParkOption = { id: string; label: string };
 
 const MOVEMENT_OPTIONS = Object.entries(MOVEMENT_LABEL) as [keyof typeof MOVEMENT_LABEL, string][];
-const MAPPING_OPTIONS = Object.entries(MAPPING_LABEL) as [keyof typeof MAPPING_LABEL, string][];
+// Filter-dropdown wording is "<state> only" (mock/herd-signals-mock.html #fMap), distinct from the
+// bare MAPPING_LABEL used elsewhere (table Status column, mapping-table quick-filter buttons).
+const MAPPING_FILTER_LABEL: Record<keyof typeof MAPPING_LABEL, string> = {
+  mapped: "Mapped only",
+  unmapped: "Unmapped only",
+  conflict: "Conflicts only",
+};
+const MAPPING_OPTIONS = Object.entries(MAPPING_FILTER_LABEL) as [keyof typeof MAPPING_LABEL, string][];
 // Only the alert-shaped pattern states are offered here (Section 8) — "normal" is not a useful
 // filter choice since it is the majority of every fleet.
 const PATTERN_OPTIONS: [string, string][] = (["inactive", "quiet_watch", "spike", "recovered", "missing"] as const).map(
@@ -174,7 +181,7 @@ export function HerdSignalsFilters({
         </a>
       ) : null}
 
-      <span className="fnote">Thresholds provisional</span>
+      <span className="fnote">Window: last 15 min &middot; thresholds provisional</span>
     </div>
   );
 }
