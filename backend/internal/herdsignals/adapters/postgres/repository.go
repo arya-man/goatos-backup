@@ -430,58 +430,77 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 }
 
 // ListTagsLatest fetches tags with optional filters, keyset pagination, and summary counts.
+// tagLocationJoin resolves each tag's current park_id/shed_id through its mapped animal.
+// herd_signal_tag_latest deliberately stores no park_id/shed_id of its own: an animal's shed
+// changes over time (moves, reclassification) and the tag table would silently go stale if it
+// cached location. The join is LATERAL + LIMIT 1 (cheap point lookup via the
+// goat_identifiers normalized_value index) rather than a second denormalized copy of location.
+const tagLocationJoin = `
+	LEFT JOIN LATERAL (
+		SELECT gi.goat_id
+		FROM public.goat_identifiers gi
+		WHERE gi.tenant_id = tl.tenant_id
+		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
+		  AND gi.normalized_value IN (tl.tag_id, COALESCE(tl.tag_mac, ''))
+		LIMIT 1
+	) mapped_goat ON true
+	LEFT JOIN public.goats g ON g.tenant_id = tl.tenant_id AND g.goat_id = mapped_goat.goat_id
+`
+
+// ListTagsLatest fetches tags with optional filters, keyset pagination, and a whole-filter
+// server-side summary aggregate (never summed from the returned page -- AGENTS.md operational
+// read model contract rule 3).
 func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (
 	[]domain.TagLatest, domain.Summary, *string, error,
 ) {
-	// Build WHERE clause
-	whereClause := "WHERE tenant_id = $1"
+	whereClause := "WHERE tl.tenant_id = $1"
 	args := []interface{}{tenantID}
 	argIndex := 2
 
 	if parkID != nil && *parkID != "" {
-		whereClause += fmt.Sprintf(" AND park_id = $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND g.park_id = $%d", argIndex)
 		args = append(args, *parkID)
 		argIndex++
 	}
 
 	if shedID != nil && *shedID != "" {
-		whereClause += fmt.Sprintf(" AND shed_id = $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND g.shed_id = $%d", argIndex)
 		args = append(args, *shedID)
 		argIndex++
 	}
 
 	if movementState != nil && *movementState != "" {
-		whereClause += fmt.Sprintf(" AND movement_state = $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND tl.movement_state = $%d", argIndex)
 		args = append(args, *movementState)
 		argIndex++
 	}
 
 	if mapped != nil {
 		if *mapped {
-			whereClause += " AND mapping_state = 'mapped'"
+			whereClause += " AND tl.mapping_state = 'mapped'"
 		} else {
-			whereClause += " AND mapping_state = 'unmapped'"
+			whereClause += " AND tl.mapping_state = 'unmapped'"
 		}
 	}
 
 	if cursor != "" {
-		whereClause += fmt.Sprintf(" AND (last_seen_at, tag_id) < (SELECT last_seen_at, tag_id FROM public.herd_signal_tag_latest WHERE tenant_id = $1 AND tag_id = $%d)", argIndex)
+		whereClause += fmt.Sprintf(" AND (tl.last_seen_at, tl.tag_id) < (SELECT last_seen_at, tag_id FROM public.herd_signal_tag_latest WHERE tenant_id = $1 AND tag_id = $%d)", argIndex)
 		args = append(args, cursor)
 		argIndex++
 	}
 
-	// Fetch tags
 	query := fmt.Sprintf(`
-		SELECT tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
-		       last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
-		       motion_count, motion_delta, previous_motion_count, previous_seen_at,
-		       motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
-		       accelerometer_sensor_ok, mapping_state, updated_at
-		FROM public.herd_signal_tag_latest
+		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
+		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
+		       tl.motion_count, tl.motion_delta, tl.previous_motion_count, tl.previous_seen_at,
+		       tl.motion_window_seconds, tl.movement_state, tl.pattern_state, tl.temperature_sensor_ok,
+		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.updated_at
+		FROM public.herd_signal_tag_latest tl
 		%s
-		ORDER BY last_seen_at DESC, tag_id DESC
+		%s
+		ORDER BY tl.last_seen_at DESC, tl.tag_id DESC
 		LIMIT $%d
-	`, whereClause, argIndex)
+	`, tagLocationJoin, whereClause, argIndex)
 	args = append(args, limit+1) // Fetch one extra to detect if there are more
 
 	rows, err := r.db.Query(ctx, query, args...)
@@ -504,8 +523,10 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		}
 		tags = append(tags, tag)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, domain.Summary{}, nil, err
+	}
 
-	// Check if there are more
 	var nextCursor *string
 	if len(tags) > limit {
 		tags = tags[:limit]
@@ -513,16 +534,62 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		nextCursor = &lastTag.TagID
 	}
 
-	// Compute summary
-	summary := r.computeSummary(ctx, tenantID, &whereClause, args[:len(args)-1]) // Exclude limit arg
+	// Summary: the SAME filter (park/shed/mapped), WITHOUT the movement_state predicate or the
+	// cursor/limit, aggregated server-side in one query -- never derived from the returned page.
+	summaryWhere := "WHERE tl.tenant_id = $1"
+	summaryArgs := []interface{}{tenantID}
+	sArgIndex := 2
+	if parkID != nil && *parkID != "" {
+		summaryWhere += fmt.Sprintf(" AND g.park_id = $%d", sArgIndex)
+		summaryArgs = append(summaryArgs, *parkID)
+		sArgIndex++
+	}
+	if shedID != nil && *shedID != "" {
+		summaryWhere += fmt.Sprintf(" AND g.shed_id = $%d", sArgIndex)
+		summaryArgs = append(summaryArgs, *shedID)
+		sArgIndex++
+	}
+	if mapped != nil {
+		if *mapped {
+			summaryWhere += " AND tl.mapping_state = 'mapped'"
+		} else {
+			summaryWhere += " AND tl.mapping_state = 'unmapped'"
+		}
+	}
+
+	summary, err := r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
+	if err != nil {
+		return nil, domain.Summary{}, nil, err
+	}
 
 	return tags, summary, nextCursor, nil
 }
 
-// computeSummary computes summary counts.
-func (r *Repository) computeSummary(ctx context.Context, tenantID string, whereClause *string, args []interface{}) domain.Summary {
-	// For now, return empty summary. TODO: Implement full aggregation
-	return domain.Summary{}
+// computeSummary computes the whole-filter aggregate counts in a single bounded query.
+func (r *Repository) computeSummary(ctx context.Context, join, whereClause string, args []interface{}) (domain.Summary, error) {
+	query := fmt.Sprintf(`
+		SELECT count(*) FILTER (WHERE true),
+		       count(*) FILTER (WHERE tl.mapping_state = 'mapped'),
+		       count(*) FILTER (WHERE tl.mapping_state = 'unmapped'),
+		       count(*) FILTER (WHERE tl.movement_state = 'moving'),
+		       count(*) FILTER (WHERE tl.movement_state = 'quiet'),
+		       count(*) FILTER (WHERE tl.movement_state = 'not_moving'),
+		       count(*) FILTER (WHERE tl.movement_state = 'stale'),
+		       count(*) FILTER (WHERE tl.signal_state = 'weak'),
+		       count(*) FILTER (WHERE tl.battery_state = 'low'),
+		       count(*) FILTER (WHERE tl.temperature_sensor_ok IS FALSE OR tl.accelerometer_sensor_ok IS FALSE)
+		FROM public.herd_signal_tag_latest tl
+		%s
+		%s
+	`, join, whereClause)
+
+	var s domain.Summary
+	err := r.db.QueryRow(ctx, query, args...).Scan(
+		&s.TagsSeen, &s.MappedAnimals, &s.UnmappedTags,
+		&s.Moving, &s.Quiet, &s.NotMoving, &s.Stale,
+		&s.WeakSignal, &s.LowBattery, &s.SensorAbnormal,
+	)
+	return s, err
 }
 
 // ListActivityWindows fetches bucketed motion data for a tag.
@@ -769,6 +836,129 @@ func (r *Repository) GetShedLocations(ctx context.Context, tenantID string, shed
 		result[shedID] = loc
 	}
 	return result, rows.Err()
+}
+
+// GetInsightsData computes the raw counts behind the 12 GET /herd-signals/insights cards. Each
+// card is its own small, tenant-scoped, indexed, time-bounded query -- never one
+// compute-on-read god CTE across every table (AGENTS.md scale anti-patterns).
+func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (ports.InsightsData, error) {
+	var d ports.InsightsData
+
+	// Card 1-4, 6-7, 12: all direct/derived from herd_signal_tag_latest, one indexed,
+	// tenant-scoped aggregate query.
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			count(*) FILTER (WHERE movement_state <> 'stale'),
+			count(*) FILTER (WHERE pattern_state = 'missing_signal'),
+			count(*) FILTER (WHERE pattern_state IN ('quiet_watch', 'inactive')),
+			count(*) FILTER (WHERE pattern_state = 'spike'),
+			count(*) FILTER (WHERE signal_state = 'weak'),
+			count(*) FILTER (WHERE battery_state = 'low'),
+			count(*) FILTER (WHERE mapping_state = 'unmapped')
+		FROM public.herd_signal_tag_latest
+		WHERE tenant_id = $1
+	`, tenantID).Scan(
+		&d.TagsLiveNow, &d.MissingSignalCount, &d.LowMovementWatchCount, &d.HighMovementSpikeCount,
+		&d.WeakSignalTagsCount, &d.BatteryAttentionCount, &d.UnmappedSmartTagsCount,
+	)
+	if err != nil {
+		return d, fmt.Errorf("insights core aggregate: %w", err)
+	}
+
+	// Card 5: shed_signal_coverage. Denominator = distinct sheds with a gateway deployed
+	// (herd_signal_gateways.shed_id, indexed). Numerator = distinct sheds holding a live
+	// (non-stale) tag, resolved through the mapped animal, same as the live view's join.
+	err = r.db.QueryRow(ctx, `SELECT count(DISTINCT shed_id) FROM public.herd_signal_gateways WHERE tenant_id = $1 AND shed_id IS NOT NULL`, tenantID).Scan(&d.ShedsTotal)
+	if err != nil {
+		return d, fmt.Errorf("insights sheds total: %w", err)
+	}
+	err = r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(DISTINCT g.shed_id)
+		FROM public.herd_signal_tag_latest tl
+		%s
+		WHERE tl.tenant_id = $1 AND tl.movement_state <> 'stale' AND g.shed_id IS NOT NULL
+	`, tagLocationJoin), tenantID).Scan(&d.ShedsWithCoverage)
+	if err != nil {
+		return d, fmt.Errorf("insights sheds with coverage: %w", err)
+	}
+
+	// Card 8: post_vaccination_movement_watch. Bounded to the last 24h of accepted
+	// vaccination_completions (indexed by tenant_id), joined to a mapped tag currently watched.
+	err = r.db.QueryRow(ctx, `
+		SELECT count(DISTINCT vc.goat_id)
+		FROM public.vaccination_completions vc
+		JOIN public.goat_identifiers gi
+		  ON gi.tenant_id = vc.tenant_id AND gi.goat_id = vc.goat_id
+		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
+		JOIN public.herd_signal_tag_latest tl
+		  ON tl.tenant_id = vc.tenant_id
+		  AND (tl.tag_id = gi.normalized_value OR tl.tag_mac = gi.normalized_value)
+		WHERE vc.tenant_id = $1
+		  AND vc.status = 'accepted'
+		  AND vc.administered_at >= now() - interval '24 hours'
+		  AND tl.pattern_state IN ('quiet_watch', 'inactive', 'missing_signal')
+	`, tenantID).Scan(&d.PostVaccinationWatchCount)
+	if err != nil {
+		return d, fmt.Errorf("insights post-vaccination watch: %w", err)
+	}
+
+	// Card 9: health_case_activity_trend. Bounded to currently-active health_cases.
+	err = r.db.QueryRow(ctx, `
+		SELECT count(DISTINCT hc.goat_id)
+		FROM public.health_cases hc
+		JOIN public.goat_identifiers gi
+		  ON gi.tenant_id = hc.tenant_id AND gi.goat_id = hc.goat_id
+		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
+		JOIN public.herd_signal_tag_latest tl
+		  ON tl.tenant_id = hc.tenant_id
+		  AND (tl.tag_id = gi.normalized_value OR tl.tag_mac = gi.normalized_value)
+		WHERE hc.tenant_id = $1
+		  AND hc.status = 'active'
+		  AND tl.pattern_state IN ('quiet_watch', 'inactive')
+	`, tenantID).Scan(&d.HealthCaseActivityCount)
+	if err != nil {
+		return d, fmt.Errorf("insights health case activity: %w", err)
+	}
+
+	// Card 10: feed_activity. Bounded to the last 4h of feed_direction_completions, shed grain:
+	// a shed counts once if it was fed AND has at least one live mapped tag.
+	err = r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(DISTINCT fdc.shed_id)
+		FROM public.feed_direction_completions fdc
+		WHERE fdc.tenant_id = $1
+		  AND fdc.status IN ('recorded', 'accepted')
+		  AND fdc.fed_at >= now() - interval '4 hours'
+		  AND EXISTS (
+		    SELECT 1
+		    FROM public.herd_signal_tag_latest tl
+		    %s
+		    WHERE tl.tenant_id = fdc.tenant_id AND g.shed_id = fdc.shed_id
+		  )
+	`, tagLocationJoin), tenantID).Scan(&d.FeedActivityShedsCount)
+	if err != nil {
+		return d, fmt.Errorf("insights feed activity: %w", err)
+	}
+
+	// Card 11: weight_activity. Bounded to the last 24h of weighing_observations, joined to a
+	// mapped tag by animal_id.
+	err = r.db.QueryRow(ctx, `
+		SELECT count(DISTINCT wo.animal_id)
+		FROM public.weighing_observations wo
+		JOIN public.goat_identifiers gi
+		  ON gi.tenant_id = wo.tenant_id AND gi.goat_id = wo.animal_id
+		  AND gi.status = 'active' AND gi.smart_tag_capable IS TRUE
+		JOIN public.herd_signal_tag_latest tl
+		  ON tl.tenant_id = wo.tenant_id
+		  AND (tl.tag_id = gi.normalized_value OR tl.tag_mac = gi.normalized_value)
+		WHERE wo.tenant_id = $1
+		  AND wo.animal_id IS NOT NULL
+		  AND wo.accepted_at >= now() - interval '24 hours'
+	`, tenantID).Scan(&d.WeightActivityTagsCount)
+	if err != nil {
+		return d, fmt.Errorf("insights weight activity: %w", err)
+	}
+
+	return d, nil
 }
 
 // upsertActivityWindows rolls up packets into time-bucketed activity windows.

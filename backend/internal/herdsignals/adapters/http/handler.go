@@ -26,6 +26,7 @@ type AppService interface {
 	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (domain.LiveResponse, error)
 	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
 	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
+	GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error)
 }
 
 // Handler handles HTTP requests for herd signals.
@@ -49,6 +50,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-signals/live", h.ListLive)
 	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/timeline", h.GetTimeline)
 	mux.HandleFunc("GET /herd-signals/gateways", h.ListGateways)
+	mux.HandleFunc("GET /herd-signals/insights", h.GetInsights)
 }
 
 // IngestPackets handles POST /herd-signals/packets.
@@ -187,7 +189,7 @@ func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucketSeconds := 60 // default
+	bucketSeconds := 0 // 0 = let the service select the tier from the requested range
 	if bucketStr := r.URL.Query().Get("bucket_seconds"); bucketStr != "" {
 		if b, err := strconv.Atoi(bucketStr); err == nil && b > 0 {
 			bucketSeconds = b
@@ -229,6 +231,33 @@ func (h *Handler) ListGateways(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("list_gateways_failed", "error", err.Error())
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			map[string]interface{}{"code": "gateways_failed", "message": "failed to list gateways"},
+			err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetInsights handles GET /herd-signals/insights.
+func (h *Handler) GetInsights(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	actor := domain.Actor{
+		TenantID: tenantID(r),
+		UserID:   actorID(r),
+	}
+	if actor.TenantID == "" || actor.UserID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized,
+			map[string]interface{}{"code": "unauthorized", "message": "authentication required"},
+			nil)
+		return
+	}
+
+	resp, err := h.service.GetInsights(ctx, actor)
+	if err != nil {
+		h.log.Error("get_insights_failed", "error", err.Error())
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "insights_failed", "message": "failed to compute insights"},
 			err)
 		return
 	}

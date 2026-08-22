@@ -73,6 +73,12 @@ type Repository interface {
 	// ResolveTagsBatch: GET /herd-signals/live and /herd-signals/gateways must never issue one
 	// query per row.
 	GetShedLocations(ctx context.Context, tenantID string, shedIDs []string) (map[string]ShedLocation, error)
+
+	// GetInsightsData computes the raw counts/values behind the 12 GET /herd-signals/insights
+	// cards. Each field is produced by its own bounded, indexed, tenant-scoped query -- see
+	// the Postgres implementation -- never a single compute-on-read god query
+	// (AGENTS.md scale anti-patterns).
+	GetInsightsData(ctx context.Context, tenantID string) (InsightsData, error)
 }
 
 // ShedLocation is the batched form of oploc.OperationalLocation keyed by shed id.
@@ -83,29 +89,22 @@ type ShedLocation struct {
 	PartitionLabel string
 }
 
-	// GetInsightsData computes the raw counts/values behind the 12 GET /herd-signals/insights
-	// cards. Each field is produced by its own bounded, indexed, tenant-scoped query -- see
-	// the Postgres implementation -- never a single compute-on-read god query
-	// (AGENTS.md scale anti-patterns).
-	GetInsightsData(ctx context.Context, tenantID string) (InsightsData, error)
-}
-
 // InsightsData is the raw, backend-computed values behind the insights cards. The app layer
 // attaches the backend-owned label/unit/signal_type/formula/caveat copy on top of these.
 type InsightsData struct {
-	TagsLiveNow             int64
-	MissingSignalCount      int64
-	LowMovementWatchCount   int64
-	HighMovementSpikeCount  int64
-	ShedsWithCoverage       int64
-	ShedsTotal              int64
-	WeakSignalTagsCount     int64
-	BatteryAttentionCount   int64
+	TagsLiveNow               int64
+	MissingSignalCount        int64
+	LowMovementWatchCount     int64
+	HighMovementSpikeCount    int64
+	ShedsWithCoverage         int64
+	ShedsTotal                int64
+	WeakSignalTagsCount       int64
+	BatteryAttentionCount     int64
 	PostVaccinationWatchCount int64
-	HealthCaseActivityCount int64
-	FeedActivityShedsCount  int64
-	WeightActivityTagsCount int64
-	UnmappedSmartTagsCount  int64
+	HealthCaseActivityCount   int64
+	FeedActivityShedsCount    int64
+	WeightActivityTagsCount   int64
+	UnmappedSmartTagsCount    int64
 }
 
 // GoatIdentifierResult is a single goat identifier match.

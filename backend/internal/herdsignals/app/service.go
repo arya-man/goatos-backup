@@ -440,25 +440,25 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 
 	for _, tag := range tags {
 		item := domain.LiveItem{
-			TagID:                tag.TagID,
-			GatewayID:            tag.GatewayID,
-			LastSeenAt:           tag.LastSeenAt.Format(time.RFC3339),
-			RSSIdbm:              tag.LastRSSIdbm,
-			SignalState:          tag.SignalState,
-			BatteryMV:            tag.BatteryMV,
-			BatteryState:         tag.BatteryState,
-			BatteryLifeEstimate:  domain.BatteryLifeEstimate(tag.BatteryMV, s.thresholds),
-			TagTemperatureC:      tag.TagTemperatureC,
-			MotionCount:          tag.MotionCount,
-			MotionDelta:          tag.MotionDelta,
-			MotionDelta1h:        tag.MotionDelta, // motion_window_seconds now reflects the 15m window used for movement_state; see TagLatest.MotionWindowSeconds
-			MotionWindowSeconds:  tag.MotionWindowSeconds,
-			MovementState:        tag.MovementState,
-			PatternState:         tag.PatternState,
-			SensorState:          nil,
-			TemperatureSensorOK:  tag.TemperatureSensorOK,
+			TagID:                 tag.TagID,
+			GatewayID:             tag.GatewayID,
+			LastSeenAt:            tag.LastSeenAt.Format(time.RFC3339),
+			RSSIdbm:               tag.LastRSSIdbm,
+			SignalState:           tag.SignalState,
+			BatteryMV:             tag.BatteryMV,
+			BatteryState:          tag.BatteryState,
+			BatteryLifeEstimate:   domain.BatteryLifeEstimate(tag.BatteryMV, s.thresholds),
+			TagTemperatureC:       tag.TagTemperatureC,
+			MotionCount:           tag.MotionCount,
+			MotionDelta:           tag.MotionDelta,
+			MotionDelta1h:         tag.MotionDelta, // motion_window_seconds now reflects the 15m window used for movement_state; see TagLatest.MotionWindowSeconds
+			MotionWindowSeconds:   tag.MotionWindowSeconds,
+			MovementState:         tag.MovementState,
+			PatternState:          tag.PatternState,
+			SensorState:           nil,
+			TemperatureSensorOK:   tag.TemperatureSensorOK,
 			AccelerometerSensorOK: tag.AccelerometerSensorOK,
-			MappingState:         tag.MappingState,
+			MappingState:          tag.MappingState,
 		}
 
 		if tag.TagMAC != nil {
