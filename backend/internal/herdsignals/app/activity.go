@@ -21,7 +21,7 @@ const (
 
 // GetTagActivity returns the farm records that may be drawn beside one tag's movement history.
 //
-// THE BOUNDARY THIS FUNCTION EXISTS TO ENFORCE (migration 000196): an animal's history with a
+// THE BOUNDARY THIS FUNCTION EXISTS TO ENFORCE (migration 000197): an animal's history with a
 // tag starts at the instant the tag was mapped to it. `from` is clamped UP to that instant
 // before a single record is read, so no farm event from the tag's device-bench period can ever
 // reach the response. A tag with no animal behind it returns an empty result with a reason --
@@ -77,7 +77,7 @@ func (s *Service) GetTagActivity(ctx context.Context, actor domain.Actor, tagID,
 		return resp, nil
 	}
 	// Mapped, but we cannot say WHEN the mapping happened. Fail closed: attributing a whole
-	// record history to a boundary we cannot state is exactly what 000196 forbids.
+	// record history to a boundary we cannot state is exactly what 000197 forbids.
 	if scope.MonitoringSince == nil {
 		reason := domain.ActivityReasonMonitoringBoundaryUnknown
 		resp.Reason = &reason

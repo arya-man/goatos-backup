@@ -133,7 +133,7 @@ drifted 3 minutes since the CSV capture, so that spot check was a measurement ar
 compared against an unsynced clock or included pipeline latency). Treat the gateway clock as a
 **constant +02:30:00 misconfiguration** (timezone/offset error, NTP either absent or disciplined
 to the wrong base), and never trust `time` for ordering — `received_at` (server clock) is truth,
-per migration 000195.
+per migration 000196.
 
 ## 6. `pkt_sn` — loss instrument
 
@@ -144,8 +144,8 @@ per migration 000195.
 
 ## 7. Loss accounting — gateway emission → schema → IngestPacket → bridge
 
-Persistence targets: `backend/migrations/postgres/000191_herd_signals.sql` (+000192 dedup,
-000193 motion_delta_1h, 000194 gap_delta, 000195 device_seen_at),
+Persistence targets: `backend/migrations/postgres/000192_herd_signals.sql` (+000193 dedup,
+000194 motion_delta_1h, 000195 gap_delta, 000196 device_seen_at),
 `backend/internal/herdsignals/domain/types.go` (`IngestPacket`, which now HAS per-packet
 `gateway_seen_at` and free-form `raw_payload` — both were missing in the CSV era).
 "Bridge captures" assumes the planned bridge does what `IngestPacket.RawPayload`'s doc comment
@@ -160,7 +160,7 @@ says: store `gw_addr`, `pkt_sn`, and raw dev_info context in `raw_payload`.
 | adv b18/b19 tag temperature | `tag_temperature_c numeric(5,2)` | `tag_temperature_c` | yes | CAPTURED (0.1 °C native) | — |
 | adv b21–24 motion_count | `motion_count bigint` | `motion_count` | yes | CAPTURED | — |
 | adv b17 sensor_state | `sensor_state` + 2 bools | `sensor_state`, both OK bools | yes | CAPTURED | — |
-| `dev_infos[].time`+`msec` (per row) | `device_seen_at timestamptz` (000195) + `gateway_seen_at` | `seen_at` + per-packet `gateway_seen_at` | yes — **fixed since the CSV-era audit**; bridge must combine `time`+`msec` per ROW (ms resolution exists: 966 distinct msec values) and correct/annotate the +02:30:00 offset | CAPTURED (diagnostic only; decisions use server `received_at`) | — |
+| `dev_infos[].time`+`msec` (per row) | `device_seen_at timestamptz` (000196) + `gateway_seen_at` | `seen_at` + per-packet `gateway_seen_at` | yes — **fixed since the CSV-era audit**; bridge must combine `time`+`msec` per ROW (ms resolution exists: 966 distinct msec values) and correct/annotate the +02:30:00 offset | CAPTURED (diagnostic only; decisions use server `received_at`) | — |
 | envelope `gw_addr` | no column populated (`herd_signal_gateways.ble_mac` exists, never fed) | only via `raw_payload` | yes IF bridge stores it in `raw_payload` per the doc comment | **DROPPED-RECOVERABLE** (from raw_payload) once bridge complies; today nothing writes it | Medium — only in-band gateway identity; needed to detect swapped/mis-attributed gateways. Bridge should also upsert `herd_signal_gateways.ble_mac` |
 | `data.pkt_sn` | no column | only via `raw_payload` | yes IF stored in `raw_payload` (doc comment says it will be) | **DROPPED-RECOVERABLE** via raw_payload, but gap/reset ANALYSIS is lost unless something reads it | **High** — the only packet-loss and reboot instrument (0.000% here, 0.03% + 1 reset in CSV era). Recommend bridge computes gap/reset events, not just stores the number |
 | heartbeats `state`/`msgId`/`ticks_cnt` | no table/column | no field — an `IngestRequest` has no heartbeat concept | **NO** — bridge as planned drops the entire `state` message class | **DROPPED-LOST FOREVER** | **High** — 5-min heartbeats are the natural feed for `herd_signal_gateways.last_seen_at`/`status`, and `ticks_cnt` reset = reboot detection; without them gateway liveness only moves when tag packets arrive. Cheapest fix: bridge maps heartbeat → gateway upsert (last_seen_at, plus ticks_cnt in a raw/diagnostic field) |
@@ -185,7 +185,7 @@ says: store `gw_addr`, `pkt_sn`, and raw dev_info context in `raw_payload`.
 
 ## 8. Multi-gateway caveat (unchanged from CSV-era audit)
 
-One `gw_addr` in the entire capture. The dedup key (000195: `tenant_id, tag_id,
+One `gw_addr` in the entire capture. The dedup key (000196: `tenant_id, tag_id,
 device_seen_at, motion_count`) still has no gateway component, so the moment a second gateway
 hears the same advertisement in the same instant, the second copy is silently discarded and
 per-gateway RSSI (the input any location estimate needs) is destroyed. Latent, not active.

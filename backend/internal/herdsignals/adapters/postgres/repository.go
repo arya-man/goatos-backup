@@ -124,7 +124,7 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 		    network_mode = COALESCE($9, public.herd_signal_gateways.network_mode),
 		    status = COALESCE($10, public.herd_signal_gateways.status),
 		    last_seen_at = COALESCE($11, public.herd_signal_gateways.last_seen_at),
-		    -- pkt_sn accounting (000197). This is the ONLY packet-loss instrument the gateway
+		    -- pkt_sn accounting (000198). This is the ONLY packet-loss instrument the gateway
 		    -- protocol gives us. A FORWARD jump means reports we never received: missed =
 		    -- new - last - 1, accrued into packets_missed_total. A DECREASE means the GATEWAY
 		    -- REBOOTED (its counter restarted) -- exactly the motion_count reset case -- so it
@@ -159,7 +159,7 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 				motion_count, sensor_state, temperature_sensor_ok,
 				accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-			-- Dedup identity is device_seen_at (000195), NOT received_at: received_at is now
+			-- Dedup identity is device_seen_at (000196), NOT received_at: received_at is now
 			-- server-stamped fresh per ingest call (security fix), so a retried batch would get a
 			-- NEW received_at and this predicate would stop catching retries if it still keyed on
 			-- received_at.
@@ -354,7 +354,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		return false, fmt.Errorf("resolve tag mapping: %w", err)
 	}
 
-	// THE MONITORING BOUNDARY (migration 000196). A tag is commissioned, powered up and
+	// THE MONITORING BOUNDARY (migration 000197). A tag is commissioned, powered up and
 	// broadcasting long before it is attached to an animal; on staging none of them are mapped at
 	// all. Everything emitted before the mapping instant is telemetry ABOUT A DEVICE -- someone
 	// carrying it in a pocket, jostling a bench, driving it to a farm -- and must never be blended
@@ -1035,7 +1035,7 @@ func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tag
 	// animal's normal per-bucket movement (maintainer decision on offline behaviour, mirrors
 	// domain.Baseline75's Go-side exclusion for the same reason). Never remove this predicate to
 	// "smooth" the baseline -- that is exactly the mistake this exclusion exists to prevent.
-	// THE MONITORING BOUNDARY (000196) is enforced here, not just documented. The baseline is
+	// THE MONITORING BOUNDARY (000197) is enforced here, not just documented. The baseline is
 	// the most animal-attributed number in this module -- it is what a spike is measured
 	// against -- so:
 	//   * a tag with a NULL boundary (unmapped) gets NO baseline at all. Not a zero, not a
@@ -1159,7 +1159,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		WHERE vc.tenant_id = $1
 		  AND vc.status = 'accepted'
 		  AND vc.administered_at >= now() - interval '24 hours'
-		  -- Monitoring boundary (000196): a correlated card is an animal-attributed claim, so it
+		  -- Monitoring boundary (000197): a correlated card is an animal-attributed claim, so it
 		  -- may only consider a tag that IS bound to an animal, and only events that happened
 		  -- after that binding. A vaccination recorded while the tag was still on a bench says
 		  -- nothing about the animal now wearing it.
@@ -1183,7 +1183,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND (UPPER(BTRIM(tl.tag_id)) = gi.normalized_value OR UPPER(BTRIM(tl.tag_mac)) = gi.normalized_value)
 		WHERE hc.tenant_id = $1
 		  AND hc.status = 'active'
-		  -- Monitoring boundary (000196), same rule as the vaccination card above.
+		  -- Monitoring boundary (000197), same rule as the vaccination card above.
 		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive')
 	`, tenantID).Scan(&d.HealthCaseActivityCount)
@@ -1204,7 +1204,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		    FROM public.herd_signal_tag_latest tl
 		    %s
 		    WHERE tl.tenant_id = fdc.tenant_id AND g.shed_id = fdc.shed_id
-		      -- Monitoring boundary (000196): the shed only counts as covered by a tag that is
+		      -- Monitoring boundary (000197): the shed only counts as covered by a tag that is
 		      -- actually bound to an animal in it.
 		      AND tl.animal_monitoring_since IS NOT NULL
 		  )
@@ -1229,7 +1229,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		WHERE wo.tenant_id = $1
 		  AND btrim(wo.scanned_identifier) <> ''
 		  AND wo.accepted_at >= now() - interval '24 hours'
-		  -- Monitoring boundary (000196): still no goat_identifiers join and still correlated by
+		  -- Monitoring boundary (000197): still no goat_identifiers join and still correlated by
 		  -- the RAW scanned string (weighing is free-flow and never resolves a scan to identity),
 		  -- but a weighing that happened before this tag was bound to an animal is bench history,
 		  -- not an observation of the animal now wearing it.

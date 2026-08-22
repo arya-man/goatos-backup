@@ -32,7 +32,7 @@ import (
 // single place that rule lives.
 //
 // AND EVERY WRITE STAMPS THE MONITORING BOUNDARY. goat_identifiers.smart_tag_mapped_at is the
-// instant animal monitoring starts (migration 000196); herd_signal_tag_latest
+// instant animal monitoring starts (migration 000197); herd_signal_tag_latest
 // .animal_monitoring_since is its denormalised copy on the hot read path. Packets before it are
 // device telemetry -- a tag rattling in a box on a bench -- and must never reach an animal's
 // baseline, pattern window, or correlation. A REPLACE starts a NEW period for the new tag and

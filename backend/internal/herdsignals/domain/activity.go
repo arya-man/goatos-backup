@@ -19,7 +19,7 @@ import (
 // a voltage, a tag-housing temperature and a radio strength -- it classifies no behaviour and no
 // condition, so nothing downstream of it may either.
 //
-// MONITORING BOUNDARY (migration 000196): an animal's history with a tag starts at the moment
+// MONITORING BOUNDARY (migration 000197): an animal's history with a tag starts at the moment
 // the tag was mapped to it. Records from before that instant belong to the animal but NOT to
 // this tag's story, and returning them would put farm events beside device-bench telemetry as if
 // they were one timeline. The read therefore clamps `from` up to the monitoring boundary, and a
@@ -78,7 +78,7 @@ type ActivityReason string
 
 const (
 	// ActivityReasonTagNotMapped: no animal is behind this tag. Its packets are device
-	// telemetry (migration 000196), so there is no farm activity to show -- not zero events for
+	// telemetry (migration 000197), so there is no farm activity to show -- not zero events for
 	// an animal, no animal.
 	ActivityReasonTagNotMapped ActivityReason = "tag_not_mapped_to_animal"
 	// ActivityReasonMonitoringBoundaryUnknown: the tag resolves to an animal but carries no
