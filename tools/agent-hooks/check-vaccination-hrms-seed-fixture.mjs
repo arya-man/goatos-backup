@@ -53,10 +53,15 @@ function changedFilesAndDiffs() {
   const files = [...new Set([...trackedChanges, ...untracked])];
   const diffs = new Map();
   for (const file of trackedChanges) {
-    // Capture diffs for migrations AND the Makefile so couplingProblems can
-    // decide whether the Makefile change actually touches the seed pipeline
-    // (vs an unrelated edit like registering a new CI guard target).
-    if (!/^backend\/migrations\/postgres\/.*\.sql$/.test(file) && file !== "Makefile") continue;
+    // Capture diffs for migrations, the Makefile, and the contract sources themselves.
+    //
+    // Migrations and the Makefile so couplingProblems can decide whether the change
+    // actually touches the seed pipeline (vs an unrelated edit like registering a new CI
+    // guard target). Contract sources because their diff is where the
+    // `seed-fixture-guard:ignore:` marker lives -- without their diff the marker is
+    // invisible to the check and can never be honoured.
+    const isMigration = /^backend\/migrations\/postgres\/.*\.sql$/.test(file);
+    if (!isMigration && file !== "Makefile" && !CONTRACT_SOURCES.includes(file)) continue;
     diffs.set(file, execFileSync("git", ["diff", "--unified=0", base, "--", file], { cwd: repo, encoding: "utf8" }));
   }
   return { files, diffs };
