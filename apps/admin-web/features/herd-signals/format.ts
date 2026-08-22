@@ -139,7 +139,7 @@ export function fmtRssi(dbm: number | null | undefined): string {
 
 export function fmtBatteryMv(mv: number | null | undefined): string {
   if (mv === null || mv === undefined) return "—";
-  return `${(mv / 1000).toFixed(2)} V`;
+  return `${(mv / 1000).toFixed(1)} V`;
 }
 
 export function fmtTagTemp(celsius: number | null | undefined): string {
