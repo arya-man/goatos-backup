@@ -4,6 +4,103 @@
  */
 
 export interface paths {
+    "/herd-signals/packets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest a batch of BLE ear-tag packets from one gateway.
+         * @description Gateway device write path (backend/internal/herdsignals). Never anonymous: requires the herd_signals.ingest permission. Packet insert, gateway last_seen_at upsert, activity-window rollup (60s/300s/3600s tiers), and tag_latest state recompute all happen in ONE transaction. Idempotent: a replayed packet (same tenant, tag, received_at, motion_count) is silently deduplicated and does not double-count. Out-of-order safe: the "latest" snapshot only advances when a packet's seen_at is strictly newer than the currently stored last_seen_at for that tag.
+         */
+        post: operations["ingestHerdSignalPackets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live tag status, tag-first (an unmapped tag is the normal case, not a degraded one).
+         * @description Every packet-derived field (id, MAC, gateway, RSSI/signal, battery, temperature, motion count and deltas, movement_state, pattern_state, last_seen_at, sensor bits) renders for a tag with no animal mapped behind it. Only goat_id/display_id/park/shed/location are animal-derived and may be null. `summary` is a whole-filter server-side aggregate over the same tenant-scoped query as `items` -- never summed from the returned page.
+         */
+        get: operations["listHerdSignalsLive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tags/{tag_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bucketed motion history for one tag.
+         * @description Bucket tier auto-selects from the range (<=1h -> 60s, <=24h -> 300s, >24h -> 3600s) unless `bucket_seconds` is given, in which case it must be one of 60/300/3600 or the request is rejected. The response is DENSE: a window with no packets is an explicit gap (`is_gap: true`), which must never collapse with a window that received packets but had zero movement (`packet_count > 0`, `motion_delta: 0`) -- that distinction is the whole product requirement. Bounded to at most 2000 buckets per request.
+         */
+        get: operations["getHerdSignalsTagTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/gateways": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gateway registration, location, and coverage health. */
+        get: operations["listHerdSignalsGateways"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 12 backend-computed insight cards (direct/derived/correlated/inferred signal types).
+         * @description Must not error when zero tags are mapped (the STG day-one state): the direct/derived cards (tags_live_now, weak_signal_tags, battery_attention, missing_signal, unmapped_smart_tags, shed_signal_coverage) still compute from packet-derived data alone. The four correlated cards (post_vaccination_movement_watch, health_case_activity_trend, feed_activity, weight_activity) return an honest zero/empty result rather than an error when no tags are mapped. Label/unit/signal_type/formula/caveat text is backend-owned copy; render it verbatim.
+         */
+        get: operations["getHerdSignalsInsights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/tasks/review-fanouts/retry": {
         parameters: {
             query?: never;
@@ -3978,6 +4075,179 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        HerdSignalMovementState: "moving" | "low" | "quiet" | "not_moving" | "stale";
+        /** @enum {string} */
+        HerdSignalMappingState: "mapped" | "unmapped" | "conflict";
+        /** @enum {string} */
+        HerdSignalPatternState: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
+        /** @enum {string} */
+        HerdSignalTone: "strong" | "ok" | "weak";
+        /** @enum {string} */
+        HerdSignalBatteryState: "ok" | "low";
+        /**
+         * @description Computed "ok"/"abnormal" summary of temperature_sensor_ok/accelerometer_sensor_ok. Never the raw device sensor_state bitfield.
+         * @enum {string}
+         */
+        HerdSignalSensorState: "ok" | "abnormal";
+        /** @description Whole-filter server-side aggregate; never derived from the returned page. */
+        HerdSignalsSummary: {
+            tags_seen: number;
+            mapped_animals: number;
+            unmapped_tags: number;
+            moving: number;
+            quiet: number;
+            not_moving: number;
+            stale: number;
+            weak_signal: number;
+            low_battery: number;
+            sensor_abnormal: number;
+        };
+        HerdSignalItem: {
+            tag_id: string;
+            tag_mac: string;
+            /** Format: uuid */
+            goat_id: string | null;
+            display_id: string | null;
+            /** Format: uuid */
+            park_id: string | null;
+            park_name: string | null;
+            /** Format: uuid */
+            shed_id: string | null;
+            shed_name: string | null;
+            partition_label: string | null;
+            operational_location_display: string | null;
+            gateway_id: string | null;
+            /** Format: date-time */
+            last_seen_at: string | null;
+            rssi_dbm: number | null;
+            signal_state: components["schemas"]["HerdSignalTone"] | null;
+            battery_mv: number | null;
+            battery_state: components["schemas"]["HerdSignalBatteryState"] | null;
+            /** @description PROVISIONAL coarse estimate ("~12 days (provisional)"), pending vendor discharge-curve data. */
+            battery_life_estimate: string | null;
+            /** @description Measured at the tag's own sensor housing, never the animal's body temperature. */
+            tag_temperature_c: number | null;
+            /** Format: int64 */
+            motion_count: number | null;
+            /**
+             * Format: int64
+             * @description 15-minute window delta.
+             */
+            motion_delta: number | null;
+            /**
+             * Format: int64
+             * @description Real 1-hour (3600s-tier) delta -- distinct from motion_delta.
+             */
+            motion_delta_1h: number | null;
+            motion_window_seconds: number | null;
+            movement_state: components["schemas"]["HerdSignalMovementState"] | null;
+            pattern_state: components["schemas"]["HerdSignalPatternState"] | null;
+            /**
+             * Format: int64
+             * @description Per-animal p75 24h baseline delta (300s tier).
+             */
+            baseline_delta: number | null;
+            sensor_state: components["schemas"]["HerdSignalSensorState"] | null;
+            temperature_sensor_ok: boolean | null;
+            accelerometer_sensor_ok: boolean | null;
+            mapping_state: components["schemas"]["HerdSignalMappingState"];
+        };
+        HerdSignalsLiveResponse: {
+            summary: components["schemas"]["HerdSignalsSummary"];
+            items: components["schemas"]["HerdSignalItem"][];
+            next_cursor: string | null;
+        };
+        HerdSignalTimelineBucket: {
+            /** Format: date-time */
+            bucket_start: string;
+            bucket_seconds: number;
+            /** Format: int64 */
+            first_motion_count: number | null;
+            /** Format: int64 */
+            last_motion_count: number | null;
+            /** Format: int64 */
+            motion_delta: number | null;
+            packet_count: number;
+            avg_rssi_dbm: number | null;
+            min_rssi_dbm: number | null;
+            max_rssi_dbm: number | null;
+            /** @description True when the window has NO packets. Never collapsed with packet_count>0/motion_delta=0. */
+            is_gap: boolean;
+        };
+        HerdSignalTimelineResponse: {
+            buckets: components["schemas"]["HerdSignalTimelineBucket"][];
+        };
+        /**
+         * @description Computed "online"/"offline" from last_seen_at freshness, not the raw stored gateway status text.
+         * @enum {string}
+         */
+        HerdGatewayStatus: "online" | "offline";
+        /** @enum {string} */
+        HerdGatewayNetworkMode: "wifi" | "ble" | "wifi_ble";
+        HerdGateway: {
+            gateway_id: string;
+            label: string | null;
+            park_name: string | null;
+            shed_name: string | null;
+            network_mode: components["schemas"]["HerdGatewayNetworkMode"] | null;
+            wifi_mac: string | null;
+            ble_mac: string | null;
+            status: components["schemas"]["HerdGatewayStatus"];
+            /** Format: date-time */
+            last_seen_at: string | null;
+            tags_seen_recently: number;
+            weak_tags: number;
+            unmapped_tags: number;
+        };
+        HerdGatewaysResponse: {
+            gateways: components["schemas"]["HerdGateway"][];
+        };
+        /** @enum {string} */
+        HerdSignalType: "direct" | "derived" | "correlated" | "inferred";
+        /** @description Label/formula/caveat are backend-owned copy; render verbatim (AGENTS.md backend-owns-labels rule). */
+        HerdInsightCard: {
+            key: string;
+            label: string;
+            value: (string | number) | null;
+            unit: string | null;
+            signal_type: components["schemas"]["HerdSignalType"];
+            formula: string;
+            caveat: string | null;
+        };
+        HerdInsightsResponse: {
+            cards: components["schemas"]["HerdInsightCard"][];
+        };
+        HerdSignalsIngestPacket: {
+            tag_id: string;
+            tag_mac: string;
+            rssi_dbm?: number | null;
+            battery_mv?: number | null;
+            tag_temperature_c?: number | null;
+            /**
+             * Format: int64
+             * @description Cumulative on the tag.
+             */
+            motion_count?: number | null;
+            sensor_state?: number | null;
+            temperature_sensor_ok?: boolean | null;
+            accelerometer_sensor_ok?: boolean | null;
+            raw_adv?: string | null;
+            /** Format: date-time */
+            seen_at: string;
+        };
+        HerdSignalsIngestRequest: {
+            gateway_id: string;
+            /** Format: date-time */
+            gateway_seen_at: string;
+            packets: components["schemas"]["HerdSignalsIngestPacket"][];
+        };
+        HerdSignalsIngestResponse: {
+            accepted: number;
+            stored: number;
+            latest_updated: number;
+            trace_id: string;
+        };
         CeoConversationCreateRequest: {
             /** @description Optional initial title; when omitted the backend derives one. */
             title?: string;
@@ -12013,6 +12283,177 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ingestHerdSignalPackets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsIngestRequest"];
+            };
+        };
+        responses: {
+            /** @description Packets accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsIngestResponse"];
+                };
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listHerdSignalsLive: {
+        parameters: {
+            query?: {
+                /** @description Filters to animals resolved to this park. An unmapped tag has no park and never matches. */
+                park_id?: string;
+                /** @description Filters to animals resolved to this shed. An unmapped tag has no shed and never matches. */
+                shed_id?: string;
+                movement_state?: components["schemas"]["HerdSignalMovementState"];
+                mapping_state?: components["schemas"]["HerdSignalMappingState"];
+                pattern?: components["schemas"]["HerdSignalPatternState"];
+                /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
+                q?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Live tag list with a whole-filter summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsLiveResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getHerdSignalsTagTimeline: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                bucket_seconds?: 60 | 300 | 3600;
+            };
+            header?: never;
+            path: {
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dense bucketed motion history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalTimelineResponse"];
+                };
+            };
+            /** @description Missing from/to, to before from, unsupported bucket_seconds, or the range spans too many buckets at the requested resolution. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listHerdSignalsGateways: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gateway list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdGatewaysResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getHerdSignalsInsights: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Insight cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdInsightsResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     retrySOPReviewFanouts: {
         parameters: {
             query?: never;
