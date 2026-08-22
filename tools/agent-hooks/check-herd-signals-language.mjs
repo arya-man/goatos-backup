@@ -134,12 +134,15 @@
 //     an unusual style (all-lowercase sentence starts, sentences ending in
 //     a closing quote before the period, etc.) can fool it in either
 //     direction.
-// - Only the FIRST banned-term match per line is evaluated by the
-//   banned-claim check (one `.match()` call, not a global scan); a line
-//   with multiple distinct banned terms only has its first one judged
-//   claim-shaped or denied. In practice this under-flags rather than
-//   over-flags: a mix of "denies term A, but claims term B" on one line
-//   could miss the claim on B if A matched first.
+// - CLOSED (round 4): every banned-term and "body temp" OCCURRENCE on a
+//   line is now judged independently, in the specific sentence fragment
+//   that contains it (see fragmentOrdinalForOffset), not just "the first
+//   occurrence on this line" and not "does this line contain a denial
+//   anywhere". A denial sentence sharing a line with an unrelated claim
+//   sentence ("the tag does not detect eating. The gateway confirms the
+//   animal is eating now.") used to have the denial's verdict silently
+//   cover the later, unrelated claim; each occurrence now gets its own
+//   fragment-scoped sentence window and its own verdict.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, relative, resolve, extname } from "node:path";
@@ -290,22 +293,32 @@ function splitIntoSentenceFragments(strippedLine) {
   return fragments;
 }
 
-// Build the SENTENCE containing lines[i] at character-ish granularity
-// (`matchText`, the specific term occurrence being judged), not a flat
-// N-line/whole-line window: each line in the bounded range is first split
-// into sentence fragments (closing the same-line exploit above), producing
-// a flat list of atoms; then we walk backward/forward from the atom
-// containing `matchText` merging adjacent atoms only while no real sentence
-// boundary (fragment-end punctuation, blank line, JSX tag edge, list-item
-// start) separates them, capped at WINDOW_BEFORE/WINDOW_AFTER LINES as a
-// safety bound (not an atom-count bound -- a line normally holds at most a
-// couple of sentences). Because within-line splits keep the terminal
-// punctuation attached to the fragment it closes, the exact same
+// Build the SENTENCE containing ONE SPECIFIC fragment of line i --
+// `fragmentIndexOnLine` is the 0-based ordinal among the fragments that
+// splitIntoSentenceFragments(stripLineNoise(lines[i])) itself produces (the
+// SAME split every atom below is built from, so the ordinal always lands on
+// the correct fragment even when a line holds two+ independent sentences
+// with the same banned term repeated in more than one of them -- see the
+// header comment's history of this guard for why identifying "the fragment
+// that CONTAINS this term's text" by substring search was not enough: it
+// always resolved to the FIRST matching fragment, so a denial anywhere on
+// the line could cover every later claim on that same line). Each line in
+// the bounded range is first split into sentence fragments, producing a
+// flat list of atoms; we then walk backward/forward from the identified
+// atom, merging adjacent atoms only while no real sentence boundary
+// (fragment-end punctuation, blank line, JSX tag edge, list-item start)
+// separates them, capped at WINDOW_BEFORE/WINDOW_AFTER LINES as a safety
+// bound (not an atom-count bound -- a line normally holds at most a couple
+// of sentences). Because within-line splits keep the terminal punctuation
+// attached to the fragment it closes, the exact same
 // isSentenceBoundaryBetween check works uniformly whether adjacent atoms
 // came from the same physical line or from different, adjacent lines --
 // that is what makes wrapped cross-line denials keep working while same-line
-// unrelated sentences no longer bleed into each other.
-function buildSentenceWindow(lines, i, before, after, matchText) {
+// unrelated sentences no longer bleed into each other, AND (this round's
+// fix) while two independent sentences on one line -- a denial and a claim,
+// or a claim and a denial -- are judged separately instead of the first
+// fragment's verdict silently covering every later one.
+function buildSentenceWindow(lines, i, before, after, fragmentIndexOnLine) {
   const segStart = Math.max(0, i - before);
   const segEnd = Math.min(lines.length - 1, i + after);
 
@@ -317,14 +330,22 @@ function buildSentenceWindow(lines, i, before, after, matchText) {
     }
   }
 
-  const needle = (matchText || "").toLowerCase();
-  let centerAtomIdx = atoms.findIndex(
-    (a) => a.lineIdx === i && needle && a.text.toLowerCase().includes(needle)
-  );
+  let centerAtomIdx = -1;
+  if (typeof fragmentIndexOnLine === "number") {
+    let seenOnLine = 0;
+    for (let k = 0; k < atoms.length; k++) {
+      if (atoms[k].lineIdx !== i) continue;
+      if (seenOnLine === fragmentIndexOnLine) {
+        centerAtomIdx = k;
+        break;
+      }
+      seenOnLine++;
+    }
+  }
   if (centerAtomIdx === -1) {
-    // Fallback: no fragment on line i textually contains matchText (e.g. no
-    // matchText supplied, or a rare mismatch) -- use the LAST atom on line i
-    // so the term's own line is still represented in the sentence window.
+    // Fallback: no fragment ordinal supplied, or it's out of range (should
+    // not happen in practice) -- use the LAST atom on line i so the term's
+    // own line is still represented in the sentence window.
     for (let k = atoms.length - 1; k >= 0; k--) {
       if (atoms[k].lineIdx === i) {
         centerAtomIdx = k;
@@ -352,6 +373,29 @@ function buildSentenceWindow(lines, i, before, after, matchText) {
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Given the stripped text of line i and the character offset (within that
+// SAME stripped text) of a term occurrence, return the 0-based ordinal of
+// the sentence fragment (as produced by splitIntoSentenceFragments) that
+// contains that offset. Walks the fragments left-to-right re-locating each
+// one via indexOf from a monotonic cursor -- robust to the trimming
+// splitIntoSentenceFragments performs, since fragments are trimmed
+// substrings of the original in left-to-right order with no overlaps.
+function fragmentOrdinalForOffset(strippedLine, fragments, offset) {
+  let cursor = 0;
+  for (let idx = 0; idx < fragments.length; idx++) {
+    const frag = fragments[idx];
+    if (frag === "") continue;
+    const fragStart = strippedLine.indexOf(frag, cursor);
+    if (fragStart === -1) continue;
+    const fragEnd = fragStart + frag.length;
+    if (offset >= fragStart && offset < fragEnd) return idx;
+    cursor = fragEnd;
+  }
+  // Fallback: offset past the last located fragment (shouldn't normally
+  // happen) -- attribute it to the last fragment.
+  return Math.max(0, fragments.length - 1);
 }
 
 // Does a negation word precede the given term's first occurrence anywhere in
@@ -429,48 +473,74 @@ function findingsForSource(source, relPath) {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    // banned-claim
-    const bannedMatch = text.match(BANNED_TERM_RE);
-    if (bannedMatch && !VOCAB_LIST_RE.test(text)) {
-      const term = bannedMatch[1];
-      // Sentence window keyed to THIS specific term occurrence -- see
-      // buildSentenceWindow. Each check gets its own window because a line
-      // can carry more than one term/sentence and each must be judged in
-      // its own sentence, not a shared line-level blob.
-      const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, term);
-      if (!VOCAB_LIST_RE.test(window) && isClaimShaped(window, term.replace(/\\b/g, ""))) {
-        findings.push({
-          line: lineNo,
-          rule: "banned-claim",
-          message: `claim-shaped use of banned term "${term}" — Herd Signals cannot detect/classify behavior; deny it explicitly ("does not detect ...") or remove the claim`,
-        });
+    // Line-level vocabulary-list escape hatch (a banned-terms table/array
+    // literal) skips BOTH checks entirely for this line, same as before.
+    const lineIsVocabList = VOCAB_LIST_RE.test(text);
+    const stripped = stripLineNoise(text);
+    const lineFragments = splitIntoSentenceFragments(stripped);
+
+    // banned-claim -- judge EVERY occurrence of a banned term on this line
+    // INDEPENDENTLY, each in the fragment (sentence) that actually contains
+    // it. A single `.match()` here would only ever see the FIRST occurrence,
+    // which is how a denial anywhere on a line ("the tag does not detect
+    // eating. The gateway confirms the animal is eating now.") used to
+    // silently cover a later, unrelated claim on the SAME line -- the
+    // negation lookup was correct, but the occurrence being judged was the
+    // wrong one (always the first).
+    if (!lineIsVocabList) {
+      const globalBannedRe = new RegExp(BANNED_TERM_RE.source, "gi");
+      let bm;
+      while ((bm = globalBannedRe.exec(stripped)) !== null) {
+        if (bm[0] === "") {
+          globalBannedRe.lastIndex++;
+          continue;
+        }
+        const term = bm[0];
+        const fragIdx = fragmentOrdinalForOffset(stripped, lineFragments, bm.index);
+        // Sentence window keyed to THIS specific occurrence's fragment --
+        // see buildSentenceWindow.
+        const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, fragIdx);
+        if (!VOCAB_LIST_RE.test(window) && isClaimShaped(window, term.replace(/\\b/g, ""))) {
+          findings.push({
+            line: lineNo,
+            rule: "banned-claim",
+            message: `claim-shaped use of banned term "${term}" — Herd Signals cannot detect/classify behavior; deny it explicitly ("does not detect ...") or remove the claim`,
+          });
+        }
       }
     }
 
-    // body-temp-mislabel: "body temp[erature]" used as a label/field, not
-    // inside a denial sentence. The term itself is matched on THIS line (so
-    // the reported line number is precise); whether it is a denial is
-    // judged over the SENTENCE containing that specific occurrence, so a
-    // negation on an adjacent wrapped line or an earlier fragment of the
-    // SAME line (the real-world defects this guard now closes) is
-    // recognized, while an unrelated negation in a different sentence is
-    // not.
-    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text)) {
-      const termMatch = text.match(BODY_TEMP_RE);
-      const term = termMatch ? termMatch[0] : "body temperature";
-      const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, term);
-      const isDenial = negationPrecedesTerm(window, term);
-      const looksLikeFieldOrLabel =
-        /["'`][^"'`]*body[\s_-]?temp/i.test(text) || // quoted UI label
-        /\bbody_?temp(?:erature)?_?\w*\s*[:=]/i.test(text) || // field/key assignment
-        /\b(?:type|struct|Body_?Temp|BodyTemp)\b.*body[\s_-]?temp/i.test(text);
-      if (!VOCAB_LIST_RE.test(window) && !isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(window))) {
-        findings.push({
-          line: lineNo,
-          rule: "body-temp-mislabel",
-          message:
-            'label/field says "body temp[erature]" — the tag has no animal-contact temperature sensor; the only field this module may report is "tag temperature" (docs/modules/herd-signals.md Section 1/3)',
-        });
+    // body-temp-mislabel -- same per-occurrence treatment as banned-claim
+    // above: "body temp[erature]" used as a label/field, not inside a
+    // denial, judged in the fragment (sentence) that actually contains each
+    // specific occurrence, so a negation on an adjacent wrapped line or an
+    // earlier fragment of the SAME line is recognized, while an unrelated
+    // denial covering a DIFFERENT occurrence on the same line no longer
+    // silently suppresses this one.
+    if (!lineIsVocabList) {
+      const globalBodyTempRe = new RegExp(BODY_TEMP_RE.source, "gi");
+      let tm;
+      while ((tm = globalBodyTempRe.exec(stripped)) !== null) {
+        if (tm[0] === "") {
+          globalBodyTempRe.lastIndex++;
+          continue;
+        }
+        const term = tm[0];
+        const fragIdx = fragmentOrdinalForOffset(stripped, lineFragments, tm.index);
+        const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, fragIdx);
+        const isDenial = negationPrecedesTerm(window, term);
+        const looksLikeFieldOrLabel =
+          /["'`][^"'`]*body[\s_-]?temp/i.test(text) || // quoted UI label
+          /\bbody_?temp(?:erature)?_?\w*\s*[:=]/i.test(text) || // field/key assignment
+          /\b(?:type|struct|Body_?Temp|BodyTemp)\b.*body[\s_-]?temp/i.test(text);
+        if (!VOCAB_LIST_RE.test(window) && !isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(window))) {
+          findings.push({
+            line: lineNo,
+            rule: "body-temp-mislabel",
+            message:
+              'label/field says "body temp[erature]" — the tag has no animal-contact temperature sensor; the only field this module may report is "tag temperature" (docs/modules/herd-signals.md Section 1/3)',
+          });
+        }
       }
     }
 
@@ -540,33 +610,55 @@ function findingsForYamlSlice(source) {
   const sliceLines = slice.map((s) => s.text);
   const findings = [];
   slice.forEach(({ text, lineNo }, idx) => {
-    // Same sentence-scoping as findingsForSource: a YAML `description:`
-    // block can wrap a denial sentence across adjacent lines (or share a
-    // line with an unrelated sentence) too, and each term occurrence must
-    // be judged in ITS OWN sentence, not a shared line/window blob.
-    const bannedMatch = text.match(BANNED_TERM_RE);
-    if (bannedMatch && !VOCAB_LIST_RE.test(text)) {
-      const term = bannedMatch[1];
-      const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, term);
-      if (!VOCAB_LIST_RE.test(window) && isClaimShaped(window, term.replace(/\\b/g, ""))) {
-        findings.push({
-          line: lineNo,
-          rule: "banned-claim",
-          message: `claim-shaped use of banned term "${term}" in the herd-signals OpenAPI slice`,
-        });
+    // Same sentence-scoping and per-occurrence judging as findingsForSource:
+    // a YAML `description:` block can wrap a denial sentence across
+    // adjacent lines, or share a line with an unrelated sentence, and each
+    // term occurrence must be judged in ITS OWN fragment, not a shared
+    // line/window blob and not just "the first occurrence on this line".
+    const lineIsVocabList = VOCAB_LIST_RE.test(text);
+    const stripped = stripLineNoise(text);
+    const lineFragments = splitIntoSentenceFragments(stripped);
+
+    if (!lineIsVocabList) {
+      const globalBannedRe = new RegExp(BANNED_TERM_RE.source, "gi");
+      let bm;
+      while ((bm = globalBannedRe.exec(stripped)) !== null) {
+        if (bm[0] === "") {
+          globalBannedRe.lastIndex++;
+          continue;
+        }
+        const term = bm[0];
+        const fragIdx = fragmentOrdinalForOffset(stripped, lineFragments, bm.index);
+        const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, fragIdx);
+        if (!VOCAB_LIST_RE.test(window) && isClaimShaped(window, term.replace(/\\b/g, ""))) {
+          findings.push({
+            line: lineNo,
+            rule: "banned-claim",
+            message: `claim-shaped use of banned term "${term}" in the herd-signals OpenAPI slice`,
+          });
+        }
       }
     }
-    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text)) {
-      const termMatch = text.match(BODY_TEMP_RE);
-      const term = termMatch ? termMatch[0] : "body temperature";
-      const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, term);
-      const isDenial = negationPrecedesTerm(window, term);
-      if (!VOCAB_LIST_RE.test(window) && !isDenial) {
-        findings.push({
-          line: lineNo,
-          rule: "body-temp-mislabel",
-          message: 'contract field/description says "body temp[erature]" in the herd-signals OpenAPI slice — should be "tag temperature"',
-        });
+
+    if (!lineIsVocabList) {
+      const globalBodyTempRe = new RegExp(BODY_TEMP_RE.source, "gi");
+      let tm;
+      while ((tm = globalBodyTempRe.exec(stripped)) !== null) {
+        if (tm[0] === "") {
+          globalBodyTempRe.lastIndex++;
+          continue;
+        }
+        const term = tm[0];
+        const fragIdx = fragmentOrdinalForOffset(stripped, lineFragments, tm.index);
+        const window = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, fragIdx);
+        const isDenial = negationPrecedesTerm(window, term);
+        if (!VOCAB_LIST_RE.test(window) && !isDenial) {
+          findings.push({
+            line: lineNo,
+            rule: "body-temp-mislabel",
+            message: 'contract field/description says "body temp[erature]" in the herd-signals OpenAPI slice — should be "tag temperature"',
+          });
+        }
       }
     }
   });
@@ -798,6 +890,43 @@ function selfTest() {
     );
   }
 
+  // Round 4 regression: a legitimate denial and a genuine claim sharing ONE
+  // physical line must be judged SEPARATELY, per occurrence -- a denial
+  // anywhere on the line must not license a later, unrelated claim on that
+  // same line. This is the coordinator's exact exploit of the round-3 fix.
+  const denialThenClaimFindings = findingsForSource(
+    readFixture("Bad_DenialThenClaimSameLine.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!denialThenClaimFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on denial-then-claim-same-line fixture (the denial covering "eating" must not also cover the second, unrelated "eating" claim on the same line), got: ${JSON.stringify(denialThenClaimFindings)}`
+    );
+  }
+
+  // A denial fragment followed by completely innocent prose (no banned term
+  // at all) on the same line must still pass.
+  const denialThenInnocentFindings = findingsForSource(
+    readFixture("Good_DenialThenInnocentProseSameLine.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (denialThenInnocentFindings.length) {
+    throw new Error(
+      `self-test: false positive on denial-then-innocent-prose-same-line fixture: ${JSON.stringify(denialThenInnocentFindings)}`
+    );
+  }
+
+  // Two independent denials sharing one line must both read as denials.
+  const twoDenialsFindings = findingsForSource(
+    readFixture("Good_TwoDenialsSameLine.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (twoDenialsFindings.length) {
+    throw new Error(
+      `self-test: false positive on two-denials-same-line fixture: ${JSON.stringify(twoDenialsFindings)}`
+    );
+  }
+
   console.log("check-herd-signals-language self-test: PASS");
   console.log(`  FAIL fixture -> ${failFindings.length} finding(s): ${failFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  PASS fixture (same words, denial context) -> ${passFindings.length} finding(s)`);
@@ -811,6 +940,9 @@ function selfTest() {
   console.log(`  same-line-unrelated-negation fixture -> ${sameLineFindings.length} finding(s): ${sameLineFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  one-line denial fixture -> ${oneLineDenialFindings.length} finding(s)`);
   console.log(`  identifier-dot-next-to-wrapped-denial fixture -> ${identifierDotFindings.length} finding(s)`);
+  console.log(`  denial-then-claim-same-line (inverse) fixture -> ${denialThenClaimFindings.length} finding(s): ${denialThenClaimFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  denial-then-innocent-prose-same-line fixture -> ${denialThenInnocentFindings.length} finding(s)`);
+  console.log(`  two-denials-same-line fixture -> ${twoDenialsFindings.length} finding(s)`);
 }
 
 if (process.argv.includes("--self-test")) {
