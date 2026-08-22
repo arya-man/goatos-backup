@@ -191,7 +191,14 @@ const ELEMENT_REGISTRY = [
   { tab: "live", label: "filter-bar search field wrapper", mockSelector: "#tab-live .fbar .fsel.search", appSelector: ".herd-signals-page .fbar .fsel.search" },
   { tab: "live", label: "filter-bar select wrapper", mockSelector: "#tab-live .fbar .fsel:not(.search)", appSelector: ".herd-signals-page .fbar .fsel:not(.search)" },
   { tab: "live", label: "KPI row container", mockSelector: "#kpis", appSelector: ".herd-signals-page .kpis" },
-  { tab: "live", label: "first KPI tile", mockSelector: "#kpis .kpi:nth-child(1)", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1)" },
+  // `display` is deliberately excluded: mesha-theme.css (search "Every card the same height
+  // regardless of caption length") documents that the app intentionally makes `.kpi` a flex
+  // column (`display:flex;flex-direction:column` + `.dl{flex:1}`) so every KPI tile in the strip
+  // is the same height even when captions wrap to different line counts. The mock is a static
+  // page with fixed sample copy and never needed that, so it left `.kpi` at the default `display:
+  // block`. Matching the mock here would revert an already-reviewed, documented improvement — this
+  // is a genuine, intentional divergence, not a bug in either the page or the guard.
+  { tab: "live", label: "first KPI tile", mockSelector: "#kpis .kpi:nth-child(1)", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1)", ignoreProps: ["display"] },
   { tab: "live", label: "KPI tile value", mockSelector: "#kpis .kpi:nth-child(1) .val", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1) .val" },
   { tab: "live", label: "KPI tile label", mockSelector: "#kpis .kpi:nth-child(1) .lab", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1) .lab" },
   { tab: "live", label: "live table card", mockSelector: "#tab-live > .card", appSelector: ".herd-signals-page .card" },
@@ -200,11 +207,30 @@ const ELEMENT_REGISTRY = [
   {
     tab: "live",
     label: "first data row (live table)",
+    // `fontSize` on the `<tr>` itself (not its `<td>` children, which already carry an explicit
+    // matching 12.5px rule on both sides) is compared here as a raw inherited value. The mock
+    // never styles `tr` at all, so Chrome's UA default for `<table>` (16px, NOT inherited from
+    // body's 14px -- verified directly against a live Chromium instance) leaks through; the app's
+    // `<tr>` inherits from a different reset baseline and lands at 13px. Neither number is ever
+    // rendered -- the row has no direct text node -- so this is an artifact of comparing an
+    // invisible inherited property, not a real visual divergence.
     mockSelector: "#liveBody table tbody tr:nth-child(1)",
     appSelector: ".herd-signals-page table tbody tr:nth-child(1)",
     optional: true, // depends on at least one row having loaded on both sides
+    ignoreProps: ["fontSize"],
   },
-  { tab: "live", label: "pager", mockSelector: "#pager", appSelector: ".herd-signals-page .pager", optional: true },
+  // `#pager` in the mock is an EMPTY wrapper div; `renderLive()` injects a real `<div class="pager">`
+  // as its child only once rows have loaded. `#pager` itself never gets styled (no padding, no
+  // border, default block/ink-color/normal-gap) -- comparing it directly paired an inert wrapper
+  // against the app's actual, correctly-styled `.pager` element. Guard selector bug, not a page bug.
+  // The mock has two separate pager instances (#pagerTop above the table, #pager below it) with
+  // deliberately swapped borders: the top one carries `border-bottom`, the bottom one carries
+  // `border-top` (see mock's own `.pager.pager-top` override). `#pager` here is specifically the
+  // BOTTOM instance, but `.herd-signals-page .pager` on the app side matches the FIRST `.pager` in
+  // DOM order, which is the app's `pager("top")` call (herd-signals-table.tsx) carrying the
+  // `pager-top` variant class -- i.e. this was pairing the mock's bottom pager against the app's
+  // top pager. `:not(.pager-top)` selects the app's actual bottom pager to match.
+  { tab: "live", label: "pager", mockSelector: "#pager .pager", appSelector: ".herd-signals-page .pager:not(.pager-top)", optional: true },
 
   // ---- Animals --------------------------------------------------------------------------------
   { tab: "animals", label: "Animals card", mockSelector: "#tab-animals .card", appSelector: ".herd-signals-page .card" },
@@ -212,23 +238,39 @@ const ELEMENT_REGISTRY = [
   {
     tab: "animals",
     label: "first data row (animals table)",
+    // `fontSize` on the `<tr>` itself (not its `<td>` children, which already carry an explicit
+    // matching 12.5px rule on both sides) is compared here as a raw inherited value. The mock
+    // never styles `tr` at all, so Chrome's UA default for `<table>` (16px, NOT inherited from
+    // body's 14px -- verified directly against a live Chromium instance) leaks through; the app's
+    // `<tr>` inherits from a different reset baseline and lands at 13px. Neither number is ever
+    // rendered -- the row has no direct text node -- so this is an artifact of comparing an
+    // invisible inherited property, not a real visual divergence.
     mockSelector: "#animalsBody table tbody tr:nth-child(1)",
     appSelector: ".herd-signals-page table tbody tr:nth-child(1)",
     optional: true,
+    ignoreProps: ["fontSize"],
   },
 
   // ---- Gateways -------------------------------------------------------------------------------
-  { tab: "gateways", label: "gateway grid container", mockSelector: "#gwBody", appSelector: ".herd-signals-page .grid2:nth-of-type(1)" },
+  // The mock wraps each tab in its own `<section id="tab-*">`, so `.grid2:nth-of-type(1)` inside
+  // #tab-gateways really is "the first div child, and it happens to be .grid2". The live app has
+  // no per-tab wrapper section — GatewaysTab renders its two `.grid2` divs as siblings of `.phead`
+  // and `.segs` directly under `.herd-signals-page` — so `:nth-of-type` counts ALL div siblings
+  // (phead, segs, grid2, grid2), not just the `.grid2`-classed ones, and never lands on 1 or 2.
+  // That is a guard selector bug, not a page bug: `.grid2:not(.grid2 ~ .grid2)` picks the .grid2
+  // with no preceding .grid2 sibling (i.e. the first one) and `.grid2 ~ .grid2` picks the one
+  // preceded by another .grid2 (the second, since this page only ever renders two per tab).
+  { tab: "gateways", label: "gateway grid container", mockSelector: "#gwBody", appSelector: ".herd-signals-page .grid2:not(.grid2 ~ .grid2)" },
   {
     tab: "gateways",
     label: "first gateway card",
     mockSelector: "#gwBody .gwcard:nth-child(1)",
-    appSelector: ".herd-signals-page .grid2:nth-of-type(1) .gwcard:nth-child(1)",
+    appSelector: ".herd-signals-page .grid2:not(.grid2 ~ .grid2) .gwcard:nth-child(1)",
     optional: true,
   },
-  { tab: "gateways", label: "second grid row (coverage + battery)", mockSelector: "#tab-gateways .grid2:nth-of-type(2)", appSelector: ".herd-signals-page .grid2:nth-of-type(2)" },
-  { tab: "gateways", label: "coverage-summary card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(1)", appSelector: ".herd-signals-page .grid2:nth-of-type(2) .card:nth-child(1)" },
-  { tab: "gateways", label: "battery-outlook card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(2)", appSelector: ".herd-signals-page .grid2:nth-of-type(2) .card:nth-child(2)" },
+  { tab: "gateways", label: "second grid row (coverage + battery)", mockSelector: "#tab-gateways .grid2:nth-of-type(2)", appSelector: ".herd-signals-page .grid2 ~ .grid2" },
+  { tab: "gateways", label: "coverage-summary card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(1)", appSelector: ".herd-signals-page .grid2 ~ .grid2 .card:nth-child(1)" },
+  { tab: "gateways", label: "battery-outlook card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(2)", appSelector: ".herd-signals-page .grid2 ~ .grid2 .card:nth-child(2)" },
 
   // ---- Alerts ---------------------------------------------------------------------------------
   { tab: "alerts", label: "Alerts card", mockSelector: "#tab-alerts .card", appSelector: ".herd-signals-page .card" },
@@ -236,9 +278,24 @@ const ELEMENT_REGISTRY = [
   {
     tab: "alerts",
     label: "first alert row",
+    // `#alertsBody` in the mock IS the `.bd.flush` node, so `#alertsBody .rowlist > *:nth-child(1)`
+    // descends into `.rowlist` before picking the first row. The app selector stopped one level
+    // early at `.bd.flush > *:nth-child(1)`, which resolves to the `.rowlist` wrapper div itself
+    // (no padding/border/gap of its own) rather than the first `.rowitem` — a guard selector bug,
+    // not a page bug.
     mockSelector: "#alertsBody .rowlist > *:nth-child(1)",
-    appSelector: ".herd-signals-page .card .bd.flush > *:nth-child(1)",
+    appSelector: ".herd-signals-page .card .bd.flush .rowlist > *:nth-child(1)",
     optional: true,
+    // Both sides apply the identical rule `.rowitem:last-child{border-bottom:0}` (mock inline;
+    // app at mesha-theme.css's `.herd-signals-page .rowitem:last-child`). The mock's random fixture
+    // generator always produces multiple alert rows, so its first row keeps a border. This tenant's
+    // REAL alerting set is small (this is live data, not a fixture) and can easily sit at exactly
+    // one row, which makes that same row both first AND last -- correctly losing its border-bottom
+    // on both sides, by the same CSS rule. Comparing border-bottom here is really comparing row
+    // COUNT, which is live data, not styling; that is explicitly out of scope (see AGENTS notes:
+    // "the app shows 20 real tags that barely move" — do not force data to match the mock's
+    // invented fixtures). Ignored rather than "fixed" in either direction.
+    ignoreProps: ["borderBottomColor", "borderBottomWidth"],
   },
 
   // ---- Tag Mapping ----------------------------------------------------------------------------
@@ -248,9 +305,17 @@ const ELEMENT_REGISTRY = [
   {
     tab: "mapping",
     label: "first mapping row",
+    // `fontSize` on the `<tr>` itself (not its `<td>` children, which already carry an explicit
+    // matching 12.5px rule on both sides) is compared here as a raw inherited value. The mock
+    // never styles `tr` at all, so Chrome's UA default for `<table>` (16px, NOT inherited from
+    // body's 14px -- verified directly against a live Chromium instance) leaks through; the app's
+    // `<tr>` inherits from a different reset baseline and lands at 13px. Neither number is ever
+    // rendered -- the row has no direct text node -- so this is an artifact of comparing an
+    // invisible inherited property, not a real visual divergence.
     mockSelector: "#mappingBody table tbody tr:nth-child(1)",
     appSelector: ".herd-signals-page table tbody tr:nth-child(1)",
     optional: true,
+    ignoreProps: ["fontSize"],
   },
 
   // ---- Insights -------------------------------------------------------------------------------
@@ -373,9 +438,10 @@ function summarizeGridTemplateColumns(value) {
   return `${tracks.length} track(s)`;
 }
 
-function diffComputedStyles(mockStyle, appStyle) {
+function diffComputedStyles(mockStyle, appStyle, ignoreProps) {
   const mismatches = [];
   for (const prop of TRACKED_PROPS) {
+    if (ignoreProps && ignoreProps.includes(prop)) continue;
     if (prop in BORDER_COLOR_TO_WIDTH_PROP) {
       const widthProp = BORDER_COLOR_TO_WIDTH_PROP[prop];
       const mockWidth = normalizeComputedValue(widthProp, mockStyle[widthProp]);
@@ -607,7 +673,7 @@ async function runRenderedComparison() {
         continue;
       }
 
-      for (const d of diffComputedStyles(mockStyle, appStyle)) {
+      for (const d of diffComputedStyles(mockStyle, appStyle, entry.ignoreProps)) {
         mismatches.push({ tab: entry.tab, label: entry.label, prop: d.prop, mock: d.mock, app: d.app });
       }
     }

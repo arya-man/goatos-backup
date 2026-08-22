@@ -687,7 +687,11 @@ export function HerdSignalsMappingTable({
     <div className="fbar" aria-busy={busy}>
       <a
         href={herdSignalsHref(params, { hs_map: undefined })}
-        className={`btn sm${!params.mappingState ? " p" : ""}`}
+        // "All" is the unfiltered default, not an explicit selection — the mock (which never
+        // highlights any filter button, #tab-mapping's setMapFilter never toggles a class) renders
+        // it as a plain neutral button. Only the two explicit filters (Unmapped/Conflict) get the
+        // primary "p" highlight when chosen.
+        className="btn sm"
         onClick={(event) => {
           if (!plainClick(event)) return;
           event.preventDefault();
