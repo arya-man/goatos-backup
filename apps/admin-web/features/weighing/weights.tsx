@@ -249,7 +249,6 @@ export async function WeighingWeightsPage({
   const visibleRows =
     modeFilter === "all" ? weighedRows : weighedRows.filter((row) => row.weighing_category === modeFilter);
   const slice = visibleRows.slice(offset, offset + limit);
-  const weighedRowKeys = new Set(weighedRows.map((row) => shedKey(row.location_id, row.partition_label)));
   const visibleRowKeys = new Set(visibleRows.map((row) => shedKey(row.location_id, row.partition_label)));
 
   // Losing kids come from the growth read, which already computes "latest pair went down".
