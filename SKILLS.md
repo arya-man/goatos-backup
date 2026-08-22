@@ -480,6 +480,7 @@ lens when its trigger matches:
 | `feed-proof-flow` | any feed-chain surface (feeddirection backend, feature-feed / capture screens, proof processing, their tests) or a multi-device feed E2E | `docs/product/feed-proof-collaboration.md`; `docs/decisions/feed-distribution-verification.md`, `feed-transport-verification.md`; guard `make feed-proof-collaboration-guard` |
 | `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md`; `docs/decisions/role-module-nav-composition.md` |
 | `domain-event-architecture` | any backend/frontend/mobile CRUD/import/offline write, domain event, outbox producer/consumer, shifting, dead birth, feed direction, vaccination mutation, or future operational module | `context/architecture/domain-event-integration-contract.md`; `context/architecture/domain-event-registry.json`; `references/contracts-events.md`, `references/kernel-and-scale.md`, `references/frontend.md`, `references/mobile.md` |
+| `goatos-herd-signals` | `backend/internal/herdsignals/**`, `apps/admin-web/features/herd-signals/**`, the herd-signals slice of `contracts/openapi/app-api.yaml`, `mock/herd-signals-mock.html`, or `docs/modules/herd-signals.md` | `docs/modules/herd-signals.md`; guard `make herd-signals-language-guard` |
 
 Machine gates each lens names (`make scale-guard`, `validate-hot-index-migrations`,
 `mobile-guard`, `admin-web-request-reads-guard`, `nav-composition-guard`,
