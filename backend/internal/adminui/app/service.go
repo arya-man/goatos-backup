@@ -181,6 +181,16 @@ func navigation() domain.NavigationContract {
 			// Only the Weights read-out lives on admin-web. Planning, execution, proof
 			// capture and the verifier queue are phone surfaces and are deliberately NOT
 			// mirrored here — this is the oversight lens, not a second console.
+			// Herd Signals is a VERTICAL: BLE ear-tag telemetry from gateways, plus the
+			// gateway/coverage view. Live Monitor is its only admin-web leaf today.
+			// The tag reports a cumulative motion counter and radio/battery/tag-temperature
+			// readings -- never a behaviour, posture or clinical state.
+			{
+				ID: "herd-signals", Label: "Herd Signals", Icon: "radio-tower", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeafDomain("herd-signals", "Live Monitor", "/herd-signals", "herd_signals.live", nil),
+				},
+			},
 			{
 				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
@@ -504,6 +514,20 @@ func pages() []domain.PageContract {
 		// or management-stage column, and no ₹ value — none of those facts exist in
 		// weighing's tables and reaching into the herd tables for them is prohibited.
 		// The columns below are the complete honest set.
+		// /herd-signals -- BLE ear-tag telemetry. Tag-first: an UNMAPPED tag is the
+		// normal state (tags are commissioned before they go on animals), so every
+		// packet-derived column renders with or without an animal behind it.
+		page("herd-signals", "/herd-signals", "/herd-signals", "Herd Signals",
+			"BLE ear-tag signals, movement counters, and gateway coverage.", "module-surface",
+			[]domain.TableContract{
+				tableP("live", "Live tag signals", "/herd-signals/live",
+					[]string{"animal", "smart_tag", "shed", "gateway", "signal", "motion_count",
+						"delta_15m", "delta_1h", "activity", "pattern", "battery", "tag_temp",
+						"last_seen", "status"}, "tag_id", []int{25, 50, 100}),
+				tableP("gateways", "Gateways", "/herd-signals/gateways",
+					[]string{"gateway", "location", "network", "status", "last_seen",
+						"tags_seen", "weak_tags", "unmapped_tags"}, "gateway_id", []int{25, 50}),
+			}),
 		page("weighing-weights", "/weighing/weights", "/weighing/weights", "Kids — Weights", "Latest weight per shed across both capture modes, with park and period filters.", "module-surface",
 			[]domain.TableContract{
 				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "workflow"}, "location_id", []int{10, 25, 50}),
@@ -2901,6 +2925,60 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.hf_evidence.administered":    "Administered",
 			"table.hf_evidence.evidence":        "Evidence",
 			"table.hf_evidence.review":          "Review",
+		}
+	case "herd-signals":
+		// Every visible string on /herd-signals. The renderer owns layout only.
+		//
+		// CLAIM BOUNDARY: a HoneyComm BLE tag reports tag id, MAC, RSSI, battery mV,
+		// TAG temperature, a cumulative motion counter, sensor-OK bits and timestamps.
+		// It detects no behaviour, no posture and no clinical state, so no label here
+		// may say eating, rumination, standing, walking, fever, body temperature or
+		// disease. "Tag temp" is never "Body temp".
+		return map[string]string{
+			"page.crumb":                  "Herd Signals / Live Monitor",
+			"tab.live":                    "Live Monitor",
+			"tab.animals":                 "Animals",
+			"tab.gateways":                "Gateways",
+			"tab.alerts":                  "Alerts",
+			"tab.mapping":                 "Tag Mapping",
+			"tab.insights":                "Insights",
+			"kpi.tags_seen":               "Tags seen",
+			"kpi.moving":                  "Tags moving",
+			"kpi.quiet":                   "Quiet tags",
+			"kpi.weak_signal":             "Weak signal",
+			"kpi.missing_signal":          "Missing signal",
+			"kpi.low_battery":             "Low battery",
+			"table.live.animal":           "Animal",
+			"table.live.smart_tag":        "Smart tag",
+			"table.live.shed":             "Shed",
+			"table.live.gateway":          "Gateway",
+			"table.live.signal":           "Signal",
+			"table.live.motion_count":     "Motion count",
+			"table.live.delta_15m":        "15m delta",
+			"table.live.delta_1h":         "1h delta",
+			"table.live.activity":         "Activity",
+			"table.live.pattern":          "Pattern",
+			"table.live.battery":          "Battery",
+			"table.live.tag_temp":         "Tag temp",
+			"table.live.last_seen":        "Last seen",
+			"table.live.status":           "Status",
+			"empty.no_packets":            "No gateway packets yet",
+			"empty.no_packets_detail":     "No BLE gateway has posted a packet for this tenant. Check that the gateway is powered, on the site network, and configured with the ingest URL and credentials.",
+			"empty.no_mapped":             "No mapped smart tags",
+			"empty.no_mapped_detail":      "No active identifier is marked smart-tag capable yet. Map a tag in Tag Mapping and its signals resolve to an animal here.",
+			"empty.no_alerts":             "No signal alerts",
+			"empty.no_unmapped":           "No unmapped tags",
+			"empty.filtered":              "Filters exclude every row in scope",
+			"empty.no_history":            "No movement history",
+			"error.read_failed":           "Could not load live signals",
+			"error.read_failed_detail":    "The read failed and no rows were returned. This is not the same as zero tags.",
+			"state.stale":                 "Showing stale data",
+			"state.gateway_offline":       "Gateway offline",
+			"disabled.mapping_write":      "Tag mapping writes are not built yet.",
+			"disabled.export":             "Export is not built yet.",
+			"note.tag_temperature":        "Tag temperature is measured at the tag's own sensor housing, not on the animal.",
+			"note.correlation":            "Overlaid markers are other recorded farm activity for the same animal or its shed. Read them as correlation, never as behaviour, cause, or a clinical finding.",
+			"note.activity_basis":         "Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.",
 		}
 	case "weighing-weights":
 		// Every visible string on /weighing/weights. The renderer owns layout only.
