@@ -63,8 +63,9 @@ val OUTBOX_MIGRATION_3_4: Migration = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         val pending = listOf("QUEUED", "IN_FLIGHT", "FAILED")
         val placeholders = pending.joinToString(",") { "?" }
-        // mobile-guard:ignore: bounded by one device's UNSENT Submits -- one row per shed session still queued, cleared as they drain
-        val rows = mutableListOf<Triple<String, String, String>>()
+        // One row per shed Submit still queued on THIS device when it upgrades: a handful,
+        // and gone as they drain.
+        val rows = mutableListOf<Triple<String, String, String>>() // mobile-guard:ignore: bounded by one device's unsent Submits
         db.query(
             "SELECT id, groupKey, payloadJson FROM outbox WHERE opType = 'SHED_SUBMIT' AND status IN ($placeholders)",
             pending.toTypedArray(),

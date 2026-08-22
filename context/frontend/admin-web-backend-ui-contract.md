@@ -263,6 +263,14 @@ Explicit exceptions:
   are pre-contract auth surfaces. They render before the user can reliably fetch
   `/admin-web/bootstrap`, so their Google/session error text remains local until
   an unauthenticated auth-copy endpoint exists.
+- `features/vaccination-plan/` and the two `/vaccination/plan` route files render
+  local copy for now. The page contract for `vaccination-plan` exists, but the copy
+  it carries is the deleted `/config` screen's (capacity fields, rule-editor
+  labels) — inherited when that screen was removed, and describing a different
+  surface. Wiring this console's 51 strings through those keys would pin the wrong
+  vocabulary in place, so the copy migration is deliberately a separate change:
+  author keys against what THIS screen says, then remove this exception. Until
+  then the wording lives beside the mock it was approved against.
 - `components/admin-shell.tsx` has a contract-unavailable emergency screen. It
   is intentionally local because the contract request failed; using backend copy
   there would create a circular dependency.

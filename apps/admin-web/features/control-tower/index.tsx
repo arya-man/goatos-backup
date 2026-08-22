@@ -248,10 +248,10 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             <b>
               {summary.config_or_sop_blockers} {copy(pageContract, summary.config_or_sop_blockers === 1 ? "alert.config_sop.singular" : "alert.config_sop.plural")} {copy(pageContract, "alert.config_sop.action_required")}
             </b>{" "}
-            {/* One link, one destination. This used to render "Config" AND
-                "Vaccination SOP" as two links -- both now point at the plan console,
-                so it named two screens that no longer exist and sent you to the same
-                place twice. */}
+            {/* One link, one destination. Two links used to render here, for the
+                Config screen and the vaccination SOP screen -- both now point at the
+                plan console, so it named two screens that no longer exist and sent
+                you to the same place twice. */}
             {copy(pageContract, "alert.config_sop.body_prefix")}{" "}
             <Link href="/vaccination/plan" className="lk">
               {copy(pageContract, "alert.config_sop.config_label")}

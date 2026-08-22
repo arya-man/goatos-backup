@@ -70,7 +70,7 @@ export default async function Page() {
       versions={versions}
       catalog={catalog}
       changeNotes={changeNotes}
-      loadError={configs.ok ? null : "The vaccination plan could not be loaded."}
+      loadFailed={!configs.ok}
     />
   );
 }

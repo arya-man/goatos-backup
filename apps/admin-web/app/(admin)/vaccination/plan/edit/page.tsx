@@ -56,7 +56,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
       draftLabel={draft?.version_label || `V${version.data.version}`}
       liveLabel={live?.version_label ?? null}
       liveSince={formatDate(live?.effective_from)}
-      scopeLabel={version.data.scope_type === "park" ? "One park" : "Both parks"}
+      scopeType={version.data.scope_type}
       originalRuleDsl={version.data.rule_dsl}
       proofPolicy={version.data.proof_policy}
       initialPlan={fromRuleDsl(version.data.rule_dsl, version.data.proof_policy)}
@@ -67,12 +67,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
       // already emits a publish_protocol_version control carrying whether this
       // principal holds protocol.publish, and why not.
       canPublish={controlEnabled(contract, "publish_protocol_version", true)}
-      cannotPublishReason={
-        controlEnabled(contract, "publish_protocol_version", true)
-          ? null
-          : control(contract, "publish_protocol_version").disabled_reason ||
-            "Your role cannot publish the vaccination plan."
-      }
+      cannotPublishReason={control(contract, "publish_protocol_version").disabled_reason || null}
     />
   );
 }
