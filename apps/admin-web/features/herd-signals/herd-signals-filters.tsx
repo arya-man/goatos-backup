@@ -52,6 +52,10 @@ export function HerdSignalsFilters({
     <div className="fbar herd-signals-fbar" aria-busy={isPending}>
       {isPending ? <span className="wfspin" aria-hidden="true" title="Applying filter" /> : null}
       <span className="fsel search has">
+        <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
         <input
           type="search"
           placeholder="Search animal, tag ID, BLE MAC, shed or gateway"
@@ -151,7 +155,7 @@ export function HerdSignalsFilters({
         </a>
       ) : null}
 
-      <span className="fnote">Thresholds provisional — see Herd Signals module docs</span>
+      <span className="fnote">Thresholds provisional</span>
     </div>
   );
 }
