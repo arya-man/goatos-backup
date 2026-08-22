@@ -1,5 +1,4 @@
-import { VaccinationPlanConsole } from "@/features/vaccination-plan";
-import { describeChange, readVaccines, type VaccineGroup } from "@/features/vaccination-plan/plan-model";
+import { describeChange, readVaccines, VaccinationPlanConsole, type VaccineGroup } from "@/features/vaccination-plan";
 import { getProtocolVersion, listProtocolConfigs, requireAdminWebPageContract } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";

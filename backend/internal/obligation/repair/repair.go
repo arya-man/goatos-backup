@@ -163,6 +163,13 @@ func repairGroups(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg C
 		survivor := g.Rows[0]
 		for _, row := range g.Rows[1:] {
 			if cfg.Apply {
+				// One cancel per duplicate row is the point, not an oversight. Cancelling an
+				// obligation also releases its batch's reserved stock and recomputes that batch's
+				// planned quantity; a bulk UPDATE would leave both drifting, which is the defect
+				// this job exists to avoid creating. The loop is bounded twice over -- by the
+				// group's own size (a handful) and by the run's --limit -- and the whole job is a
+				// deliberate operational one-shot, not a request path.
+				// scale-guard:ignore: per-row cancel is required for batch stock reconciliation; bounded by group size and --limit
 				if _, _, err := repo.CancelOpenObligationByIdempotencyKey(ctx, cfg.TenantID, row.IdempotencyKey, reason, now); err != nil {
 					return fmt.Errorf("retire duplicate %s: %w", row.ObligationID, err)
 				}

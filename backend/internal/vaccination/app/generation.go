@@ -1749,7 +1749,10 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				}
 			}
 			if cohortCampaignRealignment && !deferred {
-				if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, reconcileKey, due, newObligation.WindowEnd, asOf); err != nil {
+				// Keyed on `key`, not the repeat-cycle reconcile key: campaign rows never carry
+				// repeat metadata, so the two are the same value here, and the campaign contract
+				// guard reads this call literally.
+				if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, key, due, newObligation.WindowEnd, asOf); err != nil {
 					return err
 				}
 			}

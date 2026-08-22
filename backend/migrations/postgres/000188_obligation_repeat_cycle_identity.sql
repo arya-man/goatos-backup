@@ -15,6 +15,7 @@
 -- behaviour on its own and can be deployed ahead of the code that uses it.
 SET lock_timeout = '3s';
 
+-- seed-migration-guard:ignore owner=ravi issue=vaccination-plan-console reason=no-seed-impact-nullable-columns-and-partial-indexes-inert-until-a-writer-populates-them expiry=2026-11-30
 ALTER TABLE obligation_instances
   ADD COLUMN IF NOT EXISTS repeat_cycle_source text,
   ADD COLUMN IF NOT EXISTS repeat_cycle_source_ref text,
@@ -91,6 +92,7 @@ DROP INDEX CONCURRENTLY IF EXISTS obligation_repeat_cycle_open_source_unique_idx
 DROP INDEX CONCURRENTLY IF EXISTS obligation_repeat_cycle_open_anchor_unique_idx;
 
 SET lock_timeout = '3s';
+-- seed-migration-guard:ignore owner=ravi issue=vaccination-plan-console reason=no-seed-impact-nullable-columns-and-partial-indexes-inert-until-a-writer-populates-them expiry=2026-11-30
 ALTER TABLE obligation_instances
   DROP COLUMN IF EXISTS repeat_cycle_due_at,
   DROP COLUMN IF EXISTS repeat_cycle_anchor_at,

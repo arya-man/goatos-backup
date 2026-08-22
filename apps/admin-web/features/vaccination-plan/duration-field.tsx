@@ -20,7 +20,7 @@ type Props = {
   days: number;
   onChange: (days: number) => void;
   title: string;
-  /** Rendered when the field is not the plain variant (used inside sentences). */
+  /** Shown when the field is not the plain variant (used inside sentences). */
   plain?: boolean;
   disabled?: boolean;
 };
