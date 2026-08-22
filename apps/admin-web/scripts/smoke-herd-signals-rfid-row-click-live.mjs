@@ -7,7 +7,10 @@ const page = await browser.newPage({ viewport: { width: 1512, height: 982 }, dev
 
 try {
   await page.goto(`${baseUrl}/herd-signals?scope_mode=company`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  const firstRow = page.locator("table.herd-signals-table tbody tr").first();
+  await page.locator("table.herd-signals-table tbody tr").first().waitFor({ state: "visible", timeout: 15_000 });
+  const firstRow = page.locator("table.herd-signals-table tbody tr").filter({
+    has: page.locator("td[data-l='Animal']", { hasText: /^\d{12,}/ }),
+  }).first();
   await firstRow.waitFor({ state: "visible", timeout: 15_000 });
 
   const animal = (await firstRow.locator("td[data-l='Animal']").innerText()).trim();
