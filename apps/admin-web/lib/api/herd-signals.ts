@@ -168,7 +168,11 @@ export interface HerdSignalsLiveParams {
   shedId?: string;
   movementState?: HerdSignalMovementState;
   mappingState?: HerdSignalMappingState;
-  pattern?: HerdSignalPatternState;
+  // "not_normal" is a server-side sentinel (backend/internal/herdsignals/adapters/postgres/
+  // repository.go herdSignalsLiveFilter), not a literal pattern_state value: it is the whole-fleet
+  // alerting partition (pattern_state <> 'normal'). The Alerts tab uses it so the alerting subset
+  // is selected by the query, not by filtering whatever rows happen to be on the fetched page.
+  pattern?: HerdSignalPatternState | "not_normal";
   q?: string;
   cursor?: string;
   limit?: number;
