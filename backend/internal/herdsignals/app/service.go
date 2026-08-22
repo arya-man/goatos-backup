@@ -241,6 +241,7 @@ func (s *Service) enrichTagLatest(ctx context.Context, tenantID string, tag doma
 		MotionDelta:                tag.MotionDelta,
 		MotionWindowSeconds:        tag.MotionWindowSeconds,
 		MovementState:              tag.MovementState,
+		PatternState:               tag.PatternState,
 		TemperatureSensorOK:        tag.TemperatureSensorOK,
 		AccelerometerSensorOK:      tag.AccelerometerSensorOK,
 		MappingState:               tag.MappingState,
