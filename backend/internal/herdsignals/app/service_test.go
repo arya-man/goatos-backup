@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
@@ -67,5 +68,63 @@ func TestIngestPacketsUsesPerPacketGatewaySeenAt(t *testing.T) {
 	}
 	if got["tag-a"] == got["tag-b"] {
 		t.Error("tag-a and tag-b were collapsed to the same gateway_seen_at -- the bug this test exists to catch")
+	}
+}
+
+// TestIngestPacketsStampsReceivedAtFromServerClockNotCaller is the direct proof for the security
+// review's HIGH item: a caller-supplied far-future (or otherwise attacker-chosen) seen_at must
+// never become received_at. All packets in one call share the server-stamped instant.
+func TestIngestPacketsStampsReceivedAtFromServerClockNotCaller(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
+	before := time.Now().UTC()
+
+	req := domain.IngestRequest{
+		GatewayID:   "gw-1",
+		GatewaySeen: "2026-01-01T00:00:10Z",
+		Packets: []domain.IngestPacket{
+			// Attacker-chosen far-future seen_at: must NOT become ReceivedAt (would otherwise
+			// permanently freeze this tag's advance-only "latest" guard).
+			{TagID: "tag-a", TagMAC: "aa:aa:aa:aa:aa:aa", SeenAt: "2099-01-01T00:00:00Z"},
+			{TagID: "tag-b", TagMAC: "bb:bb:bb:bb:bb:bb", SeenAt: "not-a-timestamp"}, // malformed: must still ingest
+		},
+	}
+
+	if _, err := svc.IngestPackets(context.Background(), actor, req); err != nil {
+		t.Fatalf("IngestPackets: %v", err)
+	}
+	after := time.Now().UTC()
+
+	if len(repo.ingestGotPackets) != 2 {
+		t.Fatalf("got %d packets, want 2 (malformed seen_at must not drop the packet)", len(repo.ingestGotPackets))
+	}
+
+	for _, p := range repo.ingestGotPackets {
+		if p.ReceivedAt.Before(before) || p.ReceivedAt.After(after) {
+			t.Errorf("tag %s ReceivedAt = %v, want between %v and %v (server clock, not caller-supplied)", p.TagID, p.ReceivedAt, before, after)
+		}
+		if p.ReceivedAt.Year() > 2027 {
+			t.Errorf("tag %s ReceivedAt = %v, want NOT the caller's far-future value", p.TagID, p.ReceivedAt)
+		}
+	}
+
+	if repo.ingestGotPackets[0].ReceivedAt != repo.ingestGotPackets[1].ReceivedAt {
+		t.Error("packets in the same ingest call must share the same server-stamped ReceivedAt")
+	}
+
+	// tag-a's malformed... wait tag-a has a VALID (if far-future) timestamp; tag-b's is malformed.
+	var tagB *domain.Packet
+	for i := range repo.ingestGotPackets {
+		if repo.ingestGotPackets[i].TagID == "tag-b" {
+			tagB = &repo.ingestGotPackets[i]
+		}
+	}
+	if tagB == nil {
+		t.Fatal("tag-b missing from ingested packets")
+	}
+	if tagB.DeviceSeenAt != nil {
+		t.Errorf("tag-b DeviceSeenAt = %v, want nil (its seen_at was malformed)", tagB.DeviceSeenAt)
 	}
 }

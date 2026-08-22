@@ -124,13 +124,19 @@ type Gateway struct {
 // Packet represents a raw BLE advertisement packet.
 // Write-once, immutable. Never modify after ingest.
 type Packet struct {
-	PacketID              string
-	TenantID              string
-	GatewayID             *string
-	Source                string // "gateway" (default)
-	TagID                 string
-	TagMAC                *string
-	ReceivedAt            time.Time
+	PacketID  string
+	TenantID  string
+	GatewayID *string
+	Source    string // "gateway" (default)
+	TagID     string
+	TagMAC    *string
+	// ReceivedAt is stamped from the SERVER clock at ingest time (security review, HIGH): never
+	// caller-supplied. It is the only input to staleness, gap detection, ordering, and the
+	// packet dedup identity in this module.
+	ReceivedAt time.Time
+	// DeviceSeenAt is the caller's own claimed capture timestamp (request field `seen_at`),
+	// preserved verbatim for diagnostics ONLY. Never read by any decision -- see ReceivedAt.
+	DeviceSeenAt          *time.Time
 	GatewaySeenAt         *time.Time
 	RSSIdbm               *int16
 	BatteryMV             *int
