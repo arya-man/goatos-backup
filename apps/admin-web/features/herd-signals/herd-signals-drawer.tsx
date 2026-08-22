@@ -1,31 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, Maximize2, Radio, X } from "lucide-react";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
-  BATTERY_LABEL,
-  BATTERY_TONE,
   MAPPING_LABEL,
   MOVEMENT_LABEL,
   MOVEMENT_TONE,
   PATTERN_LABEL,
   PATTERN_TONE,
   PATTERN_WHY,
-  SENSOR_LABEL,
-  SENSOR_TONE,
-  SIGNAL_LABEL,
-  SIGNAL_TONE,
   fmtAgo,
   fmtBatteryMv,
-  fmtBatteryTrend,
   fmtBleMac,
   fmtDelta,
-  fmtDelta1h,
   fmtRssi,
   fmtTagTemp,
 } from "./format";
@@ -38,6 +30,16 @@ const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "2
 // up to hourly leaves 24 fat bars instead of 288 readable ones, and the baseline chip is quoted per
 // 5 minutes, so a 3600s bar cannot be compared against it without a unit mismatch.
 const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 300 };
+
+function batteryLife(mv: number | null | undefined): { label: string; tone: "ok" | "warn" | "dng" | "mut" } {
+  if (mv === null || mv === undefined) return { label: "—", tone: "mut" };
+  const months = Math.max(0, Math.min(1, (mv - 2600) / (3200 - 2600))) * 24;
+  if (months < 0.5) return { label: "< 2 weeks", tone: "dng" };
+  if (months < 1) return { label: `~${Math.round(months * 4)} weeks`, tone: "dng" };
+  if (months < 12) return { label: `~${Math.round(months)} months`, tone: months < 3 ? "warn" : "mut" };
+  const years = months / 12;
+  return { label: `~${years < 1.95 ? years.toFixed(1) : Math.round(years)} year${years >= 1.95 ? "s" : ""}`, tone: "ok" };
+}
 
 async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
   const to = new Date();
@@ -122,6 +124,7 @@ export function HerdSignalsDrawer({
   const expandHref = `${closeHref}${closeHref.includes("?") ? "&" : "?"}hs_history=${encodeURIComponent(item.tag_id)}#hs-history-${encodeURIComponent(item.tag_id)}`;
   const titleLine = item.display_id ? `${item.display_id} · ${item.tag_id}` : `Unmapped tag ${item.tag_id}`;
   const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
+  const batteryLifeEstimate = batteryLife(item.battery_mv);
 
   return (
     <>
@@ -135,6 +138,7 @@ export function HerdSignalsDrawer({
       />
       <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label="Tag detail" aria-hidden={!drawerOpen} inert={!drawerOpen}>
         <div className="dh">
+          <Radio className="ic" />
           <div style={{ minWidth: 0 }}>
             <b>{titleLine}</b>
             <div className="faint small mono">{subtitleLine || "—"}</div>
@@ -160,6 +164,7 @@ export function HerdSignalsDrawer({
               ))}
             </div>
             <LocalOverlayLink href={expandHref} scroll={false} className="btn sm hs-btn" title="Full history, custom date range and farm-activity overlay">
+              <Maximize2 className="ic sm" />
               Expand
             </LocalOverlayLink>
           </div>
@@ -211,10 +216,10 @@ export function HerdSignalsDrawer({
               <div className="readout" aria-live="polite">
                 <ChartReadout buckets={buckets} hovered={hovered} />
               </div>
-              <p className="chartnote">
+              <div className="small faint hs-pattern-note">
                 {item.pattern_state ? `${PATTERN_WHY[item.pattern_state].charAt(0).toUpperCase()}${PATTERN_WHY[item.pattern_state].slice(1)}. ` : ""}
                 Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.
-              </p>
+              </div>
             </div>
           </div>
 
@@ -247,10 +252,25 @@ export function HerdSignalsDrawer({
               {item.gateway_id || "—"}
               <span className="srcl direct">Direct</span>
             </dd>
-            <dt>Mapping state</dt>
+            <dt>RSSI</dt>
             <dd>
-              {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state]}
-              <span className="srcl derived">Derived</span>
+              {fmtRssi(item.rssi_dbm)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Battery voltage</dt>
+            <dd>
+              {fmtBatteryMv(item.battery_mv)}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Estimated battery life</dt>
+            <dd>
+              <Tag tone={batteryLifeEstimate.tone}>{batteryLifeEstimate.label}</Tag>
+              <span className="srcl inferred">Inferred</span>
+            </dd>
+            <dt>Tag temp</dt>
+            <dd>
+              {fmtTagTemp(item.tag_temperature_c)}
+              <span className="srcl direct">Direct</span>
             </dd>
             <dt>Motion count</dt>
             <dd>
@@ -264,58 +284,36 @@ export function HerdSignalsDrawer({
               {item.gap_delta ? <sup title="Gap total">*</sup> : null}
               <span className="srcl derived">Derived</span>
             </dd>
-            <dt>1h motion delta</dt>
-            <dd>
-
-              {fmtDelta1h(item.motion_delta_1h, item.motion_delta)}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>RSSI</dt>
-            <dd>
-              {fmtRssi(item.rssi_dbm)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Signal</dt>
-            <dd>
-              {item.signal_state ? <Tag tone={SIGNAL_TONE[item.signal_state]}>{SIGNAL_LABEL[item.signal_state]}</Tag> : "—"}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>Battery voltage</dt>
-            <dd>
-              {fmtBatteryMv(item.battery_mv)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Battery state</dt>
-            <dd>
-              {item.battery_state ? <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag> : "—"}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>Battery trend</dt>
-            <dd>
-              {fmtBatteryTrend(item.battery_trend)}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>Tag temperature</dt>
-            <dd>
-              {fmtTagTemp(item.tag_temperature_c)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Movement trend</dt>
+            <dt>Movement state</dt>
             <dd>
               {item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>Sensor status</dt>
-            <dd>
-              {item.sensor_state ? <Tag tone={SENSOR_TONE[item.sensor_state]}>{SENSOR_LABEL[item.sensor_state]}</Tag> : "—"}
-              <span className="srcl direct">Direct</span>
+              <span className="srcl inferred">Inferred</span>
             </dd>
             <dt>Last seen</dt>
             <dd>
               {fmtAgo(item.last_seen_at, nowMs)}
               <span className="srcl direct">Direct</span>
             </dd>
+            <dt>Temp sensor</dt>
+            <dd>
+              {item.temperature_sensor_ok === null || item.temperature_sensor_ok === undefined ? "—" : item.temperature_sensor_ok ? "OK" : "Abnormal"}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Accelerometer</dt>
+            <dd>
+              {item.accelerometer_sensor_ok === null || item.accelerometer_sensor_ok === undefined ? "—" : item.accelerometer_sensor_ok ? "OK" : "Abnormal"}
+              <span className="srcl direct">Direct</span>
+            </dd>
+            <dt>Mapping state</dt>
+            <dd>
+              {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state]}
+              <span className="srcl derived">Derived</span>
+            </dd>
           </dl>
+          <div className="banner info hs-drawer-note">
+            <AlertTriangle className="ic" />
+            <div>Tag temperature is the temperature of the tag, not the animal. No behaviour, posture or clinical state is inferred from these values.</div>
+          </div>
         </div>
       </aside>
     </>
