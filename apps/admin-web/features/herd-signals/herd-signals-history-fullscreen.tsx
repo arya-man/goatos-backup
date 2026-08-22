@@ -4,7 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 import { operationalLocationLabel } from "@/lib/operational-location";
-import { fmtBleMac } from "./format";
+import {
+  fmtBleMac,
+  fmtBatteryMv,
+  fmtDelta,
+  fmtDelta1h,
+  fmtRssi,
+  fmtTagTemp,
+  MOVEMENT_LABEL,
+  PATTERN_LABEL,
+  MAPPING_LABEL,
+} from "./format";
 import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 
 type RangeKey = "1h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d" | "custom";
@@ -125,6 +135,19 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   }, [displayedItem, bounds, range]);
   const { buckets, error } = chart;
 
+  // Prefill custom date inputs when a preset is active (not custom range)
+  const prefillCustomInputsWhenPresetActive = useMemo(() => {
+    if (range !== "custom" && bounds) {
+      const from = new Date(bounds.from);
+      const to = new Date(bounds.to);
+      // Format as yyyy-MM-ddTHH:mm for datetime-local input
+      const fromIso = from.toISOString().slice(0, 16);
+      const toIso = to.toISOString().slice(0, 16);
+      return { fromIso, toIso };
+    }
+    return null;
+  }, [range, bounds]);
+
   if (!displayedItem) return null;
   const item = displayedItem;
   const location = item.operational_location_display
@@ -170,7 +193,8 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
           <span className="muted small">or</span>
           <input
             type="datetime-local"
-            value={customFrom}
+            value={customFrom || prefillCustomInputsWhenPresetActive?.fromIso || ""}
+            placeholder="dd/mm/yyyy"
             onChange={(event) => {
               setCustomFrom(event.target.value);
               setRange("custom");
@@ -180,7 +204,8 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
           <span className="muted small">to</span>
           <input
             type="datetime-local"
-            value={customTo}
+            value={customTo || prefillCustomInputsWhenPresetActive?.toIso || ""}
+            placeholder="dd/mm/yyyy"
             onChange={(event) => {
               setCustomTo(event.target.value);
               setRange("custom");
@@ -212,6 +237,12 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
         <div className="card">
           <div className="hd">
             <h3>Movement trend</h3>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="tag t-mut">{item.pattern_state ? PATTERN_LABEL[item.pattern_state] : "—"}</span>
+              <span className="tag t-mut">
+                baseline {item.baseline_delta !== null ? item.baseline_delta.toLocaleString("en-IN") : "—"} / 5 min
+              </span>
+            </div>
             <div className="sp" style={{ flex: 1 }} />
             <span className="small faint">{BUCKET_LABEL[bucketSeconds] ?? `${bucketSeconds / 60}-minute`} buckets</span>
           </div>
@@ -249,12 +280,15 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   </span>
                 ),
               )}
+              <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--c-mut)" }}>
+                Recorded farm activity: Vaccination · Feed given · Weighing · Treatment · Hoof trimming · Shed move (endpoints not yet available)
+              </span>
             </div>
             <div className="readout" aria-live="polite">
               <ChartReadout buckets={buckets} hovered={hovered} />
             </div>
             <p className="chartnote">
-              Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained
+              Activity uses motion-count deltas from historical packets. Resting for short periods is normal; alerts use sustained
               patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as
               correlation, never as behaviour, cause, or a clinical finding.
             </p>
@@ -264,6 +298,11 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
         <div className="grid2" style={{ marginTop: 14 }}>
           <div className="card">
             <div className="hd">
+              <svg className="ic" viewBox="0 0 24 24">
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
               <h3>Activity around recorded farm activity</h3>
               <div className="sp" style={{ flex: 1 }} />
               <span className="tag t-mut">Correlated</span>
@@ -325,29 +364,84 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   {fmtBleMac(item.tag_mac)}
                   <span className="srcl direct">Direct</span>
                 </dd>
-                <dt>Location</dt>
+                <dt>Park / shed</dt>
                 <dd>
-                  {location || "—"}
-                  <span className="srcl derived">Derived</span>
+                  {item.park_name && item.shed_name ? `${item.park_name} · ${item.shed_name}` : "—"}
+                  <span className="srcl correlated">Correlated</span>
                 </dd>
                 <dt>Gateway</dt>
                 <dd className="mono">
                   {item.gateway_id || "—"}
                   <span className="srcl direct">Direct</span>
                 </dd>
-                <dt>Buckets in range</dt>
+                <dt>Motion count</dt>
                 <dd>
-                  {buckets === null ? "—" : buckets.length.toLocaleString("en-IN")}
+                  {item.motion_count !== null ? item.motion_count.toLocaleString("en-IN") : "—"}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>15m delta</dt>
+                <dd>
+                  {item.motion_delta !== null ? "+" + item.motion_delta.toLocaleString("en-IN") : "—"}
                   <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>1h delta</dt>
+                <dd>
+                  {fmtDelta1h(item.motion_delta_1h, item.motion_delta) && fmtDelta1h(item.motion_delta_1h, item.motion_delta) !== "—"
+                    ? "+" + fmtDelta1h(item.motion_delta_1h, item.motion_delta)
+                    : "—"}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>Movement state</dt>
+                <dd>
+                  {item.movement_state ? MOVEMENT_LABEL[item.movement_state] : "—"}
+                  <span className="srcl inferred">Inferred</span>
+                </dd>
+                <dt>Pattern</dt>
+                <dd>
+                  {item.pattern_state ? PATTERN_LABEL[item.pattern_state] : "—"}
+                  <span className="srcl inferred">Inferred</span>
+                </dd>
+                <dt>RSSI</dt>
+                <dd>
+                  {fmtRssi(item.rssi_dbm)}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>Battery voltage</dt>
+                <dd>
+                  {fmtBatteryMv(item.battery_mv)}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>Tag temp</dt>
+                <dd>
+                  {fmtTagTemp(item.tag_temperature_c)}
+                  <span className="srcl direct">Direct</span>
                 </dd>
                 <dt>Buckets with packets</dt>
                 <dd>
-                  {buckets === null ? "—" : buckets.filter((bucket) => !bucket.is_gap).length.toLocaleString("en-IN")}
+                  {buckets === null
+                    ? "—"
+                    : `${buckets.filter((bucket) => !bucket.is_gap).length.toLocaleString("en-IN")} of ${buckets.length.toLocaleString("en-IN")}`}
                   <span className="srcl derived">Derived</span>
                 </dd>
                 <dt>Signal-gap buckets</dt>
                 <dd>
                   {buckets === null ? "—" : buckets.filter((bucket) => bucket.is_gap).length.toLocaleString("en-IN")}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>Sensors</dt>
+                <dd>
+                  {item.temperature_sensor_ok && item.accelerometer_sensor_ok
+                    ? "temp OK · accel OK"
+                    : item.temperature_sensor_ok
+                      ? "temp OK · accel abnormal"
+                      : item.accelerometer_sensor_ok
+                        ? "temp abnormal · accel OK"
+                        : "temp abnormal · accel abnormal"}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>Mapping</dt>
+                <dd>
+                  {item.mapping_state ? MAPPING_LABEL[item.mapping_state] : "—"}
                   <span className="srcl derived">Derived</span>
                 </dd>
               </dl>
