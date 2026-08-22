@@ -50,7 +50,7 @@ func (s EmailSet) Allows(email string, verified *bool) bool {
 // an unreachable source returns false, never an error the middleware would
 // have to interpret.
 type DynamicEmailSource interface {
-	EmailAllowed(ctx context.Context, normalizedEmail string) bool
+	EmailAllowed(ctx context.Context, tenantID, normalizedEmail string) bool
 }
 
 // AllowsWithDynamic is the union rule for the static env set plus a dynamic
@@ -59,7 +59,7 @@ type DynamicEmailSource interface {
 // EmailSet.Allows has always behaved, regardless of what the dynamic source
 // holds. When enforced, an email passes if EITHER set contains it; the
 // email-verified requirement applies to both.
-func AllowsWithDynamic(ctx context.Context, set EmailSet, dynamic DynamicEmailSource, email string, verified *bool) bool {
+func AllowsWithDynamic(ctx context.Context, set EmailSet, dynamic DynamicEmailSource, tenantID, email string, verified *bool) bool {
 	if len(set) == 0 {
 		return true
 	}
@@ -70,7 +70,7 @@ func AllowsWithDynamic(ctx context.Context, set EmailSet, dynamic DynamicEmailSo
 	if _, ok := set[normalized]; ok {
 		return true
 	}
-	return dynamic != nil && dynamic.EmailAllowed(ctx, normalized)
+	return dynamic != nil && dynamic.EmailAllowed(ctx, tenantID, normalized)
 }
 
 func validEmail(email string) bool {

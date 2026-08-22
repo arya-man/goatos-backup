@@ -236,42 +236,36 @@ ORDER BY label`, tenantID)
 	return catalog, rows.Err()
 }
 
-// PreflightCreatePerson claims the request idempotency key and rejects duplicate
-// emails BEFORE the app service calls Firebase. This keeps rejected requests
-// from creating orphan login accounts outside Postgres.
+// PreflightCreatePerson rejects duplicate emails and completed/conflicting
+// idempotency keys BEFORE the app service calls Firebase. It deliberately does
+// not reserve the key: reservation happens in CreatePerson's DB transaction, so
+// an exact retry while the first request is between Firebase and Postgres sees a
+// single in-flight key instead of re-running the write side effects.
 func (r *Repository) PreflightCreatePerson(ctx context.Context, cmd ports.PreflightCreatePersonCommand) (ports.PreflightCreatePersonResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return ports.PreflightCreatePersonResult{}, err
-	}
-	defer rollback(ctx, tx)
 
 	fingerprint := personCreateFingerprint(cmd.TenantID, cmd.NormalizedEmail, cmd.FirstName, cmd.LastName, cmd.Role, cmd.ScopeType, cmd.ScopeID, cmd.DepartmentID, cmd.DesignationGrade)
-	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, "create_person", cmd.IdempotencyKey, fingerprint)
-	if err != nil {
-		return ports.PreflightCreatePersonResult{}, err
-	}
-	if !reservation.proceed {
+	reservation, found, err := r.lookupIdempotency(ctx, cmd.TenantID, "create_person", cmd.IdempotencyKey, fingerprint)
+	if err != nil || found {
+		if err != nil {
+			return ports.PreflightCreatePersonResult{}, err
+		}
 		person, ok, err := replayPerson(reservation)
 		if err != nil {
 			return ports.PreflightCreatePersonResult{}, err
 		}
 		if !ok {
-			person, err = txPerson(ctx, tx, cmd.TenantID, reservation.resultID)
+			person, err = r.personByID(ctx, cmd.TenantID, reservation.resultID)
 			if err != nil {
 				return ports.PreflightCreatePersonResult{}, err
 			}
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return ports.PreflightCreatePersonResult{}, err
 		}
 		return ports.PreflightCreatePersonResult{Replay: &person}, nil
 	}
 
 	var existingID string
-	err = tx.QueryRow(ctx, `
+	err = r.pool.QueryRow(ctx, `
 SELECT workforce_member_id::text
 FROM workforce_members
 WHERE tenant_id = $1::uuid AND lower(email) = $2
@@ -280,9 +274,6 @@ LIMIT 1`, cmd.TenantID, cmd.NormalizedEmail).Scan(&existingID)
 		return ports.PreflightCreatePersonResult{}, ports.ErrDuplicateEmail
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return ports.PreflightCreatePersonResult{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return ports.PreflightCreatePersonResult{}, err
 	}
 	return ports.PreflightCreatePersonResult{}, nil
@@ -443,6 +434,49 @@ LIMIT 1`), tenantID, personID)
 		return domain.PersonSummary{}, ports.ErrNotFound
 	}
 	return items[0], nil
+}
+
+func (r *Repository) personByID(ctx context.Context, tenantID, personID string) (domain.PersonSummary, error) {
+	rows, err := r.pool.Query(ctx, peopleSelectSQL(`
+WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid
+LIMIT 1`), tenantID, personID)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	items, err := scanPeople(rows)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	if len(items) == 0 {
+		return domain.PersonSummary{}, ports.ErrNotFound
+	}
+	return items[0], nil
+}
+
+func (r *Repository) lookupIdempotency(ctx context.Context, tenantID, scope, key, fingerprint string) (idemReservation, bool, error) {
+	if strings.TrimSpace(key) == "" {
+		return idemReservation{}, false, nil
+	}
+	scoped := idemScopedKey(tenantID, scope, key)
+	var existingHash, resultID, status string
+	var snapshot []byte
+	err := r.pool.QueryRow(ctx, `
+SELECT request_hash, COALESCE(result_id::text, ''), result_snapshot, status
+FROM idempotency_keys
+WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &resultID, &snapshot, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return idemReservation{}, false, nil
+	}
+	if err != nil {
+		return idemReservation{}, false, err
+	}
+	if existingHash != fingerprint {
+		return idemReservation{}, false, ports.ErrIdempotencyConflict
+	}
+	if status == "started" && resultID == "" {
+		return idemReservation{}, false, ports.ErrIdempotencyInFlight
+	}
+	return idemReservation{proceed: false, resultID: resultID, snapshot: snapshot}, true, nil
 }
 
 // replayPerson decodes the ORIGINAL create response recorded for an exact

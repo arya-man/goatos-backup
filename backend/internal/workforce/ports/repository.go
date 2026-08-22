@@ -13,6 +13,7 @@ var (
 	ErrInvalidFilter       = errors.New("invalid filter")
 	ErrDenied              = errors.New("denied")
 	ErrIdempotencyConflict = errors.New("idempotency key conflict: same key with different payload")
+	ErrIdempotencyInFlight = errors.New("idempotency key is already in flight")
 	// ErrMinOperatorCoverage signals that a leave-approval transition, if committed, would drop a
 	// park's available vaccination-operator count below 1 on some business day it covers. Raised
 	// from INSIDE the same transaction as the approval's status write (behind a per
