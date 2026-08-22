@@ -197,7 +197,10 @@ export function HerdSignalsDrawer({
             <dt>Motion count <span className="srcl direct">Direct</span></dt>
             <dd>{fmtDelta(item.motion_count)}</dd>
             <dt>15m motion delta <span className="srcl direct">Direct</span></dt>
-            <dd>{fmtDelta(item.motion_delta)}</dd>
+            <dd title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}>
+              {fmtDelta(item.motion_delta)}
+              {item.gap_delta ? <sup title="Gap total">*</sup> : null}
+            </dd>
             <dt>1h motion delta <span className="srcl direct">Direct</span></dt>
             <dd title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">
               {fmtDelta1h(item.motion_delta_1h, item.motion_delta)}
