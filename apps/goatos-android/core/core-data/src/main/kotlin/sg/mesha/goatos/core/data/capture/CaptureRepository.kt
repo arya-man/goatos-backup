@@ -1408,6 +1408,7 @@ class DefaultProofCaptureRepository(
                     // let an overlay-free capture satisfy a compliance proof gate. See
                     // PROCESSING_FAILED_AWAITING_RETRY's kdoc.
                     val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+                    val failureProps = proofProcessingFailureProps(error)
                     dao.updateProcessingArtifact(
                         id = entity.id,
                         localUri = entity.originalUri ?: entity.localUri,
@@ -1423,6 +1424,31 @@ class DefaultProofCaptureRepository(
                         targetVideoBitrate = entity.targetVideoBitrate,
                         targetAudioBitrate = entity.targetAudioBitrate,
                         updatedAtMs = clock(),
+                    )
+                    dao.updateProcessingState(
+                        id = entity.id,
+                        processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                        attempt = attempt,
+                        processingAttempted = true,
+                        uploadOriginal = false,
+                        lastErrorStage = "processing",
+                        lastErrorClass = errorClass,
+                        lastErrorRetryable = true,
+                        lastErrorMessageHash = error.message?.hashCode()?.toString(),
+                        updatedAtMs = clock(),
+                    )
+                    recordProofEvent(
+                        entity,
+                        "processing_failed_awaiting_retry",
+                        ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                        attempt,
+                        bytesIn = localFileBytes(entity.originalUri ?: entity.localUri),
+                        errorClass = errorClass,
+                        retryable = true,
+                    )
+                    telemetry.track(
+                        proofProcessingFailedEvent,
+                        proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false) + failureProps,
                     )
                     dao.findById(entity.id) ?: entity.copy(
                         processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
@@ -1518,6 +1544,7 @@ class DefaultProofCaptureRepository(
             // enqueueRegistrationNow short-circuits on this state. An operator must explicitly
             // retry (re-record, or retryUpload() once the processor recovers).
             val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+            val failureProps = proofProcessingFailureProps(error)
             dao.updateProcessingArtifact(
                 id = entity.id,
                 localUri = entity.originalUri ?: entity.localUri,
@@ -1556,7 +1583,10 @@ class DefaultProofCaptureRepository(
                 errorClass = errorClass,
                 retryable = true,
             )
-            telemetry.track(proofProcessingFailedEvent, proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false) + ("error_class" to errorClass))
+            telemetry.track(
+                proofProcessingFailedEvent,
+                proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false) + failureProps,
+            )
             dao.findById(entity.id) ?: entity.copy(
                 localUri = entity.originalUri ?: entity.localUri,
                 processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
@@ -1587,8 +1617,11 @@ class DefaultProofCaptureRepository(
         // Strict mode: no plausible-accept for processed files.
         val validation = proofArtifactValidator.validateProcessedArtifact(processed.outputUri, processed.outputMimeType)
         if (!validation.isValid) {
-            throw IllegalStateException(
-                "Processed artifact validation failed: ${validation.reason ?: "unknown error"}"
+            throw ProcessedArtifactValidationException(
+                reason = validation.reason ?: "unknown error",
+                failureKind = validation.failureKind ?: "processed_artifact_validation_failed",
+                containerDurationMs = validation.containerDurationMs,
+                videoTrackDurationMs = validation.videoTrackDurationMs,
             )
         }
     }
@@ -2000,6 +2033,31 @@ private fun SyncQueueItem.proofUploadFailureReason(): String = when {
     conflict -> "conflict"
     isDeadLetter -> "attempts_exhausted"
     else -> "retryable_failure"
+}
+
+private class ProcessedArtifactValidationException(
+    val reason: String,
+    val failureKind: String,
+    val containerDurationMs: Long?,
+    val videoTrackDurationMs: Long?,
+) : IllegalStateException("Processed artifact validation failed: $reason")
+
+private fun proofProcessingFailureProps(error: Throwable): Map<String, String> = buildMap {
+    val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+    put("error_class", errorClass)
+    if (error is ProcessedArtifactValidationException) {
+        put("failure_kind", error.failureKind)
+        put("reason", error.failureKind)
+        put("validation_reason", error.reason)
+        error.containerDurationMs?.let { put("container_duration_ms", it.toString()) }
+        error.videoTrackDurationMs?.let { put("video_track_duration_ms", it.toString()) }
+        if (error.containerDurationMs != null && error.containerDurationMs > 0 && error.videoTrackDurationMs != null) {
+            put("video_track_duration_ratio_bps", ((error.videoTrackDurationMs * 10_000) / error.containerDurationMs).toString())
+        }
+    } else {
+        put("failure_kind", "processing_exception")
+        put("reason", errorClass)
+    }
 }
 
 private val rfidBurnOverlayFieldKeys = setOf(

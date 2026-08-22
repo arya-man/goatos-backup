@@ -105,7 +105,7 @@ class FirebaseAnalyticsAdapter(
 // local_slot_state, feed_weight_source), submit source (source), retry/failure reason (retry_count,
 // reason, outcome), and live-status transition (previous, next, status), plus the pre-existing
 // proof-capture core diagnostics (proof_id, task_id, field_key, feature_surface, rfid_tag,
-// processing_state, duration_bucket, proof_upload_status, submit_status) and result/kind.
+// processing_state, duration_bucket, proof_upload_status, submit_status) and result/failure_kind.
 internal const val FIREBASE_MAX_EVENT_PARAMS = 25
 internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
 
@@ -151,7 +151,7 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     AnalyticsEvents.Params.PREVIOUS,
     AnalyticsEvents.Params.NEXT,
     AnalyticsEvents.Params.STATUS,
-    AnalyticsEvents.Params.KIND,
+    "failure_kind",
 )
 
 fun AnalyticsContext.standardEventParams(): Map<String, String> =
