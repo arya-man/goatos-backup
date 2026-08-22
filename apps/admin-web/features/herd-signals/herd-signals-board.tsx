@@ -109,11 +109,16 @@ export async function HerdSignalsBoard({
     params.tab === "insights" ? getHerdSignalsInsights() : Promise.resolve(null),
   ]);
 
+  // Every count below comes from the tenant-wide `summary` on the SAME /live response this board
+  // already fetched for whichever tab is active -- these fields exist on every response regardless
+  // of which tab requested it, so a tab's count is visible without having to click into it first.
   const tabCounts: Partial<Record<HerdSignalsTab, number>> = {};
   if (liveResult.ok) {
-    if (params.tab === "live") tabCounts.live = liveResult.data.summary.tags_seen;
-    if (params.tab === "animals") tabCounts.animals = liveResult.data.summary.mapped_animals;
-    if (params.tab === "mapping") tabCounts.mapping = liveResult.data.items.length;
+    tabCounts.live = liveResult.data.summary.tags_seen;
+    tabCounts.animals = liveResult.data.summary.mapped_animals;
+    // Tag Mapping lists every tag (mapped, unmapped and conflict), so its count is the same
+    // tenant-wide tag total as Live Monitor's, not the mapped-only or unmapped-only subset.
+    tabCounts.mapping = liveResult.data.summary.tags_seen;
   }
   if (gatewaysResult?.ok) tabCounts.gateways = gatewaysResult.data.gateways.length;
 
