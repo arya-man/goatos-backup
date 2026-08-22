@@ -81,6 +81,15 @@
             "command": "bash tools/agent-hooks/check-write-scope.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash tools/agent-hooks/block-local-docker-db.sh \"$CLAUDE_TOOL_INPUT_COMMAND\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
