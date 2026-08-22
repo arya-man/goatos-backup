@@ -172,6 +172,7 @@ func (r *Repository) SetOperatorStatus(ctx context.Context, cmd ports.StatusComm
 	}
 	defer rollback(ctx, tx)
 	var operatorID string
+	var userID, email pgtype.Text
 	err = tx.QueryRow(ctx, `
 UPDATE workforce_members
 SET status = $4,
@@ -180,14 +181,40 @@ SET status = $4,
 WHERE tenant_id = $1::uuid
   AND workforce_member_id = $2::uuid
   AND row_version = $3
-RETURNING workforce_member_id::text`,
+RETURNING workforce_member_id::text, user_id::text, email`,
 		cmd.TenantID,
 		cmd.OperatorID,
 		cmd.RowVersion,
 		cmd.Status,
-	).Scan(&operatorID)
+	).Scan(&operatorID, &userID, &email)
 	if err != nil {
 		return domain.OperatorProfile{}, mapUpdateErr(err)
+	}
+	if cmd.Status == "inactive" {
+		if userID.Valid && strings.TrimSpace(userID.String) != "" {
+			if _, err := tx.Exec(ctx, `
+UPDATE user_scope_grants
+SET status = 'inactive',
+    valid_to = COALESCE(valid_to, now())
+WHERE tenant_id = $1::uuid
+  AND user_id = $2::uuid
+  AND status = 'active'`,
+				cmd.TenantID, userID.String); err != nil {
+				return domain.OperatorProfile{}, err
+			}
+		}
+		if email.Valid && strings.TrimSpace(email.String) != "" {
+			if _, err := tx.Exec(ctx, `
+UPDATE auth_allowed_emails
+SET status = 'revoked',
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND normalized_email = lower(btrim($2))
+  AND status = 'active'`,
+				cmd.TenantID, email.String); err != nil {
+				return domain.OperatorProfile{}, err
+			}
+		}
 	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "operators."+cmd.Status, "workforce_member", operatorID, nil, map[string]any{"reason": cmd.Reason}); err != nil {
 		return domain.OperatorProfile{}, err

@@ -18,11 +18,14 @@ const (
 )
 
 type fakePeopleRepo struct {
-	created  *ports.CreatePersonCommand
-	listErr  error
-	people   []domain.PersonSummary
-	catalog  domain.PeopleCatalog
-	createFn func(ports.CreatePersonCommand) (domain.PersonSummary, error)
+	created      *ports.CreatePersonCommand
+	preflighted  *ports.PreflightCreatePersonCommand
+	preflight    ports.PreflightCreatePersonResult
+	preflightErr error
+	listErr      error
+	people       []domain.PersonSummary
+	catalog      domain.PeopleCatalog
+	createFn     func(ports.CreatePersonCommand) (domain.PersonSummary, error)
 }
 
 func (f *fakePeopleRepo) ListPeople(_ context.Context, _ ports.ListPeopleParams) ([]domain.PersonSummary, string, error) {
@@ -31,6 +34,14 @@ func (f *fakePeopleRepo) ListPeople(_ context.Context, _ ports.ListPeopleParams)
 
 func (f *fakePeopleRepo) PeopleCatalog(_ context.Context, _ string) (domain.PeopleCatalog, error) {
 	return f.catalog, nil
+}
+
+func (f *fakePeopleRepo) PreflightCreatePerson(_ context.Context, cmd ports.PreflightCreatePersonCommand) (ports.PreflightCreatePersonResult, error) {
+	f.preflighted = &cmd
+	if f.preflightErr != nil {
+		return ports.PreflightCreatePersonResult{}, f.preflightErr
+	}
+	return f.preflight, nil
 }
 
 func (f *fakePeopleRepo) CreatePerson(_ context.Context, cmd ports.CreatePersonCommand) (domain.PersonSummary, error) {
@@ -87,6 +98,9 @@ func TestCreatePersonMintsAccountAndDerivesStableUserID(t *testing.T) {
 	if repo.created == nil {
 		t.Fatalf("repo.CreatePerson not called")
 	}
+	if repo.preflighted == nil {
+		t.Fatalf("repo.PreflightCreatePerson must run before identity side effects")
+	}
 	wantUserID := platformauth.StableSubjectID(testIssuer, "firebase-uid-1")
 	if repo.created.UserID != wantUserID {
 		t.Fatalf("UserID = %q, want the StableSubjectID derivation %q", repo.created.UserID, wantUserID)
@@ -99,6 +113,42 @@ func TestCreatePersonMintsAccountAndDerivesStableUserID(t *testing.T) {
 	}
 	if resp.Login.AccountStatus != "created" {
 		t.Fatalf("account status = %q, want created", resp.Login.AccountStatus)
+	}
+}
+
+func TestCreatePersonIdempotencyConflictDoesNotTouchIdentity(t *testing.T) {
+	repo := &fakePeopleRepo{preflightErr: ports.ErrIdempotencyConflict}
+	identity := &fakeIdentity{uid: "firebase-uid-1"}
+	svc := NewPeopleService(repo, identity, testIssuer)
+
+	_, err := svc.CreatePerson(context.Background(), testTenantID, testActorID, "key-1", validCreateRequest(), "trace")
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
+		t.Fatalf("want idempotency_conflict, got %v", err)
+	}
+	if identity.email != "" {
+		t.Fatalf("identity provider must not be called after preflight rejection, got email %q", identity.email)
+	}
+	if repo.created != nil {
+		t.Fatalf("repo.CreatePerson must not run after preflight rejection")
+	}
+}
+
+func TestCreatePersonDuplicateEmailDoesNotTouchIdentity(t *testing.T) {
+	repo := &fakePeopleRepo{preflightErr: ports.ErrDuplicateEmail}
+	identity := &fakeIdentity{uid: "firebase-uid-1"}
+	svc := NewPeopleService(repo, identity, testIssuer)
+
+	_, err := svc.CreatePerson(context.Background(), testTenantID, testActorID, "key-1", validCreateRequest(), "trace")
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "duplicate_email" {
+		t.Fatalf("want duplicate_email, got %v", err)
+	}
+	if identity.email != "" {
+		t.Fatalf("identity provider must not be called after duplicate-email preflight, got email %q", identity.email)
+	}
+	if repo.created != nil {
+		t.Fatalf("repo.CreatePerson must not run after duplicate-email preflight")
 	}
 }
 

@@ -74,16 +74,20 @@ RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 		return idemReservation{}, err
 	}
 	// Already reserved: this is a replay. Compare the fingerprint and surface the original result.
-	var existingHash, resultID string
+	var existingHash, resultID, status string
 	var snapshot []byte
 	if err := tx.QueryRow(ctx, `
-SELECT request_hash, COALESCE(result_id::text, ''), result_snapshot
+SELECT request_hash, COALESCE(result_id::text, ''), result_snapshot, status
 FROM idempotency_keys
-WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &resultID, &snapshot); err != nil {
+WHERE idempotency_key = $1
+FOR UPDATE`, scoped).Scan(&existingHash, &resultID, &snapshot, &status); err != nil {
 		return idemReservation{}, err
 	}
 	if existingHash != fingerprint {
 		return idemReservation{}, ports.ErrIdempotencyConflict
+	}
+	if status == "started" && resultID == "" {
+		return idemReservation{proceed: true}, nil
 	}
 	return idemReservation{proceed: false, resultID: resultID, snapshot: snapshot}, nil
 }
