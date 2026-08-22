@@ -1123,6 +1123,11 @@ FOR UPDATE OF oi`, tenant, obligation, authorizedParkIDs).Scan(
 			// Raced with a concurrent status transition between the lock read above and this update.
 			return "", false, ports.ErrNotFound
 		}
+		if isDuplicateGuardViolation(err) {
+			// The dup guard covers every status, so the occupant may be open work, a dose
+			// already given, or a canceled row. Whichever it is, that date is spoken for.
+			return "", false, ports.ErrDueDateTaken
+		}
 		if err != nil {
 			return "", false, fmt.Errorf("obligation: reschedule obligation: %w", err)
 		}
@@ -6453,6 +6458,16 @@ func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID s
 var repeatCycleIndexes = []string{
 	"obligation_repeat_cycle_open_anchor_unique_idx",
 	"obligation_repeat_cycle_open_source_unique_idx",
+}
+
+// isDuplicateGuardViolation reports a collision with obligation_instances_dup_guard --
+// one row per (tenant, version, rule, target, due date), across all statuses.
+func isDuplicateGuardViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	return pgErr.ConstraintName == "obligation_instances_dup_guard"
 }
 
 func isRepeatCycleConflict(err error) bool {

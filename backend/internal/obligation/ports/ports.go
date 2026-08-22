@@ -17,6 +17,16 @@ var ErrNotFound = errors.New("obligation: not found")
 // ports.ErrIdempotencyConflict for the same shared idempotency_keys contract).
 var ErrIdempotencyConflict = errors.New("obligation: idempotency key reused with different payload")
 
+// ErrDueDateTaken means the requested due date already holds a row for this
+// (version, rule, animal). obligation_instances_dup_guard spans EVERY status, so the
+// occupant may be open work, a dose already given, or a canceled row -- in each case the
+// date is spoken for and the caller's row cannot move onto it.
+//
+// It is a sentinel rather than a raw 23505 because callers have to tell it apart from a
+// genuine failure: a generation pass that treats "that date is taken" as an error poisons
+// the animal for every later pass too.
+var ErrDueDateTaken = errors.New("obligation: due date already taken for this rule and animal")
+
 // Repository is the persistence boundary for the obligation (due-state) layer. Implementations
 // wrap generated sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {
