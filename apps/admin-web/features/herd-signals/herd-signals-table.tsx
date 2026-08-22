@@ -11,7 +11,6 @@ import {
   BATTERY_LABEL,
   BATTERY_TONE,
   MAPPING_LABEL,
-  MAPPING_TONE,
   MOVEMENT_LABEL,
   MOVEMENT_TONE,
   PATTERN_LABEL,
@@ -26,6 +25,7 @@ import {
   fmtRssi,
   fmtSignedDelta,
   fmtTagTemp,
+  herdSignalStatus,
 } from "./format";
 import { one } from "@/lib/search-params";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
@@ -219,6 +219,7 @@ export function HerdSignalsTable({
         ) : null}
       </span>
       <span className="sp" style={{ flex: 1 }} />
+      <span className="faint">Server-side keyset pagination &mdash; filters and search execute in the query, never on a fetched page.</span>
       <span className="fsel">
         Rows
         <select
@@ -343,7 +344,7 @@ export function HerdSignalsTable({
                   </td>
                   <td data-l="Last seen">{fmtAgo(item.last_seen_at, nowMs)}</td>
                   <td data-l="Status">
-                    <Tag tone={MAPPING_TONE[item.mapping_state]}>{MAPPING_LABEL[item.mapping_state]}</Tag>
+                    <Tag tone={herdSignalStatus(item).tone}>{herdSignalStatus(item).label}</Tag>
                   </td>
                 </tr>
               );
