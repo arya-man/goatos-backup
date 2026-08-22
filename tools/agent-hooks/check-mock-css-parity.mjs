@@ -185,8 +185,22 @@ function classesDefinedIn(source) {
 // NOT see `.srcl.inferred`-style compound rules as belonging to `srcl` or `inferred` alone.
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Strip /* ... *\/ comments. Required BEFORE rule parsing: the rule regex captures everything
+ * between the previous '}' and the next '{' as the selector, so a comment sitting directly above
+ * a rule (e.g. "/* Mock's .chartnote: the small print ... *\/\n.foo{...}") gets swallowed into
+ * that selector text. A stray ':' inside prose like that ("chartnote:") then trips the
+ * pseudo-selector exclusion and silently drops an otherwise-correct rule — this bit a real class
+ * (.chartnote) during development of this guard and is exactly the kind of silent miss this file
+ * exists to prevent, so it gets fixed at the source rather than special-cased per class.
+ */
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
 /** Strip @media/@supports/@keyframes/@font-face blocks (brace-depth aware) — declared blind spot. */
-function stripAtRuleBlocks(source) {
+function stripAtRuleBlocks(rawSource) {
+  const source = stripComments(rawSource);
   let out = "";
   let depth = 0;
   let atDepthStart = -1;
@@ -939,6 +953,16 @@ function selfTest() {
     const appCss = ".herd-signals-page .btn:hover{color:red}\n.herd-signals-page .btn[disabled]{color:blue}";
     const scoped = getScopedClassRules(appCss).get("btn") || [];
     if (scoped.length) problems.push("pseudo-class/attribute selector leaked into scoped rule resolution");
+  }
+
+  // Regression: a comment sitting directly above a rule, whose prose happens to contain a colon
+  // (e.g. "chartnote:"), must not get swallowed into the selector text and trip the pseudo
+  // exclusion — this silently dropped a real, correctly-scoped .chartnote rule during development.
+  {
+    const appCss =
+      "/* Mock's .chartnote: the small print under a chart. */\n.herd-signals-page .chartnote{color:#111}";
+    const scoped = getScopedClassRules(appCss).get("chartnote") || [];
+    if (!scoped.length) problems.push("a comment containing ':' directly above a rule was swallowed into the selector and dropped the rule");
   }
 
   // Banned-divergence scan: the literal battery-life text must be caught even though its class
