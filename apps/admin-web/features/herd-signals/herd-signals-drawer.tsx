@@ -95,16 +95,23 @@ export function HerdSignalsDrawer({
   }
   const requestId = useRef(0);
 
+  // Depend on the tag ID STRING, never the item OBJECT. The board re-renders every second (the
+  // live clock ticks), which hands us a fresh `displayedItem` identity each time; with the object
+  // in the dependency array this effect re-fired every second, each run cancelling the previous
+  // request through requestId, so the fetch never committed and the chart sat on its loading
+  // skeleton forever. Three in-flight timeline requests with different from/to was the tell.
+  const displayedTagId = displayedItem?.tag_id ?? null;
+
   useEffect(() => {
-    if (!displayedItem) return;
+    if (!displayedTagId) return;
     const id = ++requestId.current;
-    const key = `${displayedItem.tag_id}|${range}|${retryToken}`;
-    void readTimeline(displayedItem.tag_id, range).then((result) => {
+    const key = `${displayedTagId}|${range}|${retryToken}`;
+    void readTimeline(displayedTagId, range).then((result) => {
       if (requestId.current !== id) return;
       if (result.ok) setChart((prev) => (prev.key === key ? { ...prev, buckets: result.buckets } : prev));
       else setChart((prev) => (prev.key === key ? { ...prev, error: result.error } : prev));
     });
-  }, [displayedItem, range, retryToken]);
+  }, [displayedTagId, range, retryToken]);
 
   if (!displayedItem) return null;
   const item = displayedItem;

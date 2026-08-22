@@ -39,8 +39,30 @@ export function HerdSignalsNavProvider({ children }: { children: ReactNode }) {
 
 export function useHerdSignalsNav(): HerdSignalsNav {
   const context = useContext(HerdSignalsNavContext);
-  if (!context) {
-    throw new Error("useHerdSignalsNav() called outside <HerdSignalsNavProvider>");
-  }
-  return context;
+
+  // The provider is rendered by herd-signals-board, which is a SERVER component, so the
+  // tab content it renders is passed as `children` and lands as a SIBLING of the provider
+  // in the client tree rather than a descendant. Client consumers therefore see no context
+  // and previously THREW, crashing the whole table to its error boundary -- which looked
+  // like "row click does nothing" and "the page is broken".
+  //
+  // Fall back to a self-contained transition instead. A consumer outside the provider gets
+  // its own pending flag rather than the shared one -- slightly less coordinated, but it
+  // navigates correctly and, above all, it cannot take the page down.
+  const router = useRouter();
+  const [fallbackPending, startFallback] = useTransition();
+  const fallbackNavigate = useCallback(
+    (href: string) => {
+      startFallback(() => {
+        router.push(href, { scroll: false });
+      });
+    },
+    [router],
+  );
+  const fallback = useMemo(
+    () => ({ isPending: fallbackPending, navigate: fallbackNavigate }),
+    [fallbackPending, fallbackNavigate],
+  );
+
+  return context ?? fallback;
 }
