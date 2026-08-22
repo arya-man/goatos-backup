@@ -204,7 +204,46 @@ the backend grant.
 
 ## Add or Fix a STG Mobile Operator Login
 
-For a new STG mobile operator, all four surfaces must be updated. Missing any
+### PRIMARY PATH (2026-08-22): Add Person in admin-web
+
+The People/HRMS rewrite made onboarding an in-app action. On
+`https://stg.dashboard.mesha.sg/people` (admin-web → Admin / Data Ops → People
+/ HRMS), press **Add person** and fill first name, last name, email, role, park
+(required for operator/park head), department, and designation grade. One
+submit does, atomically:
+
+- creates (or finds) the Firebase Auth email/password user in `goatos-stg`
+  with the standing `<FirstName>@2026` convention password (an EXISTING
+  account's password is never changed), email-verified;
+- derives the backend `user_id` (`platformauth.StableSubjectID`) and writes the
+  active `user_scope_grants` row (park-scoped for operator/park head,
+  tenant-scoped for verifier/directors);
+- inserts the active `workforce_members` row (name, email, park, department,
+  designation);
+- admits the email through the DB-backed allowlist (`auth_allowed_emails`) —
+  **no Secret Manager version and no Cloud Run revision bump are needed any
+  more**; the env `GOATOS_AUTH_ALLOWED_EMAILS` secret remains as
+  bootstrap/break-glass only.
+
+Requires `operators.write` (ceo_internal today). The create is idempotent
+(Idempotency-Key), and a duplicate email is refused with a clear message.
+
+**Still manual after Add Person:**
+
+- Firebase App Distribution tester add (step 2 below) and Play Console internal
+  testers — CLI/console only.
+- Google-SSO-only users (no password to hand over) — grants/allowlist work the
+  same; skip the password half.
+- Department module grants beyond the department default, per-person additive
+  roles (`perPersonGrants`), positions/timetable rows, and offboarding.
+- Verification: step 5 below (`/app/bootstrap` with a real token) is still the
+  completion bar.
+
+### LEGACY / BULK PATH (manual four-surface procedure)
+
+`seed-stg-login-grants` and the steps below remain for bulk/legacy work and
+repair. For a new STG mobile operator added manually, all four surfaces must be
+updated. Missing any
 one of these produces confusing failures: Firebase may accept the password, but
 the app can still get `403 email_not_allowed`; or the backend may know the user,
 but they may not be able to install the Android build.
